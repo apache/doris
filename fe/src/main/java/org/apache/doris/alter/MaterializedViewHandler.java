@@ -57,6 +57,7 @@ import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -89,7 +90,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MaterializedViewHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewHandler.class);
     public static final String NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX = "__v2_";
-    public static final String MATERIALIZED_VIEW_NAME_PRFIX = "__doris_materialized_view_";
 
     public MaterializedViewHandler() {
         super("materialized view");
@@ -117,7 +117,8 @@ public class MaterializedViewHandler extends AlterHandler {
     // return true iff job is actually added this time
     private boolean addAlterJobV2ToTableNotFinalStateJobMap(AlterJobV2 alterJobV2) {
         if (alterJobV2.isDone()) {
-            LOG.warn("try to add a final job({}) to a unfinal set", alterJobV2.getJobId());
+            LOG.warn("try to add a final job({}) to a unfinal set. db: {}, tbl: {}",
+                    alterJobV2.getJobId(), alterJobV2.getDbId(), alterJobV2.getTableId());
             return false;
         }
 
@@ -199,7 +200,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         // Step2: create mv job
         RollupJobV2 rollupJobV2 = createMaterializedViewJob(mvIndexName, baseIndexName, mvColumns, addMVClause
-                .getProperties(), olapTable, db, baseIndexId, addMVClause.getMVKeysType());
+                .getProperties(), olapTable, db, baseIndexId, addMVClause.getMVKeysType(), addMVClause.getOrigStmt());
 
         addAlterJobV2(rollupJobV2);
 
@@ -263,7 +264,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 // step 3 create rollup job
                 RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, addRollupClause.getProperties(),
-                        olapTable, db, baseIndexId, olapTable.getKeysType());
+                        olapTable, db, baseIndexId, olapTable.getKeysType(), null);
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());
@@ -312,7 +313,7 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     private RollupJobV2 createMaterializedViewJob(String mvName, String baseIndexName,
             List<Column> mvColumns, Map<String, String> properties, OlapTable
-            olapTable, Database db, long baseIndexId, KeysType mvKeysType)
+            olapTable, Database db, long baseIndexId, KeysType mvKeysType, OriginStatement origStmt)
             throws DdlException, AnalysisException {
         if (mvKeysType == null) {
             // assign rollup index's key type, same as base index's
@@ -336,7 +337,7 @@ public class MaterializedViewHandler extends AlterHandler {
         RollupJobV2 mvJob = new RollupJobV2(jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                                             baseIndexId, mvIndexId, baseIndexName, mvName,
                                             mvColumns, baseSchemaHash, mvSchemaHash,
-                                            mvKeysType, mvShortKeyColumnCount);
+                                            mvKeysType, mvShortKeyColumnCount, origStmt);
         String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
         if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);
@@ -464,10 +465,8 @@ public class MaterializedViewHandler extends AlterHandler {
             if (mvColumnItem.getDefineExpr() != null) {
                 if (mvAggregationType.equals(AggregateType.BITMAP_UNION)) {
                     newMVColumn.setType(Type.BITMAP);
-                    newMVColumn.setName(MATERIALIZED_VIEW_NAME_PRFIX + "bitmap_" + baseColumn.getName());
                 } else if (mvAggregationType.equals(AggregateType.HLL_UNION)){
                     newMVColumn.setType(Type.HLL);
-                    newMVColumn.setName(MATERIALIZED_VIEW_NAME_PRFIX + "hll_" + baseColumn.getName());
                 } else {
                     throw new DdlException("The define expr of column is only support bitmap_union or hll_union");
                 }

@@ -26,6 +26,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
+#include "util/time.h"
 
 namespace doris {
 namespace memory {

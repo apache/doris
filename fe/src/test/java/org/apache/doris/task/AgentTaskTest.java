@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Range;
@@ -113,7 +114,7 @@ public class AgentTaskTest {
                                                   version, versionHash, KeysType.AGG_KEYS,
                                                   storageType, TStorageMedium.SSD,
                                                   columns, null, 0, latch, null,
-                                                  false);
+                                                  false, TTabletType.TABLET_TYPE_DISK);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, schemaHash1);

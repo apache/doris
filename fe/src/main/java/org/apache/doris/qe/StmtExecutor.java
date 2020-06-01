@@ -56,6 +56,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -127,12 +128,12 @@ public class StmtExecutor {
     }
 
     // constructor for receiving parsed stmt from connect processor
-    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt, OriginStatement originStmt) {
+    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt) {
         this.context = ctx;
-        this.originStmt = originStmt;
+        this.parsedStmt = parsedStmt;
+        this.originStmt = parsedStmt.getOrigStmt();
         this.serializer = context.getSerializer();
         this.isProxy = false;
-        this.parsedStmt = parsedStmt;
     }
 
     // At the end of query execution, we begin to add up profile
@@ -375,7 +376,7 @@ public class StmtExecutor {
             SqlParser parser = new SqlParser(input);
             try {
                 parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
-
+                parsedStmt.setOrigStmt(originStmt);
             } catch (Error e) {
                 LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
                 throw new AnalysisException("sql parsing error, please check your sql");
@@ -707,6 +708,7 @@ public class StmtExecutor {
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     10000)) {
                 txnStatus = TransactionStatus.VISIBLE;
+                MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {
                 txnStatus = TransactionStatus.COMMITTED;
             }
@@ -887,7 +889,7 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt, originStmt);
+            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
             context.getState().setOk();
         } catch (QueryStateException e) {
             context.setState(e.getQueryState());

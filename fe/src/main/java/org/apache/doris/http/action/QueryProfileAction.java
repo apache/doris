@@ -26,6 +26,7 @@ import org.apache.doris.http.IllegalArgException;
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class QueryProfileAction extends WebBaseAction {
 
@@ -47,14 +48,18 @@ public class QueryProfileAction extends WebBaseAction {
         }
         
         String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
-        appendQueryPrifile(response.getContent(), queryProfileStr);
-        
-        getPageFooter(response.getContent());
-        
-        writeResponse(request, response);
+        if (queryProfileStr != null) {
+            appendQueryProfile(response.getContent(), queryProfileStr);
+            getPageFooter(response.getContent());
+            writeResponse(request, response);
+        } else {
+            appendQueryProfile(response.getContent(), "query id " + queryId + " not found.");
+            getPageFooter(response.getContent());
+            writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+        }
     }
     
-    private void appendQueryPrifile(StringBuilder buffer, String queryProfileStr) {
+    private void appendQueryProfile(StringBuilder buffer, String queryProfileStr) {
         buffer.append("<pre>");
         buffer.append(queryProfileStr);
         buffer.append("</pre>");

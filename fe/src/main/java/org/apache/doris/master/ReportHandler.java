@@ -38,6 +38,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -96,7 +97,7 @@ public class ReportHandler extends Daemon {
 
     public ReportHandler() {
         GaugeMetric<Long> gaugeQueueSize = new GaugeMetric<Long>(
-                "report_queue_size", "report queue size") {
+                "report_queue_size", MetricUnit.NUMBER, "report queue size") {
             @Override
             public Long getValue() {
                 return (long) reportQueue.size();
@@ -573,7 +574,8 @@ public class ReportHandler extends Daemon {
                                             TStorageType.COLUMN,
                                             TStorageMedium.HDD, indexMeta.getSchema(), bfColumns, bfFpp, null,
                                             olapTable.getCopiedIndexes(),
-                                            olapTable.isInMemory());
+                                            olapTable.isInMemory(),
+                                            olapTable.getPartitionInfo().getTabletType(partitionId));
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad

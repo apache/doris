@@ -45,6 +45,7 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -123,7 +124,7 @@ public class BrokerLoadJob extends LoadJob {
         }
     }
 
-    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, OriginStatement originStmt) throws DdlException {
+    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
         Database db = Catalog.getCurrentCatalog().getDb(stmt.getLabel().getDbName());
@@ -134,7 +135,7 @@ public class BrokerLoadJob extends LoadJob {
         // create job
         try {
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                    stmt.getBrokerDesc(), originStmt);
+                    stmt.getBrokerDesc(), stmt.getOrigStmt());
             brokerLoadJob.setJobProperties(stmt.getProperties());
             brokerLoadJob.checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
             return brokerLoadJob;
@@ -209,6 +210,7 @@ public class BrokerLoadJob extends LoadJob {
     @Override
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                                   new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
@@ -468,6 +470,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("txn_id", transactionId)
                              .add("msg", "Load job try to commit txn")
                              .build());
+            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,

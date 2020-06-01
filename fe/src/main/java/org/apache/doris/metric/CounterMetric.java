@@ -22,8 +22,8 @@ package org.apache.doris.metric;
  */
 public abstract class CounterMetric<T> extends Metric<T> {
 
-    public CounterMetric(String name, String description) {
-        super(name, MetricType.COUNTER, description);
+    public CounterMetric(String name, MetricUnit unit, String description) {
+        super(name, MetricType.COUNTER, unit, description);
     }
 
     abstract public void increase(T delta);

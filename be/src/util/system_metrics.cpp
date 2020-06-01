@@ -28,40 +28,47 @@ const char* SystemMetrics::_s_hook_name = "system_metrics";
 
 // /proc/stat: http://www.linuxhowtos.org/System/procstat.htm
 struct CpuMetrics {
-    static constexpr int k_num_metrics = 10;
-    static const char* k_names[k_num_metrics];
-    IntLockCounter metrics[k_num_metrics];
+    static constexpr int cpu_num_metrics = 10;
+    IntLockCounter metrics[cpu_num_metrics] = {
+        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
+        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
+        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
+        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
+        {MetricUnit::PERCENT}, {MetricUnit::PERCENT}
+    };
+    static const char* cpu_metrics[cpu_num_metrics];
 };
 
-const char* CpuMetrics::k_names[] = {
+const char* CpuMetrics::cpu_metrics[] = {
     "user", "nice", "system", "idle", "iowait",
-    "irq", "soft_irq", "steal", "guest", "guest_nice"};
+    "irq", "soft_irq", "steal", "guest", "guest_nice"
+};
 
 struct MemoryMetrics {
-    IntGauge allocated_bytes;
+    METRIC_DEFINE_INT_GAUGE(allocated_bytes, MetricUnit::BYTES);
 };
 
 struct DiskMetrics {
-    IntLockCounter reads_completed;
-    IntLockCounter bytes_read;
-    IntLockCounter read_time_ms;
-    IntLockCounter writes_completed;
-    IntLockCounter bytes_written;
-    IntLockCounter write_time_ms;
-    IntLockCounter io_time_ms;
-    IntLockCounter io_time_weigthed;
+    METRIC_DEFINE_INT_LOCK_COUNTER(reads_completed, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(bytes_read, MetricUnit::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(read_time_ms, MetricUnit::MILLISECONDS);
+    METRIC_DEFINE_INT_LOCK_COUNTER(writes_completed, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(bytes_written, MetricUnit::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(write_time_ms, MetricUnit::MILLISECONDS);
+    METRIC_DEFINE_INT_LOCK_COUNTER(io_time_ms, MetricUnit::MILLISECONDS);
+    METRIC_DEFINE_INT_LOCK_COUNTER(io_time_weigthed, MetricUnit::MILLISECONDS);
 };
 
 struct NetMetrics {
-    IntLockCounter receive_bytes;
-    IntLockCounter receive_packets;
-    IntLockCounter send_bytes;
-    IntLockCounter send_packets;
+    METRIC_DEFINE_INT_LOCK_COUNTER(receive_bytes, MetricUnit::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(receive_packets, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(send_bytes, MetricUnit::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(send_packets, MetricUnit::NUMBER);
 };
 
 struct FileDescriptorMetrics {
-    IntGauge fd_num_limit;
-    IntGauge fd_num_used;
+    METRIC_DEFINE_INT_GAUGE(fd_num_limit, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_GAUGE(fd_num_used, MetricUnit::NUMBER);
 };
 
 SystemMetrics::SystemMetrics() {
@@ -110,9 +117,9 @@ void SystemMetrics::update() {
 void SystemMetrics::_install_cpu_metrics(MetricRegistry* registry) {
     _cpu_total.reset(new CpuMetrics());
 
-    for (int i = 0; i < CpuMetrics::k_num_metrics; ++i) {
+    for (int i = 0; i < CpuMetrics::cpu_num_metrics; ++i) {
         registry->register_metric("cpu",
-                                  MetricLabels().add("mode", CpuMetrics::k_names[i]),
+                                  MetricLabels().add("mode", CpuMetrics::cpu_metrics[i]),
                                   &_cpu_total->metrics[i]);
     }
 }
@@ -146,7 +153,7 @@ void SystemMetrics::_update_cpu_metrics() {
     }
 
     char cpu[16];
-    int64_t values[CpuMetrics::k_num_metrics];
+    int64_t values[CpuMetrics::cpu_num_metrics];
     memset(values, 0, sizeof(values));
     sscanf(_line_ptr, "%15s"
            " %" PRId64 " %" PRId64 " %" PRId64
@@ -159,7 +166,7 @@ void SystemMetrics::_update_cpu_metrics() {
            &values[6], &values[7], &values[8],
            &values[9]);
 
-    for (int i = 0; i < CpuMetrics::k_num_metrics; ++i) {
+    for (int i = 0; i < CpuMetrics::cpu_num_metrics; ++i) {
         _cpu_total->metrics[i].set_value(values[i]);
     }
 

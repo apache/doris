@@ -203,6 +203,8 @@ import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TTabletType;
+
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
@@ -359,6 +361,7 @@ public class Catalog {
 
     private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
+    private ResourceMgr resourceMgr;
 
     private GlobalTransactionMgr globalTransactionMgr;
 
@@ -496,6 +499,7 @@ public class Catalog {
 
         this.pullLoadJobMgr = new PullLoadJobMgr();
         this.brokerMgr = new BrokerMgr();
+        this.resourceMgr = new ResourceMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
         this.tabletStatMgr = new TabletStatMgr();
@@ -565,6 +569,10 @@ public class Catalog {
 
     public BrokerMgr getBrokerMgr() {
         return brokerMgr;
+    }
+
+    public ResourceMgr getResourceMgr() {
+        return resourceMgr;
     }
 
     public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
@@ -1437,6 +1445,8 @@ public class Catalog {
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
+            // TODO(wyb): spark-load
+            //checksum = loadResources(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
@@ -1838,6 +1848,17 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadResources(DataInputStream in, long checksum) throws IOException {
+        // TODO(wyb): spark-load
+        /*
+        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.new_version_by_wyb) {
+            resourceMgr = ResourceMgr.read(in); 
+        }
+        LOG.info("finished replay resources from image");
+         */
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
             smallFileMgr.readFields(in);
@@ -1890,6 +1911,8 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
+            // TODO(wyb): spark-load
+            //checksum = saveResources(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
@@ -2158,6 +2181,11 @@ public class Catalog {
 
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getLoadManager().write(out);
+        return checksum;
+    }
+
+	public long saveResources(DataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getResourceMgr().write(out);
         return checksum;
     }
 
@@ -3079,7 +3107,9 @@ public class Catalog {
                     bfColumns, olapTable.getBfFpp(),
                     tabletIdSet, olapTable.getCopiedIndexes(),
                     singlePartitionDesc.isInMemory(),
-                    olapTable.getStorageFormat());
+                    olapTable.getStorageFormat(),
+                    singlePartitionDesc.getTabletType()
+                    );
 
             // check again
             db.writeLock();
@@ -3326,6 +3356,14 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
 
+        // 4. tablet type
+        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        try {
+            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         // check if has other undefined properties
         if (properties != null && !properties.isEmpty()) {
             MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
@@ -3352,6 +3390,14 @@ public class Catalog {
             partitionInfo.setIsInMemory(partition.getId(), isInMemory);
             LOG.debug("modify partition[{}-{}-{}] in memory to {}", db.getId(), olapTable.getId(), partitionName,
                     isInMemory);
+        }
+
+        // tablet type
+        // TODO: serialize to edit log
+        if (tabletType != partitionInfo.getTabletType(partition.getId())) {
+            partitionInfo.setTabletType(partition.getId(), tabletType);
+            LOG.debug("modify partition[{}-{}-{}] tablet type to {}", db.getId(), olapTable.getId(), partitionName,
+                    tabletType);
         }
 
         // log
@@ -3391,7 +3437,8 @@ public class Catalog {
                                                  Set<Long> tabletIdSet,
                                                  List<Index> indexes,
                                                  boolean isInMemory,
-                                                 TStorageFormat storageFormat) throws DdlException {
+                                                 TStorageFormat storageFormat,
+                                                 TTabletType tabletType) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3455,7 +3502,8 @@ public class Catalog {
                             schema, bfColumns, bfFpp,
                             countDownLatch,
                             indexes,
-                            isInMemory);
+                            isInMemory,
+                            tabletType);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3603,6 +3651,13 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
+        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        try {
+            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
@@ -3620,6 +3675,7 @@ public class Catalog {
             partitionInfo.setDataProperty(partitionId, dataProperty);
             partitionInfo.setReplicationNum(partitionId, replicationNum);
             partitionInfo.setIsInMemory(partitionId, isInMemory);
+            partitionInfo.setTabletType(partitionId, tabletType);
         }
 
         // check colocation properties
@@ -3726,7 +3782,7 @@ public class Catalog {
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat);
+                        isInMemory, storageFormat, tabletType);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3755,7 +3811,8 @@ public class Catalog {
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
-                            isInMemory, storageFormat);
+                            isInMemory, storageFormat,
+                            rangePartitionInfo.getTabletType(entry.getValue()));
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -4846,7 +4903,8 @@ public class Catalog {
         this.alter.processAlterView(stmt, ConnectContext.get());
     }
 
-    public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
+    public void createMaterializedView(CreateMaterializedViewStmt stmt)
+            throws AnalysisException, DdlException {
         this.alter.processCreateMaterializedView(stmt);
     }
 
@@ -6222,7 +6280,8 @@ public class Catalog {
                         tabletIdSet,
                         copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(),
-                        copiedTbl.getStorageFormat());
+                        copiedTbl.getStorageFormat(),
+                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId));
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

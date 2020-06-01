@@ -26,14 +26,28 @@ public abstract class Metric<T> {
         GAUGE, COUNTER
     }
 
+    public enum MetricUnit {
+        NANOSECONDS,
+        MICROSECONDS,
+        MILLISECONDS,
+        SECONDS,
+        BYTES,
+        ROWS,
+        NUMBER,
+        PERCENT,
+        NOUNIT
+    };
+
     protected String name;
     protected MetricType type;
+    protected MetricUnit unit;
     protected List<MetricLabel> labels = Lists.newArrayList();
     protected String description;
 
-    public Metric(String name, MetricType type, String description) {
+    public Metric(String name, MetricType type, MetricUnit unit, String description) {
         this.name = name;
         this.type = type;
+        this.unit = unit;
         this.description = description;
     }
 
@@ -43,6 +57,10 @@ public abstract class Metric<T> {
 
     public MetricType getType() {
         return type;
+    }
+
+    public MetricUnit getUnit() {
+        return unit;
     }
 
     public String getDescription() {

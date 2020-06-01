@@ -17,6 +17,10 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -33,9 +37,15 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -46,11 +56,13 @@ import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,6 +70,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -68,38 +81,54 @@ import java.util.concurrent.TimeUnit;
  * This is for replacing the old RollupJob
  * https://github.com/apache/incubator-doris/issues/1429
  */
-public class RollupJobV2 extends AlterJobV2 {
+public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RollupJobV2.class);
 
     // partition id -> (rollup tablet id -> base tablet id)
+    @SerializedName(value = "partitionIdToBaseRollupTabletIdMap")
     private Map<Long, Map<Long, Long>> partitionIdToBaseRollupTabletIdMap = Maps.newHashMap();
+    @SerializedName(value = "partitionIdToRollupIndex")
     private Map<Long, MaterializedIndex> partitionIdToRollupIndex = Maps.newHashMap();
 
     // rollup and base schema info
+    @SerializedName(value = "baseIndexId")
     private long baseIndexId;
+    @SerializedName(value = "rollupIndexId")
     private long rollupIndexId;
+    @SerializedName(value = "baseIndexName")
     private String baseIndexName;
+    @SerializedName(value =  "rollupIndexName")
     private String rollupIndexName;
 
+    @SerializedName(value = "rollupSchema")
     private List<Column> rollupSchema = Lists.newArrayList();
+    @SerializedName(value = "baseSchemaHash")
     private int baseSchemaHash;
+    @SerializedName(value = "rollupSchemaHash")
     private int rollupSchemaHash;
 
+    @SerializedName(value = "rollupKeysType")
     private KeysType rollupKeysType;
+    @SerializedName(value = "rollupShortKeyColumnCount")
     private short rollupShortKeyColumnCount;
+    @SerializedName(value = "origStmt")
+    private OriginStatement origStmt;
+
+    // optional
+    @SerializedName(value = "storageFormat")
+    private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     // The rollup job will wait all transactions before this txn id finished, then send the rollup tasks.
+    @SerializedName(value = "watershedTxnId")
     protected long watershedTxnId = -1;
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
-    private TStorageFormat storageFormat = null;
-
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
-            List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash,
-            KeysType rollupKeysType, short rollupShortKeyColumnCount) {
+            List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
+            short rollupShortKeyColumnCount, OriginStatement origStmt) {
         super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -112,6 +141,8 @@ public class RollupJobV2 extends AlterJobV2 {
         this.rollupSchemaHash = rollupSchemaHash;
         this.rollupKeysType = rollupKeysType;
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
+
+        this.origStmt = origStmt;
     }
 
     private RollupJobV2() {
@@ -177,6 +208,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     continue;
                 }
                 TStorageMedium storageMedium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+                TTabletType tabletType = tbl.getPartitionInfo().getTabletType(partitionId);
                 MaterializedIndex rollupIndex = entry.getValue();
 
                 Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
@@ -196,7 +228,8 @@ public class RollupJobV2 extends AlterJobV2 {
                                 rollupKeysType, TStorageType.COLUMN, storageMedium,
                                 rollupSchema, tbl.getCopiedBfColumns(), tbl.getBfFpp(), countDownLatch,
                                 tbl.getCopiedIndexes(),
-                                tbl.isInMemory());
+                                tbl.isInMemory(),
+                                tabletType);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -273,7 +306,7 @@ public class RollupJobV2 extends AlterJobV2 {
         }
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType);
+                rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType, origStmt);
     }
 
     /**
@@ -501,86 +534,6 @@ public class RollupJobV2 extends AlterJobV2 {
         return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 
-    public static RollupJobV2 read(DataInput in) throws IOException {
-        RollupJobV2 rollupJob = new RollupJobV2();
-        rollupJob.readFields(in);
-        return rollupJob;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeInt(partitionIdToRollupIndex.size());
-        for (long partitionId : partitionIdToRollupIndex.keySet()) {
-            out.writeLong(partitionId);
-
-            out.writeInt(partitionIdToBaseRollupTabletIdMap.get(partitionId).size());
-            for (Map.Entry<Long, Long> entry : partitionIdToBaseRollupTabletIdMap.get(partitionId).entrySet()) {
-                out.writeLong(entry.getKey());
-                out.writeLong(entry.getValue());
-            }
-
-            MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
-            rollupIndex.write(out);
-        }
-
-        out.writeLong(baseIndexId);
-        out.writeLong(rollupIndexId);
-        Text.writeString(out, baseIndexName);
-        Text.writeString(out, rollupIndexName);
-
-        // rollup schema
-        out.writeInt(rollupSchema.size());
-        for (Column column : rollupSchema) {
-            column.write(out);
-        }
-        out.writeInt(baseSchemaHash);
-        out.writeInt(rollupSchemaHash);
-
-        Text.writeString(out, rollupKeysType.name());
-        out.writeShort(rollupShortKeyColumnCount);
-
-        out.writeLong(watershedTxnId);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            long partitionId = in.readLong();
-            int size2 = in.readInt();
-            Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
-            for (int j = 0; j < size2; j++) {
-                long rollupTabletId = in.readLong();
-                long baseTabletId = in.readLong();
-                tabletIdMap.put(rollupTabletId, baseTabletId);
-            }
-
-            partitionIdToRollupIndex.put(partitionId, MaterializedIndex.read(in));
-        }
-
-        baseIndexId = in.readLong();
-        rollupIndexId = in.readLong();
-        baseIndexName = Text.readString(in);
-        rollupIndexName = Text.readString(in);
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Column column = Column.read(in);
-            rollupSchema.add(column);
-        }
-        baseSchemaHash = in.readInt();
-        rollupSchemaHash = in.readInt();
-
-        rollupKeysType = KeysType.valueOf(Text.readString(in));
-        rollupShortKeyColumnCount = in.readShort();
-
-        watershedTxnId = in.readLong();
-    }
-
     /**
      * Replay job in PENDING state.
      * Should replay all changes before this job's state transfer to PENDING.
@@ -764,4 +717,90 @@ public class RollupJobV2 extends AlterJobV2 {
         this.jobState = jobState;
     }
 
+    private void setColumnsDefineExpr(List<MVColumnItem> items) {
+        for (MVColumnItem item : items) {
+            for (Column column : rollupSchema) {
+                if (column.getName().equals(item.getName())) {
+                    column.setDefineExpr(item.getDefineExpr());
+                    break;
+                }
+            }
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
+        Text.writeString(out, json);
+    }
+
+    /**
+     * This method is only used to deserialize the text mate which version is less then 86.
+     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather then here.
+     */
+    public static RollupJobV2 read(DataInput in) throws IOException {
+        Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86);
+        RollupJobV2 rollupJob = new RollupJobV2();
+        rollupJob.readFields(in);
+        return rollupJob;
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            long partitionId = in.readLong();
+            int size2 = in.readInt();
+            Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
+            for (int j = 0; j < size2; j++) {
+                long rollupTabletId = in.readLong();
+                long baseTabletId = in.readLong();
+                tabletIdMap.put(rollupTabletId, baseTabletId);
+            }
+
+            partitionIdToRollupIndex.put(partitionId, MaterializedIndex.read(in));
+        }
+
+        baseIndexId = in.readLong();
+        rollupIndexId = in.readLong();
+        baseIndexName = Text.readString(in);
+        rollupIndexName = Text.readString(in);
+
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            Column column = Column.read(in);
+            rollupSchema.add(column);
+        }
+        baseSchemaHash = in.readInt();
+        rollupSchemaHash = in.readInt();
+
+        rollupKeysType = KeysType.valueOf(Text.readString(in));
+        rollupShortKeyColumnCount = in.readShort();
+
+        watershedTxnId = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_85) {
+            storageFormat = TStorageFormat.valueOf(Text.readString(in));
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // analyze define stmt
+        if (origStmt == null) {
+            return;
+        }
+        // parse the define stmt to schema
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
+                SqlModeHelper.MODE_DEFAULT));
+        CreateMaterializedViewStmt stmt;
+        try {
+            stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
+            stmt.analyzeSelectClause();
+            setColumnsDefineExpr(stmt.getMVColumnItemList());
+        } catch (Exception e) {
+            throw new IOException("error happens when parsing create materialized view stmt: " + origStmt, e);
+        }
+    }
 }

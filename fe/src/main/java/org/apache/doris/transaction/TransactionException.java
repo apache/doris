@@ -21,8 +21,8 @@ import org.apache.doris.common.UserException;
 
 public class TransactionException extends UserException {
     
-    private long transactionId;
-    
+    private long transactionId = -1;
+
     public TransactionException(String msg) {
         super(msg);
     }
@@ -35,7 +35,7 @@ public class TransactionException extends UserException {
         super(msg);
         this.transactionId = transactionId;
     }
-    
+
     public long getTransactionId() {
         return transactionId;
     }

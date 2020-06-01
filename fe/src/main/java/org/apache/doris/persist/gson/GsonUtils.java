@@ -17,10 +17,15 @@
 
 package org.apache.doris.persist.gson;
 
+import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.RollupJobV2;
+import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SparkResource;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -86,6 +91,17 @@ public class GsonUtils {
             .registerSubtype(HashDistributionInfo.class, HashDistributionInfo.class.getSimpleName())
             .registerSubtype(RandomDistributionInfo.class, RandomDistributionInfo.class.getSimpleName());
 
+    // runtime adapter for class "Resource"
+    private static RuntimeTypeAdapterFactory<Resource> resourceTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(Resource.class, "clazz")
+            .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName());
+
+    // runtime adapter for class "AlterJobV2"
+    private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(AlterJobV2.class, "clazz")
+            .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
+            .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
@@ -95,7 +111,9 @@ public class GsonUtils {
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
-            .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory);
+            .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
+            .registerTypeAdapterFactory(resourceTypeAdapterFactory)
+            .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory);
 
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
