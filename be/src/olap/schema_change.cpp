@@ -17,9 +17,7 @@
 
 #include "olap/schema_change.h"
 
-#include <pthread.h>
-#include <signal.h>
-
+#include <csignal>
 #include <algorithm>
 #include <vector>
 
@@ -34,10 +32,8 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 #include "runtime/exec_env.h"
-#include "runtime/heartbeat_flags.h"
 
 using std::deque;
 using std::list;
@@ -94,13 +90,11 @@ private:
 };
 
 
-RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
-                                 const TabletSharedPtr &base_tablet) {
+RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema) {
     _schema_mapping.resize(tablet_schema.num_columns());
 }
 
 RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
-                                 const TabletSharedPtr& base_tablet,
                                  const DeleteHandler& delete_handler) {
     _schema_mapping.resize(tablet_schema.num_columns());
     _delete_handler = delete_handler;
@@ -266,6 +260,57 @@ bool RowBlockChanger::change_row_block(
         int32_t ref_column = _schema_mapping[i].ref_column;
 
         if (_schema_mapping[i].ref_column >= 0) {
+            if (!_schema_mapping[i].materialized_function.empty()) {
+                VLOG(3) << "_schema_mapping[" << i << "].materialized_function : " << _schema_mapping[i].materialized_function;
+                // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
+                for (size_t row_index = 0, new_row_index = 0;
+                     row_index < ref_block->row_block_info().row_num; ++row_index) {
+                    // 不需要的row，每次处理到这个row时就跳过
+                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
+                        continue;
+                    }
+
+                    // 指定新的要写入的row index（不同于读的row_index）
+                    mutable_block->get_row(new_row_index++, &write_helper);
+                    ref_block->get_row(row_index, &read_helper);
+
+                    if (_schema_mapping[i].materialized_function == "to_bitmap") {
+                        write_helper.set_not_null(i);
+                        BitmapValue bitmap;
+                        if (!read_helper.is_null(ref_column)) {
+                            char *src = read_helper.cell_ptr(ref_column);
+                            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+                            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(src, strlen(src), &parse_result);
+                            bitmap.add(int_value);
+                        }
+                        char *buf = reinterpret_cast<char *>(mem_pool->allocate(bitmap.getSizeInBytes()));
+                        Slice dst(buf, bitmap.getSizeInBytes());
+                        bitmap.write(dst.data);
+                        write_helper.set_field_content(i, reinterpret_cast<char *>(&dst), mem_pool);
+                    } else if (_schema_mapping[i].materialized_function == "hll_hash") {
+                        write_helper.set_not_null(i);
+                        Slice src;
+                        if (mutable_block->tablet_schema().column(i).type() != OLAP_FIELD_TYPE_VARCHAR) {
+                            src.data = read_helper.cell_ptr(ref_column);
+                            src.size = mutable_block->tablet_schema().column(i).length();
+                        } else {
+                            src = *reinterpret_cast<Slice *>(read_helper.cell_ptr(ref_column));
+                        }
+                        HyperLogLog hll;
+                        if (!read_helper.is_null(ref_column)) {
+                            uint64_t hash_value = HashUtil::murmur_hash64A(src.data, src.size, HashUtil::MURMUR_SEED);
+                            hll.update(hash_value);
+                        }
+                        std::string buf;
+                        buf.resize(hll.max_serialized_size());
+                        buf.resize(hll.serialize((uint8_t *) buf.c_str()));
+                        Slice dst(buf);
+                        write_helper.set_field_content(i, reinterpret_cast<char *>(&dst), mem_pool);
+                    }
+                }
+                continue;
+            }
+
             // new column will be assigned as referenced column
             // check if the type of new column is equal to the older's.
             FieldType reftype = ref_block->tablet_schema().column(ref_column).type();
@@ -1383,6 +1428,15 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = delete_handler;
+        if (request.__isset.materialized_view_params) {
+            for (auto item : request.materialized_view_params) {
+                AlterMaterializedViewParam mvParams;
+                mvParams.column_name = item.column_name;
+                mvParams.origin_column_name = item.origin_column_name;
+                mvParams.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
+                sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mvParams));
+            }
+        }
 
         res = _convert_historical_rowsets(sc_params);
         if (res != OLAP_SUCCESS) {
@@ -1425,15 +1479,17 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     // a. 解析Alter请求，转换成内部的表示形式
     // 不使用DELETE_DATA命令指定的删除条件
-    RowBlockChanger rb_changer(new_tablet->tablet_schema(), base_tablet);
+    RowBlockChanger rb_changer(new_tablet->tablet_schema());
     bool sc_sorting = false;
     bool sc_directly = false;
 
+    const std::map<std::string, AlterMaterializedViewParam> materialized_function_map;
     if (OLAP_SUCCESS != (res = _parse_request(base_tablet,
                                               new_tablet,
                                               &rb_changer,
                                               &sc_sorting,
-                                              &sc_directly))) {
+                                              &sc_directly,
+                                              materialized_function_map))) {
         LOG(WARNING) << "failed to parse the request. res=" << res;
         return res;
     }
@@ -1641,8 +1697,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
 
     // change中增加了filter信息，在_parse_request中会设置filter的column信息
     // 并在每次row block的change时，过滤一些数据
-    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(),
-                               sc_params.base_tablet, sc_params.delete_handler);
+    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), sc_params.delete_handler);
 
     bool sc_sorting = false;
     bool sc_directly = false;
@@ -1650,7 +1705,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
 
     // a. 解析Alter请求，转换成内部的表示形式
     OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet,
-                                    &rb_changer, &sc_sorting, &sc_directly);
+                                    &rb_changer, &sc_sorting, &sc_directly, sc_params.materialized_params_map);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to parse the request. res=" << res;
         goto PROCESS_ALTER_EXIT;
@@ -1784,7 +1839,9 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
                                                TabletSharedPtr new_tablet,
                                                RowBlockChanger* rb_changer,
                                                bool* sc_sorting,
-                                               bool* sc_directly) {
+                                               bool* sc_directly,
+                                               const std::map<std::string, AlterMaterializedViewParam>& materialized_function_map
+                                               ) {
     OLAPStatus res = OLAP_SUCCESS;
 
     // set column mapping
@@ -1808,6 +1865,17 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
             VLOG(3) << "A column refered to existed column will be added after schema changing."
                     << "column=" << column_name << ", ref_column=" << column_index;
             continue;
+        }
+
+        if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
+            AlterMaterializedViewParam mvParam = materialized_function_map.find(column_name)->second;
+            column_mapping->materialized_function = mvParam.origin_column_name;
+            std::string origin_column_name = mvParam.origin_column_name;
+            int32_t column_index = base_tablet->field_index(origin_column_name);
+            if (column_index >= 0) {
+                column_mapping->ref_column = column_index;
+                continue;
+            }
         }
 
         int32_t column_index = base_tablet->field_index(column_name);

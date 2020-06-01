@@ -17,9 +17,17 @@
 
 package org.apache.doris.task;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TTaskType;
+
+import java.util.List;
+import java.util.Map;
 
 /*
  * This task is used for alter table process, such as rollup and schema change
@@ -38,10 +46,22 @@ public class AlterReplicaTask extends AgentTask {
     private long jobId;
     private AlterJobV2.JobType jobType;
 
+    private Map<String, Expr> defileExprs;
+
+    public AlterReplicaTask(long backendId, long dbId, long tableId,
+                            long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
+                            long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
+                            long version, long versionHash, long jobId, AlterJobV2.JobType jobType) {
+        this(backendId, dbId, tableId, partitionId,
+                rollupIndexId, baseIndexId, rollupTabletId,
+                baseTabletId, newReplicaId, newSchemaHash, baseSchemaHash,
+                version, versionHash, jobId, jobType, null);
+    }
+
     public AlterReplicaTask(long backendId, long dbId, long tableId,
             long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
             long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
-            long version, long versionHash, long jobId, AlterJobV2.JobType jobType) {
+            long version, long versionHash, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defileExprs) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -55,6 +75,8 @@ public class AlterReplicaTask extends AgentTask {
         this.jobId = jobId;
 
         this.jobType = jobType;
+
+        this.defileExprs = defileExprs;
     }
 
     public long getBaseTabletId() {
@@ -93,6 +115,13 @@ public class AlterReplicaTask extends AgentTask {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlter_version(version);
         req.setAlter_version_hash(versionHash);
+        for (Map.Entry<String, Expr> expr : defileExprs.entrySet()) {
+            List<SlotRef> slots = Lists.newArrayList();
+            expr.getValue().collect(SlotRef.class, slots);
+            Preconditions.checkState(slots.size() == 1);
+            TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName(), expr.getValue().treeToThrift());
+            req.addToMaterialized_view_params(mvParam);
+        }
         return req;
     }
 }
