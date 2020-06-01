@@ -59,6 +59,10 @@ bool equal_row(const std::vector<uint32_t>& ids,
 template<typename LhsRowType, typename RhsRowType>
 int compare_row(const LhsRowType& lhs, const RhsRowType& rhs) {
     for (uint32_t cid = 0; cid < lhs.schema()->num_key_columns(); ++cid) {
+        //because the num_column_ids include the column of double/float type
+        if (lhs.schema()->column(cid) == NULL) {
+            continue;
+        }
         auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
         if (res != 0) {
             return res;
@@ -76,6 +80,10 @@ template<typename LhsRowType, typename RhsRowType>
 int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
     auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
     for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
+        //because the num_column_ids include the column of double/float type
+        if (lhs.schema()->column(cid) == NULL) {
+            continue;
+        }
         auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
         if (res != 0) {
             return res;
