@@ -27,6 +27,7 @@
 #include "http/http_status.h"
 
 #include "common/logging.h"
+#include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
@@ -50,7 +51,7 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     } catch (const std::exception& e) {
         LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
                      << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError(strings::Substitute("convert failed, $0" , e.what()));
+        return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
     }
 
     TabletSharedPtr tablet =
