@@ -26,9 +26,11 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.system.Backend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -59,6 +61,7 @@ public class TabletsProcDir implements ProcDirInterface {
     public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state) {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(index);
+        ImmutableMap<Long, Backend> backendMap = Catalog.getCurrentSystemInfo().getIdToBackend();
 
         List<List<Comparable>> tabletInfos = new ArrayList<List<Comparable>>();
         db.readLock();
@@ -120,7 +123,12 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(tablet.getCheckedVersionHash());
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
-                        tabletInfo.add(replica.getMetaUrl(tabletId));
+                        String metaUrl = String.format("http://%s:%d/api/meta/header/%d/%d",
+                                backendMap.get(backendId).getHost(),
+                                backendMap.get(backendId).getHttpPort(),
+                                tabletId,
+                                replica.getSchemaHash());
+                        tabletInfo.add(metaUrl);
 
                         tabletInfos.add(tabletInfo);
                     }
