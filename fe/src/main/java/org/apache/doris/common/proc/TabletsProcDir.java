@@ -124,8 +124,8 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
                         String metaUrl = String.format("http://%s:%d/api/meta/header/%d/%d",
-                                backendMap.get(backendId).getHost(),
-                                backendMap.get(backendId).getHttpPort(),
+                                backendMap.get(replica.getBackendId()).getHost(),
+                                backendMap.get(replica.getBackendId()).getHttpPort(),
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(metaUrl);
