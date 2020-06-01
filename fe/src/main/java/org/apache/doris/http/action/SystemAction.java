@@ -145,7 +145,6 @@ public class SystemAction extends WebBaseAction {
                     buffer.append(str);
                     buffer.append("</a>");
                 } else if (validator.isValid(str)) {
-                    String escapeStr = str.replace("%", "%25");
                     buffer.append("<a href=\"" + str + "\">");
                     buffer.append("URL");
                     buffer.append("</a>");
