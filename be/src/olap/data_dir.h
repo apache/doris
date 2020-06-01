@@ -159,8 +159,6 @@ private:
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
-    uint32_t _rand_seed;
-
     std::string _file_system;
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;
@@ -173,11 +171,7 @@ private:
     uint64_t _current_shard;
     std::set<TabletInfo> _tablet_set;
 
-    static const size_t TEST_FILE_BUF_SIZE = 4096;
-    static const size_t DIRECT_IO_ALIGNMENT = 512;
     static const uint32_t MAX_SHARD_NUM = 1024;
-    char* _test_file_read_buf;
-    char* _test_file_write_buf;
 
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;
