@@ -45,7 +45,7 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("LstFailedVersion").add("LstFailedVersionHash").add("LstFailedTime")
             .add("DataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
-            .add("VersionCount").add("PathHash")
+            .add("VersionCount").add("PathHash").add("MetaUrl")
             .build();
 
     private Database db;
@@ -88,6 +88,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // check version hash
                     tabletInfo.add(-1); // version count
                     tabletInfo.add(-1); // path hash
+                    tabletInfo.add("N/A"); // meta url
 
                     tabletInfos.add(tabletInfo);
                 } else {
@@ -119,6 +120,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(tablet.getCheckedVersionHash());
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
+                        tabletInfo.add(replica.getMetaUrl(tabletId));
 
                         tabletInfos.add(tabletInfo);
                     }

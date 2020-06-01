@@ -225,6 +225,10 @@ public class Replica implements Writable {
         return pathHash;
     }
 
+    public String getMetaUrl(long tabletId) {
+        return String.format("%s/api/meta/header/%d/%d", this.backendId, tabletId, this.schemaHash);
+    }
+
     public void setPathHash(long pathHash) {
         this.pathHash = pathHash;
     }
