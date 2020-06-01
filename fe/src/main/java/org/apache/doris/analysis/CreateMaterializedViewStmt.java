@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -170,15 +171,48 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 String functionName = functionCallExpr.getFnName().getFunction();
                 Expr defineExpr = null;
                 // TODO(ml): support REPLACE, REPLACE_IF_NOT_NULL only for aggregate table, HLL_UNION, BITMAP_UNION
+                /*
                 if (!functionName.equalsIgnoreCase("sum")
                         && !functionName.equalsIgnoreCase("min")
                         && !functionName.equalsIgnoreCase("max")) {
                     throw new AnalysisException("The materialized view only support the sum, min and max aggregate "
                                                         + "function. Error function: " + functionCallExpr.toSqlImpl());
                 }
+                */
 
                 Preconditions.checkState(functionCallExpr.getChildren().size() == 1);
                 Expr functionChild0 = functionCallExpr.getChild(0);
+
+               //(FIXME) FOR TEST
+                if (functionName.equalsIgnoreCase("bitmap_union") || functionName.equalsIgnoreCase("hll_union")) {
+                    Preconditions.checkState(functionChild0.getChildren().size() == 1);
+                    defineExpr = functionChild0;
+                    functionChild0 = functionChild0.getChild(0);
+
+                    List<Expr> slots = new ArrayList<>();
+                    defineExpr.collect(SlotRef.class, slots);
+                    Preconditions.checkArgument(slots.size() == 1);
+
+                    meetAggregate = true;
+                    // check duplicate column
+                    String columnName = MATERIALIZED_VIEW_NAME_PRFIX + functionName + "_" + ((SlotRef) slots.get(0)).getColumnName();
+                    if (!mvColumnNameSet.add(columnName)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
+                    }
+
+                    if (beginIndexOfAggregation == -1) {
+                        beginIndexOfAggregation = i;
+                    }
+                    // TODO(ml): support different type of column, int -> bigint(sum)
+                    // TODO: change the column name of bitmap and hll
+                    MVColumnItem mvColumnItem = new MVColumnItem(columnName);
+                    mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
+                    //defineExpr.analyze(analyzer);
+                    mvColumnItem.setDefineExpr(defineExpr);
+                    mvColumnItemList.add(mvColumnItem);
+                    continue;
+                }
+                
                 SlotRef slotRef;
                 if (functionChild0 instanceof SlotRef) {
                     slotRef = (SlotRef) functionChild0;
@@ -204,6 +238,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // TODO: change the column name of bitmap and hll
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                 mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
+                //defineExpr.analyze(analyzer);
                 mvColumnItem.setDefineExpr(defineExpr);
                 mvColumnItemList.add(mvColumnItem);
             }

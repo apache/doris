@@ -355,7 +355,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     Map<String, Expr> defileExprs = Maps.newHashMap();
                     for (Column column : rollupSchema) {
-                        defileExprs.put(column.getName(), column.getDefineExpr());
+                        if (column.getDefineExpr() != null) {
+                            defileExprs.put(column.getName(), column.getDefineExpr());
+                        }
                     }
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();

@@ -79,7 +79,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     LOG(INFO) << "Prepare(): query_id=" << print_id(_query_id)
                << " fragment_instance_id=" << print_id(params.fragment_instance_id)
                << " backend_num=" << request.backend_num;
-    // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
+    VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     _runtime_state.reset(new RuntimeState(
             request, request.query_options, request.query_globals, _exec_env));

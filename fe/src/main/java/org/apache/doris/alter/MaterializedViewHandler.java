@@ -430,6 +430,24 @@ public class MaterializedViewHandler extends AlterHandler {
         List<Column> newMVColumns = Lists.newArrayList();
         int numOfKeys = 0;
         for (MVColumnItem mvColumnItem : mvColumnItemList) {
+
+            //FIXME(lhy) FOR TEST
+            if (mvColumnItem.getDefineExpr() != null) {
+                Type type;
+                if (mvColumnItem.getAggregationType().equals(AggregateType.BITMAP_UNION)) {
+                    type = Type.BITMAP;
+                } else if (mvColumnItem.getAggregationType().equals(AggregateType.HLL_UNION)){
+                    type = Type.HLL;
+                } else {
+                    throw new DdlException("The define expr of column is only support bitmap_union or hll_union");
+                }
+
+                Column newMVColumn = new Column(mvColumnItem.getName(), type, false, mvColumnItem.getAggregationType(), "", "");
+                newMVColumn.setDefineExpr(mvColumnItem.getDefineExpr());
+                newMVColumns.add(newMVColumn);
+                continue;
+            }
+
             String mvColumnName = mvColumnItem.getName();
             Column baseColumn = olapTable.getColumn(mvColumnName);
             if (baseColumn == null) {
