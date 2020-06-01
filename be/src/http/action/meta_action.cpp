@@ -43,7 +43,7 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
     uint64_t tablet_id = 0;
-    uint32_t schema = 0;
+    uint32_t schema_hash = 0;
     try {
         tablet_id = std::stoull(req_tablet_id);
         schema_hash = std::stoul(req_schema_hash);

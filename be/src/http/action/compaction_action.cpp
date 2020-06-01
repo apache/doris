@@ -47,7 +47,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
     }
 
     uint64_t tablet_id = 0;
-    uint32_t schema = 0;
+    uint32_t schema_hash = 0;
     try {
         tablet_id = std::stoull(req_tablet_id);
         schema_hash = std::stoul(req_schema_hash);
