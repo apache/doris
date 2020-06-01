@@ -488,7 +488,7 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
     }
 
     std::vector<uint64_t> bits;
-    // TODO(hkp): I think StringPiece's len should also be uint64_t
+    // The contructor of `stringpiece` only support int type.
     if (!SplitStringAndParse({(const char*)input.ptr, (int)input.len}, ",", &safe_strtou64, &bits)) {
         return StringVal::null();
     }
