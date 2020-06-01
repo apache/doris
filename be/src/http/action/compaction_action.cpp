@@ -54,7 +54,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
     } catch (const std::exception& e) {
         LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
                      << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError("convert failed, " + e.what());
+        return Status::InternalError(strings::Substitute("convert failed, $0" , e.what()));
     }
 
     TabletSharedPtr tablet =
