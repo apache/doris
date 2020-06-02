@@ -136,6 +136,7 @@ public class TabletsProcDir implements ProcDirInterface {
                                 backendMap.get(replica.getBackendId()).getHttpPort(),
                                 tabletId,
                                 replica.getSchemaHash());
+                        tabletInfo.add(compactionUrl);
                         tabletInfos.add(tabletInfo);
                     }
                 }
