@@ -47,7 +47,7 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("LstFailedVersion").add("LstFailedVersionHash").add("LstFailedTime")
             .add("DataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
-            .add("VersionCount").add("PathHash").add("MetaUrl")
+            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
             .build();
 
     private Database db;
@@ -92,6 +92,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // version count
                     tabletInfo.add(-1); // path hash
                     tabletInfo.add("N/A"); // meta url
+                    tabletInfo.add("N/A"); // compaction status
 
                     tabletInfos.add(tabletInfo);
                 } else {
@@ -129,7 +130,12 @@ public class TabletsProcDir implements ProcDirInterface {
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(metaUrl);
-
+                        String compactionUrl = String.format(
+                                "http://%s:%d/api/compaction/show?tablet_id=%d&schema_hash=%d",
+                                backendMap.get(replica.getBackendId()).getHost(),
+                                backendMap.get(replica.getBackendId()).getHttpPort(),
+                                tabletId,
+                                replica.getSchemaHash());
                         tabletInfos.add(tabletInfo);
                     }
                 }
