@@ -273,6 +273,7 @@ bool RowBlockChanger::change_row_block(
                     // 指定新的要写入的row index（不同于读的row_index）
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
+                    read_helper.to_string();
 
                     if (_schema_mapping[i].materialized_function == "to_bitmap") {
                         write_helper.set_not_null(i);
@@ -286,6 +287,7 @@ bool RowBlockChanger::change_row_block(
                         char *buf = reinterpret_cast<char *>(mem_pool->allocate(bitmap.getSizeInBytes()));
                         Slice dst(buf, bitmap.getSizeInBytes());
                         bitmap.write(dst.data);
+                        bitmap.to_string();
                         write_helper.set_field_content(i, reinterpret_cast<char *>(&dst), mem_pool);
                     } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                         write_helper.set_not_null(i);
@@ -1869,7 +1871,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
 
         if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
             AlterMaterializedViewParam mvParam = materialized_function_map.find(column_name)->second;
-            column_mapping->materialized_function = mvParam.origin_column_name;
+            column_mapping->materialized_function = mvParam.mv_expr;
             std::string origin_column_name = mvParam.origin_column_name;
             int32_t column_index = base_tablet->field_index(origin_column_name);
             if (column_index >= 0) {
