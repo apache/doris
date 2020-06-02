@@ -224,13 +224,13 @@ public class SchemaChangeJob extends AlterJob {
             return;
         }
 
-        db.readLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            LOG.warn("table[{}] does not exist in db[{}]", tableId, dbId);
+            return;
+        }
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                LOG.warn("table[{}] does not exist in db[{}]", tableId, dbId);
-                return;
-            }
             // drop all replicas with old schemaHash
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
@@ -252,9 +252,8 @@ public class SchemaChangeJob extends AlterJob {
                 }
             } // end for partitions
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
-        return;
     }
 
     @Override
@@ -321,15 +320,15 @@ public class SchemaChangeJob extends AlterJob {
         }
 
         batchClearAlterTask = new AgentBatchTask();
-        db.readLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            cancelMsg = "could not find table[" + tableId + "] in db [" + dbId + "]";
+            LOG.warn(cancelMsg);
+            return -1;
+        }
+
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                cancelMsg = "could not find table[" + tableId + "] in db [" + dbId + "]";
-                LOG.warn(cancelMsg);
-                return -1;
-            }
-            
             boolean allAddSuccess = true;
             LOG.info("sending clear schema change job tasks for table [{}]", tableId);
             OUTER_LOOP:
@@ -360,7 +359,7 @@ public class SchemaChangeJob extends AlterJob {
                 batchClearAlterTask = null;
             }
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         LOG.info("successfully sending clear schema change job [{}]", tableId);
@@ -383,16 +382,16 @@ public class SchemaChangeJob extends AlterJob {
             return false;
         }
 
-        db.readLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            cancelMsg = "table[" + tableId + "] does not exist";
+            LOG.warn(cancelMsg);
+            return false;
+        }
+
+        olapTable.readLock();
         try {
             synchronized (this) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    cancelMsg = "table[" + tableId + "] does not exist";
-                    LOG.warn(cancelMsg);
-                    return false;
-                }
-
                 Preconditions.checkNotNull(this.unfinishedReplicaIds);
 
                 List<AgentTask> tasks = new LinkedList<AgentTask>();
@@ -489,7 +488,7 @@ public class SchemaChangeJob extends AlterJob {
                 this.state = JobState.RUNNING;
             } // end synchronized block
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         Preconditions.checkState(this.state == JobState.RUNNING);

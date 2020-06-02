@@ -1564,17 +1564,12 @@ public class SchemaChangeHandler extends AlterHandler {
             unlock();
         }
 
-        db.readLock();
-        try {
-            for (AlterJob selectedJob : selectedJobs) {
-                OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
-                if (olapTable == null) {
-                    continue;
-                }
-                selectedJob.getJobInfo(schemaChangeJobInfos, olapTable);
+        for (AlterJob selectedJob : selectedJobs) {
+            OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
+            if (olapTable == null) {
+                continue;
             }
-        } finally {
-            db.readUnlock();
+            selectedJob.getJobInfo(schemaChangeJobInfos, olapTable);
         }
     }
 
@@ -1708,7 +1703,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void sendClearAlterTask(Database db, OlapTable olapTable) {
         AgentBatchTask batchTask = new AgentBatchTask();
-        db.readLock();
+        olapTable.readLock();
         try {
             for (Partition partition : olapTable.getPartitions()) {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1723,7 +1718,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         AgentTaskExecutor.submit(batchTask);
@@ -1733,15 +1728,14 @@ public class SchemaChangeHandler extends AlterHandler {
     /**
      * Update all partitions' in-memory property of table
      */
-    public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws DdlException {
+    public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws UserException {
         List<Partition> partitions = Lists.newArrayList();
-        OlapTable olapTable;
-        db.readLock();
+        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        olapTable.readLock();
         try {
-            olapTable = (OlapTable)db.getTable(tableName);
             partitions.addAll(olapTable.getPartitions());
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
@@ -1753,11 +1747,11 @@ public class SchemaChangeHandler extends AlterHandler {
             updatePartitionInMemoryMeta(db, olapTable.getName(), partition.getName(), isInMemory);
         }
 
-        db.writeLock();
+        olapTable.writeLock();
         try {
             Catalog.getCurrentCatalog().modifyTableInMemoryMeta(db, olapTable, properties);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -1806,12 +1800,12 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionInMemoryMeta(Database db,
                                             String tableName,
                                             String partitionName,
-                                            boolean isInMemory) throws DdlException {
+                                            boolean isInMemory) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
-        db.readLock();
+        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable)db.getTable(tableName);
             Partition partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
@@ -1829,7 +1823,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         int totalTaskNum = beIdToTabletIdWithHash.keySet().size();

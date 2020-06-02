@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -44,13 +45,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -110,8 +109,8 @@ public class Database extends MetaObject implements Writable {
             this.fullQualifiedName = "";
         }
         this.rwLock = new ReentrantReadWriteLock(true);
-        this.idToTable = new ConcurrentHashMap<>();
-        this.nameToTable = new HashMap<>();
+        this.idToTable = Maps.newConcurrentMap();
+        this.nameToTable = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;
@@ -140,6 +139,10 @@ public class Database extends MetaObject implements Writable {
         this.rwLock.writeLock().lock();
     }
 
+    public void writeUnlock() {
+        this.rwLock.writeLock().unlock();
+    }
+
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
             return this.rwLock.writeLock().tryLock(timeout, unit);
@@ -147,10 +150,6 @@ public class Database extends MetaObject implements Writable {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
         }
-    }
-
-    public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
@@ -375,11 +374,30 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    /**
+     * This is a thread-safe method when nameToTable is a concurrent hash map
+     * @param tableName
+     * @return
+     */
     public Table getTable(String tableName) {
-        if (nameToTable.containsKey(tableName)) {
-            return nameToTable.get(tableName);
+        return nameToTable.get(tableName);
+    }
+
+    /**
+     * This is a thread-safe method when nameToTable is a concurrent hash map
+     * @param tableName
+     * @param tableType
+     * @return
+     */
+    public Table getTableOrThrowException(String tableName, TableType tableType) throws UserException {
+        Table table = nameToTable.get(tableName);
+        if(table == null) {
+            throw new MetaNotFoundException("unknown table, table=" + tableName);
         }
-        return null;
+        if (table.getType() != tableType) {
+            throw new UserException("table type is not " + tableType + ", type=" + table.getClass());
+        }
+        return table;
     }
 
     /**
@@ -389,6 +407,24 @@ public class Database extends MetaObject implements Writable {
      */
     public Table getTable(long tableId) {
         return idToTable.get(tableId);
+    }
+
+
+    /**
+     * This is a thread-safe method when idToTable is a concurrent hash map
+     * @param tableId
+     * @param tableType
+     * @return
+     */
+    public Table getTableOrThrowException(long tableId, TableType tableType) throws UserException {
+        Table table = idToTable.get(tableId);
+        if(table == null) {
+            throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+        }
+        if (table.getType() != tableType) {
+            throw new UserException("table type is not " + tableType + ", type=" + table.getClass());
+        }
+        return table;
     }
 
     public int getMaxReplicationNum() {
@@ -464,6 +500,7 @@ public class Database extends MetaObject implements Writable {
         out.writeLong(replicaQuotaSize);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -512,6 +549,7 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;

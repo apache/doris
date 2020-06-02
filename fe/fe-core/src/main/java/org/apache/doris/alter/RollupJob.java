@@ -348,15 +348,16 @@ public class RollupJob extends AlterJob {
         }
 
         batchClearAlterTask = new AgentBatchTask();
-        db.readLock();
-        try {
-            synchronized (this) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    cancelMsg = "table[" + tableId + "] does not exist";
-                    LOG.warn(cancelMsg);
-                    return -1;
-                }
+
+        synchronized (this) {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            if (olapTable == null) {
+                cancelMsg = "table[" + tableId + "] does not exist";
+                LOG.warn(cancelMsg);
+                return -1;
+            }
+            olapTable.readLock();
+            try {
                 boolean allAddSuccess = true;
                 LOG.info("sending clear rollup job tasks for table [{}]", tableId);
                 for (Partition partition : olapTable.getPartitions()) {
@@ -392,9 +393,10 @@ public class RollupJob extends AlterJob {
                     }
                     batchClearAlterTask = null;
                 }
+
+            } finally {
+                olapTable.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
         LOG.info("successfully sending clear rollup job[{}]", tableId);
         return 0;
@@ -413,29 +415,29 @@ public class RollupJob extends AlterJob {
             return false;
         }
 
-        db.readLock();
-        try {
-            synchronized (this) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    cancelMsg = "table[" + tableId + "] does not exist";
-                    LOG.warn(cancelMsg);
-                    return false;
-                }
 
-                LOG.info("sending rollup job[{}] tasks.", tableId);
-                // in palo 3.2, the rollup keys type is not serialized, when a fe follower change to fe master
-                // the rollup keys type == null, so that send tasks will report error
-                if (rollupKeysType == null) {
-                    rollupKeysType = olapTable.getKeysType().toThrift();
-                }
+        synchronized (this) {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            if (olapTable == null) {
+                cancelMsg = "table[" + tableId + "] does not exist";
+                LOG.warn(cancelMsg);
+                return false;
+            }
+
+            LOG.info("sending rollup job[{}] tasks.", tableId);
+            // in palo 3.2, the rollup keys type is not serialized, when a fe follower change to fe master
+            // the rollup keys type == null, so that send tasks will report error
+            if (rollupKeysType == null) {
+                rollupKeysType = olapTable.getKeysType().toThrift();
+            }
+            olapTable.readLock();
+            try {
                 for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                     long partitionId = entry.getKey();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
                         continue;
                     }
-
                     MaterializedIndex rollupIndex = entry.getValue();
 
                     Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
@@ -448,14 +450,14 @@ public class RollupJob extends AlterJob {
                             Preconditions.checkNotNull(tabletIdMap.get(rollupTabletId)); // baseTabletId
                             CreateRollupTask createRollupTask =
                                     new CreateRollupTask(resourceInfo, backendId, dbId, tableId,
-                                                         partitionId, rollupIndexId, baseIndexId,
-                                                         rollupTabletId, tabletIdMap.get(rollupTabletId),
-                                                         rollupReplicaId,
-                                                         rollupShortKeyColumnCount,
-                                                         rollupSchemaHash, baseSchemaHash,
-                                                         rollupStorageType, rollupSchema,
-                                                         olapTable.getCopiedBfColumns(), olapTable.getBfFpp(), 
-                                                         rollupKeysType);
+                                            partitionId, rollupIndexId, baseIndexId,
+                                            rollupTabletId, tabletIdMap.get(rollupTabletId),
+                                            rollupReplicaId,
+                                            rollupShortKeyColumnCount,
+                                            rollupSchemaHash, baseSchemaHash,
+                                            rollupStorageType, rollupSchema,
+                                            olapTable.getCopiedBfColumns(), olapTable.getBfFpp(),
+                                            rollupKeysType);
                             AgentTaskQueue.addTask(createRollupTask);
 
                             addReplicaId(partitionId, rollupReplicaId, backendId);
@@ -464,9 +466,10 @@ public class RollupJob extends AlterJob {
                 }
 
                 this.state = JobState.RUNNING;
+            } finally {
+                olapTable.readUnlock();
             }
-        } finally {
-            db.readUnlock();
+
         }
 
         Preconditions.checkState(this.state == JobState.RUNNING);

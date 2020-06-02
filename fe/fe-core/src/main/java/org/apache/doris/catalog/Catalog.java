@@ -5436,9 +5436,9 @@ public class Catalog {
                 properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
     }
 
-    // The caller need to hold the db write lock
+    // The caller need to hold the table write lock
     public void modifyTableInMemoryMeta(Database db, OlapTable table, Map<String, String> properties) {
-        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
             tableProperty = new TableProperty(properties);

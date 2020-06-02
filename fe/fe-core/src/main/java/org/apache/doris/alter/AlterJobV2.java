@@ -187,22 +187,12 @@ public abstract class AlterJobV2 implements Writable {
     * return false if table is not stable.
     */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
-        OlapTable tbl = null;
-        boolean isStable = false;
-        db.readLock();
-        try {
-            tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
 
-            isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
+        boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
                     Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
-        } finally {
-            db.readUnlock();
-        }
 
-        db.writeLock();
+        tbl.writeLock();
         try {
             if (!isStable) {
                 errMsg = "table is unstable";
@@ -216,7 +206,7 @@ public abstract class AlterJobV2 implements Writable {
                 return true;
             }
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
     }
 

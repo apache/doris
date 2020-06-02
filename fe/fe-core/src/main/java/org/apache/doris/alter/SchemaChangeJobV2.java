@@ -215,12 +215,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
-        db.readLock();
+
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            throw new AlterCancelException("Table " + tableId + " does not exist");
+        }
+
+        tbl.readLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -267,7 +269,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         if (!FeConstants.runningUnitTest) {
@@ -304,16 +306,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // create all replicas success.
         // add all shadow indexes to catalog
-        db.writeLock();
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             addShadowIndexToCatalog(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
@@ -372,13 +370,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (db == null) {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
-        
-        db.readLock();
+
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            throw new AlterCancelException("Table " + tableId + " does not exist");
+        }
+
+        tbl.readLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -415,7 +414,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             } // end for partitions
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
@@ -446,15 +445,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Database " + dbId + " does not exist");
         }
 
-        db.readLock();
-        try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
-        } finally {
-            db.readUnlock();
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            throw new AlterCancelException("Table " + tableId + " does not exist");
         }
+
 
         if (!schemaChangeBatchTask.isFinished()) {
             LOG.info("schema change tasks not finished. job: {}", jobId);
@@ -467,16 +462,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
+
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
          */
-        db.writeLock();
+        tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            throw new AlterCancelException("Table " + tableId + " does not exist");
+        }
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -514,7 +510,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // all partitions are good
             onFinished(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         pruneMeta();

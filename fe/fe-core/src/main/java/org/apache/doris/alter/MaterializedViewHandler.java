@@ -1128,18 +1128,13 @@ public class MaterializedViewHandler extends AlterHandler {
             unlock();
         }
 
-        db.readLock();
-        try {
-            for (AlterJob selectedJob : jobs) {
-                OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
-                if (olapTable == null) {
-                    continue;
-                }
 
-                selectedJob.getJobInfo(rollupJobInfos, olapTable);
+        for (AlterJob selectedJob : jobs) {
+            OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
+            if (olapTable == null) {
+                continue;
             }
-        } finally {
-            db.readUnlock();
+            selectedJob.getJobInfo(rollupJobInfos, olapTable);
         }
     }
 
