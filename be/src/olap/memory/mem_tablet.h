@@ -81,7 +81,7 @@ private:
 
     std::mutex _write_lock;
 
-    std::atomic<uint64_t> _latest_version;
+    std::atomic<uint64_t> _max_version;
 
     DISALLOW_COPY_AND_ASSIGN(MemTablet);
 };

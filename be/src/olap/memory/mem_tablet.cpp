@@ -37,17 +37,17 @@ std::shared_ptr<MemTablet> MemTablet::create_tablet_from_meta(TabletMetaSharedPt
 }
 
 Status MemTablet::init() {
-    _latest_version = 0;
+    _max_version = 0;
     return MemSubTablet::create(0, *_mem_schema.get(), &_sub_tablet);
 }
 
 Status MemTablet::scan(std::unique_ptr<ScanSpec>* spec, std::unique_ptr<MemTabletScan>* scan) {
     uint64_t version = (*spec)->version();
     if (version == UINT64_MAX) {
-        version = _latest_version;
+        version = _max_version;
         (*spec)->_version = version;
     }
-    if (version > _latest_version) {
+    if (version > _max_version) {
         return Status::InvalidArgument("Illegal scan version (larger than latest version)");
     }
     size_t num_rows = 0;
@@ -75,14 +75,14 @@ Status MemTablet::create_write_txn(std::unique_ptr<WriteTxn>* wtxn) {
 
 Status MemTablet::commit_write_txn(WriteTxn* wtxn, uint64_t version) {
     std::lock_guard<std::mutex> lg(_write_lock);
-    DCHECK_LT(_latest_version, version);
+    DCHECK_LT(_max_version, version);
     RETURN_IF_ERROR(_sub_tablet->begin_write(&_mem_schema));
     for (size_t i = 0; i < wtxn->batch_size(); i++) {
         auto batch = wtxn->get_batch(i);
         RETURN_IF_ERROR(_sub_tablet->apply_partial_row_batch(batch));
     }
     RETURN_IF_ERROR(_sub_tablet->commit_write(version));
-    _latest_version = version;
+    _max_version = version;
     return Status::OK();
 }
 
