@@ -273,15 +273,18 @@ bool RowBlockChanger::change_row_block(
                     // 指定新的要写入的row index（不同于读的row_index）
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
+                    VLOG(3) << "read helper : " << read_helper.to_string();
 
                     if (_schema_mapping[i].materialized_function == "to_bitmap") {
                         write_helper.set_not_null(i);
                         BitmapValue bitmap;
+                        VLOG(3) << "ref_column : " << ref_column;
                         if (!read_helper.is_null(ref_column)) {
                             char *src = read_helper.cell_ptr(ref_column);
-                            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-                            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(src, strlen(src), &parse_result);
-                            bitmap.add(int_value);
+                            int64_t int_value = *(int64_t*)src;
+                            //bitmap.add(int_value);
+                            bitmap.add(0);
+                            VLOG(3) << "reader is not null idx : " << i << "," << int_value << ". bitmap : " << bitmap.cardinality() << "," << bitmap.to_string();
                         }
                         char *buf = reinterpret_cast<char *>(mem_pool->allocate(bitmap.getSizeInBytes()));
                         Slice dst(buf, bitmap.getSizeInBytes());
@@ -1869,7 +1872,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
 
         if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
             AlterMaterializedViewParam mvParam = materialized_function_map.find(column_name)->second;
-            column_mapping->materialized_function = mvParam.origin_column_name;
+            column_mapping->materialized_function = mvParam.mv_expr;
             std::string origin_column_name = mvParam.origin_column_name;
             int32_t column_index = base_tablet->field_index(origin_column_name);
             if (column_index >= 0) {
