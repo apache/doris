@@ -584,12 +584,13 @@ public class SchemaChangeJob extends AlterJob {
         if (db == null) {
             throw new MetaNotFoundException("Cannot find db[" + dbId + "]");
         }
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            throw new MetaNotFoundException("Cannot find table[" + tableId + "]");
+        }
+
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                throw new MetaNotFoundException("Cannot find table[" + tableId + "]");
-            }
             Preconditions.checkState(olapTable.getState() == OlapTableState.SCHEMA_CHANGE);
 
             Partition partition = olapTable.getPartition(partitionId);
@@ -626,7 +627,7 @@ public class SchemaChangeJob extends AlterJob {
                 replica.setPathHash(finishTabletInfo.getPathHash());
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         Catalog.getCurrentSystemInfo().updateBackendReportVersion(schemaChangeTask.getBackendId(),

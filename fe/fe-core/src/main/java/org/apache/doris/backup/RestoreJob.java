@@ -419,20 +419,20 @@ public class RestoreJob extends AbstractJob {
 
         // Set all restored tbls' state to RESTORE
         // Table's origin state must be NORMAL and does not have unfinished load job.
-        db.writeLock();
-        try {
-            for (BackupTableInfo tblInfo : jobInfo.tables.values()) {
-                Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
-                if (tbl == null) {
-                    continue;
-                }
+        for (BackupTableInfo tblInfo : jobInfo.tables.values()) {
+            Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
+            if (tbl == null) {
+                continue;
+            }
                 
-                if (tbl.getType() != TableType.OLAP) {
-                    status = new Status(ErrCode.COMMON_ERROR, "Only support retore OLAP table: " + tbl.getName());
-                    return;
-                }
+            if (tbl.getType() != TableType.OLAP) {
+                status = new Status(ErrCode.COMMON_ERROR, "Only support retore OLAP table: " + tbl.getName());
+                return;
+            }
                 
-                OlapTable olapTbl = (OlapTable) tbl;
+            OlapTable olapTbl = (OlapTable) tbl;
+            olapTbl.writeLock();
+            try {
                 if (olapTbl.getState() != OlapTableState.NORMAL) {
                     status = new Status(ErrCode.COMMON_ERROR,
                             "Table " + tbl.getName() + "'s state is not NORMAL: " + olapTbl.getState().name());
@@ -443,7 +443,7 @@ public class RestoreJob extends AbstractJob {
                     status = new Status(ErrCode.COMMON_ERROR, "Do not support restoring table with temp partitions");
                     return;
                 }
-                
+
                 for (Partition partition : olapTbl.getPartitions()) {
                     if (!catalog.getLoadInstance().checkPartitionLoadFinished(partition.getId(), null)) {
                         status = new Status(ErrCode.COMMON_ERROR,
@@ -451,11 +451,12 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 }
-                
+
                 olapTbl.setState(OlapTableState.RESTORE);
+            } finally {
+                olapTbl.writeUnlock();
             }
-        } finally {
-            db.writeUnlock();
+
         }
 
         // Check and prepare meta objects.

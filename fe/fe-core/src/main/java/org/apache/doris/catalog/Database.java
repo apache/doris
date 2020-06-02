@@ -45,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 import java.util.zip.Adler32;
 
 /**
@@ -76,7 +78,7 @@ public class Database extends MetaObject implements Writable {
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
 
     private long id;
-    private String fullQualifiedName;
+    private volatile String fullQualifiedName;
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
@@ -213,7 +215,12 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+                olapTable.readLock();
+                try {
+                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
+                } finally {
+                    olapTable.readUnlock();
+                }
             }
             return usedDataQuota;
         } finally {
@@ -232,7 +239,12 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                usedReplicaQuota = usedReplicaQuota + olapTable.getReplicaCount();
+                olapTable.readLock();
+                try {
+                    usedReplicaQuota = usedReplicaQuota + olapTable.getReplicaCount();
+                } finally {
+                    olapTable.readUnlock();
+                }
             }
 
             long leftReplicaQuota = replicaQuotaSize - usedReplicaQuota;
@@ -352,7 +364,14 @@ public class Database extends MetaObject implements Writable {
     }
 
     public List<Table> getTables() {
-        return new ArrayList<Table>(idToTable.values());
+        return new ArrayList<>(idToTable.values());
+    }
+
+    // tables must get read or write table in fixed order to escape potential dead lock
+    public List<Table> getOrderedTablesById() {
+        return idToTable.values().stream()
+                .sorted(Comparator.comparing(Table::getId))
+                .collect(Collectors.toList());
     }
 
     public List<Table> getViews() {
@@ -436,11 +455,16 @@ public class Database extends MetaObject implements Writable {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-                    if (ret < replicationNum) {
-                        ret = replicationNum;
+                table.readLock();
+                try {
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        if (ret < replicationNum) {
+                            ret = replicationNum;
+                        }
                     }
+                } finally {
+                    table.readUnlock();
                 }
             }
         } finally {

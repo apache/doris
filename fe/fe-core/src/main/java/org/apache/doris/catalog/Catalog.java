@@ -260,7 +260,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
     // 0 ~ 9999 used for qe
@@ -2044,9 +2043,16 @@ public class Catalog {
             if (!InfoSchemaDb.isInfoSchemaDb(dbName)) {
                 checksum ^= entry.getKey();
                 db.readLock();
+                List<Table> tableList = db.getOrderedTablesById();
+                for (Table table : tableList) {
+                    table.readLock();
+                }
                 try {
                     db.write(dos);
                 } finally {
+                    for (int i = tableList.size() - 1; i >= 0; i--) {
+                        tableList.get(i).readUnlock();
+                    }
                     db.readUnlock();
                 }
             }
@@ -3040,18 +3046,13 @@ public class Catalog {
         }
 
         // check if table exists in db
-        db.readLock();
-        try {
-            if (db.getTable(tableName) != null) {
-                if (stmt.isSetIfNotExists()) {
-                    LOG.info("create table[{}] which already exists", tableName);
-                    return;
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-                }
+        if (db.getTable(tableName) != null) {
+            if (stmt.isSetIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
-        } finally {
-            db.readUnlock();
         }
 
         if (engineName.equals("olap")) {
@@ -3121,19 +3122,20 @@ public class Catalog {
         String partitionName = singlePartitionDesc.getPartitionName();
 
         // check
-        db.readLock();
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+        }
+
+        if (table.getType() != TableType.OLAP) {
+            throw new DdlException("Table[" + tableName + "] is not OLAP table");
+        }
+
+        // check state
+        olapTable = (OlapTable) table;
+
+        olapTable.readLock();
         try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-            }
-
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Table[" + tableName + "] is not OLAP table");
-            }
-
-            // check state
-            olapTable = (OlapTable) table;
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + tableName + "]'s state is not NORMAL");
             }
@@ -3210,7 +3212,7 @@ public class Catalog {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         Preconditions.checkNotNull(distributionInfo);
@@ -3241,17 +3243,17 @@ public class Catalog {
                     );
 
             // check again
-            db.writeLock();
+            table = db.getTable(tableName);
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            }
+
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Table[" + tableName + "] is not OLAP table");
+            }
+
+            table.writeLock();
             try {
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                }
-
-                if (table.getType() != TableType.OLAP) {
-                    throw new DdlException("Table[" + tableName + "] is not OLAP table");
-                }
-
                 olapTable = (OlapTable) table;
                 if (olapTable.getState() != OlapTableState.NORMAL) {
                     throw new DdlException("Table[" + tableName + "]'s state is not NORMAL");
@@ -3318,7 +3320,7 @@ public class Catalog {
 
                 LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
             } finally {
-                db.writeUnlock();
+                table.writeUnlock();
             }
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
@@ -3328,13 +3330,12 @@ public class Catalog {
         }
     }
 
-    public void replayAddPartition(PartitionPersistInfo info) throws DdlException {
+    public void replayAddPartition(PartitionPersistInfo info) throws UserException {
         Database db = this.getDb(info.getDbId());
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(info.getTableId(), TableType.OLAP);
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
             Partition partition = info.getPartition();
-
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             if (info.isTempPartition()) {
                 olapTable.addTempPartition(partition);
@@ -3364,12 +3365,12 @@ public class Catalog {
                 }
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
     public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
-        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
 
         String partitionName = clause.getPartitionName();
         boolean isTempPartition = clause.isTempPartition();
@@ -3879,7 +3880,6 @@ public class Catalog {
 
             throw e;
         }
-        return;
     }
 
     private void createMysqlTable(Database db, CreateTableStmt stmt) throws DdlException {
@@ -4708,25 +4708,31 @@ public class Catalog {
 
                     long tableId = table.getId();
                     OlapTable olapTable = (OlapTable) table;
-                    PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                    for (Partition partition : olapTable.getAllPartitions()) {
-                        long partitionId = partition.getId();
-                        DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
-                        if (dataProperty.getStorageMedium() == TStorageMedium.SSD
-                                && dataProperty.getCooldownTimeMs() < currentTimeMs) {
-                            // expire. change to HDD.
-                            // record and change when holding write lock
-                            Multimap<Long, Long> multimap = changedPartitionsMap.get(dbId);
-                            if (multimap == null) {
-                                multimap = HashMultimap.create();
-                                changedPartitionsMap.put(dbId, multimap);
+                    olapTable.readLock();
+                    try {
+                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                        for (Partition partition : olapTable.getAllPartitions()) {
+                            long partitionId = partition.getId();
+                            DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
+                            Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
+                            if (dataProperty.getStorageMedium() == TStorageMedium.SSD
+                                    && dataProperty.getCooldownTimeMs() < currentTimeMs) {
+                                // expire. change to HDD.
+                                // record and change when holding write lock
+                                Multimap<Long, Long> multimap = changedPartitionsMap.get(dbId);
+                                if (multimap == null) {
+                                    multimap = HashMultimap.create();
+                                    changedPartitionsMap.put(dbId, multimap);
+                                }
+                                multimap.put(tableId, partitionId);
+                            } else {
+                                storageMediumMap.put(partitionId, dataProperty.getStorageMedium());
                             }
-                            multimap.put(tableId, partitionId);
-                        } else {
-                            storageMediumMap.put(partitionId, dataProperty.getStorageMedium());
-                        }
-                    } // end for partitions
+                        } // end for partitions
+                    } finally {
+                        olapTable.readUnlock();
+                    }
+
                 } // end for tables
             } finally {
                 db.readUnlock();
@@ -5564,18 +5570,13 @@ public class Catalog {
         }
 
         // check if table exists in db
-        db.readLock();
-        try {
-            if (db.getTable(tableName) != null) {
-                if (stmt.isSetIfNotExists()) {
-                    LOG.info("create view[{}] which already exists", tableName);
-                    return;
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-                }
+        if (db.getTable(tableName) != null) {
+            if (stmt.isSetIfNotExists()) {
+                LOG.info("create view[{}] which already exists", tableName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
-        } finally {
-            db.readUnlock();
         }
 
         List<Column> columns = stmt.getColumns();
@@ -6104,30 +6105,35 @@ public class Catalog {
                         }
 
                         OlapTable olapTable = (OlapTable) table;
-                        for (Partition partition : olapTable.getPartitions()) {
-                            final short replicationNum = olapTable.getPartitionInfo()
-                                    .getReplicationNum(partition.getId());
-                            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                                if (materializedIndex.getState() != IndexState.NORMAL) {
-                                    continue;
-                                }
-                                for (Tablet tablet : materializedIndex.getTablets()) {
-                                    int replicaNum = 0;
-                                    int quorum = replicationNum / 2 + 1;
-                                    for (Replica replica : tablet.getReplicas()) {
-                                        if (replica.getState() != ReplicaState.CLONE
-                                                && beIds.contains(replica.getBackendId())) {
-                                            replicaNum++;
+                        olapTable.readLock();
+                        try {
+                            for (Partition partition : olapTable.getPartitions()) {
+                                final short replicationNum = olapTable.getPartitionInfo()
+                                        .getReplicationNum(partition.getId());
+                                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                                    if (materializedIndex.getState() != IndexState.NORMAL) {
+                                        continue;
+                                    }
+                                    for (Tablet tablet : materializedIndex.getTablets()) {
+                                        int replicaNum = 0;
+                                        int quorum = replicationNum / 2 + 1;
+                                        for (Replica replica : tablet.getReplicas()) {
+                                            if (replica.getState() != ReplicaState.CLONE
+                                                    && beIds.contains(replica.getBackendId())) {
+                                                replicaNum++;
+                                            }
                                         }
-                                    }
-                                    if (replicaNum > quorum) {
-                                        replicaNum = quorum;
-                                    }
+                                        if (replicaNum > quorum) {
+                                            replicaNum = quorum;
+                                        }
 
-                                    tabletQuorum = tabletQuorum + replicaNum;
-                                    tabletTotal = tabletTotal + quorum;
+                                        tabletQuorum = tabletQuorum + replicaNum;
+                                        tabletTotal = tabletTotal + quorum;
+                                    }
                                 }
                             }
+                        } finally {
+                            olapTable.readUnlock();
                         }
                     }
                     final BaseParam info = new BaseParam();
@@ -6317,6 +6323,10 @@ public class Catalog {
             // lock all dbs
             for (Database db : lockedDbMap.values()) {
                 db.readLock();
+                List<Table> tableList = db.getOrderedTablesById();
+                for (Table table : tableList) {
+                    table.readLock();
+                }
             }
             LOG.info("acquired all the dbs' read lock.");
 
@@ -6336,9 +6346,12 @@ public class Catalog {
             // unlock all
             load.readUnlock();
             for (Database db : lockedDbMap.values()) {
+                List<Table> tableList = db.getOrderedTablesById();
+                for (int i = tableList.size() - 1; i >= 0; i--) {
+                    tableList.get(i).readUnlock();
+                }
                 db.readUnlock();
             }
-
             unlock();
         }
 
@@ -6370,17 +6383,18 @@ public class Catalog {
         }
 
         boolean truncateEntireTable = tblRef.getPartitionNames() == null;
-        db.readLock();
+
+        Table table = db.getTable(dbTbl.getTbl());
+        if (table == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, dbTbl.getTbl());
+        }
+
+        if (table.getType() != TableType.OLAP) {
+            throw new DdlException("Only support truncate OLAP table");
+        }
+
+        table.readLock();
         try {
-            Table table = db.getTable(dbTbl.getTbl());
-            if (table == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, dbTbl.getTbl());
-            }
-
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Only support truncate OLAP table");
-            }
-
             OlapTable olapTable = (OlapTable) table;
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
@@ -6403,7 +6417,7 @@ public class Catalog {
             
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true, IndexExtState.VISIBLE);
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
         
         // 2. use the copied table to create partitions

@@ -896,7 +896,6 @@ public class SystemInfoService {
         if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
             Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db != null) {
-                db.readLock();
                 try {
                     atomicLong.set(newReportVersion);
                     LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);

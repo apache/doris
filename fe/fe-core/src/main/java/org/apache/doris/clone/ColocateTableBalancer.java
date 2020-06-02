@@ -192,14 +192,13 @@ public class ColocateTableBalancer extends MasterDaemon {
             }
 
             boolean isGroupStable = true;
-            db.readLock();
-            try {
-                OUT: for (Long tableId : tableIds) {
-                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
-                        continue;
-                    }
-
+            OUT: for (Long tableId : tableIds) {
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
+                    continue;
+                }
+                olapTable.readLock();
+                try {
                     for (Partition partition : olapTable.getPartitions()) {
                         short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                         long visibleVersion = partition.getVisibleVersion();
@@ -241,19 +240,19 @@ public class ColocateTableBalancer extends MasterDaemon {
                             }
                         }
                     }
-                } // end for tables
-
-                // mark group as stable or unstable
-                if (isGroupStable) {
-                    colocateIndex.markGroupStable(groupId, true);
-                } else {
-                    colocateIndex.markGroupUnstable(groupId, true);
+                } finally {
+                    olapTable.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
+            } // end for tables
+
+            // mark group as stable or unstable
+            if (isGroupStable) {
+                colocateIndex.markGroupStable(groupId, true);
+            } else {
+                colocateIndex.markGroupUnstable(groupId, true);
             }
-        } // end for groups
-    }
+        }
+    } // end for groups
 
     /*
      * The balance logic is as follow:

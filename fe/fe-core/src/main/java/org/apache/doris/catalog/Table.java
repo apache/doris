@@ -62,7 +62,7 @@ public class Table extends MetaObject implements Writable {
     }
 
     protected long id;
-    protected String name;
+    protected volatile String name;
     protected TableType type;
     protected long createTime;
     protected ReentrantReadWriteLock rwLock;

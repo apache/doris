@@ -70,41 +70,41 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
     @Override
     protected void createEtlRequest() throws Exception {
-        db.readLock();
-        try {
-            EtlTaskConf taskConf = new EtlTaskConf();
-            // output path
-            taskConf.setOutputPath(getOutputPath());
-            // output file pattern
-            taskConf.setOutputFilePattern(job.getLabel() + ".%(table)s.%(view)s.%(bucket)s");
-            // tables (partitions)
-            Map<String, EtlPartitionConf> etlPartitions = createEtlPartitions();
-            Preconditions.checkNotNull(etlPartitions);
-            taskConf.setEtlPartitions(etlPartitions);
+        EtlTaskConf taskConf = new EtlTaskConf();
+        // output path
+        taskConf.setOutputPath(getOutputPath());
+        // output file pattern
+        taskConf.setOutputFilePattern(job.getLabel() + ".%(table)s.%(view)s.%(bucket)s");
+        // tables (partitions)
+        Map<String, EtlPartitionConf> etlPartitions = createEtlPartitions();
+        Preconditions.checkNotNull(etlPartitions);
+        taskConf.setEtlPartitions(etlPartitions);
     
-            LoadErrorHub.Param info = load.getLoadErrorHubInfo();
-            // hadoop load only support mysql load error hub
-            if (info != null && info.getType() == HubType.MYSQL_TYPE) {
-                taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
-            }
+        LoadErrorHub.Param info = load.getLoadErrorHubInfo();
+        // hadoop load only support mysql load error hub
+        if (info != null && info.getType() == HubType.MYSQL_TYPE) {
+            taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
+        }
     
-            etlTaskConf = taskConf.toDppTaskConf();
-            Preconditions.checkNotNull(etlTaskConf);
+        etlTaskConf = taskConf.toDppTaskConf();
+        Preconditions.checkNotNull(etlTaskConf);
 
-            // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(job.getDbId(), job.getTransactionId());
-            if (txnState == null) {
-                throw new LoadException("txn does not exist: " + job.getTransactionId());
+        // add table indexes to transaction state
+        TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(job.getDbId(), job.getTransactionId());
+        if (txnState == null) {
+            throw new LoadException("txn does not exist: " + job.getTransactionId());
+        }
+        for (long tableId : job.getIdToTableLoadInfo().keySet()) {
+            OlapTable table = (OlapTable) db.getTable(tableId);
+            if (table == null) {
+                throw new LoadException("table does not exist. id: " + tableId);
             }
-            for (long tableId : job.getIdToTableLoadInfo().keySet()) {
-                OlapTable table = (OlapTable) db.getTable(tableId);
-                if (table == null) {
-                    throw new LoadException("table does not exist. id: " + tableId);
-                }
+            table.readLock();
+            try {
                 txnState.addTableIndexes(table);
+            } finally {
+                table.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
     }
 

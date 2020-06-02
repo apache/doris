@@ -901,12 +901,13 @@ public class ReportHandler extends Daemon {
                 if (db == null) {
                     continue;
                 }
-                db.readLock();
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
+
+                olapTable.readLock();
                 try {
-                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null) {
-                        continue;
-                    }
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
                         continue;
@@ -916,7 +917,7 @@ public class ReportHandler extends Daemon {
                         tabletToInMemory.add(new ImmutableTriple<>(tabletId, tabletInfo.getSchemaHash(), feIsInMemory));
                     }
                 } finally {
-                    db.readUnlock();
+                    olapTable.readUnlock();
                 }
             }
         }
