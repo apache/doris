@@ -45,7 +45,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -109,7 +108,7 @@ public class MaterializedViewSelector {
         long start = System.currentTimeMillis();
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-
+        
         LOG.debug("baseID : " + olapScanNode.getOlapTable().getBaseIndexId());
         for (Map.Entry<Long, MaterializedIndexMeta> item : olapScanNode.getOlapTable().getIndexIdToMeta().entrySet()) {
             LOG.debug("indexID : " + item.getKey());
@@ -117,7 +116,8 @@ public class MaterializedViewSelector {
 
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
-        bestIndexId = 13029;
+        //bestIndexId = 10022;
+        bestIndexId = 18009;
         LOG.debug("The best materialized view is {} for scan node {} in query {}, cost {}",
                  bestIndexId, scanNode.getId(), selectStmt.toSql(), (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);

@@ -1125,6 +1125,7 @@ public:
                 }
                 break;
             case BITMAP:
+                std::cout << "bitmap cardinality : " << _bitmap.cardinality() << std::endl;
                 DCHECK(_bitmap.cardinality() > 1);
                 _bitmap.runOptimize();
                 _bitmap.shrinkToFit();
