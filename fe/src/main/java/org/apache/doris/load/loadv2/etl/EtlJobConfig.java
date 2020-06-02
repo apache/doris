@@ -116,7 +116,7 @@ import java.util.Map;
         }
     },
     "outputPath": "hdfs://hdfs_host:port/user/output/10003/label1/1582599203397",
-    "outputFilePattern": "label1.%d.%d.%d.%d.%d.parquet",
+    "outputFilePattern": "V1.label1.%d.%d.%d.%d.%d.parquet",
     "label": "label0",
     "properties": {
         "strictMode": false,
@@ -133,9 +133,9 @@ public class EtlJobConfig implements Serializable {
 
     // hdfsEtlPath/jobs/dbId/loadLabel/PendingTaskSignature
     private static final String ETL_OUTPUT_PATH_FORMAT = "%s/jobs/%d/%s/%d";
-    private static final String ETL_OUTPUT_FILE_NAME_DESC = "label.tableId.partitionId.indexId.bucket.schemaHash.parquet";
+    private static final String ETL_OUTPUT_FILE_NAME_DESC_V1 = "version.label.tableId.partitionId.indexId.bucket.schemaHash.parquet";
     // tableId.partitionId.indexId.bucket.schemaHash
-    public static final String ETL_OUTPUT_FILE_NAME_NO_LABEL_SUFFIX_FORMAT = "%d.%d.%d.%d.%d";
+    public static final String TABLET_META_FORMAT = "%d.%d.%d.%d.%d";
     public static final String ETL_OUTPUT_FILE_FORMAT = "parquet";
 
     // dpp result
@@ -151,8 +151,8 @@ public class EtlJobConfig implements Serializable {
     public String label;
     @SerializedName(value = "properties")
     public EtlJobProperty properties;
-    @SerializedName(value = "version")
-    public Version version;
+    @SerializedName(value = "configVersion")
+    public ConfigVersion configVersion;
 
     public EtlJobConfig(Map<Long, EtlTable> tables, String outputFilePattern, String label, EtlJobProperty properties) {
         this.tables = tables;
@@ -161,7 +161,7 @@ public class EtlJobConfig implements Serializable {
         this.outputFilePattern = outputFilePattern;
         this.label = label;
         this.properties = properties;
-        this.version = Version.V1;
+        this.configVersion = ConfigVersion.V1;
     }
 
     @Override
@@ -172,7 +172,7 @@ public class EtlJobConfig implements Serializable {
                 ", outputFilePattern='" + outputFilePattern + '\'' +
                 ", label='" + label + '\'' +
                 ", properties=" + properties +
-                ", version=" + version +
+                ", version=" + configVersion +
                 '}';
     }
 
@@ -184,21 +184,35 @@ public class EtlJobConfig implements Serializable {
         return String.format(ETL_OUTPUT_PATH_FORMAT, hdfsEtlPath, dbId, loadLabel, taskSignature);
     }
 
+    public static String getOutputFilePattern(String loadLabel, FilePatternVersion filePatternVersion) {
+        return String.format("%s.%s.%s.%s", filePatternVersion.name(), loadLabel, TABLET_META_FORMAT, ETL_OUTPUT_FILE_FORMAT);
+    }
+
     public static String getDppResultFilePath(String outputPath) {
         return outputPath + "/" + DPP_RESULT_NAME;
     }
 
     public static String getTabletMetaStr(String filePath) throws Exception {
-        // ETL_OUTPUT_FILE_NAME_DESC
         String fileName = filePath.substring(filePath.lastIndexOf("/") + 1);
         String[] fileNameArr = fileName.split("\\.");
-        if (fileNameArr.length != ETL_OUTPUT_FILE_NAME_DESC.split("\\.").length) {
-            throw new Exception("etl output file name error, format: " + ETL_OUTPUT_FILE_NAME_DESC
-                                        + ", name: " + fileName);
+        // check file version
+        switch (FilePatternVersion.valueOf(fileNameArr[0])) {
+            case V1:
+                // version.label.tableId.partitionId.indexId.bucket.schemaHash.parquet
+                if (fileNameArr.length != ETL_OUTPUT_FILE_NAME_DESC_V1.split("\\.").length) {
+                    throw new Exception("etl output file name error, format: " + ETL_OUTPUT_FILE_NAME_DESC_V1
+                                                + ", name: " + fileName);
+                }
+                long tableId = Long.parseLong(fileNameArr[2]);
+                long partitionId = Long.parseLong(fileNameArr[3]);
+                long indexId = Long.parseLong(fileNameArr[4]);
+                int bucket = Integer.parseInt(fileNameArr[5]);
+                int schemaHash = Integer.parseInt(fileNameArr[6]);
+                // tableId.partitionId.indexId.bucket.schemaHash
+                return String.format(TABLET_META_FORMAT, tableId, partitionId, indexId, bucket, schemaHash);
+            default:
+                throw new Exception("etl output file version error. version: " + fileNameArr[0]);
         }
-
-        // tableId.partitionId.indexId.bucket.schemaHash
-        return fileName.substring(fileName.indexOf(".") + 1, fileName.lastIndexOf("."));
     }
 
     public String configToJson() {
@@ -229,7 +243,11 @@ public class EtlJobConfig implements Serializable {
         }
     }
 
-    public static enum Version {
+    public static enum ConfigVersion {
+        V1
+    }
+
+    public static enum FilePatternVersion {
         V1
     }
 
@@ -492,6 +510,12 @@ public class EtlJobConfig implements Serializable {
         }
     }
 
+    /**
+     * FunctionCallExpr = functionName(args)
+     * For compatibility with old designed functions used in Hadoop MapReduce etl
+     *
+     * expr is more general, like k1 + 1, not just FunctionCall
+     */
     public static class EtlColumnMapping implements Serializable {
         @SerializedName(value = "functionName")
         public String functionName;
@@ -499,10 +523,9 @@ public class EtlJobConfig implements Serializable {
         public List<String> args;
         @SerializedName(value = "expr")
         public String expr;
-        public Map<String, String> functionMap =
-                new ImmutableMap.Builder<String, String>().
-                        put("md5sum", "md5").build();
 
+        private static Map<String, String> functionMap = new ImmutableMap.Builder<String, String>()
+                .put("md5sum", "md5").build();
 
         public EtlColumnMapping(String functionName, List<String> args) {
             this.functionName = functionName;
