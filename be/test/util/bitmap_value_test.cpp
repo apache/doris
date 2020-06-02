@@ -14,14 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "util/bitmap_value.h"
+
 
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <string>
-#include <vector>
 
 #include "util/coding.h"
+
+#define private public
+#include "util/bitmap_value.h"
 
 namespace doris {
 
@@ -303,6 +305,21 @@ TEST(BitmapValueTest, bitmap_to_string) {
     ASSERT_STREQ("1", empty.to_string().c_str());
     empty.add(2);
     ASSERT_STREQ("1,2", empty.to_string().c_str());
+}
+
+TEST(BitmapValueTest, bitmap_single_convert) {
+    BitmapValue bitmap;
+    ASSERT_STREQ("", bitmap.to_string().c_str());
+    bitmap.add(1);
+    ASSERT_STREQ("1", bitmap.to_string().c_str());
+    bitmap.add(1);
+    ASSERT_STREQ("1", bitmap.to_string().c_str());
+    ASSERT_EQ(BitmapValue::SINGLE, bitmap._type);
+
+    BitmapValue bitmap_u;
+    bitmap_u.add(1);
+    bitmap |= bitmap_u;
+    ASSERT_EQ(BitmapValue::SINGLE, bitmap._type);
 }
 } // namespace doris
 
