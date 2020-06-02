@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "olap/olap_common.h"
+#include "google/protobuf/util/message_differencer.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "common/logging.h"
@@ -390,6 +391,17 @@ private:
             }
             set_num_segments(num_segments);
         }
+    }
+
+    friend bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
+        if (a._rowset_id != b._rowset_id) return false;
+        if (a._is_removed_from_rowset_meta != b._is_removed_from_rowset_meta) return false;
+        if (!google::protobuf::util::MessageDifferencer::Equals(a._rowset_meta_pb, b._rowset_meta_pb)) return false;
+        return true;
+    }
+
+    friend bool operator!=(const RowsetMeta& a, const RowsetMeta& b) {
+        return !(a == b);
     }
 
 private:

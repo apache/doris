@@ -52,6 +52,9 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
 
+    friend bool operator==(const TabletColumn& a, const TabletColumn& b);
+    friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
+
     static std::string get_string_by_field_type(FieldType type);
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
@@ -85,9 +88,12 @@ private:
     bool _has_bitmap_index = false;
 };
 
+bool operator==(const TabletColumn& a, const TabletColumn& b);
+bool operator!=(const TabletColumn& a, const TabletColumn& b);
+
 class TabletSchema {
 public:
-    TabletSchema();
+    TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
     size_t row_size() const;
@@ -107,21 +113,29 @@ public:
     inline void set_is_in_memory (bool is_in_memory) {
         _is_in_memory = is_in_memory;
     }
+
 private:
-    KeysType _keys_type;
+    friend bool operator==(const TabletSchema& a, const TabletSchema& b);
+    friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
+
+private:
+    KeysType _keys_type = DUP_KEYS;
     std::vector<TabletColumn> _cols;
-    size_t _num_columns;
-    size_t _num_key_columns;
-    size_t _num_null_columns;
-    size_t _num_short_key_columns;
-    size_t _num_rows_per_row_block;
-    CompressKind _compress_kind;
-    size_t _next_column_unique_id;
+    size_t _num_columns = 0;
+    size_t _num_key_columns = 0;
+    size_t _num_null_columns = 0;
+    size_t _num_short_key_columns = 0;
+    size_t _num_rows_per_row_block = 0;
+    CompressKind _compress_kind = COMPRESS_NONE;
+    size_t _next_column_unique_id = 0;
 
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
 };
+
+bool operator==(const TabletSchema& a, const TabletSchema& b);
+bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 } // namespace doris
 
