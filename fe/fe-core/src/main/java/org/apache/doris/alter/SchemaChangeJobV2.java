@@ -717,16 +717,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            // table may be dropped before replaying this log. just return
+            return;
+        }
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                // table may be dropped before replaying this log. just return
-                return;
-            }
             addShadowIndexToCatalog(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
@@ -742,14 +742,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private void replayFinished(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
-            db.writeLock();
-            try {
-                OlapTable tbl = (OlapTable) db.getTable(tableId);
-                if (tbl != null) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl != null) {
+                tbl.writeLock();
+                try {
                     onFinished(tbl);
+                } finally {
+                    tbl.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
+
             }
         }
         jobState = JobState.FINISHED;

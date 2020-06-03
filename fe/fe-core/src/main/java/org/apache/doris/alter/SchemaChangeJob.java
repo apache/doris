@@ -666,16 +666,16 @@ public class SchemaChangeJob extends AlterJob {
             return -1;
         }
 
-        db.writeLock();
+        Table table = db.getTable(tableId);
+        if (table == null) {
+            cancelMsg = String.format("table %d does not exist", tableId);
+            LOG.warn(cancelMsg);
+            return -1;
+        }
+
+        table.writeLock();
         try {
             synchronized (this) {
-                Table table = db.getTable(tableId);
-                if (table == null) {
-                    cancelMsg = String.format("table %d does not exist", tableId);
-                    LOG.warn(cancelMsg);
-                    return -1;
-                }
-
                 boolean hasUnfinishedPartition = false;
                 OlapTable olapTable = (OlapTable) table;
                 for (Partition partition : olapTable.getPartitions()) {
@@ -867,7 +867,7 @@ public class SchemaChangeJob extends AlterJob {
                 this.transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             }
         } finally {
-            db.writeUnlock();
+            table.writeUnlock();
         }
 
         Catalog.getCurrentCatalog().getEditLog().logFinishingSchemaChange(this);
@@ -959,10 +959,12 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void replayFinishing(Database db) {
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            return;
+        }
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-
             // set the status to normal
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
@@ -1028,7 +1030,7 @@ public class SchemaChangeJob extends AlterJob {
                 olapTable.setBloomFilterInfo(bfColumns, bfFpp);
             } // end for partitions
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         LOG.info("replay finishing schema change job: {}", tableId);

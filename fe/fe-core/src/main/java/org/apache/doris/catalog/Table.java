@@ -49,6 +49,10 @@ import java.util.stream.Collectors;
 public class Table extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Table.class);
 
+    // empirical value.
+    // assume that the time a lock is held by thread is less then 100ms
+    public static final long TRY_LOCK_TIMEOUT_MS = 100L;
+
     public enum TableType {
         MYSQL,
         ODBC,

@@ -652,19 +652,18 @@ public class RestoreJob extends AbstractJob {
             
             if (ok) {
                 LOG.debug("finished to create all restored replcias. {}", this);
-                // add all restored partition and tbls to catalog
-                db.writeLock();
-                try {
-                    // add restored partitions.
-                    // table should be in State RESTORE, so no other partitions can be
-                    // added to or removed from this table during the restore process.
-                    for (Pair<String, Partition> entry : restoredPartitions) {
-                        OlapTable localTbl = (OlapTable) db.getTable(entry.first);
+                // add restored partitions.
+                // table should be in State RESTORE, so no other partitions can be
+                // added to or removed from this table during the restore process.
+                for (Pair<String, Partition> entry : restoredPartitions) {
+                    OlapTable localTbl = (OlapTable) db.getTable(entry.first);
+                    localTbl.writeLock();
+                    try {
                         Partition restoredPart = entry.second;
                         OlapTable remoteTbl = (OlapTable) backupMeta.getTable(entry.first);
                         RangePartitionInfo localPartitionInfo = (RangePartitionInfo) localTbl.getPartitionInfo();
                         RangePartitionInfo remotePartitionInfo = (RangePartitionInfo) remoteTbl.getPartitionInfo();
-                        BackupPartitionInfo backupPartitionInfo 
+                        BackupPartitionInfo backupPartitionInfo
                                 = jobInfo.getTableInfo(entry.first).getPartInfo(restoredPart.getName());
                         long remotePartId = backupPartitionInfo.id;
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
@@ -673,18 +672,25 @@ public class RestoreJob extends AbstractJob {
                                 remoteDataProperty, (short) restoreReplicationNum,
                                 remotePartitionInfo.getIsInMemory(remotePartId));
                         localTbl.addPartition(restoredPart);
+                    } finally {
+                        localTbl.writeUnlock();
                     }
 
-                    // add restored tables
-                    for (OlapTable tbl : restoredTbls) {
+                }
+
+                // add restored tables
+                for (OlapTable tbl : restoredTbls) {
+                    db.writeLock();
+                    try {
                         if (!db.createTable(tbl)) {
                             status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
                                     + " already exist in db: " + db.getFullName());
                             return;
                         }
+                    } finally {
+                        db.writeUnlock();
                     }
-                } finally {
-                    db.writeUnlock();
+
                 }
             } else {
                 List<Entry<Long, Long>> unfinishedMarks = latch.getLeftMarks();
@@ -907,51 +913,62 @@ public class RestoreJob extends AbstractJob {
 
     private void replayCheckAndPrepareMeta() {
         Database db = catalog.getDb(dbId);
-        db.writeLock();
-        try {
-            // replay set all existing tables's state to RESTORE
-            for (BackupTableInfo tblInfo : jobInfo.tables.values()) {
-                Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
-                if (tbl == null) {
-                    continue;
-                }
-                OlapTable olapTbl = (OlapTable) tbl;
-                olapTbl.setState(OlapTableState.RESTORE);
+
+        // replay set all existing tables's state to RESTORE
+        for (BackupTableInfo tblInfo : jobInfo.tables.values()) {
+            Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
+            if (tbl == null) {
+                continue;
             }
+            OlapTable olapTbl = (OlapTable) tbl;
+            tbl.writeLock();
+            try {
+                olapTbl.setState(OlapTableState.RESTORE);
+            } finally {
+                tbl.writeUnlock();
+            }
+        }
 
-            // restored partitions
-            for (Pair<String, Partition> entry : restoredPartitions) {
-                OlapTable localTbl = (OlapTable) db.getTable(entry.first);
-                Partition restorePart = entry.second;
-                OlapTable remoteTbl = (OlapTable) backupMeta.getTable(entry.first);
-                RangePartitionInfo localPartitionInfo = (RangePartitionInfo) localTbl.getPartitionInfo();
-                RangePartitionInfo remotePartitionInfo = (RangePartitionInfo) remoteTbl.getPartitionInfo();
-                BackupPartitionInfo backupPartitionInfo = jobInfo.getTableInfo(entry.first).getPartInfo(restorePart.getName());
-                long remotePartId = backupPartitionInfo.id;
-                Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
-                DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                localPartitionInfo.addPartition(restorePart.getId(), false, remoteRange,
-                        remoteDataProperty, (short) restoreReplicationNum,
-                        remotePartitionInfo.getIsInMemory(remotePartId));
-                localTbl.addPartition(restorePart);
+        // restored partitions
+        for (Pair<String, Partition> entry : restoredPartitions) {
+            OlapTable localTbl = (OlapTable) db.getTable(entry.first);
+            Partition restorePart = entry.second;
+            OlapTable remoteTbl = (OlapTable) backupMeta.getTable(entry.first);
+            RangePartitionInfo localPartitionInfo = (RangePartitionInfo) localTbl.getPartitionInfo();
+            RangePartitionInfo remotePartitionInfo = (RangePartitionInfo) remoteTbl.getPartitionInfo();
+            BackupPartitionInfo backupPartitionInfo = jobInfo.getTableInfo(entry.first).getPartInfo(restorePart.getName());
+            long remotePartId = backupPartitionInfo.id;
+            Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
+            DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
+            localPartitionInfo.addPartition(restorePart.getId(), false, remoteRange,
+                    remoteDataProperty, (short) restoreReplicationNum,
+                    remotePartitionInfo.getIsInMemory(remotePartId));
+            localTbl.addPartition(restorePart);
 
-                // modify tablet inverted index
-                for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
-                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
-                    for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                        Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
-                        for (Replica restoreReplica : restoreTablet.getReplicas()) {
-                            Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                        }
+            // modify tablet inverted index
+            for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
+                TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                        restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
+                for (Tablet restoreTablet : restoreIdx.getTablets()) {
+                    Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
+                    for (Replica restoreReplica : restoreTablet.getReplicas()) {
+                        Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
                     }
                 }
             }
+        }
 
-            // restored tables
-            for (OlapTable restoreTbl : restoredTbls) {
+        // restored tables
+        for (OlapTable restoreTbl : restoredTbls) {
+            db.writeLock();
+            try {
                 db.createTable(restoreTbl);
+            } finally {
+                db.writeUnlock();
+            }
+            restoreTbl.writeLock();
+            try {
                 // modify tablet inverted index
                 for (Partition restorePart : restoreTbl.getPartitions()) {
                     for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -966,11 +983,10 @@ public class RestoreJob extends AbstractJob {
                         }
                     }
                 }
+            } finally {
+                restoreTbl.writeUnlock();
             }
-        } finally {
-            db.writeUnlock();
         }
-
         LOG.info("replay check and prepare meta. {}", this);
     }
 
@@ -1200,17 +1216,16 @@ public class RestoreJob extends AbstractJob {
         }
 
         // set all restored partition version and version hash
-        db.writeLock();
-        try {
-            // set all tables' state to NORMAL
-            setTableStateToNormal(db);
-
-            for (long tblId : restoredVersionInfo.rowKeySet()) {
-                Table tbl = db.getTable(tblId);
-                if (tbl == null) {
-                    continue;
-                }
-                OlapTable olapTbl = (OlapTable) tbl;
+        // set all tables' state to NORMAL
+        setTableStateToNormal(db);
+        for (long tblId : restoredVersionInfo.rowKeySet()) {
+            Table tbl = db.getTable(tblId);
+            if (tbl == null) {
+                continue;
+            }
+            OlapTable olapTbl = (OlapTable) tbl;
+            tbl.writeLock();
+            try {
                 Map<Long, Pair<Long, Long>> map = restoredVersionInfo.rowMap().get(tblId);
                 for (Map.Entry<Long, Pair<Long, Long>> entry : map.entrySet()) {
                     long partId = entry.getKey();
@@ -1229,18 +1244,18 @@ public class RestoreJob extends AbstractJob {
                                 if (!replica.checkVersionCatchUp(part.getVisibleVersion(),
                                         part.getVisibleVersionHash(), false)) {
                                     replica.updateVersionInfo(part.getVisibleVersion(), part.getVisibleVersionHash(),
-                                                       replica.getDataSize(), replica.getRowCount());
+                                            replica.getDataSize(), replica.getRowCount());
                                 }
                             }
                         }
                     }
 
                     LOG.debug("restore set partition {} version in table {}, version: {}, version hash: {}",
-                              partId, tblId, entry.getValue().first, entry.getValue().second);
+                            partId, tblId, entry.getValue().first, entry.getValue().second);
                 }
+            } finally {
+                tbl.writeUnlock();
             }
-        } finally {
-            db.writeUnlock();
         }
 
         if (!isReplay) {
@@ -1364,14 +1379,14 @@ public class RestoreJob extends AbstractJob {
         // clean restored objs
         Database db = catalog.getDb(dbId);
         if (db != null) {
-            db.writeLock();
-            try {
-                // rollback table's state to NORMAL
-                setTableStateToNormal(db);
+            // rollback table's state to NORMAL
+            setTableStateToNormal(db);
 
-                // remove restored tbls
-                for (OlapTable restoreTbl : restoredTbls) {
-                    LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
+            // remove restored tbls
+            for (OlapTable restoreTbl : restoredTbls) {
+                LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
+                restoreTbl.writeLock();
+                try {
                     for (Partition part : restoreTbl.getPartitions()) {
                         for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Tablet tablet : idx.getTablets()) {
@@ -1379,17 +1394,27 @@ public class RestoreJob extends AbstractJob {
                             }
                         }
                     }
-                    db.dropTable(restoreTbl.getName());
+                } finally {
+                    restoreTbl.writeUnlock();
                 }
+                db.writeLock();
+                try {
+                    db.dropTable(restoreTbl.getName());
+                } finally {
+                    db.writeUnlock();
+                }
+            }
 
-                // remove restored partitions
-                for (Pair<String, Partition> entry : restoredPartitions) {
-                    OlapTable restoreTbl = (OlapTable) db.getTable(entry.first);
-                    if (restoreTbl == null) {
-                        continue;
-                    }
-                    LOG.info("remove restored partition in table {} when cancelled: {}",
-                             restoreTbl.getName(), entry.second.getName());
+            // remove restored partitions
+            for (Pair<String, Partition> entry : restoredPartitions) {
+                OlapTable restoreTbl = (OlapTable) db.getTable(entry.first);
+                if (restoreTbl == null) {
+                    continue;
+                }
+                LOG.info("remove restored partition in table {} when cancelled: {}",
+                        restoreTbl.getName(), entry.second.getName());
+                restoreTbl.writeLock();
+                try {
                     for (MaterializedIndex idx : entry.second.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
@@ -1397,9 +1422,10 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     restoreTbl.dropPartition(dbId, entry.second.getName(), true /* is restore */);
+                } finally {
+                    restoreTbl.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
+
             }
         }
 
@@ -1436,9 +1462,14 @@ public class RestoreJob extends AbstractJob {
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
-            if (olapTbl.getState() == OlapTableState.RESTORE
-                    || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {
-                olapTbl.setState(OlapTableState.NORMAL);
+            tbl.writeLock();
+            try {
+                if (olapTbl.getState() == OlapTableState.RESTORE
+                        || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {
+                    olapTbl.setState(OlapTableState.NORMAL);
+                }
+            } finally {
+                tbl.writeUnlock();
             }
         }
     }
