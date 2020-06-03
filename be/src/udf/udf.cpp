@@ -122,7 +122,7 @@ void FunctionContextImpl::close() {
     _closed = true;
 }
 
-uint8_t* FunctionContextImpl::allocate_local(int byte_size) {
+uint8_t* FunctionContextImpl::allocate_local(int64_t byte_size) {
     uint8_t* buffer = _pool->allocate(byte_size);
     _local_allocations.push_back(buffer);
     return buffer;
@@ -365,12 +365,12 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     }
 }
 
-StringVal::StringVal(FunctionContext* context, int len) : 
-        len(len), 
+StringVal::StringVal(FunctionContext* context, int64_t len) :
+        len(len),
         ptr(context->impl()->allocate_local(len)) {
 }
 
-bool StringVal::resize(FunctionContext* ctx, int new_len) {
+bool StringVal::resize(FunctionContext* ctx, int64_t new_len) {
     if (new_len <= len) {
         len = new_len;
         return true;
@@ -398,7 +398,7 @@ StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, size_t 
     return result;
 }
 
-StringVal StringVal::create_temp_string_val(FunctionContext* ctx, int len) {
+StringVal StringVal::create_temp_string_val(FunctionContext* ctx, int64_t len) {
     ctx->impl()->string_result().resize(len);
     return StringVal((uint8_t*)ctx->impl()->string_result().c_str(), len);
 }

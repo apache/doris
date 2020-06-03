@@ -51,7 +51,7 @@ public:
     virtual ~FreePool() {}
 
     // Allocates a buffer of size.
-    uint8_t* allocate(int size) {
+    uint8_t* allocate(int64_t size) {
         // This is the typical malloc behavior. NULL is reserved for failures.
         if (size == 0) {
             return reinterpret_cast<uint8_t*>(0x1);
@@ -98,7 +98,7 @@ public:
     // Returns an allocation that is at least 'size'. If the current allocation
     // backing 'ptr' is big enough, 'ptr' is returned. Otherwise a new one is
     // made and the contents of ptr are copied into it.
-    uint8_t* reallocate(uint8_t* ptr, int size) {
+    uint8_t* reallocate(uint8_t* ptr, int64_t size) {
         if (ptr == NULL || reinterpret_cast<int64_t>(ptr) == 0x1) {
             return allocate(size);
         }
