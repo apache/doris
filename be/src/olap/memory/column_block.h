@@ -34,7 +34,11 @@ public:
 
     Buffer& data() { return _data; }
 
+    const Buffer& data() const { return _data; }
+
     Buffer& nulls() { return _nulls; }
+
+    const Buffer& nulls() const { return _nulls; }
 
     // Allocate memory for this block, with space for size elements and each
     // element have esize byte size
