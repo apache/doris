@@ -21,16 +21,18 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
+
+import org.apache.commons.io.FileUtils;
+import org.junit.Before;
+import org.junit.Test;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import org.apache.commons.io.FileUtils;
-import org.apache.doris.common.UserException;
-import org.junit.Before;
-import org.junit.Test;
 
 import mockit.Expectations;
 
@@ -56,10 +58,10 @@ public class PluginZipTest {
             // normal
             new Expectations(zip) {
                 {
-                    zip.openUrlInputStream("source/test.zip");
+                    Util.getInputStreamFromUrl("source/test.zip", null, 5000, 5000);
                     result = PluginTestUtil.openTestFile("source/test.zip");
 
-                    zip.openUrlInputStream("source/test.zip.md5");
+                    Util.getInputStreamFromUrl("source/test.zip.md5", null, 5000, 5000);
                     result = new ByteArrayInputStream(new String("7529db41471ec72e165f96fe9fb92742").getBytes());
                 }
             };
@@ -80,10 +82,10 @@ public class PluginZipTest {
         try {
             new Expectations(util) {
                 {
-                    util.openUrlInputStream("source/test.zip");
+                    Util.getInputStreamFromUrl("source/test.zip", null, 5000, 5000);
                     result = PluginTestUtil.openTestFile("source/test.zip");
 
-                    util.openUrlInputStream("source/test.zip.md5");
+                    Util.getInputStreamFromUrl("source/test.zip.md5", null, 5000, 5000);
                     result = new ByteArrayInputStream(new String("asdfas").getBytes());
                 }
             };

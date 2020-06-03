@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
-import org.apache.commons.codec.binary.Base64;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
