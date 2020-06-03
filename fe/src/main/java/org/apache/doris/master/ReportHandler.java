@@ -249,13 +249,6 @@ public class ReportHandler extends Daemon {
         LOG.info("backend[{}] reports {} tablet(s). report version: {}",
                  backendId, backendTablets.size(), backendReportVersion);
 
-        final SystemInfoService currentSystemInfo = Catalog.getCurrentSystemInfo();
-        Backend reportBackend = currentSystemInfo.getBackend(backendId);
-        if (reportBackend != null) {
-            BackendStatus backendStatus = reportBackend.getBackendStatus();
-            backendStatus.lastTabletReportTime = TimeUtils.longToTimeString(start);
-        }
-
         // storage medium map
         HashMap<Long, TStorageMedium> storageMediumMap = Catalog.getInstance().getPartitionIdToStorageMediumMap();
 
@@ -318,7 +311,14 @@ public class ReportHandler extends Daemon {
 
         // 10. send set tablet in memory to be
         handleSetTabletInMemory(backendId, backendTablets);
-        
+
+        final SystemInfoService currentSystemInfo = Catalog.getCurrentSystemInfo();
+        Backend reportBackend = currentSystemInfo.getBackend(backendId);
+        if (reportBackend != null) {
+            BackendStatus backendStatus = reportBackend.getBackendStatus();
+            backendStatus.lastSuccessReportTabletsTime = TimeUtils.longToTimeString(start);
+        }
+
         long end = System.currentTimeMillis();
         LOG.info("tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }

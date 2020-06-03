@@ -651,7 +651,7 @@ public class Backend implements Writable {
      *     status.newItem = xxx;
      */
     public class BackendStatus {
-        public String lastTabletReportTime = "N/A";
+        public String lastSuccessReportTabletsTime = "N/A";
     }
 }
 
