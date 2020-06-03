@@ -31,7 +31,9 @@ set -eo pipefail
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
-export DORIS_HOME=${ROOT}
+export DORIS_HOME=$(dirname "$PWD")
+echo ${DORIS_HOME}
+export CUSTOM_UDF_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
@@ -111,22 +113,22 @@ echo "Get params:
     CLEAN       -- $CLEAN
 "
 
-cd ${DORIS_HOME}
+cd ${CUSTOM_UDF_HOME}
 # Clean and build UDF
 if [ ${BUILD_UDF} -eq 1 ] ; then
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
     echo "Build UDF: ${CMAKE_BUILD_TYPE}"
-    CMAKE_BUILD_DIR=${DORIS_HOME}/custom_udf/build_${CMAKE_BUILD_TYPE}
+    CMAKE_BUILD_DIR=${CUSTOM_UDF_HOME}/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
         rm -rf $CMAKE_BUILD_DIR
-        rm -rf ${DORIS_HOME}/custom_udf/output/
+        rm -rf ${CUSTOM_UDF_HOME}/output/
     fi
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
     ${CMAKE_CMD} -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ../
     make -j${PARALLEL} VERBOSE=1
     make install
-    cd ${DORIS_HOME}
+    cd ${CUSTOM_UDF_HOME}
 fi
 
 # Clean and prepare output dir
@@ -135,7 +137,7 @@ mkdir -p ${DORIS_OUTPUT}
 
 #Copy UDF
 if [ ${BUILD_UDF} -eq 1 ]; then
-    install -d ${DORIS_OUTPUT}/custom_udf/lib 
+    install -d ${DORIS_OUTPUT}/custom_udf/lib
     for dir in "$(ls ${CMAKE_BUILD_DIR}/src)"
     do
       mkdir -p ${DORIS_OUTPUT}/custom_udf/lib/$dir

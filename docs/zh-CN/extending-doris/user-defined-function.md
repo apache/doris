@@ -30,7 +30,7 @@ under the License.
 
 ## 编写UDF函数
 
-在使用UDF之前，用户需要先在Doris的UDF框架下，编写自己的UDF函数。在`be/src/udf_samples/udf_sample.h|cpp`文件中是一个简单的UDF Demo。
+在使用UDF之前，用户需要先在Doris的UDF框架下，编写自己的UDF函数。在`custom_udf/src/udf_samples/udf_sample.h|cpp`文件中是一个简单的UDF Demo。
 
 编写一个UDF函数需要以下几个步骤。
 
@@ -74,23 +74,122 @@ under the License.
 |Varchar|StringVal|
 |Decimal|DecimalVal|
 
-## 编译UDF函数
+### 编写完成后的目录结构
+
+这里以 udf_sample 为例, 在 src dir 下面创建一个 `udf_samples` 目录用于存放 source code.
+
+```
+
+├── be
+├── custom_udf
+│   ├── CMakeLists.txt
+│   ├── build_custom_udf.sh
+│   └── src
+│       └── udf_samples
+│           ├── CMakeLists.txt
+│           ├── uda_sample.cpp
+│           ├── uda_sample.h
+│           ├── udf_sample.cpp
+│           └── udf_sample.h
+
+```
+
+## 编译 UDF 函数
+
+由于用户自己实现的 function 中依赖了 Doris 的 udf , 所以在编译 UDF 函数的时候首先对 Doris 进行编译。然后再编译用户自己实现的 UDF 即可。
 
 ### 编译Doris
 
 在Doris根目录下执行`sh build.sh`就会在`output/udf/`生成对应`headers|libs`
 
-### 编写CMakeLists.txt
+```
+├── output
+│   └── udf
+│       ├── include
+│       │   ├── uda_test_harness.h
+│       │   └── udf.h
+│       └── lib
+│           └── libDorisUdf.a
 
-基于上一步生成的`headers|libs`，用户可以使用`CMakeLists`等工具引入该依赖；在`CMakeLists`中，可以通过向`CMAKE_CXX_FLAGS`添加`-I|L`分别指定`headers|libs`路径；然后使用`add_library`添加动态库。例如，在`be/src/udf_samples/CMakeLists.txt`中，使用`add_library(udfsample SHARED udf_sample.cpp)` `target_link_libraries`(udfsample -static-libstdc++ -static-libgcc)增加了一个`udfsample`动态库。后面需要写上涉及的所有源文件（不包含头文件）。
+```
+
+### 编写自定义 UDF 的 CMakeLists.txt
+
+1. 在 `custom_udf/CMakeLists.txt` 下增加对自定义 UDF 的编译。以 udf_samples 为例
+
+    ```
+    ├── be
+    ├── custom_udf
+    │   ├── CMakeLists.txt
+    │   └── src
+
+    
+    custom_udf/CMakeLists.txt
+    ...
+    add_subdirectory(${SRC_DIR}/udf_samples)
+    ...
+
+    ```
+
+2. 在自定义 UDF 中增加依赖。以 udf_samples 为例，
+
+    由于 udf_samples 中的代码都没有依赖任何其他库，则不需要声明。
+    
+    如果代码中依赖了比如 Doris UDF 中对 `StringVal` 的函数，则需要声明依赖了 udf。修改 `udf_samples/CMakeFiles.txt`:
+
+    ```
+    ├── be
+    ├── custom_udf
+    │   ├── CMakeLists.txt
+    │   └── src
+    │       └── udf_samples
+    │           ├── CMakeLists.txt
+    
+    custom_udf/src/udf_samples/CMakeFiles.txt
+    ...
+    target_link_libraries(udfsample
+        udf
+        -static-libstdc++
+        -static-libgcc
+    )    
+    ...
+
+    ```
 
 ### 执行编译
 
-在该目录下创建一个`build`目录并在`build`下执行`cmake ../`生成`Makefile`，并执行`make`就会生成对应动态库。
+运行 custom_udf 下的 `build_custom_udf.sh`
+
+```
+├── be
+├── custom_udf
+│   ├── build_custom_udf.sh
+
+build_custom_udf.sh --udf --clean
+
+```
+
+这个编译脚本如果默认不传入任何参数，则直接编译并且不 clean。如果需要 clean 后再编译则需要加上参数 `--udf --clean`
+
+### 编译结果
+
+编译完成后的动态链接库被放在了 `output/custom_udf/` 下，以 udf_samples 为例，目录结构如下：
+
+```
+
+├── output
+│   ├── be
+│   ├── custom_udf
+│   │   └── lib
+│   │       └── udf_samples
+│   │           ├── libudasample.so
+│   │           └── libudfsample.so
+
+```
 
 ## 创建UDF函数
 
-通过上述的步骤后，你可以得到一个动态库。你需要将这个动态库放到一个能够通过HTTP协议访问到的位置。然后执行创建UDF函数在Doris系统内部创建一个UDF，你需要拥有AMDIN权限才能够完成这个操作。
+通过上述的步骤后，你可以得到一个动态库。你需要将这个动态库放到一个能够通过 HTTP 协议访问到的位置。然后执行创建 UDF 函数在 Doris 系统内部创建一个 UDF，你需要拥有AMDIN权限才能够完成这个操作。
 
 ```
 CREATE [AGGREGATE] FUNCTION 
