@@ -215,11 +215,11 @@ public class CheckConsistencyJob {
 
         if (state != JobState.RUNNING) {
             // failed to send task. set tablet's checked version and version hash to avoid choosing it again
-            db.writeLock();
+            table.writeLock();
             try {
                 tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
             } finally {
-                db.writeUnlock();
+                table.writeUnlock();
             }
             return false;
         }
@@ -260,13 +260,13 @@ public class CheckConsistencyJob {
         }
 
         boolean isConsistent = true;
-        db.writeLock();
+        Table table = db.getTable(tabletMeta.getTableId());
+        if (table == null) {
+            LOG.warn("table[{}] does not exist", tabletMeta.getTableId());
+            return -1;
+        }
+        table.writeLock();
         try {
-            Table table = db.getTable(tabletMeta.getTableId());
-            if (table == null) {
-                LOG.warn("table[{}] does not exist", tabletMeta.getTableId());
-                return -1;
-            }
             OlapTable olapTable = (OlapTable) table;
 
             Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
@@ -369,7 +369,7 @@ public class CheckConsistencyJob {
             return 1;
 
         } finally {
-            db.writeUnlock();
+            table.writeUnlock();
         }
     }
 

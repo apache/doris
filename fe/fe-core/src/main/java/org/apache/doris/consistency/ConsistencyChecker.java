@@ -371,9 +371,9 @@ public class ConsistencyChecker extends MasterDaemon {
 
     public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Catalog catalog) {
         Database db = catalog.getDb(info.getDbId());
-        db.writeLock();
+        OlapTable table = (OlapTable) db.getTable(info.getTableId());
+        table.writeLock();
         try {
-            OlapTable table = (OlapTable) db.getTable(info.getTableId());
             Partition partition = table.getPartition(info.getPartitionId());
             MaterializedIndex index = partition.getIndex(info.getIndexId());
             Tablet tablet = index.getTablet(info.getTabletId());
@@ -388,7 +388,7 @@ public class ConsistencyChecker extends MasterDaemon {
 
             tablet.setIsConsistent(info.isConsistent());
         } finally {
-            db.writeUnlock();
+            table.writeUnlock();
         }
     }
 

@@ -381,6 +381,7 @@ public class ReportHandler extends Daemon {
             if (db == null) {
                 continue;
             }
+<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/master/ReportHandler.java
             db.writeLock();
             try {
                 int syncCounter = 0;
@@ -399,7 +400,27 @@ public class ReportHandler extends Daemon {
                     if (olapTable == null) {
                         continue;
                     }
+=======
+>>>>>>> Continue to use table lock to replace db lock:fe/src/main/java/org/apache/doris/master/ReportHandler.java
 
+            int syncCounter = 0;
+            List<Long> tabletIds = tabletSyncMap.get(dbId);
+            LOG.info("before sync tablets in db[{}]. report num: {}. backend[{}]",
+                    dbId, tabletIds.size(), backendId);
+            List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+            for (int i = 0; i < tabletMetaList.size(); i++) {
+                TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
+                long tabletId = tabletIds.get(i);
+                long tableId = tabletMeta.getTableId();
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
+                olapTable.writeLock();
+                try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -494,11 +515,11 @@ public class ReportHandler extends Daemon {
                                     backendVersion, backendVersionHash);
                         }
                     }
-                } // end for tabletMetaSyncMap
+                } finally {
+                    olapTable.writeUnlock();
+                }
+            } // end for tabletMetaSyncMap
                 LOG.info("sync {} tablets in db[{}]. backend[{}]", syncCounter, dbId, backendId);
-            } finally {
-                db.writeUnlock();
-            }
         } // end for dbs
     }
 
@@ -511,6 +532,7 @@ public class ReportHandler extends Daemon {
             if (db == null) {
                 continue;
             }
+<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/master/ReportHandler.java
             db.writeLock();
             try {
                 int deleteCounter = 0;
@@ -527,7 +549,25 @@ public class ReportHandler extends Daemon {
                     if (olapTable == null) {
                         continue;
                     }
+=======
+>>>>>>> Continue to use table lock to replace db lock:fe/src/main/java/org/apache/doris/master/ReportHandler.java
 
+            int deleteCounter = 0;
+            List<Long> tabletIds = tabletDeleteFromMeta.get(dbId);
+            List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+            for (int i = 0; i < tabletMetaList.size(); i++) {
+                TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
+                long tabletId = tabletIds.get(i);
+                long tableId  = tabletMeta.getTableId();
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
+                olapTable.writeLock();
+                try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -580,7 +620,11 @@ public class ReportHandler extends Daemon {
                                 if (Config.recover_with_empty_tablet) {
                                     // only create this task if force recovery is true
                                     LOG.warn("tablet {} has only one replica {} on backend {}"
+<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/master/ReportHandler.java
                                                     + " and it is lost. create an empty replica to recover it",
+=======
+                                                    + "and it is lost. create an empty replica to recover it",
+>>>>>>> Continue to use table lock to replace db lock:fe/src/main/java/org/apache/doris/master/ReportHandler.java
                                             tabletId, replica.getId(), backendId);
                                     MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
                                     Set<String> bfColumns = olapTable.getCopiedBfColumns();
@@ -600,7 +644,11 @@ public class ReportHandler extends Daemon {
                                     // just set this replica as bad
                                     if (replica.setBad(true)) {
                                         LOG.warn("tablet {} has only one replica {} on backend {}"
+<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/master/ReportHandler.java
                                                         + " and it is lost, set it as bad",
+=======
+                                                        + "and it is lost, set it as bad",
+>>>>>>> Continue to use table lock to replace db lock:fe/src/main/java/org/apache/doris/master/ReportHandler.java
                                                 tabletId, replica.getId(), backendId);
                                         BackendTabletsInfo tabletsInfo = new BackendTabletsInfo(backendId);
                                         tabletsInfo.setBad(true);
@@ -636,11 +684,11 @@ public class ReportHandler extends Daemon {
                             LOG.error("invalid situation. tablet[{}] is empty", tabletId);
                         }
                     }
-                } // end for tabletMetas
-                LOG.info("delete {} replica(s) from catalog in db[{}]", deleteCounter, dbId);
-            } finally {
-                db.writeUnlock();
-            }
+                } finally {
+                    olapTable.writeUnlock();
+                }
+            } // end for tabletMetas
+            LOG.info("delete {} replica(s) from catalog in db[{}]", deleteCounter, dbId);
         } // end for dbs
 
         if (Config.recover_with_empty_tablet && createReplicaBatchTask.getTaskNum() > 0) {
@@ -768,6 +816,7 @@ public class ReportHandler extends Daemon {
                 tabletRecoveryMap.size(), backendId);
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/master/ReportHandler.java
         BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo(backendId);
         backendTabletsInfo.setBad(true);
         for (Long dbId : tabletRecoveryMap.keySet()) {
@@ -796,6 +845,40 @@ public class ReportHandler extends Daemon {
                     if (partition == null) {
                         continue;
                     }
+=======
+        if (!forceRecovery) {
+            LOG.warn("force recovery is disable. try reset the tablets' version"
+                    + " or set it as bad, and waiting clone");
+
+            BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo(backendId);
+            backendTabletsInfo.setBad(true);
+            for (Long dbId : tabletRecoveryMap.keySet()) {
+                Database db = Catalog.getCurrentCatalog().getDb(dbId);
+                if (db == null) {
+                    continue;
+                }
+
+                List<Long> tabletIds = tabletRecoveryMap.get(dbId);
+                List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+                for (int i = 0; i < tabletMetaList.size(); i++) {
+                    TabletMeta tabletMeta = tabletMetaList.get(i);
+                    if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                        continue;
+                    }
+                    long tabletId = tabletIds.get(i);
+                    long tableId = tabletMeta.getTableId();
+                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                    if (olapTable == null) {
+                        continue;
+                    }
+                    olapTable.writeLock();
+                    try {
+                        long partitionId = tabletMeta.getPartitionId();
+                        Partition partition = olapTable.getPartition(partitionId);
+                        if (partition == null) {
+                            continue;
+                        }
+>>>>>>> Continue to use table lock to replace db lock:fe/src/main/java/org/apache/doris/master/ReportHandler.java
 
                     long indexId = tabletMeta.getIndexId();
                     MaterializedIndex index = partition.getIndex(indexId);
@@ -855,6 +938,8 @@ public class ReportHandler extends Daemon {
                                 break;
                             }
                         }
+                    } finally {
+                        olapTable.writeUnlock();
                     }
                 }
             } finally {
@@ -964,13 +1049,14 @@ public class ReportHandler extends Daemon {
         if (db == null) {
             throw new MetaNotFoundException("db[" + dbId + "] does not exist");
         }
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                throw new MetaNotFoundException("table[" + tableId + "] does not exist");
-            }
 
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            throw new MetaNotFoundException("table[" + tableId + "] does not exist");
+        }
+
+        olapTable.writeLock();
+        try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new MetaNotFoundException("partition[" + partitionId + "] does not exist");
@@ -1066,7 +1152,7 @@ public class ReportHandler extends Daemon {
                         "replica is enough[" + tablet.getReplicas().size() + "-" + replicationNum + "]");
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 

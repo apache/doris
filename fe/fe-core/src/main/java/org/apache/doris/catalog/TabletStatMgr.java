@@ -76,7 +76,7 @@ public class TabletStatMgr extends MasterDaemon {
             }
         }
         LOG.info("finished to get tablet stat of all backends. cost: {} ms",
-                 (System.currentTimeMillis() - start));
+                (System.currentTimeMillis() - start));
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
@@ -86,14 +86,22 @@ public class TabletStatMgr extends MasterDaemon {
             if (db == null) {
                 continue;
             }
-            db.writeLock();
+            List<Table> tableList = null;
+            db.readLock();
             try {
-                for (Table table : db.getTables()) {
-                    if (table.getType() != TableType.OLAP) {
-                        continue;
-                    }
+                tableList = db.getTables();
+            } finally {
+                db.readUnlock();
+            }
 
-                    OlapTable olapTable = (OlapTable) table;
+            for (Table table : tableList) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+
+                OlapTable olapTable = (OlapTable) table;
+                table.writeLock();
+                try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();
                         long versionHash = partition.getVisibleVersionHash();
@@ -114,13 +122,13 @@ public class TabletStatMgr extends MasterDaemon {
                     } // end for partitions
                     LOG.debug("finished to set row num for table: {} in database: {}",
                              table.getName(), db.getFullName());
+                } finally {
+                    table.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
             }
         }
         LOG.info("finished to update index row num of all databases. cost: {} ms",
-                 (System.currentTimeMillis() - start));
+                (System.currentTimeMillis() - start));
     }
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {
