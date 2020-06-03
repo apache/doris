@@ -335,14 +335,13 @@ public class DistributedPlanner {
         // - and we're not doing a full or right outer join (those require the left-hand
         //   side to be partitioned for correctness)
         // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
-        // we do a "<=" comparison of the costs so that we default to broadcast joins if
-        // we're unable to estimate the cost
+        // we set partition join as default when broadcast join cost equals partition join cost
         if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
                 && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN
                 && (perNodeMemLimit == 0 || Math.round(
                 (double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
                 && (node.getInnerRef().isBroadcastJoin() || (!node.getInnerRef().isPartitionJoin()
-                && broadcastCost <= partitionCost))) {
+                && broadcastCost < partitionCost))) {
             doBroadcast = true;
         } else {
             doBroadcast = false;

@@ -271,6 +271,10 @@ public class OlapScanNode extends ScanNode {
             }
             numNodes = scanBackendIds.size();
         }
+        // even current node scan has no data,at least on backend will be assigned when the fragment actually execute
+        numNodes = numNodes <= 0 ? 1 : numNodes;
+        // when node scan has no data, cardinality should be 0 instead of a invalid value after computeStats()
+        cardinality = cardinality == -1 ? 0 : cardinality;
     }
 
     private Collection<Long> partitionPrune(RangePartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
