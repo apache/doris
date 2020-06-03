@@ -95,7 +95,7 @@ public class Backend implements Writable {
     private AtomicLong tabletMaxCompactionScore = new AtomicLong(0);
 
     // additional backendStatus information for BE, display in JSON format
-    private BackendStatus backendStatus;
+    private BackendStatus backendStatus = new BackendStatus();
 
     public Backend() {
         this.host = "";
@@ -114,8 +114,6 @@ public class Backend implements Writable {
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
-
-        this.backendStatus = new BackendStatus();
     }
 
     public Backend(long id, String host, int heartbeatPort) {
@@ -136,8 +134,6 @@ public class Backend implements Writable {
         this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
-
-        this.backendStatus = new BackendStatus();
     }
 
     public long getId() {
