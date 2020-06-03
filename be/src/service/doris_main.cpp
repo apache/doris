@@ -126,8 +126,15 @@ int main(int argc, char** argv) {
     }
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-    MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit",
-                                                    21474836480);
+    // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
+    // not backed by physical pages and do not contribute towards memory consumption.
+    MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
+    // Change the total TCMalloc thread cache size if necessary.
+    if (!MallocExtension::instance()->SetNumericProperty(
+                "tcmalloc.max_total_thread_cache_bytes", doris::config::tc_max_total_thread_cache_bytes)) {
+        fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
+        return -1;
+    }
 #endif
 
     std::vector<doris::StorePath> paths;
