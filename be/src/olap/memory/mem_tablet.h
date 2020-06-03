@@ -52,12 +52,13 @@ public:
     // Initialize
     Status init();
 
-    // Scan the tablet, return a MemTabletScan object scan, user can specify projections,
-    // predicates and aggregations using ScanSpec, currently only support full scan with
-    // projection.
+    // Scan the tablet, return a MemTabletScan object scan, user can specify projections
+    // using ScanSpec, currently only support full scan with projection, will support
+    // filter/aggregation in the future.
     //
+    // Note: spec will be passed to scan object
     // Note: thread-safe, supports multi-reader concurrency.
-    Status scan(std::unique_ptr<ScanSpec>&& spec, std::unique_ptr<MemTabletScan>* scan);
+    Status scan(std::unique_ptr<ScanSpec>* spec, std::unique_ptr<MemTabletScan>* scan);
 
     // Create a write transaction
     //
@@ -70,6 +71,7 @@ public:
     Status commit_write_txn(WriteTxn* wtxn, uint64_t version);
 
 private:
+    friend class MemTabletScan;
     // memory::Schema is used internally rather than TabletSchema, so we need an extra
     // copy of _schema with type memory::Schema.
     scoped_refptr<Schema> _mem_schema;
@@ -78,6 +80,8 @@ private:
     std::unique_ptr<MemSubTablet> _sub_tablet;
 
     std::mutex _write_lock;
+
+    std::atomic<uint64_t> _max_version;
 
     DISALLOW_COPY_AND_ASSIGN(MemTablet);
 };
