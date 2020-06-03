@@ -53,6 +53,9 @@ class PluginZip {
 
     private static final List<String> DEFAULT_PROTOCOL = ImmutableList.of("https://", "http://");
 
+    // timeout for both connection and read. 10 seconds is long enough.
+    private static final int HTTP_TIMEOUT_MS = 10000;
+
     private String source;
 
     private List<Path> cleanPathList;
@@ -113,13 +116,13 @@ class PluginZip {
         cleanPathList.add(zip);
 
         // download zip
-        try (InputStream in = Util.getInputStreamFromUrl(source, null, 5000, 5000)) {
+        try (InputStream in = Util.getInputStreamFromUrl(source, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS)) {
             Files.copy(in, zip, StandardCopyOption.REPLACE_EXISTING);
         }
 
         // .md5 check
         String expectedChecksum;
-        try (InputStream in = Util.getInputStreamFromUrl(source + ".md5", null, 5000, 5000)) {
+        try (InputStream in = Util.getInputStreamFromUrl(source + ".md5", null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS)) {
             BufferedReader br = new BufferedReader(new InputStreamReader(in));
             expectedChecksum = br.readLine();
         } catch (IOException e) {
