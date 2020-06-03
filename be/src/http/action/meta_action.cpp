@@ -21,40 +21,47 @@
 #include <string>
 
 #include "http/http_channel.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
-#include "http/http_headers.h"
 #include "http/http_status.h"
 
-#include "olap/tablet_meta_manager.h"
-#include "olap/storage_engine.h"
-#include "olap/olap_define.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet.h"
 #include "common/logging.h"
+#include "gutil/strings/substitute.h"
+#include "olap/olap_define.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "util/json_util.h"
 
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-Status MetaAction::_handle_header(HttpRequest *req, std::string* json_meta) {
+Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
-    if (req_tablet_id == "" || req_schema_hash == "") {
+    uint64_t tablet_id = 0;
+    uint32_t schema_hash = 0;
+    try {
+        tablet_id = std::stoull(req_tablet_id);
+        schema_hash = std::stoul(req_schema_hash);
+    } catch (const std::exception& e) {
         LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
-                << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError("invalid arguments");
+                     << ", schema_hash:" << req_schema_hash;
+        return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
     }
-    uint64_t tablet_id = std::stoull(req_tablet_id);
-    uint32_t schema_hash = std::stoul(req_schema_hash);
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status::InternalError("no tablet exist");
     }
-    OLAPStatus s = TabletMetaManager::get_json_meta(tablet->data_dir(), tablet_id, schema_hash, json_meta);
+    OLAPStatus s =
+            TabletMetaManager::get_json_meta(tablet->data_dir(), tablet_id, schema_hash, json_meta);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         return Status::InternalError("no header exist");
     } else if (s != OLAP_SUCCESS) {
@@ -63,7 +70,7 @@ Status MetaAction::_handle_header(HttpRequest *req, std::string* json_meta) {
     return Status::OK();
 }
 
-void MetaAction::handle(HttpRequest *req) {
+void MetaAction::handle(HttpRequest* req) {
     if (_meta_type == META_TYPE::HEADER) {
         std::string json_meta;
         Status status = _handle_header(req, &json_meta);

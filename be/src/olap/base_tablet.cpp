@@ -16,22 +16,21 @@
 // under the License.
 
 #include "olap/base_tablet.h"
-#include "util/path_util.h"
+
 #include "olap/data_dir.h"
+#include "util/path_util.h"
 
 namespace doris {
 
-BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
-        _state(tablet_meta->tablet_state()),
-        _tablet_meta(tablet_meta),
-        _schema(tablet_meta->tablet_schema()),
-        _data_dir(data_dir) {
+BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
+        : _state(tablet_meta->tablet_state()),
+          _tablet_meta(tablet_meta),
+          _schema(tablet_meta->tablet_schema()),
+          _data_dir(data_dir) {
     _gen_tablet_path();
 }
 
-BaseTablet::~BaseTablet() {
-}
-
+BaseTablet::~BaseTablet() {}
 
 OLAPStatus BaseTablet::set_tablet_state(TabletState state) {
     if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
@@ -44,11 +43,13 @@ OLAPStatus BaseTablet::set_tablet_state(TabletState state) {
 }
 
 void BaseTablet::_gen_tablet_path() {
-    std::string path = _data_dir->path() + DATA_PREFIX;
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->shard_id()));
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->tablet_id()));
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->schema_hash()));
-    _tablet_path = path;
+    if (_data_dir != nullptr) {
+        std::string path = _data_dir->path() + DATA_PREFIX;
+        path = path_util::join_path_segments(path, std::to_string(_tablet_meta->shard_id()));
+        path = path_util::join_path_segments(path, std::to_string(_tablet_meta->tablet_id()));
+        path = path_util::join_path_segments(path, std::to_string(_tablet_meta->schema_hash()));
+        _tablet_path = path;
+    }
 }
 
 } /* namespace doris */
