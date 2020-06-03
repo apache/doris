@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import static org.junit.Assert.assertEquals;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddRollupClause;
@@ -29,7 +30,11 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
@@ -53,7 +58,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -75,7 +82,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.StringReader;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -427,5 +436,55 @@ public class RollupJobV2Test {
         FunctionCallExpr resultFunctionCall = (FunctionCallExpr) resultColumn1.getDefineExpr();
         Assert.assertEquals("to_bitmap", resultFunctionCall.getFnName().getFunction());
 
+    }
+
+    @Test
+    public void testRebuildFullSchema(@Mocked CreateMaterializedViewStmt stmt) throws Exception {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+        FakeCatalog.setCatalog(masterCatalog);
+        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+
+        /*
+        SqlScanner input = new SqlScanner(new StringReader("select k1, bitmap_union(to_bitmap(k2)) from test group by k1"));
+        SqlParser parser = new SqlParser(input);
+        StatementBase statementBase =  SqlParserUtils.getFirstStmt(parser);
+        statementBase.analyze(analyzer);
+
+        CreateMaterializedViewStmt stmt = new CreateMaterializedViewStmt("test_mv", (SelectStmt)statementBase, Maps.newHashMap());
+        stmt.analyze(analyzer);
+         */
+
+        List<MVColumnItem> itemList = Lists.newArrayList();
+        //column1
+        MVColumnItem item1 = new MVColumnItem("k1");
+        item1.setIsKey(true);
+        itemList.add(item1);
+        //column2
+        MVColumnItem item2 = new MVColumnItem(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX + "bitmap_union_" + "k2");
+        List<Expr> params = Lists.newArrayList(new SlotRef(new TableName(null, "testTable1"), "k1"));
+        item2.setIsKey(true);
+        item2.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));
+        item2.setAggregationType(AggregateType.BITMAP_UNION, false);
+        itemList.add(item2);
+
+        new Expectations() {
+            {
+                stmt.getMVColumnItemList();
+                result = itemList;
+                stmt.getBaseIndexName();
+                result = "testTable1";
+                stmt.getMVName();
+                result = "testMV";
+            }
+        };
+
+        materializedViewHandler.processCreateMaterializedView(stmt, db, olapTable);
+        materializedViewHandler.runAfterCatalogReady();
+
+        Assert.assertEquals(4, olapTable.getFullSchema().size());
+        Assert.assertEquals("__doris_materialized_view_bitmap_union_k2", olapTable.getFullSchema().get(3).getName());
     }
 }
