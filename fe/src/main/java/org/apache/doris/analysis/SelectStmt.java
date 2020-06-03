@@ -437,6 +437,8 @@ public class SelectStmt extends QueryStmt {
         }
 
         if (whereClause != null) {
+            // do this before whereClause.analyze , some expr is not analyzed, this may cause some
+            // function not work as expected such as equals;
             whereClauseRewrite();
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
