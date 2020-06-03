@@ -116,13 +116,13 @@ class PluginZip {
         cleanPathList.add(zip);
 
         // download zip
-        try (InputStream in = Util.getInputStreamFromUrl(source, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS)) {
+        try (InputStream in = getInputStreamFromUrl(source)) {
             Files.copy(in, zip, StandardCopyOption.REPLACE_EXISTING);
         }
 
         // .md5 check
         String expectedChecksum;
-        try (InputStream in = Util.getInputStreamFromUrl(source + ".md5", null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS)) {
+        try (InputStream in = getInputStreamFromUrl(source + ".md5")) {
             BufferedReader br = new BufferedReader(new InputStreamReader(in));
             expectedChecksum = br.readLine();
         } catch (IOException e) {
@@ -193,4 +193,7 @@ class PluginZip {
         return targetPath;
     }
 
+    InputStream getInputStreamFromUrl(String url) throws IOException {
+        return Util.getInputStreamFromUrl(url, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+    }
 }
