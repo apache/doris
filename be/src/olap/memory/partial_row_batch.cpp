@@ -111,8 +111,8 @@ Status PartialRowBatch::cur_row_get_cell(size_t idx, const ColumnSchema** cs,
 
 // Methods for PartialRowWriter
 
-PartialRowWriter::PartialRowWriter(scoped_refptr<Schema>* schema)
-        : _schema(*schema), _bit_set_size(_schema->cid_size()), _bit_nullable_size(0) {
+PartialRowWriter::PartialRowWriter(const scoped_refptr<Schema>& schema)
+        : _schema(schema), _bit_set_size(_schema->cid_size()), _bit_nullable_size(0) {
     _temp_cells.resize(_schema->cid_size());
 }
 

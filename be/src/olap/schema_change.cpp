@@ -1917,6 +1917,11 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
+        } else {
+            LOG(WARNING) << "referenced column was missing. "
+                         << "[column=" << column_name
+                         << " referenced_column=" << column_index << "]";
+            return OLAP_ERR_CE_CMD_PARAMS_ERROR;
         }
 
         // 新加列走这里

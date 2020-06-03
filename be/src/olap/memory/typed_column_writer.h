@@ -201,7 +201,7 @@ public:
     }
 
     Status get_new_column(scoped_refptr<Column>* ret) {
-        if (*ret != _column) {
+        if (ret->get() != _column.get()) {
             DLOG(INFO) << StringPrintf("%s switch new column", _column->debug_string().c_str());
             (*ret).swap(_column);
             _column.reset();

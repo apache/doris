@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.action;
 
+import org.apache.commons.validator.routines.UrlValidator;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -132,6 +133,7 @@ public class SystemAction extends WebBaseAction {
     }
 
     private void appendSystemTableBody(StringBuilder buffer, List<List<String>> rows, boolean isDir, String path) {
+        UrlValidator validator = new UrlValidator();
         for ( List<String> strList : rows) {
             buffer.append("<tr>");
             int columnIndex = 1;
@@ -141,6 +143,10 @@ public class SystemAction extends WebBaseAction {
                     String escapeStr = str.replace("%", "%25");
                     buffer.append("<a href=\"?path=" + path + "/" + escapeStr + "\">");
                     buffer.append(str);
+                    buffer.append("</a>");
+                } else if (validator.isValid(str)) {
+                    buffer.append("<a href=\"" + str + "\">");
+                    buffer.append("URL");
                     buffer.append("</a>");
                 } else {
                     buffer.append(str.replaceAll("\\n", "<br/>"));

@@ -40,6 +40,8 @@ public:
 
     const Schema& schema() const { return *_schema.get(); }
 
+    scoped_refptr<Schema> get_schema_ptr() const { return _schema; }
+
     // Get number of batches
     size_t batch_size() const { return _batches.size(); }
 
