@@ -278,10 +278,45 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_not_null(i);
                         BitmapValue bitmap;
                         if (!read_helper.is_null(ref_column)) {
+                            uint64_t origin_value;
                             char *src = read_helper.cell_ptr(ref_column);
-                            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-                            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(src, strlen(src), &parse_result);
-                            bitmap.add(int_value);
+                            switch (ref_block->tablet_schema().column(ref_column).type()) {
+                                case OLAP_FIELD_TYPE_TINYINT:
+                                    origin_value = *(int8_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+                                    origin_value = *(uint8_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_SMALLINT:
+                                    origin_value = *(int16_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+                                    origin_value = *(uint16_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_INT:
+                                    origin_value = *(int32_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_INT:
+                                    origin_value = *(uint32_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_BIGINT:
+                                    origin_value = *(int64_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+                                    origin_value = *(uint64_t *) src;
+                                    break;
+                                default:
+                                    LOG(WARNING) << "the column type which was altered from was unsupported."
+                                                 << " from_type="
+                                                 << ref_block->tablet_schema().column(ref_column).type();
+                                    return false;
+                            }
+                            if (origin_value < 0) {
+                                LOG(WARNING) << "The input: " << origin_value
+                                             << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
+                                return false;
+                            }
+                            bitmap.add(origin_value);
                         }
                         char *buf = reinterpret_cast<char *>(mem_pool->allocate(bitmap.getSizeInBytes()));
                         Slice dst(buf, bitmap.getSizeInBytes());
@@ -289,15 +324,15 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_field_content(i, reinterpret_cast<char *>(&dst), mem_pool);
                     } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                         write_helper.set_not_null(i);
-                        Slice src;
-                        if (mutable_block->tablet_schema().column(i).type() != OLAP_FIELD_TYPE_VARCHAR) {
-                            src.data = read_helper.cell_ptr(ref_column);
-                            src.size = mutable_block->tablet_schema().column(i).length();
-                        } else {
-                            src = *reinterpret_cast<Slice *>(read_helper.cell_ptr(ref_column));
-                        }
                         HyperLogLog hll;
                         if (!read_helper.is_null(ref_column)) {
+                            Slice src;
+                            if (ref_block->tablet_schema().column(ref_column).type() != OLAP_FIELD_TYPE_VARCHAR) {
+                                src.data = read_helper.cell_ptr(ref_column);
+                                src.size = ref_block->tablet_schema().column(ref_column).length();
+                            } else {
+                                src = *reinterpret_cast<Slice *>(read_helper.cell_ptr(ref_column));
+                            }
                             uint64_t hash_value = HashUtil::murmur_hash64A(src.data, src.size, HashUtil::MURMUR_SEED);
                             hll.update(hash_value);
                         }
@@ -1869,7 +1904,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
 
         if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
             AlterMaterializedViewParam mvParam = materialized_function_map.find(column_name)->second;
-            column_mapping->materialized_function = mvParam.origin_column_name;
+            column_mapping->materialized_function = mvParam.mv_expr;
             std::string origin_column_name = mvParam.origin_column_name;
             int32_t column_index = base_tablet->field_index(origin_column_name);
             if (column_index >= 0) {
