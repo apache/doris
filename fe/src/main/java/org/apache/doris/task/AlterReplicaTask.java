@@ -115,13 +115,15 @@ public class AlterReplicaTask extends AgentTask {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlter_version(version);
         req.setAlter_version_hash(versionHash);
-        for (Map.Entry<String, Expr> expr : defileExprs.entrySet()) {
-                        System.out.println(expr.getValue().toString());
-            List<SlotRef> slots = Lists.newArrayList();
-            expr.getValue().collect(SlotRef.class, slots);
-            Preconditions.checkState(slots.size() == 1);
-            TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName(), expr.getValue().treeToThrift());
-            req.addToMaterialized_view_params(mvParam);
+        if (defileExprs != null) {
+            for (Map.Entry<String, Expr> expr : defileExprs.entrySet()) {
+                System.out.println(expr.getValue().toString());
+                List<SlotRef> slots = Lists.newArrayList();
+                expr.getValue().collect(SlotRef.class, slots);
+                Preconditions.checkState(slots.size() == 1);
+                TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName(), expr.getValue().treeToThrift());
+                req.addToMaterialized_view_params(mvParam);
+            }
         }
         return req;
     }
