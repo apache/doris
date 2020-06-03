@@ -281,21 +281,21 @@ bool RowBlockChanger::change_row_block(
                         char *src = read_helper.cell_ptr(ref_column);
                         switch (ref_block->tablet_schema().column(ref_column).type()) {
                             case OLAP_FIELD_TYPE_TINYINT:
-                                origin_value = *(int8_t*) src;
+                                origin_value = *(int8_t*) src; break;
                             case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
-                                origin_value = *(uint8_t*) src;
+                                origin_value = *(uint8_t*) src; break;
                             case OLAP_FIELD_TYPE_SMALLINT:
-                                origin_value = *(int16_t*) src;
+                                origin_value = *(int16_t*) src; break;
                             case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
-                                origin_value = *(uint16_t*) src;
+                                origin_value = *(uint16_t*) src; break;
                             case OLAP_FIELD_TYPE_INT:
-                                origin_value = *(int32_t*) src;
+                                origin_value = *(int32_t*) src; break;
                             case OLAP_FIELD_TYPE_UNSIGNED_INT:
-                                origin_value = *(uint32_t*) src;
+                                origin_value = *(uint32_t*) src; break;
                             case OLAP_FIELD_TYPE_BIGINT:
-                                origin_value = *(int64_t*) src;
+                                origin_value = *(int64_t*) src; break;
                             case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
-                                origin_value = *(uint64_t*) src;
+                                origin_value = *(uint64_t*) src; break;
                             default:
                                 LOG(WARNING) << "the column type which was altered from was unsupported."
                                              << " from_type=" << ref_block->tablet_schema().column(ref_column).type();
