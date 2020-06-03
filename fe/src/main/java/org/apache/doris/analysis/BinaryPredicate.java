@@ -226,7 +226,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (!super.equals(obj)) {
             return false;
         }
-        return this.op.equals(((BinaryPredicate) obj).getOp());
+        return ((BinaryPredicate) obj).opcode == this.opcode;
     }
 
     @Override
