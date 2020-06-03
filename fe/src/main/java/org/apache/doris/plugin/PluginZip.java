@@ -18,6 +18,7 @@
 package org.apache.doris.plugin;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -34,7 +35,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.URL;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -113,13 +113,13 @@ class PluginZip {
         cleanPathList.add(zip);
 
         // download zip
-        try (InputStream in = openUrlInputStream(source)) {
+        try (InputStream in = Util.getInputStreamFromUrl(source, null, 5000, 5000)) {
             Files.copy(in, zip, StandardCopyOption.REPLACE_EXISTING);
         }
 
         // .md5 check
         String expectedChecksum;
-        try (InputStream in = openUrlInputStream(source + ".md5")) {
+        try (InputStream in = Util.getInputStreamFromUrl(source + ".md5", null, 5000, 5000)) {
             BufferedReader br = new BufferedReader(new InputStreamReader(in));
             expectedChecksum = br.readLine();
         } catch (IOException e) {
@@ -135,11 +135,6 @@ class PluginZip {
         }
 
         return zip;
-    }
-
-    InputStream openUrlInputStream(String url) throws IOException {
-        URL u = new URL(url);
-        return u.openConnection().getInputStream();
     }
 
     /**

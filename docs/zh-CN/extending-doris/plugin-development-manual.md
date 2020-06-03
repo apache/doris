@@ -266,9 +266,9 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 
 插件可以通过以下三种方式部署。
 
-* 将 `.zip` 文件放在 Http 或 Https 服务器上。如：`http://xxx.xxxxxx.com/data/plugin.zip`, Doris 会下载这个文件。
-* 本地 `.zip` 文件。 如：`/home/work/data/plugin.zip`。需要在所有 FE 和 BE 节点部署。
-* 本地目录。如：`/home/work/data/plugin/`。相当于 `.zip` 文件解压后的目录。需要在所有 FE 和 BE 节点部署。
+* 将 `.zip` 文件放在 Http 或 Https 服务器上。如：`http://xxx.xxx.com/data/my_plugin.zip`, Doris 会下载这个文件。同时需要放置一个和 `.zip` 文件同名的 md5 文件。如 `http://xxx.xxxxxx.com/data/my_plugin.zip.md5`。其中内容为 .zip 文件的 MD5 值。
+* 本地 `.zip` 文件。 如：`/home/work/data/plugin.zip`。如果该插件仅用于 FE，则需部署在所有 FE 节点相同的目录下。否则，需要在所有 FE 和 BE 节点部署。
+* 本地目录。如：`/home/work/data/plugin/`。相当于 `.zip` 文件解压后的目录。如果该插件仅用于 FE，则需部署在所有 FE 节点相同的目录下。否则，需要在所有 FE 和 BE 节点部署。
 
 注意：需保证部署路径在整个插件生命周期内有效。
 
