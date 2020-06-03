@@ -99,9 +99,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
-                                  timeoutSecond);
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
+                        timeoutSecond);
     }
 
     @Override
@@ -140,18 +140,18 @@ public class BrokerLoadJob extends BulkLoadJob {
             // check if job has been cancelled
             if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is: " + state)
-                                 .build());
+                        .add("state", state)
+                        .add("error_msg", "this task will be ignored when job is: " + state)
+                        .build());
                 return;
             }
 
             if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("task_id", attachment.getTaskId())
-                                 .add("error_msg", "this is a duplicated callback of pending task "
-                                         + "when broker already has loading task")
-                                 .build());
+                        .add("task_id", attachment.getTaskId())
+                        .add("error_msg", "this is a duplicated callback of pending task "
+                                + "when broker already has loading task")
+                        .build());
                 return;
             }
 
@@ -166,9 +166,9 @@ public class BrokerLoadJob extends BulkLoadJob {
             createLoadingTask(db, attachment);
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("database_id", dbId)
-                             .add("error_msg", "Failed to divide job into loading task.")
-                             .build(), e);
+                    .add("database_id", dbId)
+                    .add("error_msg", "Failed to divide job into loading task.")
+                    .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
             return;
         } catch (RejectedExecutionException e) {
@@ -196,12 +196,12 @@ public class BrokerLoadJob extends BulkLoadJob {
                 OlapTable table = (OlapTable) db.getTable(tableId);
                 if (table == null) {
                     LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                     .add("database_id", dbId)
-                                     .add("table_id", tableId)
-                                     .add("error_msg", "Failed to divide job into loading task when table not found")
-                                     .build());
+                            .add("database_id", dbId)
+                            .add("table_id", tableId)
+                            .add("error_msg", "Failed to divide job into loading task when table not found")
+                            .build());
                     throw new MetaNotFoundException("Failed to divide job into loading task when table "
-                                                            + tableId + " not found");
+                            + tableId + " not found");
                 }
 
                 // Generate loading task and init the plan of task
@@ -243,17 +243,17 @@ public class BrokerLoadJob extends BulkLoadJob {
             // check if job has been cancelled
             if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is: " + state)
-                                 .build());
+                        .add("state", state)
+                        .add("error_msg", "this task will be ignored when job is: " + state)
+                        .build());
                 return;
             }
 
             // check if task has been finished
             if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("task_id", attachment.getTaskId())
-                                 .add("error_msg", "this is a duplicated callback of loading task").build());
+                        .add("task_id", attachment.getTaskId())
+                        .add("error_msg", "this is a duplicated callback of loading task").build());
                 return;
             }
 
@@ -271,8 +271,8 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                              .add("commit_infos", Joiner.on(",").join(commitInfos))
-                              .build());
+                    .add("commit_infos", Joiner.on(",").join(commitInfos))
+                    .build());
         }
 
         // check data quality
@@ -286,30 +286,29 @@ public class BrokerLoadJob extends BulkLoadJob {
             db = getDb();
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("database_id", dbId)
-                             .add("error_msg", "db has been deleted when job is loading")
-                             .build(), e);
+                    .add("database_id", dbId)
+                    .add("error_msg", "db has been deleted when job is loading")
+                    .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
         db.writeLock();
         try {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("txn_id", transactionId)
-                             .add("msg", "Load job try to commit txn")
-                             .build());
+                    .add("txn_id", transactionId)
+                    .add("msg", "Load job try to commit txn")
+                    .build());
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-                                              finishTimestamp, state, failMsg));
+                            finishTimestamp, state, failMsg));
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("database_id", dbId)
-                             .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
-                             .build(), e);
+                    .add("database_id", dbId)
+                    .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
+                    .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-            return;
         } finally {
             db.writeUnlock();
         }
@@ -343,11 +342,11 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     private void updateLoadingStatus(BrokerLoadingTaskAttachment attachment) {
         loadingStatus.replaceCounter(DPP_ABNORMAL_ALL,
-                                     increaseCounter(DPP_ABNORMAL_ALL, attachment.getCounter(DPP_ABNORMAL_ALL)));
+                increaseCounter(DPP_ABNORMAL_ALL, attachment.getCounter(DPP_ABNORMAL_ALL)));
         loadingStatus.replaceCounter(DPP_NORMAL_ALL,
-                                     increaseCounter(DPP_NORMAL_ALL, attachment.getCounter(DPP_NORMAL_ALL)));
+                increaseCounter(DPP_NORMAL_ALL, attachment.getCounter(DPP_NORMAL_ALL)));
         loadingStatus.replaceCounter(UNSELECTED_ROWS,
-                                     increaseCounter(UNSELECTED_ROWS, attachment.getCounter(UNSELECTED_ROWS)));
+                increaseCounter(UNSELECTED_ROWS, attachment.getCounter(UNSELECTED_ROWS)));
         if (attachment.getTrackingUrl() != null) {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }

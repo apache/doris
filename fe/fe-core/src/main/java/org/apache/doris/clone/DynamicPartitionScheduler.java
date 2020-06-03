@@ -265,17 +265,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             String tableName;
             boolean skipAddPartition = false;
             OlapTable olapTable;
-            db.readLock();
+            olapTable = (OlapTable) db.getTable(tableId);
+            // Only OlapTable has DynamicPartitionProperty
+            if (olapTable == null
+                    || !olapTable.dynamicPartitionExists()
+                    || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+                iterator.remove();
+                continue;
+            }
+            olapTable.readLock();
             try {
-                olapTable = (OlapTable) db.getTable(tableId);
-                // Only OlapTable has DynamicPartitionProperty
-                if (olapTable == null
-                        || !olapTable.dynamicPartitionExists()
-                        || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
-                    iterator.remove();
-                    continue;
-                }
-
                 if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
                     String errorMsg = "Table[" + olapTable.getName() + "]'s state is not NORMAL."
                             + "Do not allow doing dynamic add partition. table state=" + olapTable.getState();
@@ -310,18 +309,18 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 dropPartitionClauses = getDropPartitionClause(db, olapTable, partitionColumn, partitionFormat);
                 tableName = olapTable.getName();
             } finally {
-                db.readUnlock();
+                olapTable.readUnlock();
             }
 
             for (DropPartitionClause dropPartitionClause : dropPartitionClauses) {
-                db.writeLock();
+                olapTable.writeLock();
                 try {
                     Catalog.getCurrentCatalog().dropPartition(db, olapTable, dropPartitionClause);
                     clearDropPartitionFailedMsg(tableName);
                 } catch (DdlException e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage());
                 } finally {
-                    db.writeUnlock();
+                    olapTable.writeUnlock();
                 }
             }
 
@@ -366,15 +365,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             if (db == null) {
                 continue;
             }
-            db.readLock();
-            try {
-                for (Table table : Catalog.getCurrentCatalog().getDb(dbId).getTables()) {
+            List<Table> tableList = db.getTables();
+            for (Table table : tableList) {
+                table.readLock();
+                try {
                     if (DynamicPartitionUtil.isDynamicPartitionTable(table)) {
                         registerDynamicPartitionTable(db.getId(), table.getId());
                     }
+                } finally {
+                    table.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
             }
         }
         initialize = true;

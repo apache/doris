@@ -18,7 +18,6 @@
 package org.apache.doris.system;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
@@ -894,17 +893,8 @@ public class SystemInfoService {
     public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId) {
         AtomicLong atomicLong = null;
         if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
-            if (db != null) {
-                try {
-                    atomicLong.set(newReportVersion);
-                    LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);
-                } finally {
-                    db.readUnlock();
-                }
-            } else {
-                LOG.warn("failed to update backend report version, db {} does not exist", dbId);
-            }
+            atomicLong.set(newReportVersion);
+            LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);
         } else {
             LOG.warn("failed to update backend report version, backend {} does not exist", backendId);
         }

@@ -269,19 +269,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     continue;
                 }
 
-                if (matcher != null && !matcher.match(table.getName())) {
-                    continue;
-                }
-                TTableStatus status = new TTableStatus();
-                status.setName(table.getName());
-                status.setType(table.getMysqlType());
-                status.setEngine(table.getEngine());
-                status.setComment(table.getComment());
-                status.setCreateTime(table.getCreateTime());
-                status.setLastCheckTime(table.getLastCheckTime());
-                status.setDdlSql(table.getDdlSql());
+                table.readLock();
+                try {
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
+                            table.getName(), PrivPredicate.SHOW)) {
+                        continue;
+                    }
 
-                tablesResult.add(status);
+                    if (matcher != null && !matcher.match(table.getName())) {
+                        continue;
+                    }
+                    TTableStatus status = new TTableStatus();
+                    status.setName(table.getName());
+                    status.setType(table.getMysqlType());
+                    status.setEngine(table.getEngine());
+                    status.setComment(table.getComment());
+                    status.setCreateTime(table.getCreateTime());
+                    status.setLastCheckTime(table.getLastCheckTime());
+                    tablesResult.add(status);
+                } finally {
+                    table.readUnlock();
+                }
             }
         }
         return result;

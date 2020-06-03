@@ -67,15 +67,22 @@ public class StorageTypeCheckAction extends RestBaseAction {
         }
 
         JSONObject root = new JSONObject();
+        List<Table> tableList = null;
         db.readLock();
         try {
-            List<Table> tbls = db.getTables();
-            for (Table tbl : tbls) {
-                if (tbl.getType() != TableType.OLAP) {
-                    continue;
-                }
+            tableList = db.getTables();
+        } finally {
+            db.readUnlock();
+        }
 
-                OlapTable olapTbl = (OlapTable) tbl;
+        for (Table tbl : tableList) {
+            if (tbl.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTbl = (OlapTable) tbl;
+            olapTbl.readLock();
+            try {
                 JSONObject indexObj = new JSONObject();
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTbl.getIndexIdToMeta().entrySet()) {
                     MaterializedIndexMeta indexMeta = entry.getValue();
@@ -84,9 +91,9 @@ public class StorageTypeCheckAction extends RestBaseAction {
                     }
                 }
                 root.put(tbl.getName(), indexObj);
+            } finally {
+                olapTbl.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
 
         // to json response

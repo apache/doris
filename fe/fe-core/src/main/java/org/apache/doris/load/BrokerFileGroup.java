@@ -140,35 +140,39 @@ public class BrokerFileGroup implements Writable {
         }
         OlapTable olapTable = (OlapTable) table;
         tableId = table.getId();
-
-        // partitionId
-        PartitionNames partitionNames = dataDescription.getPartitionNames();
-        if (partitionNames != null) {
-            partitionIds = Lists.newArrayList();
-            for (String pName : partitionNames.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
-                if (partition == null) {
-                    throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
-                }
-                partitionIds.add(partition.getId());
-            }
-        }
-
-        if (olapTable.getState() == OlapTableState.RESTORE) {
-            throw new DdlException("Table [" + table.getName() + "] is under restore");
-        }
-
-        if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
-            throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
-        }
-
-        // check negative for sum aggregate type
-        if (dataDescription.isNegative()) {
-            for (Column column : table.getBaseSchema()) {
-                if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
-                    throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
+        table.readLock();
+        try {
+            // partitionId
+            PartitionNames partitionNames = dataDescription.getPartitionNames();
+            if (partitionNames != null) {
+                partitionIds = Lists.newArrayList();
+                for (String pName : partitionNames.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
+                    if (partition == null) {
+                        throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
+                    }
+                    partitionIds.add(partition.getId());
                 }
             }
+
+            if (olapTable.getState() == OlapTableState.RESTORE) {
+                throw new DdlException("Table [" + table.getName() + "] is under restore");
+            }
+
+            if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
+                throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
+            }
+
+            // check negative for sum aggregate type
+            if (dataDescription.isNegative()) {
+                for (Column column : table.getBaseSchema()) {
+                    if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
+                        throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
+                    }
+                }
+            }
+        } finally {
+            table.readUnlock();
         }
 
         // column

@@ -414,7 +414,7 @@ public class Database extends MetaObject implements Writable {
             throw new MetaNotFoundException("unknown table, table=" + tableName);
         }
         if (table.getType() != tableType) {
-            throw new UserException("table type is not " + tableType + ", type=" + table.getClass());
+            throw new UserException("table type is not " + tableType + ", table=" + tableName + "type=" + table.getClass());
         }
         return table;
     }

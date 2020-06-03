@@ -83,20 +83,22 @@ public class MigrationAction extends RestBaseAction {
         }
 
         List<List<Comparable>> rows = Lists.newArrayList();
-        db.readLock();
-        try {
-            if (!Strings.isNullOrEmpty(tableName)) {
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    throw new DdlException("Table[" + tableName + "] does not exist");
-                }
 
-                if (table.getType() != TableType.OLAP) {
-                    throw new DdlException("Table[" + tableName + "] is not OlapTable");
-                }
 
-                OlapTable olapTable = (OlapTable) table;
 
+        if (!Strings.isNullOrEmpty(tableName)) {
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                throw new DdlException("Table[" + tableName + "] does not exist");
+            }
+
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Table[" + tableName + "] is not OlapTable");
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+            try {
                 for (Partition partition : olapTable.getPartitions()) {
                     String partitionName = partition.getName();
                     MaterializedIndex baseIndex = partition.getBaseIndex();
@@ -113,16 +115,28 @@ public class MigrationAction extends RestBaseAction {
                         rows.add(row);
                     }
                 }
-            } else {
-                // get all olap table
-                for (Table table : db.getTables()) {
-                    if (table.getType() != TableType.OLAP) {
-                        continue;
-                    }
+            } finally {
+                olapTable.readUnlock();
+            }
+        } else {
+            List<Table> tableList = null;
+            db.readLock();
+            try {
+                tableList = db.getTables();
+            } finally {
+                db.readUnlock();
+            }
 
-                    OlapTable olapTable = (OlapTable) table;
+            // get all olap table
+            for (Table table : tableList) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+
+                OlapTable olapTable = (OlapTable) table;
+                table.readLock();
+                try {
                     tableName = table.getName();
-
                     for (Partition partition : olapTable.getPartitions()) {
                         String partitionName = partition.getName();
                         MaterializedIndex baseIndex = partition.getBaseIndex();
@@ -139,13 +153,11 @@ public class MigrationAction extends RestBaseAction {
                             rows.add(row);
                         }
                     }
+                } finally {
+                    table.readUnlock();
                 }
             }
-
-        } finally {
-            db.readUnlock();
         }
-
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2);
         Collections.sort(rows, comparator);
 

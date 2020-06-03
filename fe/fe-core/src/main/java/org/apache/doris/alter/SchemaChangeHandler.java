@@ -1487,13 +1487,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 continue;
             }
 
-            db.writeLock();
-            try {
-                OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
-                alterJob.cancel(olapTable, "cancelled");
-            } finally {
-                db.writeUnlock();
-            }
+            OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
+            alterJob.cancel(olapTable, "cancelled");
             jobDone(alterJob);
         }
 
@@ -1890,16 +1885,17 @@ public class SchemaChangeHandler extends AlterHandler {
 
         AlterJob schemaChangeJob = null;
         AlterJobV2 schemaChangeJobV2 = null;
-        db.writeLock();
+
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+        }
+        if (!(table instanceof OlapTable)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
+        }
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.writeLock();
         try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-            }
-            if (!(table instanceof OlapTable)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
-            }
-            OlapTable olapTable = (OlapTable) table;
             if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE) {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
             }
@@ -1919,7 +1915,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 schemaChangeJob.cancel(olapTable, "user cancelled");
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         // alter job v2's cancel must be called outside the database lock

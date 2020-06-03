@@ -130,13 +130,14 @@ public class CheckConsistencyJob {
         Tablet tablet = null;
 
         AgentBatchTask batchTask = new AgentBatchTask();
-        db.readLock();
+        Table table = db.getTable(tabletMeta.getTableId());
+        if (table == null) {
+            LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
+            return false;
+        }
+
+        table.readLock();
         try {
-            Table table = db.getTable(tabletMeta.getTableId());
-            if (table == null) {
-                LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
-                return false;
-            }
             OlapTable olapTable = (OlapTable) table;
 
             Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
@@ -209,7 +210,7 @@ public class CheckConsistencyJob {
             }
 
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
 
         if (state != JobState.RUNNING) {

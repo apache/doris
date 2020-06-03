@@ -104,19 +104,19 @@ public class Alter {
         // check db quota
         db.checkQuota();
 
-        db.writeLock();
-        try {
-            Table table = db.getTable(tableName);
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
-            }
-            OlapTable olapTable = (OlapTable) table;
-            olapTable.checkStableAndNormal(db.getClusterName());
+        Table table = db.getTable(tableName);
+        if (table.getType() != TableType.OLAP) {
+            throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
+        }
+        OlapTable olapTable = (OlapTable) table;
 
+        olapTable.writeLock();
+        try {
+            olapTable.checkStableAndNormal(db.getClusterName());
             ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db,
                     olapTable);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -128,20 +128,21 @@ public class Alter {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
-        db.writeLock();
+        String tableName = stmt.getTableName().getTbl();
+        Table table = db.getTable(tableName);
+        // if table exists
+        if (table == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+        }
+        // check table type
+        if (table.getType() != TableType.OLAP) {
+            throw new DdlException("Do not support non-OLAP table [" + tableName + "] when drop materialized view");
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.writeLock();
         try {
-            String tableName = stmt.getTableName().getTbl();
-            Table table = db.getTable(tableName);
-            // if table exists
-            if (table == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-            }
-            // check table type
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Do not support non-OLAP table [" + tableName + "] when drop materialized view");
-            }
             // check table state
-            OlapTable olapTable = (OlapTable) table;
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
                         + "Do not allow doing DROP ops");
@@ -150,7 +151,7 @@ public class Alter {
             ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
 
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 

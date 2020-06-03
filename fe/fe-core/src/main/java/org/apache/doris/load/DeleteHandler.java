@@ -131,16 +131,17 @@ public class DeleteHandler implements Writable {
         try {
             MarkedCountDownLatch<Long, Long> countDownLatch;
             long transactionId = -1;
-            db.readLock();
-            try {
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    throw new DdlException("Table does not exist. name: " + tableName);
-                }
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                throw new DdlException("Table does not exist. name: " + tableName);
+            }
 
-                if (table.getType() != Table.TableType.OLAP) {
-                    throw new DdlException("Not olap type table. type: " + table.getType().name());
-                }
+            if (table.getType() != Table.TableType.OLAP) {
+                throw new DdlException("Not olap type table. type: " + table.getType().name());
+            }
+
+            table.readLock();
+            try {
                 OlapTable olapTable = (OlapTable) table;
 
                 if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
@@ -246,7 +247,7 @@ public class DeleteHandler implements Writable {
                 }
                 throw new DdlException(t.getMessage(), t);
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
 
             long timeoutMs = deleteJob.getTimeoutMs();

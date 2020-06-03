@@ -349,7 +349,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         long tableId = -1L;
         db.readLock();
         try {
-            unprotectedCheckMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
+            checkMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
             Table table = db.getTable(stmt.getTableName());
             tableId = table.getId();
         } finally {

@@ -1070,7 +1070,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    protected static void unprotectedCheckMeta(Database db, String tblName, RoutineLoadDesc routineLoadDesc)
+    protected static void checkMeta(Database db, String tblName, RoutineLoadDesc routineLoadDesc)
             throws UserException {
         Table table = db.getTable(tblName);
         if (table == null) {
@@ -1092,10 +1092,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         
         // check partitions
         OlapTable olapTable = (OlapTable) table;
-        for (String partName : partitionNames.getPartitionNames()) {
-            if (olapTable.getPartition(partName, partitionNames.isTemp()) == null) {
-                throw new DdlException("Partition " + partName + " does not exist");
+        olapTable.readLock();
+        try {
+            for (String partName : partitionNames.getPartitionNames()) {
+                if (olapTable.getPartition(partName, partitionNames.isTemp()) == null) {
+                    throw new DdlException("Partition " + partName + " does not exist");
+                }
             }
+        } finally {
+            olapTable.readUnlock();
         }
 
         // columns will be checked when planing

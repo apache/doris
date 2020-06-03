@@ -427,12 +427,13 @@ public abstract class AlterHandler extends MasterDaemon {
             throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(task.getTableId());
+        if (tbl == null) {
+            throw new MetaNotFoundException("tbl " + task.getTableId() + " does not exist");
+        }
+
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(task.getTableId());
-            if (tbl == null) {
-                throw new MetaNotFoundException("tbl " + task.getTableId() + " does not exist");
-            }
             Partition partition = tbl.getPartition(task.getPartitionId());
             if (partition == null) {
                 throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
@@ -478,7 +479,7 @@ public abstract class AlterHandler extends MasterDaemon {
             
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
     }
 

@@ -514,10 +514,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
-            db.writeLock();
-            try {
-                OlapTable tbl = (OlapTable) db.getTable(tableId);
-                if (tbl != null) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl != null) {
+                tbl.writeLock();
+                try {
                     for (Long partitionId : partitionIdToRollupIndex.keySet()) {
                         MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
                         for (Tablet rollupTablet : rollupIndex.getTablets()) {
@@ -527,9 +527,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         partition.deleteRollupIndex(rollupIndexId);
                     }
                     tbl.deleteIndexInfo(rollupIndexName);
+                } finally {
+                    tbl.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
             }
         }
     }
@@ -551,16 +551,17 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return;
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            // table may be dropped before replaying this log. just return
+            return;
+        }
+
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                // table may be dropped before replaying this log. just return
-                return;
-            }
             addTabletToInvertedIndex(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         // to make sure that this job will run runPendingJob() again to create the rollup replicas
@@ -599,16 +600,17 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return;
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            // table may be dropped before replaying this log. just return
+            return;
+        }
+
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                // table may be dropped before replaying this log. just return
-                return;
-            }
             addRollupIndexToCatalog(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
@@ -625,15 +627,15 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private void replayFinished(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
-            db.writeLock();
-            try {
-                OlapTable tbl = (OlapTable) db.getTable(tableId);
-                if (tbl != null) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl != null) {
+                tbl.writeLock();
+                try {
                     Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
                     onFinished(tbl);
+                } finally {
+                    tbl.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
             }
         }
         

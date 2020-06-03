@@ -122,33 +122,37 @@ public class StatisticProcDir implements ProcDirInterface {
 
                     ++dbTableNum;
                     OlapTable olapTable = (OlapTable) table;
+                    table.readLock();
+                    try {
+                        for (Partition partition : olapTable.getAllPartitions()) {
+                            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                            ++dbPartitionNum;
+                            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                                ++dbIndexNum;
+                                for (Tablet tablet : materializedIndex.getTablets()) {
+                                    ++dbTabletNum;
+                                    dbReplicaNum += tablet.getReplicas().size();
 
-                    for (Partition partition : olapTable.getAllPartitions()) {
-                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-                        ++dbPartitionNum;
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                            ++dbIndexNum;
-                            for (Tablet tablet : materializedIndex.getTablets()) {
-                                ++dbTabletNum;
-                                dbReplicaNum += tablet.getReplicas().size();
+                                    Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
+                                            infoService, db.getClusterName(),
+                                            partition.getVisibleVersion(), partition.getVisibleVersionHash(),
+                                            replicationNum, aliveBeIdsInCluster);
 
-                                Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
-                                        infoService, db.getClusterName(),
-                                        partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                        replicationNum, aliveBeIdsInCluster);
+                                    // here we treat REDUNDANT as HEALTHY, for user friendly.
+                                    if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
+                                            && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR) {
+                                        unhealthyTabletIds.put(dbId, tablet.getId());
+                                    }
 
-                                // here we treat REDUNDANT as HEALTHY, for user friendly.
-                                if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
-                                        && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR) {
-                                    unhealthyTabletIds.put(dbId, tablet.getId());
-                                }
-
-                                if (!tablet.isConsistent()) {
-                                    inconsistentTabletIds.put(dbId, tablet.getId());
-                                }
-                            } // end for tablets
-                        } // end for indices
-                    } // end for partitions
+                                    if (!tablet.isConsistent()) {
+                                        inconsistentTabletIds.put(dbId, tablet.getId());
+                                    }
+                                } // end for tablets
+                            } // end for indices
+                        } // end for partitions
+                    } finally {
+                        table.readUnlock();
+                    }
                 } // end for tables
 
                 List<Comparable> oneLine = new ArrayList<Comparable>(TITLE_NAMES.size());

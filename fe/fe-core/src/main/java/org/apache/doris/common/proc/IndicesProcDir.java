@@ -61,7 +61,7 @@ public class IndicesProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         // get info
         List<List<Comparable>> indexInfos = new ArrayList<List<Comparable>>();
-        db.readLock();
+        olapTable.readLock();
         try {
             result.setNames(TITLE_NAMES);
             for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -75,7 +75,7 @@ public class IndicesProcDir implements ProcDirInterface {
             }
 
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         // sort by index id
@@ -113,15 +113,15 @@ public class IndicesProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid index id format: " + indexIdStr);
         }
         
-        db.readLock();
+        olapTable.readLock();
         try {
             MaterializedIndex materializedIndex = partition.getIndex(indexId);
             if (materializedIndex == null) {
                 throw new AnalysisException("Index[" + indexId + "] does not exist.");
             }
-            return new TabletsProcDir(db, materializedIndex);
+            return new TabletsProcDir(olapTable, materializedIndex);
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
     }
 

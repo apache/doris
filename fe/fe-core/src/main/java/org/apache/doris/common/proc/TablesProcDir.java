@@ -72,13 +72,7 @@ public class TablesProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid table id format: " + tableIdStr);
         }
 
-        Table table = null;
-        db.readLock();
-        try {
-            table = db.getTable(tableId);
-        } finally {
-            db.readUnlock();
-        }
+        Table table = db.getTable(tableId);
         if (table == null) {
             throw new AnalysisException("Table[" + tableId + "] does not exist");
         }
@@ -92,14 +86,21 @@ public class TablesProcDir implements ProcDirInterface {
 
         // get info
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
+        List<Table> tableList = null;
         db.readLock();
         try {
-            for (Table table : db.getTables()) {
-                List<Comparable> tableInfo = new ArrayList<Comparable>();
+            tableList = db.getTables();
+        } finally {
+            db.readUnlock();
+        }
 
-                int partitionNum = 1;
-                long replicaCount = 0;
-                String partitionKey = FeConstants.null_string;
+        for (Table table : tableList) {
+            List<Comparable> tableInfo = new ArrayList<Comparable>();
+            int partitionNum = 1;
+            long replicaCount = 0;
+            String partitionKey = FeConstants.null_string;
+            table.readLock();
+            try {
                 if (table.getType() == TableType.OLAP) {
                     OlapTable olapTable = (OlapTable) table;
                     if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
@@ -137,9 +138,9 @@ public class TablesProcDir implements ProcDirInterface {
                 tableInfo.add(TimeUtils.longToTimeString(table.getLastCheckTime()));
                 tableInfo.add(replicaCount);
                 tableInfos.add(tableInfo);
+            } finally {
+                table.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
 
         // sort by table id

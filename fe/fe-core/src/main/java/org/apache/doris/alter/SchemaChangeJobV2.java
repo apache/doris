@@ -622,10 +622,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
-            db.writeLock();
-            try {
-                OlapTable tbl = (OlapTable) db.getTable(tableId);
-                if (tbl != null) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl != null) {
+                tbl.writeLock();
+                try {
                     for (long partitionId : partitionIndexMap.rowKeySet()) {
                         Partition partition = tbl.getPartition(partitionId);
                         Preconditions.checkNotNull(partition, partitionId);
@@ -643,9 +643,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         tbl.deleteIndexInfo(shadowIndexName);
                     }
                     tbl.setState(OlapTableState.NORMAL);
+                } finally {
+                    tbl.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
             }
         }
 
@@ -669,14 +669,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            // table may be dropped before replaying this log. just return
+            return;
+        }
+
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                // table may be dropped before replaying this log. just return
-                return;
-            }
-            
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Cell<Long, Long, MaterializedIndex> cell : partitionIndexMap.cellSet()) {
                 long partitionId = cell.getRowKey();
@@ -698,7 +698,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // set table state
             tbl.setState(OlapTableState.SCHEMA_CHANGE);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
         
         this.watershedTxnId = replayedJob.watershedTxnId;

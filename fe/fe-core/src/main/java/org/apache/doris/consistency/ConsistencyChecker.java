@@ -260,21 +260,27 @@ public class ConsistencyChecker extends MasterDaemon {
         try {
             while ((chosenOne = dbQueue.poll()) != null) {
                 Database db = (Database) chosenOne;
+                List<Table> tables = null;
                 db.readLock();
                 try {
-                    // sort tables
-                    List<Table> tables = db.getTables();
-                    Queue<MetaObject> tableQueue = new PriorityQueue<>(Math.max(tables.size(), 1), COMPARATOR);
-                    for (Table table : tables) {
-                        if (table.getType() != TableType.OLAP) {
-                            continue;
-                        }
-                        tableQueue.add(table);
+                    tables = db.getTables();
+                } finally {
+                    db.readUnlock();
+                }
+
+                // sort tables
+                Queue<MetaObject> tableQueue = new PriorityQueue<>(Math.max(tables.size(), 1), COMPARATOR);
+                for (Table table : tables) {
+                    if (table.getType() != TableType.OLAP) {
+                        continue;
                     }
+                    tableQueue.add(table);
+                }
 
-                    while ((chosenOne = tableQueue.poll()) != null) {
-                        OlapTable table = (OlapTable) chosenOne;
-
+                while ((chosenOne = tableQueue.poll()) != null) {
+                    OlapTable table = (OlapTable) chosenOne;
+                    table.readLock();
+                    try {
                         // sort partitions
                         Queue<MetaObject> partitionQueue =
                                 new PriorityQueue<>(Math.max(table.getAllPartitions().size(), 1), COMPARATOR);
@@ -288,7 +294,7 @@ public class ConsistencyChecker extends MasterDaemon {
                             // check if this partition has no data
                             if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION) {
                                 LOG.debug("partition[{}]'s version is {}. ignore", partition.getId(),
-                                          Partition.PARTITION_INIT_VERSION);
+                                        Partition.PARTITION_INIT_VERSION);
                                 continue;
                             }
                             partitionQueue.add(partition);
@@ -322,12 +328,12 @@ public class ConsistencyChecker extends MasterDaemon {
                                             && partition.getVisibleVersionHash() == tablet.getCheckedVersionHash()) {
                                         if (tablet.isConsistent()) {
                                             LOG.debug("tablet[{}]'s version[{}-{}] has been checked. ignore",
-                                                      chosenTabletId, tablet.getCheckedVersion(),
-                                                      tablet.getCheckedVersionHash());
+                                                    chosenTabletId, tablet.getCheckedVersion(),
+                                                    tablet.getCheckedVersionHash());
                                         }
                                     } else {
                                         LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),
-                                                 table.getId(), partition.getId(), index.getId(), chosenTabletId);
+                                                table.getId(), partition.getId(), index.getId(), chosenTabletId);
 
                                         chosenTablets.add(chosenTabletId);
                                     }
@@ -338,10 +344,10 @@ public class ConsistencyChecker extends MasterDaemon {
                                 return chosenTablets;
                             }
                         } // end while partitionQueue
-                    } // end while tableQueue
-                } finally {
-                    db.readUnlock();
-                }
+                    } finally {
+                        table.readUnlock();
+                    }
+                } // end while tableQueue
             } // end while dbQueue
         } finally {
             jobsLock.readLock().unlock();

@@ -351,13 +351,7 @@ public class LoadChecker extends MasterDaemon {
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = null;
-            db.readLock();
-            try {
-                table = (OlapTable) db.getTable(tableId);
-            } finally {
-                db.readUnlock();
-            }
+            OlapTable table = (OlapTable) db.getTable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
                 // if table is dropped during load, the the job is failed
@@ -381,7 +375,7 @@ public class LoadChecker extends MasterDaemon {
                     continue;
                 }
 
-                db.readLock();
+                table.readLock();
                 try {
                     Partition partition = table.getPartition(partitionId);
                     if (partition == null) {
@@ -505,7 +499,7 @@ public class LoadChecker extends MasterDaemon {
                         } // end for tablets
                     } // end for indices
                 } finally {
-                    db.readUnlock();
+                    table.readUnlock();
                 }
             } // end for partitions
         } // end for tables
@@ -553,7 +547,6 @@ public class LoadChecker extends MasterDaemon {
         // if the job is quorum finished, just set it to finished and clear related etl job
         if (load.updateLoadJobState(job, JobState.FINISHED)) {
             load.clearJob(job, JobState.QUORUM_FINISHED);
-            return;
         }
     }
     
@@ -565,18 +558,14 @@ public class LoadChecker extends MasterDaemon {
             load.removeDeleteJobAndSetState(job);
             return;
         }
-        db.readLock();
-        try {
-            // if the delete job is quorum finished, just set it to finished
-            job.clearTasks();
-            job.setState(DeleteState.FINISHED);
-            // log
-            Catalog.getCurrentCatalog().getEditLog().logFinishAsyncDelete(job);
-            load.removeDeleteJobAndSetState(job);
-            LOG.info("delete job {} finished", job.getJobId());
-        } finally {
-            db.readUnlock();
-        }
+
+        // if the delete job is quorum finished, just set it to finished
+        job.clearTasks();
+        job.setState(DeleteState.FINISHED);
+        // log
+        Catalog.getCurrentCatalog().getEditLog().logFinishAsyncDelete(job);
+        load.removeDeleteJobAndSetState(job);
+        LOG.info("delete job {} finished", job.getJobId());
     }
 
     public static boolean checkTimeout(LoadJob job) {

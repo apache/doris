@@ -499,41 +499,45 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public synchronized void cancel(OlapTable olapTable, String msg) {
         // make sure to get db write lock before calling this
-
         if (olapTable != null) {
-            // 1. remove all task and set state
-            for (Partition partition : olapTable.getPartitions()) {
-                if (partition.getState() == PartitionState.NORMAL) {
-                    continue;
-                }
-                long partitionId = partition.getId();
-                for (Long indexId : this.changedIndexIdToSchema.keySet()) {
-                    MaterializedIndex index = partition.getIndex(indexId);
-                    if (index == null || index.getState() == IndexState.NORMAL) {
+            olapTable.writeLock();
+            try {
+                // 1. remove all task and set state
+                for (Partition partition : olapTable.getPartitions()) {
+                    if (partition.getState() == PartitionState.NORMAL) {
                         continue;
                     }
-                    for (Tablet tablet : index.getTablets()) {
-                        long tabletId = tablet.getId();
-                        for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE
-                                    || replica.getState() == ReplicaState.DECOMMISSION
-                                    || replica.getState() == ReplicaState.NORMAL) {
-                                continue;
-                            }
-                            Preconditions.checkState(replica.getState() == ReplicaState.SCHEMA_CHANGE);
-                            replica.setState(ReplicaState.NORMAL);
-                            AgentTaskQueue.removeTask(replica.getBackendId(), TTaskType.SCHEMA_CHANGE, tabletId);
-                        } // end for replicas
-                    } // end for tablets
+                    long partitionId = partition.getId();
+                    for (Long indexId : this.changedIndexIdToSchema.keySet()) {
+                        MaterializedIndex index = partition.getIndex(indexId);
+                        if (index == null || index.getState() == IndexState.NORMAL) {
+                            continue;
+                        }
+                        for (Tablet tablet : index.getTablets()) {
+                            long tabletId = tablet.getId();
+                            for (Replica replica : tablet.getReplicas()) {
+                                if (replica.getState() == ReplicaState.CLONE
+                                        || replica.getState() == ReplicaState.DECOMMISSION
+                                        || replica.getState() == ReplicaState.NORMAL) {
+                                    continue;
+                                }
+                                Preconditions.checkState(replica.getState() == ReplicaState.SCHEMA_CHANGE);
+                                replica.setState(ReplicaState.NORMAL);
+                                AgentTaskQueue.removeTask(replica.getBackendId(), TTaskType.SCHEMA_CHANGE, tabletId);
+                            } // end for replicas
+                        } // end for tablets
 
-                    // delete schema hash in inverted index
-                    Catalog.getCurrentInvertedIndex().deleteNewSchemaHash(partitionId, indexId);
-                    Preconditions.checkArgument(index.getState() == IndexState.SCHEMA_CHANGE);
-                    index.setState(IndexState.NORMAL);
-                } // end for indices
-                partition.setState(PartitionState.NORMAL);
-            } // end for partitions
-            olapTable.setState(OlapTableState.NORMAL);
+                        // delete schema hash in inverted index
+                        Catalog.getCurrentInvertedIndex().deleteNewSchemaHash(partitionId, indexId);
+                        Preconditions.checkArgument(index.getState() == IndexState.SCHEMA_CHANGE);
+                        index.setState(IndexState.NORMAL);
+                    } // end for indices
+                    partition.setState(PartitionState.NORMAL);
+                } // end for partitions
+                olapTable.setState(OlapTableState.NORMAL);
+            } finally {
+                olapTable.writeUnlock();
+            }
         }
 
         this.state = JobState.CANCELLED;
@@ -880,17 +884,17 @@ public class SchemaChangeJob extends AlterJob {
             return;
         }
 
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            cancelMsg = String.format("table %d does not exist", tableId);
+            LOG.warn(cancelMsg);
+            return;
+        }
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                cancelMsg = String.format("table %d does not exist", tableId);
-                LOG.warn(cancelMsg);
-                return;
-            }
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         this.finishedTime = System.currentTimeMillis();
@@ -910,10 +914,12 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void replayInitJob(Database db) {
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            return;
+        }
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-
             // change the state of table/partition and replica, then add object to related List and Set
             for (Partition partition : olapTable.getPartitions()) {
                 for (Map.Entry<Long, Integer> entry : changedIndexIdToSchemaHash.entrySet()) {
@@ -947,7 +953,7 @@ public class SchemaChangeJob extends AlterJob {
             // reset status to PENDING for resending the tasks in polling thread
             this.state = JobState.PENDING;
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -1035,28 +1041,27 @@ public class SchemaChangeJob extends AlterJob {
             replayFinishing(db);
         }
 
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable != null) {
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable != null) {
+            olapTable.writeLock();
+            try {
                 olapTable.setState(OlapTableState.NORMAL);
+            } finally {
+                olapTable.writeUnlock();
             }
-        } finally {
-            db.writeUnlock();
         }
-
         LOG.info("replay finish schema change job: {}", tableId);
     }
 
     @Override
     public void replayCancel(Database db) {
-        db.writeLock();
+        // restore partition's state
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            return;
+        }
+        olapTable.writeLock();
         try {
-            // restore partition's state
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                return;
-            }
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
                 for (Long indexId : this.changedIndexIdToSchema.keySet()) {
@@ -1083,13 +1088,13 @@ public class SchemaChangeJob extends AlterJob {
                 } // end for indices
 
                 Preconditions.checkState(partition.getState() == PartitionState.SCHEMA_CHANGE,
-                                         partition.getState());
+                        partition.getState());
                 partition.setState(PartitionState.NORMAL);
             } // end for partitions
 
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 

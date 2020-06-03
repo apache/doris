@@ -251,8 +251,8 @@ public class ColocateTableBalancer extends MasterDaemon {
             } else {
                 colocateIndex.markGroupUnstable(groupId, true);
             }
-        }
-    } // end for groups
+        } // end for groups
+    }
 
     /*
      * The balance logic is as follow:
@@ -416,7 +416,7 @@ public class ColocateTableBalancer extends MasterDaemon {
     // change the backend id to backend host
     // return null if some of backends do not exist
     private List<List<String>> getHostsPerBucketSeq(List<List<Long>> backendsPerBucketSeq,
-            SystemInfoService infoService) {
+                                                    SystemInfoService infoService) {
         List<List<String>> hostsPerBucketSeq = Lists.newArrayList();
         for (List<Long> backendIds : backendsPerBucketSeq) {
             List<String> hosts = Lists.newArrayList();
@@ -434,7 +434,7 @@ public class ColocateTableBalancer extends MasterDaemon {
     }
 
     private List<Map.Entry<Long, Long>> getSortedBackendReplicaNumPairs(List<Long> allAvailBackendIds, Set<Long> unavailBackendIds,
-                ClusterLoadStatistic statistic, List<Long> flatBackendsPerBucketSeq) {
+                                                                        ClusterLoadStatistic statistic, List<Long> flatBackendsPerBucketSeq) {
         // backend id -> replica num, and sorted by replica num, descending.
         Map<Long, Long> backendToReplicaNum = flatBackendsPerBucketSeq.stream()
                 .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));

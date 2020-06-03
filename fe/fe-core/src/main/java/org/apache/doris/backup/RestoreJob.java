@@ -363,17 +363,21 @@ public class RestoreJob extends AbstractJob {
                     status = new Status(ErrCode.NOT_FOUND, "table " + idChain.getTblId() + " has been dropped");
                     return;
                 }
+                tbl.readLock();
+                try {
+                    Partition part = tbl.getPartition(idChain.getPartId());
+                    if (part == null) {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + idChain.getPartId() + " has been dropped");
+                        return;
+                    }
 
-                Partition part = tbl.getPartition(idChain.getPartId());
-                if (part == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "partition " + idChain.getPartId() + " has been dropped");
-                    return;
-                }
-
-                MaterializedIndex index = part.getIndex(idChain.getIdxId());
-                if (index == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "index " + idChain.getIdxId() + " has been dropped");
-                    return;
+                    MaterializedIndex index = part.getIndex(idChain.getIdxId());
+                    if (index == null) {
+                        status = new Status(ErrCode.NOT_FOUND, "index " + idChain.getIdxId() + " has been dropped");
+                        return;
+                    }
+                } finally {
+                    tbl.readUnlock();
                 }
             }
         } finally {
@@ -477,88 +481,92 @@ public class RestoreJob extends AbstractJob {
                     OlapTable localOlapTbl = (OlapTable) localTbl;
                     OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
 
-                    List<String> intersectPartNames = Lists.newArrayList();
-                    Status st = localOlapTbl.getIntersectPartNamesWith(remoteOlapTbl, intersectPartNames);
-                    if (!st.ok()) {
-                        status = st;
-                        return;
-                    }
-                    LOG.debug("get intersect part names: {}, job: {}", intersectPartNames, this);
-                    if (localOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames) 
-                            != remoteOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)) {
-                        status = new Status(ErrCode.COMMON_ERROR, "Table " + jobInfo.getAliasByOriginNameIfSet(tblInfo.name)
-                                + " already exist but with different schema");
-                        return;
-                    }
+                    localOlapTbl.readLock();
+                    try {
+                        List<String> intersectPartNames = Lists.newArrayList();
+                        Status st = localOlapTbl.getIntersectPartNamesWith(remoteOlapTbl, intersectPartNames);
+                        if (!st.ok()) {
+                            status = st;
+                            return;
+                        }
+                        LOG.debug("get intersect part names: {}, job: {}", intersectPartNames, this);
+                        if (localOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)
+                                != remoteOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)) {
+                            status = new Status(ErrCode.COMMON_ERROR, "Table " + jobInfo.getAliasByOriginNameIfSet(tblInfo.name)
+                                    + " already exist but with different schema");
+                            return;
+                        }
 
-                    // Table with same name and has same schema. Check partition
-                    for (BackupPartitionInfo backupPartInfo : tblInfo.partitions.values()) {
-                        Partition localPartition = localOlapTbl.getPartition(backupPartInfo.name);
-                        if (localPartition != null) {
-                            // Partition already exist.
-                            PartitionInfo localPartInfo = localOlapTbl.getPartitionInfo();
-                            if (localPartInfo.getType() == PartitionType.RANGE) {
-                                // If this is a range partition, check range
-                                RangePartitionInfo localRangePartInfo = (RangePartitionInfo) localPartInfo;
-                                RangePartitionInfo remoteRangePartInfo
-                                        = (RangePartitionInfo) remoteOlapTbl.getPartitionInfo();
-                                Range<PartitionKey> localRange = localRangePartInfo.getRange(localPartition.getId());
-                                Range<PartitionKey> remoteRange = remoteRangePartInfo.getRange(backupPartInfo.id);
-                                if (localRange.equals(remoteRange)) {
-                                    // Same partition, same range
+                        // Table with same name and has same schema. Check partition
+                        for (BackupPartitionInfo backupPartInfo : tblInfo.partitions.values()) {
+                            Partition localPartition = localOlapTbl.getPartition(backupPartInfo.name);
+                            if (localPartition != null) {
+                                // Partition already exist.
+                                PartitionInfo localPartInfo = localOlapTbl.getPartitionInfo();
+                                if (localPartInfo.getType() == PartitionType.RANGE) {
+                                    // If this is a range partition, check range
+                                    RangePartitionInfo localRangePartInfo = (RangePartitionInfo) localPartInfo;
+                                    RangePartitionInfo remoteRangePartInfo
+                                            = (RangePartitionInfo) remoteOlapTbl.getPartitionInfo();
+                                    Range<PartitionKey> localRange = localRangePartInfo.getRange(localPartition.getId());
+                                    Range<PartitionKey> remoteRange = remoteRangePartInfo.getRange(backupPartInfo.id);
+                                    if (localRange.equals(remoteRange)) {
+                                        // Same partition, same range
+                                        if (genFileMappingWhenBackupReplicasEqual(localPartInfo, localPartition, localTbl, backupPartInfo, tblInfo)) {
+                                            return;
+                                        }
+                                    } else {
+                                        // Same partition name, different range
+                                        status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
+                                                + " in table " + localTbl.getName()
+                                                + " has different range with partition in repository");
+                                        return;
+                                    }
+                                } else {
+                                    // If this is a single partitioned table.
                                     if (genFileMappingWhenBackupReplicasEqual(localPartInfo, localPartition, localTbl, backupPartInfo, tblInfo)) {
                                         return;
                                     }
-                                } else {
-                                    // Same partition name, different range
-                                    status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
-                                            + " in table " + localTbl.getName()
-                                            + " has different range with partition in repository");
-                                    return;
                                 }
                             } else {
-                                // If this is a single partitioned table.
-                                if (genFileMappingWhenBackupReplicasEqual(localPartInfo, localPartition, localTbl, backupPartInfo, tblInfo)) {
-                                    return;
-                                }
-                            }
-                        } else {
-                            // partitions does not exist
-                            PartitionInfo localPartitionInfo = localOlapTbl.getPartitionInfo();
-                            if (localPartitionInfo.getType() == PartitionType.RANGE) {
-                                // Check if the partition range can be added to the table
-                                RangePartitionInfo localRangePartitionInfo = (RangePartitionInfo) localPartitionInfo;
-                                RangePartitionInfo remoteRangePartitionInfo 
-                                        = (RangePartitionInfo) remoteOlapTbl.getPartitionInfo();
-                                Range<PartitionKey> remoteRange = remoteRangePartitionInfo.getRange(backupPartInfo.id);
-                                if (localRangePartitionInfo.getAnyIntersectRange(remoteRange, false) != null) {
-                                    status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
-                                            + " in table " + localTbl.getName()
-                                            + " has conflict range with existing ranges");
-                                    return;
-                                } else {
-                                    // this partition can be added to this table, set ids
-                                    Partition restorePart = resetPartitionForRestore(localOlapTbl, remoteOlapTbl,
-                                                                                     backupPartInfo.name,
-                                                                                     db.getClusterName(),
-                                                                                     restoreReplicationNum);
-                                    if (restorePart == null) {
+                                // partitions does not exist
+                                PartitionInfo localPartitionInfo = localOlapTbl.getPartitionInfo();
+                                if (localPartitionInfo.getType() == PartitionType.RANGE) {
+                                    // Check if the partition range can be added to the table
+                                    RangePartitionInfo localRangePartitionInfo = (RangePartitionInfo) localPartitionInfo;
+                                    RangePartitionInfo remoteRangePartitionInfo
+                                            = (RangePartitionInfo) remoteOlapTbl.getPartitionInfo();
+                                    Range<PartitionKey> remoteRange = remoteRangePartitionInfo.getRange(backupPartInfo.id);
+                                    if (localRangePartitionInfo.getAnyIntersectRange(remoteRange, false) != null) {
+                                        status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
+                                                + " in table " + localTbl.getName()
+                                                + " has conflict range with existing ranges");
                                         return;
+                                    } else {
+                                        // this partition can be added to this table, set ids
+                                        Partition restorePart = resetPartitionForRestore(localOlapTbl, remoteOlapTbl,
+                                                backupPartInfo.name,
+                                                db.getClusterName(),
+                                                restoreReplicationNum);
+                                        if (restorePart == null) {
+                                            return;
+                                        }
+                                        restoredPartitions.add(Pair.create(localOlapTbl.getName(), restorePart));
                                     }
-                                    restoredPartitions.add(Pair.create(localOlapTbl.getName(), restorePart));
+                                } else {
+                                    // It is impossible that a single partitioned table exist without any existing partition
+                                    status = new Status(ErrCode.COMMON_ERROR,
+                                            "No partition exist in single partitioned table " + localOlapTbl.getName());
+                                    return;
                                 }
-                            } else {
-                                // It is impossible that a single partitioned table exist without any existing partition
-                                status = new Status(ErrCode.COMMON_ERROR,
-                                        "No partition exist in single partitioned table " + localOlapTbl.getName());
-                                return;
                             }
                         }
+                    } finally {
+                        localOlapTbl.readUnlock();
                     }
                 } else {
                     // Table does not exist
                     OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
-
                     // Retain only expected restore partitions in this table;
                     Set<String> allPartNames = remoteOlapTbl.getPartitionNames();
                     for (String partName : allPartNames) {
@@ -702,20 +710,25 @@ public class RestoreJob extends AbstractJob {
         try {
             for (IdChain idChain : fileMapping.getMapping().keySet()) {
                 OlapTable tbl = (OlapTable) db.getTable(idChain.getTblId());
-                Partition part = tbl.getPartition(idChain.getPartId());
-                MaterializedIndex index = part.getIndex(idChain.getIdxId());
-                Tablet tablet = index.getTablet(idChain.getTabletId());
-                Replica replica = tablet.getReplicaById(idChain.getReplicaId());
-                long signature = catalog.getNextId();
-                SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature,
-                        jobId, db.getId(),
-                        tbl.getId(), part.getId(), index.getId(), tablet.getId(),
-                        part.getVisibleVersion(), part.getVisibleVersionHash(),
-                        tbl.getSchemaHashByIndexId(index.getId()), timeoutMs,
-                        true /* is restore task*/);
-                batchTask.addTask(task);
-                unfinishedSignatureToId.put(signature, tablet.getId());
-                bePathsMap.put(replica.getBackendId(), replica.getPathHash());
+                tbl.readLock();
+                try {
+                    Partition part = tbl.getPartition(idChain.getPartId());
+                    MaterializedIndex index = part.getIndex(idChain.getIdxId());
+                    Tablet tablet = index.getTablet(idChain.getTabletId());
+                    Replica replica = tablet.getReplicaById(idChain.getReplicaId());
+                    long signature = catalog.getNextId();
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature,
+                            jobId, db.getId(),
+                            tbl.getId(), part.getId(), index.getId(), tablet.getId(),
+                            part.getVisibleVersion(), part.getVisibleVersionHash(),
+                            tbl.getSchemaHashByIndexId(index.getId()), timeoutMs,
+                            true /* is restore task*/);
+                    batchTask.addTask(task);
+                    unfinishedSignatureToId.put(signature, tablet.getId());
+                    bePathsMap.put(replica.getBackendId(), replica.getPathHash());
+                } finally {
+                    tbl.readUnlock();
+                }
             }
         } finally {
             db.readUnlock();
@@ -1037,62 +1050,66 @@ public class RestoreJob extends AbstractJob {
                                 return;
                             }
                             OlapTable olapTbl = (OlapTable) tbl;
+                            olapTbl.readLock();
+                            try {
+                                Partition part = olapTbl.getPartition(info.getPartitionId());
+                                if (part == null) {
+                                    status = new Status(ErrCode.NOT_FOUND, "partition "
+                                            + info.getPartitionId() + " does not exist in restored table: "
+                                            + tbl.getName());
+                                    return;
+                                }
 
-                            Partition part = olapTbl.getPartition(info.getPartitionId());
-                            if (part == null) {
-                                status = new Status(ErrCode.NOT_FOUND, "partition "
-                                        + info.getPartitionId() + " does not exist in restored table: "
-                                        + tbl.getName());
-                                return;
-                            }
+                                MaterializedIndex idx = part.getIndex(info.getIndexId());
+                                if (idx == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "index " + info.getIndexId() + " does not exist in partion " + part.getName()
+                                                    + "of restored table " + tbl.getName());
+                                    return;
+                                }
 
-                            MaterializedIndex idx = part.getIndex(info.getIndexId());
-                            if (idx == null) {
-                                status = new Status(ErrCode.NOT_FOUND,
-                                        "index " + info.getIndexId() + " does not exist in partion " + part.getName()
-                                                + "of restored table " + tbl.getName());
-                                return;
-                            }
-                            
-                            Tablet tablet  = idx.getTablet(info.getTabletId());
-                            if (tablet == null) {
-                                status = new Status(ErrCode.NOT_FOUND,
-                                        "tablet " + info.getTabletId() + " does not exist in restored table "
-                                                + tbl.getName());
-                                return;
-                            }
-                            
-                            Replica replica = tablet.getReplicaByBackendId(info.getBeId());
-                            if (replica == null) {
-                                status = new Status(ErrCode.NOT_FOUND,
-                                                    "replica in be " + info.getBeId() + " of tablet "
-                                                + tablet.getId() + " does not exist in restored table "  
-                                                + tbl.getName());
-                                return;
-                            }
+                                Tablet tablet  = idx.getTablet(info.getTabletId());
+                                if (tablet == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "tablet " + info.getTabletId() + " does not exist in restored table "
+                                                    + tbl.getName());
+                                    return;
+                                }
 
-                            IdChain catalogIds = new IdChain(tbl.getId(), part.getId(), idx.getId(),
-                                    info.getTabletId(), replica.getId());
-                            IdChain repoIds = fileMapping.get(catalogIds);
-                            if (repoIds == null) {
-                                status = new Status(ErrCode.NOT_FOUND,
-                                        "failed to get id mapping of catalog ids: " + catalogIds.toString());
-                                LOG.info("current file mapping: {}", fileMapping);
-                                return;
+                                Replica replica = tablet.getReplicaByBackendId(info.getBeId());
+                                if (replica == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "replica in be " + info.getBeId() + " of tablet "
+                                                    + tablet.getId() + " does not exist in restored table "
+                                                    + tbl.getName());
+                                    return;
+                                }
+
+                                IdChain catalogIds = new IdChain(tbl.getId(), part.getId(), idx.getId(),
+                                        info.getTabletId(), replica.getId());
+                                IdChain repoIds = fileMapping.get(catalogIds);
+                                if (repoIds == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "failed to get id mapping of catalog ids: " + catalogIds.toString());
+                                    LOG.info("current file mapping: {}", fileMapping);
+                                    return;
+                                }
+
+                                String repoTabletPath = jobInfo.getFilePath(repoIds);
+                                // eg:
+                                // bos://location/__palo_repository_my_repo/_ss_my_ss/_ss_content/__db_10000/
+                                // __tbl_10001/__part_10002/_idx_10001/__10003
+                                String src = repo.getRepoPath(label, repoTabletPath);
+                                SnapshotInfo snapshotInfo = snapshotInfos.get(info.getTabletId(), info.getBeId());
+                                Preconditions.checkNotNull(snapshotInfo, info.getTabletId() + "-" + info.getBeId());
+                                // download to previous exist snapshot dir
+                                String dest = snapshotInfo.getTabletPath();
+                                srcToDest.put(src, dest);
+                                LOG.debug("create download src path: {}, dest path: {}", src, dest);
+
+                            } finally {
+                                olapTbl.readUnlock();
                             }
-
-                            String repoTabletPath = jobInfo.getFilePath(repoIds);
-
-                            // eg:
-                            // bos://location/__palo_repository_my_repo/_ss_my_ss/_ss_content/__db_10000/
-                            // __tbl_10001/__part_10002/_idx_10001/__10003
-                            String src = repo.getRepoPath(label, repoTabletPath);
-                            SnapshotInfo snapshotInfo = snapshotInfos.get(info.getTabletId(), info.getBeId());
-                            Preconditions.checkNotNull(snapshotInfo, info.getTabletId() + "-" + info.getBeId());
-                            // download to previous exist snapshot dir
-                            String dest = snapshotInfo.getTabletPath();
-                            srcToDest.put(src, dest);
-                            LOG.debug("create download src path: {}, dest path: {}", src, dest);
                         }
                         long signature = catalog.getNextId();
                         DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId,
@@ -1116,7 +1133,6 @@ public class RestoreJob extends AbstractJob {
 
         // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
-        return;
     }
 
     private void waitingAllDownloadFinished() {
