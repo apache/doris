@@ -44,6 +44,16 @@ namespace config {
     // free memory rate.[0-100]
     CONF_mInt64(tc_free_memory_rate, "20");
 
+    // Bound on the total amount of bytes allocated to thread caches.
+    // This bound is not strict, so it is possible for the cache to go over this bound
+    // in certain circumstances. This value defaults to 1GB
+    // If you suspect your application is not scaling to many threads due to lock contention in TCMalloc,
+    // you can try increasing this value. This may improve performance, at a cost of extra memory
+    // use by TCMalloc.
+    // reference: https://gperftools.github.io/gperftools/tcmalloc.html: TCMALLOC_MAX_TOTAL_THREAD_CACHE_BYTES
+    //            https://github.com/gperftools/gperftools/issues/1111
+    CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
+
     // process memory limit specified as number of bytes
     // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
     // or percentage of the physical memory ('<int>%').
