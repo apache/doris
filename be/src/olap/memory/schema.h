@@ -82,6 +82,8 @@ public:
 
     inline size_t num_key_columns() const { return _tschema.num_key_columns(); }
 
+    const TabletSchema& get_tablet_schema() const { return _tschema; }
+
     // Get ColumnSchema by index
     const ColumnSchema* get(size_t idx) const;
 

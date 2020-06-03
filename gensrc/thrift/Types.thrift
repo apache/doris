@@ -138,7 +138,9 @@ enum TAggregationType {
 enum TPushType {
     LOAD,
     DELETE,
-    LOAD_DELETE
+    LOAD_DELETE,
+    // for spark load push request
+    LOAD_V2
 }
 
 enum TTaskType {
