@@ -608,7 +608,7 @@ public class SelectStmt extends QueryStmt {
         if (clearExprs.size() == 1) {
             return makeCompound(clearExprs.get(0), CompoundPredicate.Operator.AND);
         }
-        // 2. find duplcate cross the clause
+        // 2. find duplicate cross the clause
         List<Expr> cloneExprs = new ArrayList<>(clearExprs.get(0));
         for (int i = 1; i < clearExprs.size(); ++i) {
             cloneExprs.retainAll(clearExprs.get(i));

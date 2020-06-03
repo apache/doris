@@ -147,6 +147,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
+        this.opcode = op.opcode;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkNotNull(e2);
@@ -225,7 +226,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (!super.equals(obj)) {
             return false;
         }
-        return ((BinaryPredicate) obj).opcode == this.opcode;
+        return ((BinaryPredicate) obj).opcode == this.opcode && op.equals(((BinaryPredicate) obj).getOp());
     }
 
     @Override
