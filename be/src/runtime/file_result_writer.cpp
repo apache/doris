@@ -149,6 +149,9 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
 
             if (item == nullptr) {
                 _plain_text_outstream << NULL_IN_CSV;
+                if (i < num_columns - 1) {
+                    _plain_text_outstream << _file_opts->column_separator;
+                }
                 continue;
             }
 
