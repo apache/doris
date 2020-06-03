@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import static org.apache.doris.load.FailMsg.CancelType.ETL_RUN_FAIL;
 import static org.apache.doris.load.FailMsg.CancelType.LOAD_RUN_FAIL;
 
 import org.apache.doris.analysis.CancelLoadStmt;
