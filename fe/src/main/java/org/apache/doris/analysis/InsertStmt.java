@@ -641,20 +641,21 @@ public class InsertStmt extends DdlStmt {
         }
 
         if (!origColIdxsForMVCols.isEmpty()) {
-            for (Map.Entry<Integer, Integer> entry : origColIdxsForMVCols.entrySet()) {
-                Integer key = entry.getKey();
-                Integer value = entry.getValue();
+            ArrayList<Expr> extentedRow = Lists.newArrayList();
+            extentedRow.addAll(row);
 
-                Column mvColumn = targetTable.getFullSchema().get(key);
+            for (Map.Entry<Integer, Integer> entry : origColIdxsForMVCols.entrySet()) {
+                Column mvColumn = targetTable.getFullSchema().get(entry.getKey());
                 Expr expr = mvColumn.getDefineExpr();
                 ArrayList<SlotRef> slots = new ArrayList<>();
                 expr.collect(SlotRef.class, slots);
 
                 ExprSubstitutionMap smap = new ExprSubstitutionMap();
                 smap.getLhs().add(slots.get(0));
-                smap.getRhs().add(row.get(value));
-                row.add(Expr.substituteList(Lists.newArrayList(expr), smap, analyzer, false).get(0));
+                smap.getRhs().add(extentedRow.get( entry.getValue()));
+                extentedRow.add(Expr.substituteList(Lists.newArrayList(expr), smap, analyzer, false).get(0));
             }
+            row = extentedRow;
             rows.set(rowIdx, row);
         }
     }
