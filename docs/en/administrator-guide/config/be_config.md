@@ -83,6 +83,8 @@ This configuration is mainly used to modify the number of bthreads for brpc. The
 
 User can set this configuration to a larger value to get better QPS performance. For more information, please refer to `https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`
 
+### `brpc_port`
+
 ### `buffer_pool_clean_pages_limit`
 
 ### `buffer_pool_limit`
