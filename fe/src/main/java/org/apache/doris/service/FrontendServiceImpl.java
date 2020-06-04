@@ -808,7 +808,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
         }
-        Database db = Catalog.getInstance().getDb(request.getDb());
+        String dbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = Catalog.getInstance().getDb(dbName);
         if (db == null) {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
