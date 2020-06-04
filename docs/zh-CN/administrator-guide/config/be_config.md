@@ -75,6 +75,12 @@ under the License.
 
 由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
+### `brpc_num_threads`
+
+该配置主要用来修改brpc中bthreads的数量. 该配置的默认值被设置为-1, 这意味着bthreads的数量将被设置为机器的cpu核数。
+
+用户可以将该配置的值调大来获取更好的QPS性能。更多的信息可以参考`https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`。
+
 ### `brpc_port`
 
 ### `buffer_pool_clean_pages_limit`
