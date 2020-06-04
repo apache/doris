@@ -21,16 +21,17 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.apache.doris.common.UserException;
+
+import org.apache.commons.io.FileUtils;
+import org.junit.Before;
+import org.junit.Test;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import org.apache.commons.io.FileUtils;
-import org.apache.doris.common.UserException;
-import org.junit.Before;
-import org.junit.Test;
 
 import mockit.Expectations;
 
@@ -56,10 +57,10 @@ public class PluginZipTest {
             // normal
             new Expectations(zip) {
                 {
-                    zip.openUrlInputStream("source/test.zip");
+                    zip.getInputStreamFromUrl("source/test.zip");
                     result = PluginTestUtil.openTestFile("source/test.zip");
 
-                    zip.openUrlInputStream("source/test.zip.md5");
+                    zip.getInputStreamFromUrl("source/test.zip.md5");
                     result = new ByteArrayInputStream(new String("7529db41471ec72e165f96fe9fb92742").getBytes());
                 }
             };
@@ -76,19 +77,19 @@ public class PluginZipTest {
 
     @Test
     public void testDownloadAndValidateZipMd5Error() {
-        PluginZip util = new PluginZip("source/test.zip");
+        PluginZip zip = new PluginZip("source/test.zip");
         try {
-            new Expectations(util) {
+            new Expectations(zip) {
                 {
-                    util.openUrlInputStream("source/test.zip");
+                    zip.getInputStreamFromUrl("source/test.zip");
                     result = PluginTestUtil.openTestFile("source/test.zip");
 
-                    util.openUrlInputStream("source/test.zip.md5");
+                    zip.getInputStreamFromUrl("source/test.zip.md5");
                     result = new ByteArrayInputStream(new String("asdfas").getBytes());
                 }
             };
 
-            Path zipPath = util.downloadRemoteZip(PluginTestUtil.getTestPath("target"));
+            Path zipPath = zip.downloadRemoteZip(PluginTestUtil.getTestPath("target"));
             assertFalse(Files.exists(zipPath));
         } catch (Exception e) {
             assertTrue(e instanceof UserException);
