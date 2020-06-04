@@ -755,6 +755,12 @@ public class SingleNodePlanner {
     public void selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer) throws UserException {
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
+            ArrayList<String> commonHints = new ArrayList();
+            if (selectStmt.getTableRefs().size() > 0) {
+            if (selectStmt.getTableRefs().get(0).getCommonHints() != null) {
+                commonHints.addAll(selectStmt.getTableRefs().get(0).getCommonHints());
+            }
+            }
             for (TableRef tableRef : selectStmt.getTableRefs()) {
                 if (tableRef instanceof InlineViewRef) {
                     selectMaterializedView(((InlineViewRef) tableRef).getViewStmt(), analyzer);
@@ -773,8 +779,14 @@ public class SingleNodePlanner {
                 if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
                     continue;
                 }
-                MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector.selectBestMV(
-                        olapScanNode);
+                MaterializedViewSelector.BestIndexInfo bestIndexInfo;
+                if (commonHints.isEmpty()) {
+                    bestIndexInfo = materializedViewSelector.selectBestMV(
+                            olapScanNode);
+                } else {
+                    bestIndexInfo = materializedViewSelector.selectBestMV(
+                            olapScanNode, commonHints.get(0));
+                }
                 olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(), bestIndexInfo.isPreAggregation(),
                         bestIndexInfo.getReasonOfDisable());
             }

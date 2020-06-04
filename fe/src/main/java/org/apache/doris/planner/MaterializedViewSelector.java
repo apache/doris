@@ -109,17 +109,21 @@ public class MaterializedViewSelector {
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
         
-        LOG.debug("baseID : " + olapScanNode.getOlapTable().getBaseIndexId());
-        for (Map.Entry<Long, MaterializedIndexMeta> item : olapScanNode.getOlapTable().getIndexIdToMeta().entrySet()) {
-            LOG.debug("indexID : " + item.getKey());
-        }
-
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
-        //bestIndexId = 10022;
-        bestIndexId = 18009;
         LOG.debug("The best materialized view is {} for scan node {} in query {}, cost {}",
                  bestIndexId, scanNode.getId(), selectStmt.toSql(), (System.currentTimeMillis() - start));
+        return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
+    }
+    
+    public BestIndexInfo selectBestMV(ScanNode scanNode, String mvIndex) throws UserException {
+        long start = System.currentTimeMillis();
+        Preconditions.checkState(scanNode instanceof OlapScanNode);
+        OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+        long bestIndexId = olapScanNode.getOlapTable().getIndexIdByName(mvIndex);
+
+        LOG.debug("Hint select : The best materialized view is {} for scan node {} in query {}, cost {}",
+                bestIndexId, scanNode.getId(), selectStmt.toSql(), (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
     }
 

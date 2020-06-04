@@ -328,6 +328,10 @@ public class TableRef implements ParseNode, Writable {
     public String getSortColumn() {
         return sortColumn;
     }
+    
+    public ArrayList<String> getCommonHints() {
+        return commonHints;
+    }
 
     protected void analyzeSortHints() throws AnalysisException {
         if (sortHints == null) {
