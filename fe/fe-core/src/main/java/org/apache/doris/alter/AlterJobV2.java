@@ -188,6 +188,9 @@ public abstract class AlterJobV2 implements Writable {
     */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
         OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            throw new AlterCancelException("Table " + tableId + " does not exist");
+        }
 
         boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
                     Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
