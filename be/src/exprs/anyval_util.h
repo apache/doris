@@ -273,7 +273,7 @@ public:
         if (type.type == FunctionContext::TYPE_VARCHAR
               || type.type == FunctionContext::TYPE_CHAR) {
             DCHECK(type.len >= 0); 
-            val->len = std::min(val->len, type.len);
+            val->len = std::min(val->len, (int64_t)type.len);
         }   
     } 
 

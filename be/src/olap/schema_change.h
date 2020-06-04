@@ -265,8 +265,7 @@ private:
                                      RowBlockChanger* rb_changer,
                                      bool* sc_sorting,
                                      bool* sc_directly,
-                                     const std::map<std::string, AlterMaterializedViewParam>& materialized_function_map
-                                     );
+                                     const std::map<std::string, AlterMaterializedViewParam>& materialized_function_map);
 
     // 需要新建default_value时的初始化设置
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,

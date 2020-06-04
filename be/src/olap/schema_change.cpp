@@ -277,41 +277,48 @@ bool RowBlockChanger::change_row_block(
                     ref_block->get_row(row_index, &read_helper);
 
                     if (_schema_mapping[i].materialized_function == "to_bitmap") {
-                        uint64_t origin_value;
-                        char *src = read_helper.cell_ptr(ref_column);
-                        switch (ref_block->tablet_schema().column(ref_column).type()) {
-                            case OLAP_FIELD_TYPE_TINYINT:
-                                origin_value = *(int8_t*) src; break;
-                            case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
-                                origin_value = *(uint8_t*) src; break;
-                            case OLAP_FIELD_TYPE_SMALLINT:
-                                origin_value = *(int16_t*) src; break;
-                            case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
-                                origin_value = *(uint16_t*) src; break;
-                            case OLAP_FIELD_TYPE_INT:
-                                origin_value = *(int32_t*) src; break;
-                            case OLAP_FIELD_TYPE_UNSIGNED_INT:
-                                origin_value = *(uint32_t*) src; break;
-                            case OLAP_FIELD_TYPE_BIGINT:
-                                origin_value = *(int64_t*) src; break;
-                            case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
-                                origin_value = *(uint64_t*) src; break;
-                            default:
-                                LOG(WARNING) << "the column type which was altered from was unsupported."
-                                             << " from_type=" << ref_block->tablet_schema().column(ref_column).type();
-                                return false;
-                        }
-                        if (origin_value < 0) {
-                            LOG(WARNING) << "The input: " << origin_value << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
-                            return false;
-                        }
-
                         write_helper.set_not_null(i);
                         BitmapValue bitmap;
                         if (!read_helper.is_null(ref_column)) {
+                            uint64_t origin_value;
                             char *src = read_helper.cell_ptr(ref_column);
-                            int64_t int_value = *(int64_t*)src;
-                            bitmap.add(int_value);
+                            switch (ref_block->tablet_schema().column(ref_column).type()) {
+                                case OLAP_FIELD_TYPE_TINYINT:
+                                    origin_value = *(int8_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+                                    origin_value = *(uint8_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_SMALLINT:
+                                    origin_value = *(int16_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+                                    origin_value = *(uint16_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_INT:
+                                    origin_value = *(int32_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_INT:
+                                    origin_value = *(uint32_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_BIGINT:
+                                    origin_value = *(int64_t *) src;
+                                    break;
+                                case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+                                    origin_value = *(uint64_t *) src;
+                                    break;
+                                default:
+                                    LOG(WARNING) << "the column type which was altered from was unsupported."
+                                                 << " from_type="
+                                                 << ref_block->tablet_schema().column(ref_column).type();
+                                    return false;
+                            }
+                            if (origin_value < 0) {
+                                LOG(WARNING) << "The input: " << origin_value
+                                             << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
+                                return false;
+                            }
+                            bitmap.add(origin_value);
                         }
                         char *buf = reinterpret_cast<char *>(mem_pool->allocate(bitmap.getSizeInBytes()));
                         Slice dst(buf, bitmap.getSizeInBytes());

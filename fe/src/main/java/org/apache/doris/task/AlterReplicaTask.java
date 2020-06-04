@@ -117,7 +117,6 @@ public class AlterReplicaTask extends AgentTask {
         req.setAlter_version_hash(versionHash);
         if (defileExprs != null) {
             for (Map.Entry<String, Expr> expr : defileExprs.entrySet()) {
-                System.out.println(expr.getValue().toString());
                 List<SlotRef> slots = Lists.newArrayList();
                 expr.getValue().collect(SlotRef.class, slots);
                 Preconditions.checkState(slots.size() == 1);

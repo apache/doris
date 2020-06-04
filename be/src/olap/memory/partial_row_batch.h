@@ -105,7 +105,7 @@ private:
 // Example usage:
 // scoped_refptr<Schema> sc;
 // Schema::create("id int,uv int,pv int,city tinyint null", &sc);
-// PartialRowWriter writer(*sc.get());
+// PartialRowWriter writer(&sc);
 // writer.start_batch();
 // for (auto& row : rows) {
 //     writer.start_row();
@@ -121,7 +121,7 @@ public:
     static const size_t DEFAULT_BYTE_CAPACITY = 1 << 20;
     static const size_t DEFAULT_ROW_CAPACIT = 1 << 16;
 
-    explicit PartialRowWriter(scoped_refptr<Schema>* schema);
+    explicit PartialRowWriter(const scoped_refptr<Schema>& schema);
     ~PartialRowWriter();
 
     Status start_batch(size_t row_capacity = DEFAULT_ROW_CAPACIT,
