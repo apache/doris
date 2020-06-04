@@ -33,7 +33,7 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
                                  const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                                  RowsetWriter* dst_rowset_writer,
                                  Merger::Statistics* stats_output) {
-    TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets");
+    TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
 
     Reader reader;
     ReaderParams reader_params;

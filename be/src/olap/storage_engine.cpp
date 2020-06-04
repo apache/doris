@@ -512,12 +512,12 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     MonotonicStopWatch watch;
     watch.start();
     SCOPED_CLEANUP({
-        if (watch.elapsed_time() > config::cumulative_compaction_trace_threshold) {
+        if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
             LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
         }
     });
     ADOPT_TRACE(trace.get());
-    TRACE("start to perform cumulativebase compaction");
+    TRACE("start to perform cumulative compaction");
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, data_dir);
     if (best_tablet == nullptr) {
@@ -546,7 +546,7 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     MonotonicStopWatch watch;
     watch.start();
     SCOPED_CLEANUP({
-        if (watch.elapsed_time() > config::base_compaction_trace_threshold) {
+        if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
             LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
         }
     });

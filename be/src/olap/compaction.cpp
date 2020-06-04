@@ -85,7 +85,6 @@ OLAPStatus Compaction::do_compaction_impl() {
         return res;
     }
     TRACE("merge rowsets finished");
-    TRACE_COUNTER_INCREMENT("output_rows", stats.output_rows);  // TODO(yingchun): dup with output_row_num
     TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
     TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
 
