@@ -230,6 +230,7 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
     const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
     // after es 7.x "total": { "value": 1, "relation": "eq" }
+    // it is not necessary to parse `total`, this logic would be removed the another pr.
     if (field_total.IsObject()) {
         const rapidjson::Value &field_relation_value = field_total["relation"];
         std::string relation = field_relation_value.GetString();
@@ -242,26 +243,16 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     } else {
         _total = field_total.GetInt();
     }
-
+    // just used for the first scroll, maybe we should remove this logic from the `get_next`
     if (_total == 0) {
         return Status::OK();
     }
 
     VLOG(1) << "es_scan_reader parse scroll result: " << scroll_result;
-    if (!outer_hits_node.HasMember(FIELD_INNER_HITS)) {
-        // this is caused by query some columns which are not exit, e.g.
-        // A Index has fields: k1,k2,k3. and we put some rows into this Index (some fields dose NOT contain any data)
-        // e.g. 
-        // put index/_doc/1 {"k2":"123"}
-        // put index/_doc/2 {"k3":"123}
-        // then we use sql `select k1 from table`
-        // what ES return is like this: {hits: {total:2}
-        return Status::OK();
-    }
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
+    // this happened just the end of scrolling
     if (!inner_hits_node.IsArray()) {
-        LOG(WARNING) << "exception maybe happend on es cluster, reponse:" << scroll_result;
-        return Status::InternalError("inner hits node is not an array");
+        return Status::OK();
     }
 
     rapidjson::Document::AllocatorType& a = _document_node.GetAllocator();
@@ -288,30 +279,6 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
     *line_eof = true;
 
     if (_size <= 0 || _line_index >= _size) {
-        // _source is fetched from ES
-        if (!_doc_value_mode) {
-            return Status::OK();
-        }
-        
-        // _fields(doc_value) is fetched from ES
-        if (_total <= 0 || _line_index >= _total) {
-            return Status::OK();
-        }
-       
-       
-        // here is operations for `enable_doc_value_scan`.
-        // This indicates that the fields does not exist(e.g. never assign values to these fields), but other fields have values.
-        // so, number of rows is >= 0, we need fill `NULL` to these fields that does not exist.
-        _line_index++;
-        tuple->init(tuple_desc->byte_size());
-        for (int i = 0; i < tuple_desc->slots().size(); ++i) {
-            const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
-            if (slot_desc->is_materialized()) {
-                tuple->set_null(slot_desc->null_indicator_offset());
-            }
-        }
-
-        *line_eof = false;
         return Status::OK();
     }
 
