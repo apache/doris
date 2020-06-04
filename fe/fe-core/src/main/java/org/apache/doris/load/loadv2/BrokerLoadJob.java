@@ -309,6 +309,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+            return;
         } finally {
             db.writeUnlock();
         }
@@ -374,4 +375,3 @@ public class BrokerLoadJob extends BulkLoadJob {
         writeProfile();
     }
 }
-

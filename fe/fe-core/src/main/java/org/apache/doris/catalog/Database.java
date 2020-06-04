@@ -368,7 +368,7 @@ public class Database extends MetaObject implements Writable {
     }
 
     // tables must get read or write table in fixed order to escape potential dead lock
-    public List<Table> getOrderedTablesById() {
+    public List<Table> getTablesOnIdOrder() {
         return idToTable.values().stream()
                 .sorted(Comparator.comparing(Table::getId))
                 .collect(Collectors.toList());
@@ -384,10 +384,24 @@ public class Database extends MetaObject implements Writable {
         return views;
     }
 
+    public List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
+        List<Table> tableList = Lists.newArrayList();
+        for (Long tableId : tableIdList) {
+            Table table = idToTable.get(tableId);
+            if (table == null) {
+                throw new MetaNotFoundException("unknown table, table=" + tableId);
+            }
+        }
+        if (tableList.size() > 1) {
+            return tableList.stream().sorted(Comparator.comparing(Table::getId)).collect(Collectors.toList());
+        }
+        return tableList;
+    }
+
     public Set<String> getTableNamesWithLock() {
         readLock();
         try {
-            return new HashSet<String>(this.nameToTable.keySet());
+            return new HashSet<>(this.nameToTable.keySet());
         } finally {
             readUnlock();
         }

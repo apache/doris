@@ -290,7 +290,6 @@ public class Alter {
                 Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
                 db.checkQuota();
             }
-
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException(
                         "Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");

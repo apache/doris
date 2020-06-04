@@ -25,6 +25,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
@@ -240,6 +241,14 @@ public class LoadChecker extends MasterDaemon {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
         }
+        long tableId = job.getTableId();
+        Table table = null;
+        try {
+            table = db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (UserException e) {
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: " + dbId + ", tableId: " + tableId);
+            return;
+        }
 
         if (job.getTransactionId() < 0) {
             LOG.warn("cancel load job {}  because it is an old type job, user should resubmit it", job);
@@ -305,12 +314,12 @@ public class LoadChecker extends MasterDaemon {
             // if all tablets are finished or stay in quorum finished for long time, try to commit it.
             if (System.currentTimeMillis() - job.getQuorumFinishTimeMs() > stragglerTimeout
                     || job.getFullTablets().containsAll(jobTotalTablets)) {
-                tryCommitJob(job, db);
+                tryCommitJob(job, table);
             }
         }
     }
     
-    private void tryCommitJob(LoadJob job, Database db) {
+    private void tryCommitJob(LoadJob job, Table table) {
         // check transaction state
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
@@ -318,7 +327,7 @@ public class LoadChecker extends MasterDaemon {
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
         // when be finish load task, fe will update job's finish task info, use lock here to prevent
         // concurrent problems
-        db.writeLock();
+        table.writeLock();
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Replica replica : job.getFinishedReplicas()) {
@@ -338,7 +347,7 @@ public class LoadChecker extends MasterDaemon {
                     transactionState.getTransactionId(), job, e);
             load.cancelLoadJob(job, CancelType.UNKNOWN, transactionState.getReason());
         } finally {
-            db.writeUnlock();
+            table.writeUnlock();
         }
     }
 

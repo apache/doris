@@ -2043,7 +2043,7 @@ public class Catalog {
             if (!InfoSchemaDb.isInfoSchemaDb(dbName)) {
                 checksum ^= entry.getKey();
                 db.readLock();
-                List<Table> tableList = db.getOrderedTablesById();
+                List<Table> tableList = db.getTablesOnIdOrder();
                 for (Table table : tableList) {
                     table.readLock();
                 }
@@ -2764,17 +2764,12 @@ public class Catalog {
 
     public void unprotectDropDb(Database db, boolean isForeDrop) {
         for (Table table : db.getTables()) {
-<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/catalog/Catalog.java
-            unprotectDropTable(db, table.getId(), isForeDrop);
-=======
             table.writeLock();
             try {
-                unprotectDropTable(db, table);
+                unprotectDropTable(db, table, isForeDrop);
             } finally {
                 table.writeUnlock();
             }
-
->>>>>>> use table lock to replace db lock:fe/src/main/java/org/apache/doris/catalog/Catalog.java
         }
     }
 
@@ -6349,7 +6344,7 @@ public class Catalog {
             // lock all dbs
             for (Database db : lockedDbMap.values()) {
                 db.readLock();
-                List<Table> tableList = db.getOrderedTablesById();
+                List<Table> tableList = db.getTablesOnIdOrder();
                 for (Table table : tableList) {
                     table.readLock();
                 }
@@ -6372,7 +6367,7 @@ public class Catalog {
             // unlock all
             load.readUnlock();
             for (Database db : lockedDbMap.values()) {
-                List<Table> tableList = db.getOrderedTablesById();
+                List<Table> tableList = db.getTablesOnIdOrder();
                 for (int i = tableList.size() - 1; i >= 0; i--) {
                     tableList.get(i).readUnlock();
                 }

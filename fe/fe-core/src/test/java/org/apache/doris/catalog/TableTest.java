@@ -36,20 +36,42 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class TableTest {
     private FakeCatalog fakeCatalog;
 
     private Catalog catalog;
 
+    private Table table;
+    private long tableId = 10000;
+
     @Before
     public void setUp() {
         fakeCatalog = new FakeCatalog();
         catalog = Deencapsulation.newInstance(Catalog.class);
-
+        table = new Table(Table.TableType.OLAP);
         FakeCatalog.setCatalog(catalog);
         FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
+
+    @Test
+    public void lockTest() {
+        table.readLock();
+        try {
+            Assert.assertFalse(table.tryWriteLock(0, TimeUnit.SECONDS));
+        } finally {
+            table.readUnlock();
+        }
+
+        table.writeLock();
+        try {
+            Assert.assertTrue(table.tryWriteLock(0, TimeUnit.SECONDS));
+        } finally {
+            table.writeUnlock();
+        }
+    }
+
 
     @Test
     public void testSerialization() throws Exception {

@@ -19,6 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -44,7 +45,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Transaction Manager
@@ -176,23 +176,25 @@ public class GlobalTransactionMgr implements Writable {
         dbTransactionMgr.commitTransaction(transactionId, tabletCommitInfos, txnCommitAttachment);
     }
     
-    public boolean commitAndPublishTransaction(Database db, long transactionId,
+    public boolean commitAndPublishTransaction(Database db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
-        return commitAndPublishTransaction(db, transactionId, tabletCommitInfos, timeoutMillis, null);
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
     }
     
-    public boolean commitAndPublishTransaction(Database db, long transactionId,
+    public boolean commitAndPublishTransaction(Database db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        if (!db.tryWriteLock(timeoutMillis, TimeUnit.MILLISECONDS)) {
-            throw new UserException("get database write lock timeout, database=" + db.getFullName());
+        for (Table table : tableList) {
+            table.writeLock();
         }
         try {
             commitTransaction(db.getId(), transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            db.writeUnlock();
+            for (int i = tableList.size() - 1; i >= 0; i--) {
+                tableList.get(i).writeUnlock();
+            }
         }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
         return dbTransactionMgr.publishTransaction(db, transactionId, timeoutMillis);
