@@ -173,21 +173,19 @@ Status StorageEngine::_open() {
 Status StorageEngine::_init_store_map() {
     std::vector<DataDir*> tmp_stores;
     std::vector<std::thread> threads;
-    std::atomic<bool> init_error{false};
     SpinLock error_msg_lock;
     std::string error_msg;
     for (auto& path : _options.store_paths) {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
-        threads.emplace_back([&]() {
+        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
             auto st = store->init();
             if (!st.ok()) {
                 {
                     std::lock_guard<SpinLock> l(error_msg_lock);
                     error_msg.append(st.to_string() + ";");
                 }
-                init_error = true;
                 LOG(WARNING) << "Store load failed, status=" << st.to_string() << ", path=" << store->path();
             }
         });
@@ -196,7 +194,7 @@ Status StorageEngine::_init_store_map() {
         thread.join();
     }
 
-    if (init_error) {
+    if (!error_msg.empty()) {
         for (auto store : tmp_stores) {
             delete store;
         }
