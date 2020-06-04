@@ -184,3 +184,5 @@ mysql> SELECT * FROM tbl INTO OUTFILE ...                                       
 * The timeout of the export command is the same as the timeout of the query. It can be set by `SET query_timeout = xxx`.
 * For empty result query, there will be an empty file.
 * File spliting will ensure that a row of data is stored in a single file. Therefore, the size of the file is not strictly equal to `max_file_size`.
+* For functions whose output is invisible characters, such as BITMAP and HLL types, the output is `\N`, which is NULL.
+* At present, the output type of some geo functions, such as `ST_Point` is VARCHAR, but the actual output value is an encoded binary character. Currently these functions will output garbled characters. For geo functions, use `ST_AsText` for output.

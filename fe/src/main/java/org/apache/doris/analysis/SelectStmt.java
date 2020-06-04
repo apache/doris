@@ -437,6 +437,8 @@ public class SelectStmt extends QueryStmt {
         }
 
         if (whereClause != null) {
+            // do this before whereClause.analyze , some expr is not analyzed, this may cause some
+            // function not work as expected such as equals;
             whereClauseRewrite();
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
@@ -608,7 +610,7 @@ public class SelectStmt extends QueryStmt {
         if (clearExprs.size() == 1) {
             return makeCompound(clearExprs.get(0), CompoundPredicate.Operator.AND);
         }
-        // 2. find duplcate cross the clause
+        // 2. find duplicate cross the clause
         List<Expr> cloneExprs = new ArrayList<>(clearExprs.get(0));
         for (int i = 1; i < clearExprs.size(); ++i) {
             cloneExprs.retainAll(clearExprs.get(i));

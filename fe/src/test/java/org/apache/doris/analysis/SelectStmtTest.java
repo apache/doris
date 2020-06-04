@@ -312,6 +312,12 @@ public class SelectStmtTest {
         stmt8.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         Assert.assertTrue(stmt8.toSql().contains("((`t2`.`k1` IS NOT NULL) AND (`t1`.`k1` IS NOT NULL))" +
                 " AND (`t1`.`k1` IS NOT NULL)"));
+
+        String sql9 = "select * from db1.tbl1 where (k1='shutdown' and k4<1) or (k1='switchOff' and k4>=1)";
+        SelectStmt stmt9 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql9, ctx);
+        stmt9.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt9.toSql().contains("((`k1` = 'shutdown') AND (`k4` < 1))" +
+                " OR ((`k1` = 'switchOff') AND (`k4` >= 1))"));
     }
 
     @Test
