@@ -136,7 +136,7 @@ mkdir -p ${DORIS_OUTPUT}
 #Copy UDF
 if [ ${BUILD_UDF} -eq 1 ]; then
     install -d ${DORIS_OUTPUT}/custom_udf/lib
-    for dir in "$(ls ${CMAKE_BUILD_DIR}/src)"
+    for dir in $(ls ${CMAKE_BUILD_DIR}/src)
     do
       mkdir -p ${DORIS_OUTPUT}/custom_udf/lib/$dir
       cp -r -p ${CMAKE_BUILD_DIR}/src/$dir/*.so ${DORIS_OUTPUT}/custom_udf/lib/$dir/
