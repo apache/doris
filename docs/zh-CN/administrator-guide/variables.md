@@ -234,6 +234,14 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     用于兼容 JDBC 连接池 C3P0。 无实际作用。
     
+* `max_pushdown_conditions_per_column`
+
+    该变量的具体含义请参阅 [BE 配置项](./config/be_config.md) 中 `max_pushdown_conditions_per_column` 的说明。该变量默认置为 -1，表示使用 `be.conf` 中的配置值。如果设置大于 0，则当前会话中的查询会使用该变量值，而忽略 `be.conf` 中的配置值。
+
+* `max_scan_key_num`
+
+    该变量的具体含义请参阅 [BE 配置项](./config/be_config.md) 中 `doris_max_scan_key_num` 的说明。该变量默认置为 -1，表示使用 `be.conf` 中的配置值。如果设置大于 0，则当前会话中的查询会使用该变量值，而忽略 `be.conf` 中的配置值。
+    
 * `net_buffer_length`
 
     用于兼容 MySQL 客户端。无实际作用。

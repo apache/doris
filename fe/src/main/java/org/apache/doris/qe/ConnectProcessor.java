@@ -46,6 +46,7 @@ import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Strings;
 
@@ -383,12 +384,6 @@ public class ConnectProcessor {
         if (request.isSetResourceInfo()) {
             ctx.getSessionVariable().setResourceGroup(request.getResourceInfo().getGroup());
         }
-        if (request.isSetExecMemLimit()) {
-            ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
-        }
-        if (request.isSetQueryTimeout()) {
-            ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
-        }
         if (request.isSetUser_ip()) {
             ctx.setRemoteIP(request.getUser_ip());
         }
@@ -401,9 +396,6 @@ public class ConnectProcessor {
         if (request.isSetSqlMode()) {
             ctx.getSessionVariable().setSqlMode(request.sqlMode);
         }
-        if (request.isSetLoadMemLimit()) {
-            ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
-        }
         if (request.isSetEnableStrictMode()) {
             ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
         }
@@ -411,6 +403,38 @@ public class ConnectProcessor {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrent_user_ident());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
+
+        if (request.isSetQuery_options()) {
+            TQueryOptions queryOptions = request.getQuery_options();
+            if (queryOptions.isSetMem_limit()) {
+                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMem_limit());
+            }
+            if (queryOptions.isSetQuery_timeout()) {
+                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQuery_timeout());
+            }
+            if (queryOptions.isSetLoad_mem_limit()) {
+                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoad_mem_limit());
+            }
+            if (queryOptions.isSetMax_scan_key_num()) {
+                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMax_scan_key_num());
+            }
+            if (queryOptions.isSetMax_pushdown_conditions_per_column()) {
+                ctx.getSessionVariable().setMaxPushdownConditionsPerColumn(
+                        queryOptions.getMax_pushdown_conditions_per_column());
+            }
+        } else {
+            // for compatibility, all following variables are moved to TQueryOptions.
+            if (request.isSetExecMemLimit()) {
+                ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
+            }
+            if (request.isSetQueryTimeout()) {
+                ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
+            }
+            if (request.isSetLoadMemLimit()) {
+                ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
+            }
+        }
+
         ctx.setThreadLocalInfo();
 
         if (ctx.getCurrentUserIdentity() == null) {
