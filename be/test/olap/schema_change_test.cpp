@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include "olap/schema_change.h"
 
 #include <gtest/gtest.h>
 
@@ -27,7 +28,6 @@
 #include "olap/row_cursor.h"
 #include "olap/row_block.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
 
