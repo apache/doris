@@ -450,6 +450,8 @@ TEST_F(PushHandlerTest, PushBrokerReaderNormal) {
     // eof
     reader.next(&row);
     ASSERT_TRUE(reader.eof());
+
+    reader.close();
 }
 }  // namespace doris
 
