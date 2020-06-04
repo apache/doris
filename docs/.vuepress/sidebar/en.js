@@ -127,6 +127,12 @@ module.exports = [
       "user-defined-function",
       "spark-doris-connector",
       "logstash",
+      "contribute_udf",
+      {
+        title: "Third-party UDF",
+        directoryPath: "third-party-udf/",
+        children:[],
+      },
     ],
   },
   {
