@@ -30,6 +30,9 @@ namespace config {
     // port for brpc
     CONF_Int32(brpc_port, "8060");
 
+    // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
+    CONF_Int32(brpc_num_threads, "-1")
+
     // Declare a selection strategy for those servers have many ips.
     // Note that there should at most one ip match this list.
     // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -75,7 +78,7 @@ namespace config {
     // the count of thread to high priority batch load
     CONF_Int32(push_worker_count_high_priority, "3");
     // the count of thread to publish version
-    CONF_Int32(publish_version_worker_count, "2");
+    CONF_Int32(publish_version_worker_count, "8");
     // the count of thread to clear transaction task
     CONF_Int32(clear_transaction_task_worker_count, "1");
     // the count of thread to delete
@@ -284,7 +287,7 @@ namespace config {
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
     // Number of webserver workers
-    CONF_Int32(webserver_num_workers, "5");
+    CONF_Int32(webserver_num_workers, "48");
     // Period to update rate counters and sampling counters in ms.
     CONF_mInt32(periodic_counter_update_period_ms, "500");
 

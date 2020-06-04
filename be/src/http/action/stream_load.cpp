@@ -158,7 +158,9 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(ctx->future.get());
 
     // If put file succeess we need commit this load
+    int64_t commit_and_publish_start_time = MonotonicNanos();
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
+    ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
 
     return Status::OK();
 }
@@ -248,7 +250,9 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
 
     // begin transaction
+    int64_t begin_txn_start_time = MonotonicNanos();
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
+    ctx->begin_txn_cost_nanos = MonotonicNanos() - begin_txn_start_time;
 
     // process put file
     return _process_put(http_req, ctx);
@@ -263,6 +267,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
+    int64_t start_read_data_time = MonotonicNanos();
     while (evbuffer_get_length(evbuf) > 0) {
         auto bb = ByteBuffer::allocate(4096);
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
@@ -277,6 +282,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         }
         ctx->receive_bytes += remove_bytes;
     }
+    ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
 }
 
 void StreamLoadAction::free_handler_ctx(void* param) {
@@ -388,11 +394,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
     }
 
+    int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, ctx] (FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
             }));
+    ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 #else
     ctx->put_result = k_stream_load_put_result;
 #endif
@@ -408,6 +416,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!ctx->use_streaming) {
         return Status::OK();
     }
+
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 
