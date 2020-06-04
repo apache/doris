@@ -5413,7 +5413,7 @@ public class Catalog {
      */
     // The caller need to hold the db write lock
     public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
-        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         String defaultReplicationNumName = "default."+ PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
         PartitionInfo partitionInfo = table.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE) {
@@ -5448,7 +5448,7 @@ public class Catalog {
      */
     // The caller need to hold the db write lock
     public void modifyTableDefaultReplicationNum(Database db, OlapTable table, Map<String, String> properties) {
-        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
             tableProperty = new TableProperty(properties);
