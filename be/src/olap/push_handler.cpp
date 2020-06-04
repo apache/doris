@@ -947,8 +947,9 @@ OLAPStatus PushBrokerReader::init(const Schema* schema,
         LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
         return OLAP_ERR_PUSH_INIT_ERROR;
     }
-    _runtime_profile.reset(new RuntimeProfile(_runtime_state->obj_pool(), "PushBrokerReader"));
-    _mem_tracker.reset(new MemTracker(-1));
+    _runtime_profile.reset(_runtime_state->runtime_profile());
+    _runtime_profile->set_name("PushBrokerReader");
+    _mem_tracker.reset(new MemTracker(_runtime_profile.get(), -1, _runtime_profile->name(), _runtime_state->instance_mem_tracker()));
     _mem_pool.reset(new MemPool(_mem_tracker.get()));
     _counter.reset(new ScannerCounter());
 
@@ -1010,17 +1011,22 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
     if (_eof) {
         return OLAP_SUCCESS;
     }
-    //LOG(INFO) << "row data: " << _tuple->to_string(*_tuple_desc);
 
     auto slot_descs = _tuple_desc->slots();
     size_t num_key_columns = _schema->num_key_columns();
+
+    // finalize row
     for (size_t i = 0; i < slot_descs.size(); ++i) {
         auto cell = row->cell(i);
         const SlotDescriptor* slot = slot_descs[i];
         bool is_null = _tuple->is_null(slot->null_indicator_offset());
         const void* value = _tuple->get_slot(slot->tuple_offset());
+        // try execute init method defined in aggregateInfo
+        // by default it only copies data into cell
         _schema->column(i)->consume(&cell, (const char*)value, is_null, 
                                     _mem_pool.get(), _runtime_state->obj_pool());
+        // if column(i) is a value column, try execute finalize method defined in aggregateInfo
+        // to convert data into final format
         if (i >= num_key_columns) {
             _schema->column(i)->agg_finalize(&cell, _mem_pool.get());
         }
