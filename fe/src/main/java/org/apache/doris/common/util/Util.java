@@ -337,6 +337,10 @@ public class Util {
         return sb.toString();
     }
 
+    // get response body as a string from the given url.
+    // "encodedAuthInfo", the base64 encoded auth info. like:
+    //      Base64.encodeBase64String("user:passwd".getBytes());
+    // If no auth info, pass a null.
     public static String getResultForUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
             int readTimeoutMs) {
         StringBuilder sb = new StringBuilder();
@@ -456,6 +460,22 @@ public class Util {
             default:
                 return i + ORDINAL_SUFFIX[i % 10];
         }
+    }
+
+    // get an input stream from url, the caller is responsible for closing the stream
+    // "encodedAuthInfo", the base64 encoded auth info. like:
+    //      Base64.encodeBase64String("user:passwd".getBytes());
+    // If no auth info, pass a null.
+    public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
+            int readTimeoutMs) throws IOException {
+        URL url = new URL(urlStr);
+        URLConnection conn = url.openConnection();
+        if (encodedAuthInfo != null) {
+            conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+        }
+        conn.setConnectTimeout(connectTimeoutMs);
+        conn.setReadTimeout(readTimeoutMs);
+        return conn.getInputStream();
     }
 }
 
