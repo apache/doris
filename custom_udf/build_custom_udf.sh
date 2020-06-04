@@ -17,13 +17,11 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Apache Doris(incubating)
+# This script is used to compile UDF 
 # Usage:
-#    sh build.sh        build both Backend and Frontend.
-#    sh build.sh -clean clean previous output and build.
+#    sh build.sh        build udf without clean.
+#    sh build.sh -clean --udf clean previous output and build.
 #
-# You need to make sure all thirdparty libraries have been
-# compiled and installed correctly.
 ##############################################################
 
 set -eo pipefail
