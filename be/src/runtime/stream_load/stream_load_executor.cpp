@@ -47,6 +47,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 // submit this params
 #ifndef BE_TEST
     ctx->ref();
+    ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
@@ -100,7 +101,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                         break;
                     }
                 }
+                ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
                 ctx->promise.set_value(status);
+
                 if (ctx->unref()) {
                     delete ctx;
                 }
