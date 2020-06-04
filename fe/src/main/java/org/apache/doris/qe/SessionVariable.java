@@ -96,6 +96,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String STORAGE_ENGINE = "storage_engine";
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
+    // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
+    public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
+    public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
+
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
@@ -241,6 +245,12 @@ public class SessionVariable implements Serializable, Writable {
     private String storageEngine = "olap";
     @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
     private int divPrecisionIncrement = 4;
+
+    // -1 means unset, BE will use its config value
+    @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
+    private int maxScanKeyNum = -1;
+    @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
+    private int maxPushdownConditionsPerColumn = -1;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -455,6 +465,22 @@ public class SessionVariable implements Serializable, Writable {
         return defaultRowsetType;
     }
 
+    public int getMaxScanKeyNum() {
+        return maxScanKeyNum;
+    }
+
+    public void setMaxScanKeyNum(int maxScanKeyNum) {
+        this.maxScanKeyNum = maxScanKeyNum;
+    }
+
+    public int getMaxPushdownConditionsPerColumn() {
+        return maxPushdownConditionsPerColumn;
+    }
+
+    public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
+        this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
@@ -474,6 +500,13 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatch_size(batchSize);
         tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
         tResult.setLoad_mem_limit(loadMemLimit);
+
+        if (maxScanKeyNum > -1) {
+            tResult.setMax_scan_key_num(maxScanKeyNum);
+        }
+        if (maxPushdownConditionsPerColumn > -1) {
+            tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
+        }
         return tResult;
     }
 

@@ -84,13 +84,16 @@ protected:
 
     class ExtendScanKeyVisitor : public boost::static_visitor<Status> {
     public:
-        ExtendScanKeyVisitor(OlapScanKeys& scan_keys) : _scan_keys(scan_keys) { }
+        ExtendScanKeyVisitor(OlapScanKeys& scan_keys, int32_t max_scan_key_num)
+            : _scan_keys(scan_keys),
+              _max_scan_key_num(max_scan_key_num) { }
         template<class T>
         Status operator()(T& v) {
-            return _scan_keys.extend_scan_key(v);
+            return _scan_keys.extend_scan_key(v, _max_scan_key_num);
         }
     private:
         OlapScanKeys& _scan_keys;
+        int32_t _max_scan_key_num;
     };
 
     typedef boost::variant<std::list<std::string>> string_list;
@@ -143,10 +146,10 @@ protected:
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
     template<class T>
-    Status normalize_in_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
+    Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     template<class T>
-    Status normalize_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
+    Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(OlapScanner* scanner);
@@ -243,6 +246,18 @@ private:
 
     bool _need_agg_finalize = true;
 
+    // the max num of scan keys of this scan request.
+    // it will set as BE's config `doris_max_scan_key_num`,
+    // or be overwritten by value in TQueryOptions
+    int32_t _max_scan_key_num = 1024;
+    // The max number of conditions in InPredicate  that can be pushed down
+    // into OlapEngine.
+    // If conditions in InPredicate is larger than this, all conditions in
+    // InPredicate will not be pushed to the OlapEngine.
+    // it will set as BE's config `max_pushdown_conditions_per_column`,
+    // or be overwritten by value in TQueryOptions
+    int32_t _max_pushdown_conditions_per_column = 1024;
+
     // Counters
     RuntimeProfile::Counter* _io_timer = nullptr;
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
@@ -277,6 +292,8 @@ private:
     RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
     // time fro bitmap inverted index read and filter
     RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
+    // number of created olap scanners
+    RuntimeProfile::Counter* _num_scanners = nullptr;
 };
 
 } // namespace doris

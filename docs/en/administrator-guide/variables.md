@@ -235,6 +235,14 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     Used for compatible JDBC connection pool C3P0. No practical effect.
     
+* `max_pushdown_conditions_per_column`
+
+    For the specific meaning of this variable, please refer to the description of `max_pushdown_conditions_per_column` in [BE Configuration](./config/be_config.md). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
+
+* `max_scan_key_num`
+
+    For the specific meaning of this variable, please refer to the description of `doris_max_scan_key_num` in [BE Configuration](./config/be_config.md). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
+
 * `net_buffer_length`
 
     Used for compatibility with MySQL clients. No practical effect.
