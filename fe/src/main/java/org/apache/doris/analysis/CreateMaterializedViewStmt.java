@@ -187,7 +187,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (functionName.equalsIgnoreCase("bitmap_union") || functionName.equalsIgnoreCase("hll_union")) {
                     Preconditions.checkState(functionChild0.getChildren().size() == 1);
                     defineExpr = functionChild0;
-                    functionChild0 = functionChild0.getChild(0);
 
                     List<Expr> slots = new ArrayList<>();
                     defineExpr.collect(SlotRef.class, slots);
@@ -207,7 +206,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     // TODO: change the column name of bitmap and hll
                     MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                     mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
-                    //defineExpr.analyze(analyzer);
                     mvColumnItem.setDefineExpr(defineExpr);
                     mvColumnItemList.add(mvColumnItem);
                     continue;

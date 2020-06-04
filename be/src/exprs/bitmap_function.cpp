@@ -373,7 +373,6 @@ StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVa
     }
 
     auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
-    std::cout << "bitmap serizlize : " << src_bitmap->cardinality() << std::endl;
     StringVal result = serialize(ctx, src_bitmap);
     delete src_bitmap;
     return result;
