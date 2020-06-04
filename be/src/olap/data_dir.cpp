@@ -261,14 +261,15 @@ Status DataDir::_init_meta() {
     // init meta
     _meta = new (std::nothrow) OlapMeta(_path);
     if (_meta == nullptr) {
-        LOG(WARNING) << "new olap meta failed";
-        return Status::MemoryAllocFailed("new olap meta failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::MemoryAllocFailed("allocate memory for OlapMeta failed"),
+            "new OlapMeta failed");
     }
     OLAPStatus res = _meta->init();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "init meta failed";
-        return Status::InternalError(
-            Substitute("open rocksdb failed cause init meta failed, path=$0", _path));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(Substitute("open rocksdb failed, path=$0", _path)),
+            "init OlapMeta failed");
     }
     return Status::OK();
 }
