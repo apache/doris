@@ -118,6 +118,7 @@ module.exports = [
       "outfile",
       "privilege",
       "resource-management",
+      "running-profile",
       "segment-v2-usage",
       "small-file-mgr",
       "sql-mode",
