@@ -522,7 +522,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
                 }
             }
 
-            reader->close();
+            reader->finalize();
 
             if (!reader->validate_checksum()) {
                 LOG(WARNING) << "pushed delta file has wrong checksum.";

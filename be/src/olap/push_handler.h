@@ -229,7 +229,7 @@ public:
     OLAPStatus next(ContiguousRow* row);
     void print_profile();
 
-    OLAPStatus close() {
+    OLAPStatus finalize() {
         _ready = false;
         return OLAP_SUCCESS;
     }
