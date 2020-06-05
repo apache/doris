@@ -409,12 +409,15 @@ public class Coordinator {
                     toBrpcHost(execBeAddr),
                     queryOptions.query_timeout * 1000);
 
+            LOG.info("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
+
             // set the broker address for OUTFILE sink
             ResultSink resultSink = (ResultSink) topParams.fragment.getSink();
             if (resultSink.isOutputFileSink() && resultSink.needBroker()) {
                 FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(resultSink.getBrokerName(),
                         execBeAddr.getHostname());
                 resultSink.setBrokerAddr(broker.ip, broker.port);
+                LOG.info("OUTFILE through broker: {}:{}", broker.ip, broker.port);
             }
 
         } else {
@@ -425,6 +428,7 @@ public class Coordinator {
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
             Catalog.getCurrentCatalog().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                     relatedBackendIds);
+            LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
 
         // to keep things simple, make async Cancel() calls wait until plan fragment
