@@ -40,6 +40,8 @@ Ubuntu: `apt-get install clang-format`
 
 当前版本为10.0，也可指定旧版本，例如: `apt-get install clang-format-9`
 
+Mac: `brew install clang-format`
+
 Centos 7: 
 
 centos yum安装的clang-format版本过老，支持的StyleOption太少，建议源码编译10.0版本。
@@ -55,10 +57,20 @@ clang-format程序的版本匹配，从支持的StyleOption上看，应该是低
 
 `--sytle=file`就会自动找到.clang-format文件，根据文件Option配置来格式化代码。
 
+`--lines=m:n`通过指定起始行和结束行修改文件的指定范围
+
+`-i`指定被格式化文件
+
 批量文件clang-format时，需注意过滤不应该格式化的文件。例如，只格式化*.h/*.cpp，并排除某些文件夹：
+
+ Centos
 
 `find . -type f -not \( -wholename ./env/* \) -regextype posix-egrep -regex
  ".*\.(cpp|h)" | xargs clang-format -i -style=file`
+ 
+ Mac
+ 
+ `find -E . -type f -not \( -wholename ./env/* \) -regex ".*\.(cpp|h)" | xargs clang-format -i --style=file`
 
 ### 在IDE或Editor中使用clang-format
 #### Clion
@@ -66,8 +78,11 @@ Clion如果使用插件，点击`Reformat Code`即可。
 #### VS Code
 VS Code需安装扩展程序Clang-Format，但需要自行提供clang-format执行程序的位置。
 
+打开VS Code配置页面，直接搜索"clang_format"，填上
+
 ```
-"clang-format.executable":  "$clang-format path$",
-"clang-format.style": "file"
+"clang_format_path":  "$clang-format path$",
+"clang_format_style": "file"
 ```
-然后，点击`Format Document`即可。
+
+然后，右键点击`Format Document`即可。
