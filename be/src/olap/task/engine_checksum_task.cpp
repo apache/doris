@@ -103,7 +103,6 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
 
     bool eof = false;
     uint32_t row_checksum = 0;
-    uint32_t one_checksum;
     while (true) {
         OLAPStatus res = reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
         if (res == OLAP_SUCCESS && eof) {
@@ -113,10 +112,8 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
             OLAP_LOG_WARNING("fail to read in reader. [res=%d]", res);
             return res;
         }
-        one_checksum = 0;
-        one_checksum = hash_row(row, one_checksum);
         // The value of checksum is independent of the sorting of data rows.
-        row_checksum = row_checksum ^ one_checksum;
+        row_checksum ^= hash_row(row, 0);
         // the memory allocate by mem pool has been copied,
         // so we should release memory immediately
         mem_pool->clear();
