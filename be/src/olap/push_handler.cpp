@@ -363,7 +363,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
             }
 
             reader->print_profile();
-            reader->finalize();
+            reader->close();
         }
 
         if (rowset_writer->flush() != OLAP_SUCCESS) {
