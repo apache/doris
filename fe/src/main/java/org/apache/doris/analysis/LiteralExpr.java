@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 
 import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +44,7 @@ public abstract class LiteralExpr extends Expr {
     }
 
     public static LiteralExpr create(String value, Type type) throws AnalysisException {
-        Preconditions.checkArgument(type != Type.INVALID);
+        Preconditions.checkArgument(!type.equals(Type.INVALID));
         LiteralExpr literalExpr = null;
         switch (type.getPrimitiveType()) {
             case NULL_TYPE:
@@ -88,7 +89,7 @@ public abstract class LiteralExpr extends Expr {
     }
 
     public static LiteralExpr createInfinity(Type type, boolean isMax) throws AnalysisException {
-        Preconditions.checkArgument(type != Type.INVALID);
+        Preconditions.checkArgument(!type.equals(Type.INVALID));
         if (isMax) {
             return MaxLiteral.MAX_VALUE;
         }
