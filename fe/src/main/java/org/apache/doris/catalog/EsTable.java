@@ -97,6 +97,9 @@ public class EsTable extends Table {
 
     private Map<String, String> fieldsContext = new HashMap<>();
 
+    // record the latest and recently exception when sync ES table metadata (mapping, shard location)
+    private Throwable lastMetaDataSyncException = null;
+
     public EsTable() {
         super(TableType.ELASTICSEARCH);
     }
@@ -386,5 +389,13 @@ public class EsTable extends Table {
 
     public void setEsTableState(EsTableState esTableState) {
         this.esTableState = esTableState;
+    }
+
+    public Throwable getLastMetaDataSyncException() {
+        return lastMetaDataSyncException;
+    }
+
+    public void setLastMetaDataSyncException(Throwable lastMetaDataSyncException) {
+        this.lastMetaDataSyncException = lastMetaDataSyncException;
     }
 }
