@@ -435,7 +435,7 @@ public class Backend implements Writable {
             disksRef.set(ImmutableMap.copyOf(newDiskInfos));
             Catalog.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
             // log disk changing
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
+            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(this);
         }
     }
 

@@ -107,7 +107,7 @@ public class MysqlServer {
                     // submit this context to scheduler
                     ConnectContext context = new ConnectContext(clientChannel);
                     // Set catalog here.
-                    context.setCatalog(Catalog.getInstance());
+                    context.setCatalog(Catalog.getCurrentCatalog());
                     if (!scheduler.submit(context)) {
                         LOG.warn("Submit one connect request failed. Client=" + clientChannel.toString());
                         // clear up context

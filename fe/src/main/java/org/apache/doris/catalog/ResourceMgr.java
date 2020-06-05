@@ -73,7 +73,7 @@ public class ResourceMgr implements Writable {
             throw new DdlException("Resource(" + resourceName + ") already exist");
         }
         // log add
-        Catalog.getInstance().getEditLog().logCreateResource(resource);
+        Catalog.getCurrentCatalog().getEditLog().logCreateResource(resource);
         LOG.info("create resource success. resource: {}", resource);
     }
 
@@ -88,7 +88,7 @@ public class ResourceMgr implements Writable {
         }
 
         // log drop
-        Catalog.getInstance().getEditLog().logDropResource(name);
+        Catalog.getCurrentCatalog().getEditLog().logDropResource(name);
         LOG.info("drop resource success. resource name: {}", name);
     }
 

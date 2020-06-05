@@ -100,7 +100,7 @@ public final class MetricRepo {
                         MetricUnit.NUMBER, "job statistics") {
                     @Override
                     public Long getValue() {
-                        if (!Catalog.getInstance().isMaster()) {
+                        if (!Catalog.getCurrentCatalog().isMaster()) {
                             return 0L;
                         }
                         return loadManger.getLoadJobNum(state, jobType);
@@ -114,7 +114,7 @@ public final class MetricRepo {
         }
 
         // running alter job
-        Alter alter = Catalog.getInstance().getAlterInstance();
+        Alter alter = Catalog.getCurrentCatalog().getAlterInstance();
         for (JobType jobType : JobType.values()) {
             if (jobType != JobType.SCHEMA_CHANGE && jobType != JobType.ROLLUP) {
                 continue;
@@ -124,7 +124,7 @@ public final class MetricRepo {
                     MetricUnit.NUMBER, "job statistics") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getInstance().isMaster()) {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
                         return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
@@ -158,7 +158,7 @@ public final class MetricRepo {
                 "max_journal_id", MetricUnit.NUMBER, "max journal id of this frontends") {
             @Override
             public Long getValue() {
-                EditLog editLog = Catalog.getInstance().getEditLog();
+                EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
                 if (editLog == null) {
                     return -1L;
                 }
@@ -172,7 +172,7 @@ public final class MetricRepo {
                 "scheduled_tablet_num", MetricUnit.NUMBER, "number of tablets being scheduled") {
             @Override
             public Long getValue() {
-                if (!Catalog.getInstance().isMaster()) {
+                if (!Catalog.getCurrentCatalog().isMaster()) {
                     return 0L;
                 }
                 return (long) Catalog.getCurrentCatalog().getTabletScheduler().getTotalNum();
@@ -270,7 +270,7 @@ public final class MetricRepo {
                     MetricUnit.NUMBER, "tablet number") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getInstance().isMaster()) {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
                         return 0L;
                     }
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
@@ -285,7 +285,7 @@ public final class MetricRepo {
                     "tablet max compaction score") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getInstance().isMaster()) {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
                         return 0L;
                     }
                     return be.getTabletMaxCompactionScore();

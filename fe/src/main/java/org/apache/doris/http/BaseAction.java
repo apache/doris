@@ -78,7 +78,7 @@ public abstract class BaseAction implements IAction {
     public BaseAction(ActionController controller) {
         this.controller = controller;
         // TODO(zc): remove this instance
-        this.catalog = Catalog.getInstance();
+        this.catalog = Catalog.getCurrentCatalog();
     }
 
     @Override

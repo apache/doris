@@ -209,7 +209,7 @@ public class ColocateTableBalancer extends MasterDaemon {
     private long selectSubstituteBackend(int tabletOrderIdx, GroupId groupId, long unavailableBeId, 
             Set<Long> excludeBeIds, Map<String, ClusterLoadStatistic> statisticMap) {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getInstance().getDb(groupId.dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(groupId.dbId);
         if (db == null) {
             LOG.info("db {} does not exist", groupId.dbId);
             return -1;

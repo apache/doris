@@ -102,7 +102,7 @@ public class LoadEtlTaskTest {
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
             }

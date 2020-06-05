@@ -232,7 +232,7 @@ public class ConsistencyChecker extends MasterDaemon {
      *  chose a tablet which has the smallest 'lastCheckTime'.
      */
     private List<Long> chooseTablets() {
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         MetaObject chosenOne = null;
 
         List<Long> chosenTablets = Lists.newArrayList();

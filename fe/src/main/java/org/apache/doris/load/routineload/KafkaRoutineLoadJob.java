@@ -350,7 +350,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         // init kafka routine load job
-        long id = Catalog.getInstance().getNextId();
+        long id = Catalog.getCurrentCatalog().getNextId();
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                 db.getClusterName(), db.getId(), tableId,
                 stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
