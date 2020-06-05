@@ -69,29 +69,14 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _cluster_id(-1),
           _to_be_deleted(false),
           _current_shard(0),
-          _test_file_read_buf(nullptr),
-          _test_file_write_buf(nullptr),
           _meta(nullptr) {}
 
 DataDir::~DataDir() {
-    free(_test_file_read_buf);
-    free(_test_file_write_buf);
     delete _id_generator;
     delete _meta;
 }
 
 Status DataDir::init() {
-    _rand_seed = static_cast<uint32_t>(time(NULL));
-    if (posix_memalign((void**)&_test_file_write_buf, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) !=
-        0) {
-        LOG(WARNING) << "fail to allocate memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::InternalError("No memory");
-    }
-    if (posix_memalign((void**)&_test_file_read_buf, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) !=
-        0) {
-        LOG(WARNING) << "fail to allocate memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::InternalError("No memory");
-    }
     if (!FileUtils::check_exist(_path)) {
         LOG(WARNING) << "opendir failed, path=" << _path;
         return Status::InternalError("opendir failed");
@@ -315,68 +300,7 @@ void DataDir::health_check() {
 
 OLAPStatus DataDir::_read_and_write_test_file() {
     std::string test_file = _path + kTestFilePath;
-
-    if (access(test_file.c_str(), F_OK) == 0) {
-        if (remove(test_file.c_str()) != 0) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to delete test file. "
-                         << "path=" << test_file << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return OLAP_ERR_IO_ERROR;
-        }
-    } else {
-        if (errno != ENOENT) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to access test file. "
-                         << "path=" << test_file << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return OLAP_ERR_IO_ERROR;
-        }
-    }
-
-    OLAPStatus res = OLAP_SUCCESS;
-    FileHandler file_handler;
-    if ((res = file_handler.open_with_mode(test_file.c_str(), O_RDWR | O_CREAT | O_DIRECT,
-                                           S_IRUSR | S_IWUSR)) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to create test file. path=" << test_file;
-        return res;
-    }
-
-    for (size_t i = 0; i < TEST_FILE_BUF_SIZE; ++i) {
-        int32_t tmp_value = rand_r(&_rand_seed);
-        _test_file_write_buf[i] = static_cast<char>(tmp_value);
-    }
-
-    if ((res = file_handler.pwrite(_test_file_write_buf, TEST_FILE_BUF_SIZE, SEEK_SET)) !=
-        OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to write test file. [file_name=" << test_file << "]";
-        return res;
-    }
-
-    if ((res = file_handler.pread(_test_file_read_buf, TEST_FILE_BUF_SIZE, SEEK_SET)) !=
-        OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to read test file. [file_name=" << test_file << "]";
-        return res;
-    }
-
-    if (memcmp(_test_file_write_buf, _test_file_read_buf, TEST_FILE_BUF_SIZE) != 0) {
-        OLAP_LOG_WARNING("the test file write_buf and read_buf not equal.");
-        return OLAP_ERR_TEST_FILE_ERROR;
-    }
-
-    if ((res = file_handler.close()) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to close test file. [file_name=" << test_file << "]";
-        return res;
-    }
-
-    if (remove(test_file.c_str()) != 0) {
-        char errmsg[64];
-        VLOG(3) << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64) << "' path='"
-                << test_file << "']";
-        return OLAP_ERR_IO_ERROR;
-    }
-
-    return res;
+    return read_write_test_file(test_file);;
 }
 
 OLAPStatus DataDir::get_shard(uint64_t* shard) {

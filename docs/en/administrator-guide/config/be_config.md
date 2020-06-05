@@ -200,6 +200,19 @@ When the concurrency cannot be improved in high concurrency scenarios, try to re
 ### `ignore_broken_disk`
 
 ### `ignore_load_tablet_failure`
+When BE starts, it will check all the paths under the `storage_root_path` in  configuration.
+
+- `ignore_broken_disk=true`
+
+  If the path does not exist or the file under the path cannot be read or written (broken disk), it will be ignored. If there are any other available paths, the startup will not be interrupted.
+
+- `ignore_broken_disk=false`
+
+  If the path does not exist or the file under the path cannot be read or written (bad disk), the startup will fail and exit.
+
+The default value is `false`.
+
+### inc_rowset_expired_sec
 
 * Type: boolean
 * Description: Whether to continue to start be when load tablet from header failed.
