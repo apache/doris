@@ -197,6 +197,18 @@ under the License.
 
 ### `ignore_broken_disk`
 
+​	当BE启动时，会检查``storage_root_path`` 配置下的所有路径。
+
+ - `ignore_broken_disk=true`
+
+   如果路径不存在或路径下无法进行读写文件(坏盘)，将忽略此路径，如果有其他可用路径则不中断启动。
+
+ - `ignore_broken_disk=false`
+
+   如果路径不存在或路径下无法进行读写文件(坏盘)，将中断启动失败退出。
+
+​    默认为false
+
 ### `inc_rowset_expired_sec`
 
 ### `index_stream_cache_capacity`
