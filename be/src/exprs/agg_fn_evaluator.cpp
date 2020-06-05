@@ -191,9 +191,6 @@ Status AggFnEvaluator::prepare(
     // TODO: this should be made identical for the builtin and UDA case by
     // putting all this logic in an improved opcode registry.
 
-    DCHECK_EQ(_function_type, TFunctionBinaryType::BUILTIN);
-
-
     // Load the function pointers. Merge is not required if this is evaluating an
     // analytic function.
     if (_fn.aggregate_fn.init_fn_symbol.empty() ||
