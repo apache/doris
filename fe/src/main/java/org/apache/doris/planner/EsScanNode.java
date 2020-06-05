@@ -149,7 +149,7 @@ public class EsScanNode extends ScanNode {
         // has to get partition info from es state not from table because the partition info is generated from es cluster state dynamically
         if (esTableState == null) {
             if (table.getLastMetaDataSyncException() != null) {
-                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: " + table.getLastMetaDataSyncException().toString());
+                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
             }
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
