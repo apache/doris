@@ -102,7 +102,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr1, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr1, esTable);
         } catch (Exception e) {
             e.printStackTrace();
             hasException = true;
@@ -149,7 +149,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr3, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr3, esTable);
         } catch (Exception e) {
             e.printStackTrace();
             hasException = true;
@@ -197,7 +197,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr4, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr4, esTable);
         } catch (Exception e) {
             e.printStackTrace();
             hasException = true;
@@ -230,7 +230,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr2, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr2, esTable);
         } catch (Exception e) {
             hasException = true;
         }
