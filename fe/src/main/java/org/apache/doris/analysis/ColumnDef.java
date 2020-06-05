@@ -132,8 +132,8 @@ public class ColumnDef {
         Type type = typeDef.getType();
 
         // disable Bitmap Hll type in keys, values without aggregate function.
-        if ( type.isBitmapType() || type.isHllType() ){
-            if (isKey){
+        if (type.isBitmapType() || type.isHllType()) {
+            if (isKey) {
                 throw new AnalysisException("Key column can not set bitmap or hll type:" + name);
             }
             if (aggregateType == null) {
