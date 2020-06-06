@@ -131,6 +131,16 @@ public class ColumnDef {
 
         Type type = typeDef.getType();
 
+        // disable Bitmap Hll type in keys, values without aggregate function.
+        if (type.isBitmapType() || type.isHllType()) {
+            if (isKey) {
+                throw new AnalysisException("Key column can not set bitmap or hll type:" + name);
+            }
+            if (aggregateType == null) {
+                throw new AnalysisException("Bitmap and hll type have to use aggregate function" + name);
+            }
+        }
+
         // A column is a key column if and only if isKey is true.
         // aggregateType == null does not mean that this is a key column,
         // because when creating a UNIQUE KEY table, aggregateType is implicit.

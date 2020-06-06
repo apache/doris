@@ -85,11 +85,14 @@ public enum AggregateType {
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        compatibilityMap.put(REPLACE, EnumSet.allOf(PrimitiveType.class));
+        // all types except bitmap and hll.
+        EnumSet<PrimitiveType> exc_bitmap_hll = EnumSet.allOf(PrimitiveType.class);
+        exc_bitmap_hll.remove(PrimitiveType.BITMAP);
+        exc_bitmap_hll.remove(PrimitiveType.HLL);
+        compatibilityMap.put(REPLACE, EnumSet.copyOf(exc_bitmap_hll));
 
-        primitiveTypeList.clear();
-        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.allOf(PrimitiveType.class));
-       
+        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(exc_bitmap_hll));
+
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
         compatibilityMap.put(HLL_UNION, EnumSet.copyOf(primitiveTypeList));
@@ -97,8 +100,8 @@ public enum AggregateType {
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.BITMAP);
         compatibilityMap.put(BITMAP_UNION, EnumSet.copyOf(primitiveTypeList));
-    
-        compatibilityMap.put(NONE, EnumSet.allOf(PrimitiveType.class));
+
+        compatibilityMap.put(NONE, EnumSet.copyOf(exc_bitmap_hll));
     }
     private final String sqlName;
 
