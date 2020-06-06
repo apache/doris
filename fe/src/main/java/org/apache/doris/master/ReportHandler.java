@@ -37,12 +37,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.Backend.BackendStatus;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -309,7 +311,14 @@ public class ReportHandler extends Daemon {
 
         // 10. send set tablet in memory to be
         handleSetTabletInMemory(backendId, backendTablets);
-        
+
+        final SystemInfoService currentSystemInfo = Catalog.getCurrentSystemInfo();
+        Backend reportBackend = currentSystemInfo.getBackend(backendId);
+        if (reportBackend != null) {
+            BackendStatus backendStatus = reportBackend.getBackendStatus();
+            backendStatus.lastSuccessReportTabletsTime = TimeUtils.longToTimeString(start);
+        }
+
         long end = System.currentTimeMillis();
         LOG.info("tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
