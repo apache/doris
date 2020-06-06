@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import mockit.Expectations;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -31,7 +32,9 @@ import com.google.common.collect.Lists;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,6 +58,8 @@ public class CreateTableStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
 
     // set default db is 'db1'
     // table name is table1
@@ -161,6 +166,84 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
                 new RandomDistributionDesc(10), null, null, "");
+        stmt.analyze(analyzer);
+    }
+
+
+    @Test
+    public void testBmpHllKey() throws Exception {
+
+        ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
+        cols.add(bitmap);
+        colsName.add("col3");
+
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null, "");
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        stmt.analyze(analyzer);
+
+        cols.remove(bitmap);
+
+        ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
+        cols.add(hll);
+        stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null, "");
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testBmpHllNoAggTab() throws Exception {
+        ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
+        cols.add(bitmap);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null, "");
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Aggregate type `col3` bitmap NONE NOT NULL COMMENT \"\" is not compatible with primitive type bitmap");
+        stmt.analyze(analyzer);
+
+        cols.remove(bitmap);
+        ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
+        cols.add(hll);
+        stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null, "");
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Aggregate type `col3` hll NONE NOT NULL COMMENT \"\" is not compatible with primitive type hll");
+        stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testBmpHllIncAgg() throws Exception {
+        ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
+        bitmap.setAggregateType(AggregateType.SUM);
+
+        cols.add(bitmap);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null, "");
+
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage(String.format("Aggregate type %s is not compatible with primitive type %s",
+                bitmap.toString(), bitmap.getTypeDef().getType().toSql()));
+        stmt.analyze(analyzer);
+
+        cols.remove(bitmap);
+        ColumnDef hll =  new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
+        hll.setAggregateType(AggregateType.SUM);
+        cols.add(hll);
+        stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null, "");
+
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage(String.format("Aggregate type %s is not compatible with primitive type %s",
+                hll.toString(), hll.getTypeDef().getType().toSql()));
         stmt.analyze(analyzer);
     }
 }
