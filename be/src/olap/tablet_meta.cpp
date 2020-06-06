@@ -669,4 +669,46 @@ OLAPStatus TabletMeta::set_partition_id(int64_t partition_id) {
     return OLAP_SUCCESS;
 }
 
+bool operator==(const AlterTabletTask& a, const AlterTabletTask& b) {
+    if (a._alter_state != b._alter_state) return false;
+    if (a._related_tablet_id != b._related_tablet_id) return false;
+    if (a._related_schema_hash != b._related_schema_hash) return false;
+    if (a._alter_type != b._alter_type) return false;
+    return true;
+}
+
+bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b) {
+    return !(a == b);
+}
+
+bool operator==(const TabletMeta& a, const TabletMeta& b) {
+    if (a._table_id != b._table_id) return false;
+    if (a._partition_id != b._partition_id) return false;
+    if (a._tablet_id != b._tablet_id) return false;
+    if (a._schema_hash != b._schema_hash) return false;
+    if (a._shard_id != b._shard_id) return false;
+    if (a._creation_time != b._creation_time) return false;
+    if (a._cumulative_layer_point != b._cumulative_layer_point) return false;
+    if (a._tablet_uid != b._tablet_uid) return false;
+    if (a._tablet_type != b._tablet_type) return false;
+    if (a._tablet_state != b._tablet_state) return false;
+    if (a._schema != b._schema) return false;
+    if (a._rs_metas.size() != b._rs_metas.size()) return false;
+    for (int i = 0; i < a._rs_metas.size(); ++i) {
+        if (a._rs_metas[i] != b._rs_metas[i]) return false;
+    }
+    if (a._inc_rs_metas.size() != b._inc_rs_metas.size()) return false;
+    for (int i = 0; i < a._inc_rs_metas.size(); ++i) {
+        if (a._inc_rs_metas[i] != b._inc_rs_metas[i]) return false;
+    }
+    if (a._alter_task != b._alter_task) return false;
+    if (a._in_restore_mode != b._in_restore_mode) return false;
+    if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
+    return true;
+}
+
+bool operator!=(const TabletMeta& a, const TabletMeta& b) {
+    return !(a == b);
+}
+
 }  // namespace doris
