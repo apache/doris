@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import com.google.gson.Gson;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.Cluster;
@@ -51,7 +52,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("ErrMsg").add("Version")
+            .add("MaxDiskUsedPct").add("ErrMsg").add("Version").add("Status")
             .build();
 
     public static final int IP_INDEX = 2;
@@ -167,6 +168,7 @@ public class BackendsProcDir implements ProcDirInterface {
 
             backendInfo.add(backend.getHeartbeatErrMsg());
             backendInfo.add(backend.getVersion());
+            backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
 
             comparableBackendInfos.add(backendInfo);
         }
