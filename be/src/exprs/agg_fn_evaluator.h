@@ -223,15 +223,6 @@ private:
     // If it's a builtin, the opcode.
     AggregationOp _agg_op;
 
-    // local path and function names for UDAs.
-    long _fn_id;
-    std::string _hdfs_location;
-    std::string _init_fn_symbol;
-    std::string _update_fn_symbol;
-    std::string _merge_fn_symbol;
-    std::string _serialize_fn_symbol;
-    std::string _finalize_fn_symbol;
-
     uint64_t _total_mem_consumption;
     uint64_t _accumulated_mem_consumption;
 
