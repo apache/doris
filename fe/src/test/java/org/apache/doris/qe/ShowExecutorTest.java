@@ -191,7 +191,7 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = auth;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 

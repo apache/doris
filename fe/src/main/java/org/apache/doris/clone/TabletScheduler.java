@@ -906,7 +906,7 @@ public class TabletScheduler extends MasterDaemon {
                                                                      tabletCtx.getTabletId(),
                                                                      replica.getBackendId());
 
-        Catalog.getInstance().getEditLog().logDeleteReplica(info);
+        Catalog.getCurrentCatalog().getEditLog().logDeleteReplica(info);
 
         LOG.info("delete replica. tablet id: {}, backend id: {}. reason: {}, force: {}",
                 tabletCtx.getTabletId(), replica.getBackendId(), reason, force);

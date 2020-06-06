@@ -80,12 +80,12 @@ public class ExportMgr {
     }
 
     public void addExportJob(ExportStmt stmt) throws Exception {
-        long jobId = Catalog.getInstance().getNextId();
+        long jobId = Catalog.getCurrentCatalog().getNextId();
         ExportJob job = createJob(jobId, stmt);
         writeLock();
         try {
             unprotectAddJob(job);
-            Catalog.getInstance().getEditLog().logExportCreate(job);
+            Catalog.getCurrentCatalog().getEditLog().logExportCreate(job);
         } finally {
             writeUnlock();
         }

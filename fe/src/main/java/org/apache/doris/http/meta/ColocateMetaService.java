@@ -219,7 +219,7 @@ public class ColocateMetaService {
         private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info2);
+            Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info2);
         }
     }
 

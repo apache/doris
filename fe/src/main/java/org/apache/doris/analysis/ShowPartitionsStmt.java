@@ -110,7 +110,7 @@ public class ShowPartitionsStmt extends ShowStmt {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }

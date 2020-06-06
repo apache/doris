@@ -157,7 +157,7 @@ public class ExportJob implements Writable {
         this.startTimeMs = -1;
         this.finishTimeMs = -1;
         this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
-        this.analyzer = new Analyzer(Catalog.getInstance(), null);
+        this.analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
         this.desc = new DescriptorTable();
         this.exportPath = "";
         this.columnSeparator = "\t";
@@ -171,7 +171,7 @@ public class ExportJob implements Writable {
 
     public void setJob(ExportStmt stmt) throws UserException {
         String dbName = stmt.getTblName().getDb();
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Database " + dbName + " does not exist");
         }
@@ -524,7 +524,7 @@ public class ExportJob implements Writable {
                 break;
         }
         if (!isReplay) {
-            Catalog.getInstance().getEditLog().logExportUpdateState(id, newState);
+            Catalog.getCurrentCatalog().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
     }

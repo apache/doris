@@ -1404,7 +1404,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, argTypes, Type.INVALID, false);
-        return Catalog.getInstance().getFunction(searchDesc, mode);
+        return Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
     }
 
     /**

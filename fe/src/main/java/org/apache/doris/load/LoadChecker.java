@@ -135,7 +135,7 @@ public class LoadChecker extends MasterDaemon {
     }
 
     private void runPendingJobs() {
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         List<LoadJob> pendingJobs = load.getLoadJobs(JobState.PENDING);
 
         // check to limit running etl job num
@@ -183,7 +183,7 @@ public class LoadChecker extends MasterDaemon {
     }
 
     private void runEtlJobs() {
-        List<LoadJob> etlJobs = Catalog.getInstance().getLoadInstance().getLoadJobs(JobState.ETL);
+        List<LoadJob> etlJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(JobState.ETL);
         for (LoadJob job : etlJobs) {
             try {
                 MasterTask task = null;
@@ -214,7 +214,7 @@ public class LoadChecker extends MasterDaemon {
     }
     
     private void runLoadingJobs() {
-        List<LoadJob> loadingJobs = Catalog.getInstance().getLoadInstance().getLoadJobs(JobState.LOADING);
+        List<LoadJob> loadingJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(JobState.LOADING);
         for (LoadJob job : loadingJobs) {
             try {
                 LOG.info("run loading job. job: {}", job);
@@ -227,10 +227,10 @@ public class LoadChecker extends MasterDaemon {
     
     private void runOneLoadingJob(LoadJob job) {
         // check timeout
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         // get db
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -307,7 +307,7 @@ public class LoadChecker extends MasterDaemon {
     
     private void tryCommitJob(LoadJob job, Database db) {
         // check transaction state
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getDbId(), job.getTransactionId());
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
@@ -360,7 +360,7 @@ public class LoadChecker extends MasterDaemon {
             }
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
             // check if the job is submit during rollup
-            RollupJob rollupJob = (RollupJob) Catalog.getInstance().getRollupHandler().getAlterJob(tableId);
+            RollupJob rollupJob = (RollupJob) Catalog.getCurrentCatalog().getRollupHandler().getAlterJob(tableId);
             boolean autoLoadToTwoTablet = true;
             if (rollupJob != null && job.getTransactionId() > 0) {
                 long rollupIndexId = rollupJob.getRollupIndexId();
@@ -512,7 +512,7 @@ public class LoadChecker extends MasterDaemon {
     }
     
     private void runQuorumFinishedJobs() {
-        List<LoadJob> quorumFinishedJobs = Catalog.getInstance().getLoadInstance().getLoadJobs(
+        List<LoadJob> quorumFinishedJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(
                 JobState.QUORUM_FINISHED);
         for (LoadJob job : quorumFinishedJobs) {
             try {
@@ -525,7 +525,7 @@ public class LoadChecker extends MasterDaemon {
 
         // handle async delete job
         List<AsyncDeleteJob> quorumFinishedDeleteJobs =
-                Catalog.getInstance().getLoadInstance().getQuorumFinishedDeleteJobs();
+                Catalog.getCurrentCatalog().getLoadInstance().getQuorumFinishedDeleteJobs();
         for (AsyncDeleteJob job : quorumFinishedDeleteJobs) {
             try {
                 LOG.info("run quorum finished delete job. job: {}", job.getJobId());
@@ -538,9 +538,9 @@ public class LoadChecker extends MasterDaemon {
     
     private void runOneQuorumFinishedJob(LoadJob job) {
         // if db is null, cancel load job
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -553,9 +553,9 @@ public class LoadChecker extends MasterDaemon {
     }
     
     private void runOneQuorumFinishedDeleteJob(AsyncDeleteJob job) {
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.removeDeleteJobAndSetState(job);
             return;
@@ -566,7 +566,7 @@ public class LoadChecker extends MasterDaemon {
             job.clearTasks();
             job.setState(DeleteState.FINISHED);
             // log
-            Catalog.getInstance().getEditLog().logFinishAsyncDelete(job);
+            Catalog.getCurrentCatalog().getEditLog().logFinishAsyncDelete(job);
             load.removeDeleteJobAndSetState(job);
             LOG.info("delete job {} finished", job.getJobId());
         } finally {

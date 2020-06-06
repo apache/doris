@@ -62,7 +62,7 @@ public class CreateTableTest {
     private List<String> columnNames = Lists.newArrayList();
     private List<ColumnDef> columnDefs = Lists.newArrayList();
 
-    private Catalog catalog = Catalog.getInstance();
+    private Catalog catalog = Catalog.getCurrentCatalog();
     private Database db = new Database();
     private Analyzer analyzer;
 
@@ -102,7 +102,7 @@ public class CreateTableTest {
                 minTimes = 0;
                 result = catalog;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
             }

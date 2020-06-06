@@ -134,7 +134,7 @@ public class CatalogTest {
         File file = new File(dir, "image");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
@@ -146,7 +146,7 @@ public class CatalogTest {
         dos.close();
         
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        catalog = Catalog.getInstance();
+        catalog = Catalog.getCurrentCatalog();
         long checksum2 = catalog.loadHeader(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
         dis.close();
@@ -162,7 +162,7 @@ public class CatalogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
@@ -175,7 +175,7 @@ public class CatalogTest {
         catalog = null;
         dos.close();
         
-        catalog = Catalog.getInstance();
+        catalog = Catalog.getCurrentCatalog();
 
         Field field2 = catalog.getClass().getDeclaredField("load");
         field2.setAccessible(true);
@@ -197,7 +197,7 @@ public class CatalogTest {
         File file = new File(dir, "image");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
@@ -225,7 +225,7 @@ public class CatalogTest {
         dos.close();
         
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        catalog = Catalog.getInstance();
+        catalog = Catalog.getCurrentCatalog();
         long checksum2 = catalog.loadAlterJob(dis, 0, JobType.SCHEMA_CHANGE);
         Assert.assertEquals(checksum1, checksum2);
         Map<Long, AlterJob> map = catalog.getSchemaChangeHandler().unprotectedGetAlterJobs();

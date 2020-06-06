@@ -168,13 +168,13 @@ public class StmtExecutor {
     }
 
     public boolean isForwardToMaster() {
-        if (Catalog.getInstance().isMaster()) {
+        if (Catalog.getCurrentCatalog().isMaster()) {
             return false;
         }
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
-        if ((parsedStmt instanceof QueryStmt) && !Catalog.getInstance().isMaster()
-                && !Catalog.getInstance().canRead()) {
+        if ((parsedStmt instanceof QueryStmt) && !Catalog.getCurrentCatalog().isMaster()
+                && !Catalog.getCurrentCatalog().canRead()) {
             return true;
         }
 

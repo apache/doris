@@ -225,7 +225,7 @@ public class DecommissionBackendJob extends AlterJob {
                 if (decommissionType == DecommissionType.ClusterDecommission) {
                     for (String clusterName : clusterBackendsMap.keySet()) {
                         final Map<Long, Backend> idToBackend = clusterBackendsMap.get(clusterName);
-                        final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
+                        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
                         List<Long> backendList = Lists.newArrayList();
                         for (long id : idToBackend.keySet()) {
                             final Backend backend = idToBackend.get(id);
@@ -236,7 +236,7 @@ public class DecommissionBackendJob extends AlterJob {
                             cluster.removeBackend(id);
                         }
                         BackendIdsUpdateInfo updateInfo = new BackendIdsUpdateInfo(backendList);
-                        Catalog.getInstance().getEditLog().logUpdateClusterAndBackendState(updateInfo);
+                        Catalog.getCurrentCatalog().getEditLog().logUpdateClusterAndBackendState(updateInfo);
                     }
                 }
             }
@@ -244,7 +244,7 @@ public class DecommissionBackendJob extends AlterJob {
             this.finishedTime = System.currentTimeMillis();
             this.state = JobState.FINISHED;
 
-            Catalog.getInstance().getEditLog().logFinishDecommissionBackend(this);
+            Catalog.getCurrentCatalog().getEditLog().logFinishDecommissionBackend(this);
 
             LOG.info("finished {} decommission {} backends: {}", decommissionType.toString(),
                     allClusterBackendIds.size(), getBackendIdsString());

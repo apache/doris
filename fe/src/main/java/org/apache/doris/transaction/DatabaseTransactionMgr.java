@@ -1102,7 +1102,7 @@ public class DatabaseTransactionMgr {
         List<List<String>> infos = new ArrayList<List<String>>();
         readLock();
         try {
-            Database db = Catalog.getInstance().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db == null) {
                 throw new AnalysisException("Database[" + dbId + "] does not exist");
             }
