@@ -453,18 +453,19 @@ public class InsertStmt extends DdlStmt {
             }
         }
 
-        Map<Integer, Integer> origColIdxsForMVCols = Maps.newHashMap();
+        //Get the correspondence of this column to the original column through defineExpr
+        Map<Integer, Integer> origColIdx2MvColIdx = Maps.newHashMap();
         for (int mvColumnIdx = 0; mvColumnIdx < targetTable.getFullSchema().size(); ++mvColumnIdx) {
             Column column = targetTable.getFullSchema().get(mvColumnIdx);
             if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX)) {
                 List<Expr> slots = new ArrayList<>();
                 column.getDefineExpr().collect(SlotRef.class, slots);
+                //We only support one children of define expr in materialized view column
                 Preconditions.checkArgument(slots.size() == 1);
-
                 String origName = ((SlotRef) slots.get(0)).getColumnName();
                 for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
                     if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
-                        origColIdxsForMVCols.put(mvColumnIdx, originColumnIdx);
+                        origColIdx2MvColIdx.put(mvColumnIdx, originColumnIdx);
                         targetColumns.add(column);
                         break;
                     }
@@ -491,7 +492,7 @@ public class InsertStmt extends DdlStmt {
                 // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForShadowCols, origColIdxsForMVCols);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForShadowCols, origColIdx2MvColIdx);
                 }
 
                 // clear these 2 structures, rebuild them using VALUES exprs
@@ -506,7 +507,7 @@ public class InsertStmt extends DdlStmt {
                 // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
                 rows.add(selectStmt.getResultExprs());
-                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols, origColIdxsForMVCols);
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols, origColIdx2MvColIdx);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
                 for (Expr expr : rows.get(0)) {
@@ -523,13 +524,14 @@ public class InsertStmt extends DdlStmt {
                 }
             }
 
-            if (!origColIdxsForMVCols.isEmpty()) {
-                origColIdxsForMVCols.forEach((key, value) -> {
+            if (!origColIdx2MvColIdx.isEmpty()) {
+                origColIdx2MvColIdx.forEach((key, value) -> {
                     Column mvColumn = targetTable.getFullSchema().get(key);
                     Expr expr = mvColumn.getDefineExpr();
                     ArrayList<SlotRef> slots = new ArrayList<>();
                     expr.collect(SlotRef.class, slots);
 
+                    //substitute define expr slot with select statement result expr
                     ExprSubstitutionMap smap = new ExprSubstitutionMap();
                     smap.getLhs().add(slots.get(0));
                     smap.getRhs().add(queryStmt.getResultExprs().get(value));
@@ -554,12 +556,12 @@ public class InsertStmt extends DdlStmt {
         }
 
         // expand baseTblResultExprs and colLabels in QueryStmt
-        if (!origColIdxsForShadowCols.isEmpty() || !origColIdxsForMVCols.isEmpty()) {
+        if (!origColIdxsForShadowCols.isEmpty() || !origColIdx2MvColIdx.isEmpty()) {
             if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
                 for (Integer idx : origColIdxsForShadowCols) {
                     queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(idx));
                 }
-                for (Integer idx : origColIdxsForMVCols.keySet()) {
+                for (Integer idx : origColIdx2MvColIdx.keySet()) {
                     queryStmt.getBaseTblResultExprs().add(queryStmt.getResultExprs().get(idx));
                 }
             }
@@ -568,7 +570,7 @@ public class InsertStmt extends DdlStmt {
                 for (Integer idx : origColIdxsForShadowCols) {
                     queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
                 }
-                for (Integer idx : origColIdxsForMVCols.values()) {
+                for (Integer idx : origColIdx2MvColIdx.values()) {
                     queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
                 }
             }
