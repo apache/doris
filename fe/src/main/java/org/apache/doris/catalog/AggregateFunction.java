@@ -464,6 +464,14 @@ public class AggregateFunction extends Function {
         properties.put(CreateFunctionStmt.MERGE_KEY, mergeFnSymbol);
         properties.put(CreateFunctionStmt.SERIALIZE_KEY, serializeFnSymbol);
         properties.put(CreateFunctionStmt.FINALIZE_KEY, finalizeFnSymbol);
+
+        //getValueFn and removeFn may be null if not analytic agg
+        if (getValueFnSymbol != null) {
+            properties.put(CreateFunctionStmt.GET_VALUE_KEY, getValueFnSymbol);
+        }
+        if (removeFnSymbol != null) {
+            properties.put(CreateFunctionStmt.REMOVE_KEY, removeFnSymbol);
+        }
         return new Gson().toJson(properties);
     }
 }
