@@ -262,7 +262,7 @@ public class SlotRef extends Expr {
 
     @Override
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
-        Preconditions.checkState(type != Type.INVALID);
+        Preconditions.checkState(!type.equals(Type.INVALID));
         Preconditions.checkState(desc != null);
         if (slotIds != null) {
             slotIds.add(desc.getId());
