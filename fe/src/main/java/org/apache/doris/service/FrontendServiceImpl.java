@@ -195,7 +195,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // database privs should be checked in analysis phrase
 
-        Database db = Catalog.getInstance().getDb(params.db);
+        Database db = Catalog.getCurrentCatalog().getDb(params.db);
         UserIdentity currentUser = null;
         if (params.isSetCurrent_user_ident()) {
             currentUser = UserIdentity.fromThrift(params.current_user_ident);
@@ -237,7 +237,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // database privs should be checked in analysis phrase
 
-        Database db = Catalog.getInstance().getDb(params.db);
+        Database db = Catalog.getCurrentCatalog().getDb(params.db);
         UserIdentity currentUser = null;
         if (params.isSetCurrent_user_ident()) {
             currentUser = UserIdentity.fromThrift(params.current_user_ident);
@@ -300,7 +300,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        Database db = Catalog.getInstance().getDb(params.db);
+        Database db = Catalog.getCurrentCatalog().getDb(params.db);
         if (db != null) {
             db.readLock();
             try {
@@ -386,7 +386,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         context.setCluster(cluster);
         context.setDatabase(ClusterNamespace.getFullName(cluster, request.db));
         context.setQualifiedUser(ClusterNamespace.getFullName(cluster, request.user));
-        context.setCatalog(Catalog.getInstance());
+        context.setCatalog(Catalog.getCurrentCatalog());
         context.getState().reset();
         context.setThreadLocalInfo();
 
@@ -397,7 +397,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
                 // try to add load job, label will be checked here.
-                if (Catalog.getInstance().getLoadManager().createLoadJobV1FromRequest(request)) {
+                if (Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromRequest(request)) {
                     try {
                         // generate mini load audit log
                         logMiniLoadStmt(request);
@@ -474,7 +474,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TUniqueId etlTaskId = request.getEtlTaskId();
         long jobId = etlTaskId.getHi();
         long taskId = etlTaskId.getLo();
-        LoadJob job = Catalog.getInstance().getLoadInstance().getLoadJob(jobId);
+        LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(jobId);
         if (job == null) {
             String failMsg = "job does not exist. id: " + jobId;
             LOG.warn(failMsg);
@@ -564,7 +564,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
         TNetworkAddress clientAddr = getClientAddr();
         if (clientAddr != null) {
-            Frontend fe = Catalog.getInstance().getFeByHost(clientAddr.getHostname());
+            Frontend fe = Catalog.getCurrentCatalog().getFeByHost(clientAddr.getHostname());
             if (fe == null) {
                 LOG.warn("reject request from invalid host. client: {}", clientAddr);
                 throw new TException("request from invalid host was rejected.");
@@ -673,7 +673,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("empty label in begin request");
         }
         // check database
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = catalog.getDb(fullDbName);
         if (db == null) {
@@ -748,7 +748,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // get database
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = catalog.getDb(fullDbName);
         if (db == null) {
@@ -809,7 +809,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
         }
         String dbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }

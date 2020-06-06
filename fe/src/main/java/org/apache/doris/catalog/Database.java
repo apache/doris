@@ -301,7 +301,7 @@ public class Database extends MetaObject implements Writable {
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
-                    Catalog.getInstance().getEditLog().logCreateTable(info);
+                    Catalog.getCurrentCatalog().getEditLog().logCreateTable(info);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Catalog.getCurrentCatalog().getEsStateStore().registerTable((EsTable)table);
@@ -558,7 +558,7 @@ public class Database extends MetaObject implements Writable {
 
     public synchronized void addFunction(Function function) throws UserException {
         addFunctionImpl(function, false);
-        Catalog.getInstance().getEditLog().logAddFunction(function);
+        Catalog.getCurrentCatalog().getEditLog().logAddFunction(function);
     }
 
     public synchronized void replayAddFunction(Function function) {
@@ -583,7 +583,7 @@ public class Database extends MetaObject implements Writable {
             }
             // Get function id for this UDF, use CatalogIdGenerator. Only get function id
             // when isReplay is false
-            long functionId = Catalog.getInstance().getNextId();
+            long functionId = Catalog.getCurrentCatalog().getNextId();
             function.setId(functionId);
         }
 
@@ -597,7 +597,7 @@ public class Database extends MetaObject implements Writable {
 
     public synchronized void dropFunction(FunctionSearchDesc function) throws UserException {
         dropFunctionImpl(function);
-        Catalog.getInstance().getEditLog().logDropFunction(function);
+        Catalog.getCurrentCatalog().getEditLog().logDropFunction(function);
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {

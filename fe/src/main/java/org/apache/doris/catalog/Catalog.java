@@ -202,9 +202,8 @@ import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TTabletType;
-
+import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
@@ -540,11 +539,6 @@ public class Catalog {
         if (CHECKPOINT != null) {
             CHECKPOINT = null;
         }
-    }
-
-    // use this to get real Catalog instance
-    public static Catalog getInstance() {
-        return SingletonHolder.INSTANCE;
     }
 
     // use this to get CheckPoint Catalog instance
@@ -3601,7 +3595,7 @@ public class Catalog {
         TableIndexes indexes = new TableIndexes(stmt.getIndexes());
 
         // create table
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
                 distributionInfo, indexes);
         olapTable.setComment(stmt.getComment());
@@ -3855,7 +3849,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, stmt.getProperties());
         mysqlTable.setComment(stmt.getComment());
         if (!db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists())) {
@@ -3885,7 +3879,7 @@ public class Catalog {
             partitionInfo = new SinglePartitionInfo();
         }
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         EsTable esTable = new EsTable(tableId, tableName, baseSchema, stmt.getProperties(), partitionInfo);
         esTable.setComment(stmt.getComment());
 
@@ -3901,7 +3895,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, stmt.getProperties());
         brokerTable.setComment(stmt.getComment());
         brokerTable.setBrokerProperties(stmt.getExtProperties());
@@ -4206,7 +4200,7 @@ public class Catalog {
             GroupId groupId = null;
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
                 // if this is a colocate table, try to get backend seqs from colocation index.
-                Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
+                Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
                 groupId = colocateIndex.getGroup(tabletMeta.getTableId());
                 // Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
                 // This lock will release very fast.
@@ -5428,7 +5422,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
         newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
@@ -6017,8 +6011,8 @@ public class Catalog {
                 InfoSchemaDb db;
                 // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
                 // when checkpoint thread load image.
-                if (Catalog.getInstance().getFullNameToDb().containsKey(dbName)) {
-                    db = (InfoSchemaDb)Catalog.getInstance().getFullNameToDb().get(dbName);
+                if (Catalog.getCurrentCatalog().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getCurrentCatalog().getFullNameToDb().get(dbName);
                 } else {
                     db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());

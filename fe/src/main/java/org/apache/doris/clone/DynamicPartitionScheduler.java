@@ -249,7 +249,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             Pair<Long, Long> tableInfo = iterator.next();
             Long dbId = tableInfo.first;
             Long tableId = tableInfo.second;
-            Database db = Catalog.getInstance().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db == null) {
                 iterator.remove();
                 continue;
@@ -356,14 +356,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void initDynamicPartitionTable() {
-        for (Long dbId : Catalog.getInstance().getDbIds()) {
-            Database db = Catalog.getInstance().getDb(dbId);
+        for (Long dbId : Catalog.getCurrentCatalog().getDbIds()) {
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db == null) {
                 continue;
             }
             db.readLock();
             try {
-                for (Table table : Catalog.getInstance().getDb(dbId).getTables()) {
+                for (Table table : Catalog.getCurrentCatalog().getDb(dbId).getTables()) {
                     if (DynamicPartitionUtil.isDynamicPartitionTable(table)) {
                         registerDynamicPartitionTable(db.getId(), table.getId());
                     }

@@ -264,7 +264,7 @@ public class VariableMgr {
     }
 
     private static void writeGlobalVariableUpdate(SessionVariable variable, String msg) {
-        EditLog editLog = Catalog.getInstance().getEditLog();
+        EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
         editLog.logGlobalVariable(variable);
     }
 

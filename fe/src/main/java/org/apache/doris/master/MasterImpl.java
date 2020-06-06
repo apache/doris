@@ -290,7 +290,7 @@ public class MasterImpl {
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;
@@ -349,7 +349,7 @@ public class MasterImpl {
             // TODO yiguolei: why delete should check request version and task version?
             if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
                 long loadJobId = pushTask.getLoadJobId();
-                LoadJob job = Catalog.getInstance().getLoadInstance().getLoadJob(loadJobId);
+                LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(loadJobId);
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
@@ -364,7 +364,7 @@ public class MasterImpl {
                     }
                 }
             } else if (pushTask.getPushType() == TPushType.DELETE) {
-                DeleteJob deleteJob = Catalog.getInstance().getDeleteHandler().getDeleteJob(transactionId);
+                DeleteJob deleteJob = Catalog.getCurrentCatalog().getDeleteHandler().getDeleteJob(transactionId);
                 if (deleteJob == null) {
                     throw new MetaNotFoundException("cannot find delete job, job[" + transactionId + "]");
                 }
@@ -424,7 +424,7 @@ public class MasterImpl {
         MaterializedIndex index = partition.getIndex(indexId);
         if (index == null) { 
             // this means the index is under rollup
-            MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+            MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
             AlterJob alterJob = materializedViewHandler.getAlterJob(olapTable.getId());
             if (alterJob == null && olapTable.getState() == OlapTableState.ROLLUP) {
                 // this happens when:
@@ -480,7 +480,7 @@ public class MasterImpl {
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             AgentTaskQueue.removePushTask(backendId, signature, finishVersion, finishVersionHash, 
                                           pushTask.getPushType(), pushTask.getTaskType());
@@ -546,7 +546,7 @@ public class MasterImpl {
             if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
                 // handle load job
                 long loadJobId = pushTask.getLoadJobId();
-                LoadJob job = Catalog.getInstance().getLoadInstance().getLoadJob(loadJobId);
+                LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(loadJobId);
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
@@ -567,7 +567,7 @@ public class MasterImpl {
                 } else {
                     long asyncDeleteJobId = pushTask.getAsyncDeleteJobId();
                     Preconditions.checkState(asyncDeleteJobId != -1);
-                    AsyncDeleteJob job = Catalog.getInstance().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
+                    AsyncDeleteJob job = Catalog.getCurrentCatalog().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
                     if (job == null) {
                         throw new MetaNotFoundException("cannot find async delete job, job[" + asyncDeleteJobId + "]");
                     }
@@ -648,7 +648,7 @@ public class MasterImpl {
                 return null;
             }
 
-            MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+            MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
             AlterJob alterJob = materializedViewHandler.getAlterJob(olapTable.getId());
             if (alterJob == null) {
                 // this happends when:
@@ -671,7 +671,7 @@ public class MasterImpl {
         int currentSchemaHash = olapTable.getSchemaHashByIndexId(pushIndexId);
         if (schemaHash != currentSchemaHash) {
             if (pushState == PartitionState.SCHEMA_CHANGE) {
-                SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+                SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
                 AlterJob alterJob = schemaChangeHandler.getAlterJob(olapTable.getId());
                 if (alterJob != null && schemaHash != ((SchemaChangeJob) alterJob).getSchemaHashByIndexId(pushIndexId)) {
                     // this is a invalid tablet.
@@ -718,7 +718,7 @@ public class MasterImpl {
         Preconditions.checkArgument(finishTabletInfos.size() == 1);
 
         SchemaChangeTask schemaChangeTask = (SchemaChangeTask) task;
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         schemaChangeHandler.handleFinishedReplica(schemaChangeTask, finishTabletInfos.get(0), reportVersion);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.SCHEMA_CHANGE, task.getSignature());
     }
@@ -729,7 +729,7 @@ public class MasterImpl {
         Preconditions.checkArgument(finishTabletInfos.size() == 1);
 
         CreateRollupTask createRollupTask = (CreateRollupTask) task;
-        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
         materializedViewHandler.handleFinishedReplica(createRollupTask, finishTabletInfos.get(0), -1L);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ROLLUP, task.getSignature());
     }
@@ -754,14 +754,14 @@ public class MasterImpl {
             return;
         }
 
-        Catalog.getInstance().getConsistencyChecker().handleFinishedConsistencyCheck(checkConsistencyTask,
+        Catalog.getCurrentCatalog().getConsistencyChecker().handleFinishedConsistencyCheck(checkConsistencyTask,
                                                                                      request.getTablet_checksum());
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CHECK_CONSISTENCY, task.getSignature());
     }
 
     private void finishMakeSnapshot(AgentTask task, TFinishTaskRequest request) {
         SnapshotTask snapshotTask = (SnapshotTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MAKE_SNAPSHOT, task.getSignature());
         }
 
@@ -769,21 +769,21 @@ public class MasterImpl {
 
     private void finishUpload(AgentTask task, TFinishTaskRequest request) {
         UploadTask uploadTask = (UploadTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleFinishedSnapshotUploadTask(uploadTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleFinishedSnapshotUploadTask(uploadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPLOAD, task.getSignature());
         }
     }
 
     private void finishDownloadTask(AgentTask task, TFinishTaskRequest request) {
         DownloadTask downloadTask = (DownloadTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.DOWNLOAD, task.getSignature());
         }
     }
 
     private void finishMoveDirTask(AgentTask task, TFinishTaskRequest request) {
         DirMoveTask dirMoveTask = (DirMoveTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MOVE, task.getSignature());
         }
     }
@@ -797,7 +797,7 @@ public class MasterImpl {
     }
 
     public TFetchResourceResult fetchResource() {
-        return Catalog.getInstance().getAuth().toResourceThrift();
+        return Catalog.getCurrentCatalog().getAuth().toResourceThrift();
     }
 
     private void finishAlterTask(AgentTask task) {

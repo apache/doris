@@ -92,7 +92,7 @@ public class JobsProcDir implements ProcDirInterface {
 
         long dbId = db.getId();
         // load
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         LoadManager loadManager = Catalog.getCurrentCatalog().getLoadManager();
         Long pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING, dbId)
                 + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING, dbId);
@@ -118,7 +118,7 @@ public class JobsProcDir implements ProcDirInterface {
                                          cancelledNum.toString(), totalNum.toString()));
 
         // rollup
-        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
         pendingNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
         runningNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
                 + materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
@@ -129,7 +129,7 @@ public class JobsProcDir implements ProcDirInterface {
                                          cancelledNum.toString(), totalNum.toString()));
 
         // schema change
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         pendingNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
         runningNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
                 + schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
@@ -140,7 +140,7 @@ public class JobsProcDir implements ProcDirInterface {
                                          finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
 
         // export
-        ExportMgr exportMgr = Catalog.getInstance().getExportMgr();
+        ExportMgr exportMgr = Catalog.getCurrentCatalog().getExportMgr();
         pendingNum = exportMgr.getJobNum(ExportJob.JobState.PENDING, dbId);
         runningNum = exportMgr.getJobNum(ExportJob.JobState.EXPORTING, dbId);
         finishedNum = exportMgr.getJobNum(ExportJob.JobState.FINISHED, dbId);

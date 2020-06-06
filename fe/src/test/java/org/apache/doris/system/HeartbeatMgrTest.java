@@ -58,7 +58,7 @@ public class HeartbeatMgrTest {
                 minTimes = 0;
                 result = true;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
             }

@@ -207,7 +207,7 @@ public class SparkResource extends Resource {
             throw new DdlException("working_dir and broker should be assigned at the same time");
         }
         // check broker exist
-        if (broker != null && !Catalog.getInstance().getBrokerMgr().contaisnBroker(broker)) {
+        if (broker != null && !Catalog.getCurrentCatalog().getBrokerMgr().contaisnBroker(broker)) {
             throw new DdlException("Unknown broker name(" + broker + ")");
         }
         brokerProperties = getBrokerProperties(properties);
