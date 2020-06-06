@@ -51,7 +51,7 @@ public class MetaReplayerCheckAction extends RestBaseAction {
     protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        Map<String, String> resultMap = Catalog.getInstance().getMetaReplayState().getInfo();
+        Map<String, String> resultMap = Catalog.getCurrentCatalog().getMetaReplayState().getInfo();
 
         // to json response
         String result = "";

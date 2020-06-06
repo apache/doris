@@ -48,7 +48,7 @@ public class BrokerUtil {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getInstance().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
+            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }

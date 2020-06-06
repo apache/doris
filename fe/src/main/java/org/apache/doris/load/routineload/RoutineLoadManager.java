@@ -159,7 +159,7 @@ public class RoutineLoadManager implements Writable {
             }
 
             unprotectedAddJob(routineLoadJob);
-            Catalog.getInstance().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
+            Catalog.getCurrentCatalog().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
             LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {
             writeUnlock();
@@ -538,7 +538,7 @@ public class RoutineLoadManager implements Writable {
 
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
                                                                               routineLoadJob.getState());
-                    Catalog.getInstance().getEditLog().logRemoveRoutineLoadJob(operation);
+                    Catalog.getCurrentCatalog().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("end_timestamp", routineLoadJob.getEndTimestamp())
                                      .add("current_timestamp", currentTimestamp)

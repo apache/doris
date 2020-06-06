@@ -367,7 +367,7 @@ public class Load {
     public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
         // get db
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
@@ -406,7 +406,7 @@ public class Load {
         try {
             unprotectAddLoadJob(job, false /* not replay */);
             MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-            Catalog.getInstance().getEditLog().logLoadStart(job);
+            Catalog.getCurrentCatalog().getEditLog().logLoadStart(job);
         } finally {
             writeUnlock();
         }
@@ -602,7 +602,7 @@ public class Load {
         }
 
         // job id
-        job.setId(Catalog.getInstance().getNextId());
+        job.setId(Catalog.getCurrentCatalog().getNextId());
 
         return job;
     }
@@ -1341,7 +1341,7 @@ public class Load {
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getInstance().getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
         }
@@ -1371,7 +1371,7 @@ public class Load {
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
-        Database db = Catalog.getInstance().getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
         }
@@ -1468,7 +1468,7 @@ public class Load {
 
     public boolean isLabelExist(String dbName, String label) throws DdlException {
         // get load job and check state
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -1497,7 +1497,7 @@ public class Load {
         String label = stmt.getLabel();
 
         // get load job and check state
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -1574,7 +1574,7 @@ public class Load {
         if (job.getBrokerDesc() != null) {
             if (srcState == JobState.ETL) {
                 // Cancel job id
-                Catalog.getInstance().getPullLoadJobMgr().cancelJob(job.getId());
+                Catalog.getCurrentCatalog().getPullLoadJobMgr().cancelJob(job.getId());
             }
         }
         LOG.info("cancel load job success. job: {}", job);
@@ -1988,7 +1988,7 @@ public class Load {
         }
 
         long dbId = loadJob.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             return infos;
         }
@@ -2138,7 +2138,7 @@ public class Load {
             loadErrorHubParam = LoadErrorHub.Param.createNullParam();
         }
 
-        Catalog.getInstance().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
+        Catalog.getCurrentCatalog().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
 
         LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
@@ -2164,7 +2164,7 @@ public class Load {
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
-        Database db = Catalog.getInstance().getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
             throw new MetaNotFoundException("Unknown database(" + info.dbName + ")");
         }
@@ -2588,7 +2588,7 @@ public class Load {
                     }
 
                     long dbId = job.getDbId();
-                    Database db = Catalog.getInstance().getDb(dbId);
+                    Database db = Catalog.getCurrentCatalog().getDb(dbId);
                     if (db == null) {
                         LOG.warn("db does not exist. id: {}", dbId);
                         break;
@@ -2621,7 +2621,7 @@ public class Load {
 
         long jobId = job.getId();
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled
@@ -2660,7 +2660,7 @@ public class Load {
                             job.setProgress(0);
                             job.setEtlStartTimeMs(System.currentTimeMillis());
                             job.setState(destState);
-                            Catalog.getInstance().getEditLog().logLoadEtl(job);
+                            Catalog.getCurrentCatalog().getEditLog().logLoadEtl(job);
                             break;
                         case LOADING:
                             idToEtlLoadJob.remove(jobId);
@@ -2668,12 +2668,12 @@ public class Load {
                             job.setProgress(0);
                             job.setLoadStartTimeMs(System.currentTimeMillis());
                             job.setState(destState);
-                            Catalog.getInstance().getEditLog().logLoadLoading(job);
+                            Catalog.getCurrentCatalog().getEditLog().logLoadLoading(job);
                             break;
                         case QUORUM_FINISHED:
                             if (processQuorumFinished(job, db)) {
                                 // Write edit log
-                                Catalog.getInstance().getEditLog().logLoadQuorum(job);
+                                Catalog.getCurrentCatalog().getEditLog().logLoadQuorum(job);
                             } else {
                                 errMsg = "process loading finished fail";
                                 processCancelled(job, cancelType, errMsg, failedMsg);
@@ -2714,7 +2714,7 @@ public class Load {
                                 job.clearRedundantInfoForHistoryJob();
                             }
                             // Write edit log
-                            Catalog.getInstance().getEditLog().logLoadDone(job);
+                            Catalog.getCurrentCatalog().getEditLog().logLoadDone(job);
                             break;
                         case CANCELLED:
                             processCancelled(job, cancelType, errMsg, failedMsg);
@@ -2888,7 +2888,7 @@ public class Load {
 
         // Clear the Map and Set in this job, reduce the memory cost of canceled load job.
         job.clearRedundantInfoForHistoryJob();
-        Catalog.getInstance().getEditLog().logLoadCancel(job);
+        Catalog.getCurrentCatalog().getEditLog().logLoadCancel(job);
 
         return true;
     }
@@ -3267,7 +3267,7 @@ public class Load {
         String tableName = stmt.getTableName();
         String partitionName = stmt.getPartitionName();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -3315,7 +3315,7 @@ public class Load {
                           deleteConditions, true);
             addRunningPartition = checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
             // do not use transaction id generator, or the id maybe duplicated
-            long jobId = Catalog.getInstance().getNextId();
+            long jobId = Catalog.getCurrentCatalog().getNextId();
             String jobLabel = "delete_" + UUID.randomUUID();
             // the version info in delete info will be updated after job finished
             DeleteInfo deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
@@ -3463,7 +3463,7 @@ public class Load {
 
     public List<List<Comparable>> getDeleteInfosByDb(long dbId, boolean forUser) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             return infos;
         }

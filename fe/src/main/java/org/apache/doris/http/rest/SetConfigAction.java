@@ -75,7 +75,7 @@ public class SetConfigAction extends RestBaseAction {
                 continue;
             }
 
-            if (anno.masterOnly() && !Catalog.getInstance().isMaster()) {
+            if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
                 continue;
             }
 

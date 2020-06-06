@@ -646,7 +646,7 @@ public class BlobStorage implements Writable {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getInstance().getBrokerMgr().getBroker(brokerName, localIP);
+            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerName, localIP);
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get a broker address: " + e.getMessage());
         }

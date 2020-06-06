@@ -82,7 +82,7 @@ public class AsyncDeleteJob implements Writable {
                           List<Predicate> conditions) {
         this.state = DeleteState.QUORUM_FINISHED;
 
-        this.jobId = Catalog.getInstance().getNextId();
+        this.jobId = Catalog.getCurrentCatalog().getNextId();
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;

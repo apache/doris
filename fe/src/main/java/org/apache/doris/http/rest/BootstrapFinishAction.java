@@ -54,7 +54,7 @@ public class BootstrapFinishAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        boolean isReady = Catalog.getInstance().isReady();
+        boolean isReady = Catalog.getCurrentCatalog().isReady();
 
         // to json response
         BootstrapResult result = null;
@@ -73,22 +73,22 @@ public class BootstrapFinishAction extends RestBaseAction {
                 }
 
                 if (result.status == ActionStatus.OK) {
-                    if (clusterId != Catalog.getInstance().getClusterId()) {
+                    if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
                         result.status = ActionStatus.FAILED;
-                        result.msg = "invalid cluster id: " + Catalog.getInstance().getClusterId();
+                        result.msg = "invalid cluster id: " + Catalog.getCurrentCatalog().getClusterId();
                     }
                 }
 
                 if (result.status == ActionStatus.OK) {
-                    if (!token.equals(Catalog.getInstance().getToken())) {
+                    if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
                         result.status = ActionStatus.FAILED;
-                        result.msg = "invalid token: " + Catalog.getInstance().getToken();
+                        result.msg = "invalid token: " + Catalog.getCurrentCatalog().getToken();
                     }
                 }
 
                 if (result.status == ActionStatus.OK) {
                     // cluster id and token are valid, return replayed journal id
-                    long replayedJournalId = Catalog.getInstance().getReplayedJournalId();
+                    long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
                     result.setMaxReplayedJournal(replayedJournalId);
                     result.setQueryPort(Config.query_port);
                     result.setRpcPort(Config.rpc_port);

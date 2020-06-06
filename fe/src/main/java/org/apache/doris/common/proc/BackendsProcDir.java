@@ -89,7 +89,7 @@ public class BackendsProcDir implements ProcDirInterface {
         List<List<String>> backendInfos = new LinkedList<>();
         List<Long> backendIds;
         if (!Strings.isNullOrEmpty(clusterName)) {
-            final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
+            final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
             // root not in any cluster
             if (null == cluster) {
                 return backendInfos;

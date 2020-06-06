@@ -68,7 +68,7 @@ public class PullLoadTaskPlanner {
 
     public PullLoadTaskPlanner(PullLoadTask task) {
         this.task = task;
-        this.analyzer = new Analyzer(Catalog.getInstance(), null);
+        this.analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
         this.descTable = analyzer.getDescTbl();
         this.fragments = Lists.newArrayList();
         this.scanNodes = Lists.newArrayList();

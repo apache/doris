@@ -73,7 +73,7 @@ public class RowCountAction extends RestBaseAction {
         }
 
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         Database db = catalog.getDb(dbName);
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");

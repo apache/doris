@@ -43,7 +43,7 @@ public class BDBStateChangeListener implements StateChangeListener {
                 break;
             }
             case REPLICA: {
-                if (Catalog.getInstance().isElectable()) {
+                if (Catalog.getCurrentCatalog().isElectable()) {
                     newType = FrontendNodeType.FOLLOWER;
                 } else {
                     newType = FrontendNodeType.OBSERVER;
@@ -62,7 +62,7 @@ public class BDBStateChangeListener implements StateChangeListener {
             }
         }
         Preconditions.checkNotNull(newType);
-        Catalog.getInstance().notifyNewFETypeTransfer(newType);
+        Catalog.getCurrentCatalog().notifyNewFETypeTransfer(newType);
     }
 
 }

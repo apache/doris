@@ -64,7 +64,7 @@ public class MysqlProto {
             clusterName = strList[1];
             try {
                 // if cluster does not exist and it is not a valid cluster id, authenticate failed
-                if (Catalog.getInstance().getCluster(clusterName) == null 
+                if (Catalog.getCurrentCatalog().getCluster(clusterName) == null 
                         && Integer.valueOf(strList[1]) != context.getCatalog().getClusterId()) {
                     ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
                     return false;
@@ -179,7 +179,7 @@ public class MysqlProto {
         if (!Strings.isNullOrEmpty(db)) {
             try {
                 String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), db);
-                Catalog.getInstance().changeDb(context, dbFullName);
+                Catalog.getCurrentCatalog().changeDb(context, dbFullName);
             } catch (DdlException e) {
                 sendResponsePacket(context);
                 return false;
