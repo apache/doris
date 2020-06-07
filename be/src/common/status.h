@@ -291,6 +291,15 @@ private:
             return ret_code;    \
         }   \
     } while (0);
-}
+
+#define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix) \
+    do {    \
+        const Status& _s = (stmt);  \
+        if (UNLIKELY(!_s.ok())) {   \
+            LOG(WARNING) << (warning_prefix) << ", error: "  << _s.to_string(); \
+            return _s;    \
+        }   \
+    } while (0);
+}  // namespace doris
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
