@@ -115,7 +115,7 @@ public class Daemon extends Thread {
             try {
                 runOneCycle();
             } catch (Throwable e) {
-                LOG.error("daemon thread got exception: ", e);
+                LOG.error("daemon thread got exception. name: {}", getName(), e);
             }
 
             try {
