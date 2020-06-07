@@ -61,7 +61,8 @@ void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::StorageEngine::open(options, &k_engine);
+    Status s = doris::StorageEngine::open(options, &k_engine);
+    ASSERT_TRUE(s.ok()) << s.to_string();
 }
 
 void tear_down() {

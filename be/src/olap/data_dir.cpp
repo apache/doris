@@ -46,9 +46,12 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
+#include "util/errno.h"
 #include "util/file_utils.h"
 #include "util/monotime.h"
 #include "util/string_util.h"
+
+using strings::Substitute;
 
 namespace doris {
 
@@ -78,20 +81,21 @@ DataDir::~DataDir() {
 
 Status DataDir::init() {
     if (!FileUtils::check_exist(_path)) {
-        LOG(WARNING) << "opendir failed, path=" << _path;
-        return Status::InternalError("opendir failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(Substitute("opendir failed, path=$0", _path)),
+                                       "check file exist failed");
     }
     std::string align_tag_path = _path + ALIGN_TAG_PREFIX;
     if (access(align_tag_path.c_str(), F_OK) == 0) {
-        LOG(WARNING) << "align tag was found, path=" << _path;
-        return Status::InternalError("invalid root path: ");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::NotFound(Substitute("align tag $0 was found", align_tag_path)),
+            "access file failed");
     }
 
-    RETURN_IF_ERROR(update_capacity());
-    RETURN_IF_ERROR(_init_cluster_id());
-    RETURN_IF_ERROR(_init_capacity());
-    RETURN_IF_ERROR(_init_file_system());
-    RETURN_IF_ERROR(_init_meta());
+    RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity(), "_init_capacity failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_file_system(), "_init_file_system failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_meta(), "_init_meta failed");
 
     _is_used = true;
     return Status::OK();
@@ -108,10 +112,10 @@ Status DataDir::_init_cluster_id() {
         int fd = open(cluster_id_path.c_str(), O_RDWR | O_CREAT,
                       S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
         if (fd < 0 || close(fd) < 0) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to create file. [path='" << cluster_id_path << "' err='"
-                         << strerror_r(errno, errmsg, 64) << "']";
-            return Status::InternalError("invalid store path: create cluster id failed");
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(Substitute("failed to create cluster id file $0, err=$1",
+                    cluster_id_path, errno_to_string(errno))),
+                "create file failed");
         }
     }
 
@@ -119,16 +123,18 @@ Status DataDir::_init_cluster_id() {
     FILE* fp = NULL;
     fp = fopen(cluster_id_path.c_str(), "r+b");
     if (fp == NULL) {
-        LOG(WARNING) << "fail to open cluster id path. path=" << cluster_id_path;
-        return Status::InternalError("invalid store path: open cluster id failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(Substitute("failed to open cluster id file $0", cluster_id_path)),
+            "open file filed");
     }
 
     int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
     if (lock_res < 0) {
-        LOG(WARNING) << "fail to lock file descriptor. path=" << cluster_id_path;
         fclose(fp);
         fp = NULL;
-        return Status::InternalError("invalid store path: flock cluster id failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(Substitute("failed to flock cluster id file $0", cluster_id_path)),
+            "flock file failed");
     }
 
     // obtain cluster id of all root paths
@@ -137,13 +143,14 @@ Status DataDir::_init_cluster_id() {
     return st;
 }
 
-Status DataDir::_read_cluster_id(const std::string& path, int32_t* cluster_id) {
+Status DataDir::_read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) {
     int32_t tmp_cluster_id = -1;
 
-    std::fstream fs(path.c_str(), std::fstream::in);
+    std::fstream fs(cluster_id_path.c_str(), std::fstream::in);
     if (!fs.is_open()) {
-        LOG(WARNING) << "fail to open cluster id path. [path='" << path << "']";
-        return Status::InternalError("open file failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(Substitute("failed to open cluster id file $0", cluster_id_path)),
+            "open file failed");
     }
 
     fs >> tmp_cluster_id;
@@ -154,12 +161,12 @@ Status DataDir::_read_cluster_id(const std::string& path, int32_t* cluster_id) {
     } else if (tmp_cluster_id >= 0 && (fs.rdstate() & std::fstream::eofbit) != 0) {
         *cluster_id = tmp_cluster_id;
     } else {
-        OLAP_LOG_WARNING(
-                "fail to read cluster id from file. "
-                "[id=%d eofbit=%d failbit=%d badbit=%d]",
-                tmp_cluster_id, fs.rdstate() & std::fstream::eofbit,
-                fs.rdstate() & std::fstream::failbit, fs.rdstate() & std::fstream::badbit);
-        return Status::InternalError("cluster id file corrupt");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::Corruption(
+                Substitute("cluster id file $0 is corrupt. [id=$1 eofbit=$2 failbit=$3 badbit=$4]",
+                           cluster_id_path, tmp_cluster_id, fs.rdstate() & std::fstream::eofbit,
+                           fs.rdstate() & std::fstream::failbit, fs.rdstate() & std::fstream::badbit)),
+            "file content is error");
     }
     return Status::OK();
 }
@@ -170,16 +177,18 @@ Status DataDir::_init_capacity() {
     if (_capacity_bytes == -1) {
         _capacity_bytes = disk_capacity;
     } else if (_capacity_bytes > disk_capacity) {
-        LOG(WARNING) << "root path capacity should not larger than disk capacity. "
-                     << "path=" << _path << ", capacity_bytes=" << _capacity_bytes
-                     << ", disk_capacity=" << disk_capacity;
-        return Status::InternalError("invalid store path: invalid capacity");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::InvalidArgument(
+                Substitute("root path $0's capacity $1 should not larger than disk capacity $2",
+                           _path, _capacity_bytes, disk_capacity)),
+            "init capacity failed");
     }
 
     std::string data_path = _path + DATA_PREFIX;
     if (!FileUtils::check_exist(data_path) && !FileUtils::create_dir(data_path).ok()) {
-        LOG(WARNING) << "failed to create data root path. path=" << data_path;
-        return Status::InternalError("invalid store path: failed to create data directory");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(Substitute("failed to create data root path $0", data_path)),
+            "check_exist failed");
     }
 
     return Status::OK();
@@ -188,10 +197,10 @@ Status DataDir::_init_capacity() {
 Status DataDir::_init_file_system() {
     struct stat s;
     if (stat(_path.c_str(), &s) != 0) {
-        char errmsg[64];
-        LOG(WARNING) << "stat failed, path=" << _path << ", errno=" << errno
-                     << ", errmsg=" << strerror_r(errno, errmsg, 64);
-        return Status::InternalError("invalid store path: stat failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(
+                Substitute("stat file $0 failed, err=$1", _path, errno_to_string(errno))),
+            "stat file failed");
     }
 
     dev_t mount_device;
@@ -203,10 +212,10 @@ Status DataDir::_init_file_system() {
 
     FILE* mount_tablet = nullptr;
     if ((mount_tablet = setmntent(kMtabPath, "r")) == NULL) {
-        char errmsg[64];
-        LOG(WARNING) << "setmntent failed, path=" << kMtabPath << ", errno=" << errno
-                     << ", errmsg=" << strerror_r(errno, errmsg, 64);
-        return Status::InternalError("invalid store path: setmntent failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(
+                Substitute("setmntent file $0 failed, err=$1", _path, errno_to_string(errno))),
+            "setmntent file failed");
     }
 
     bool is_find = false;
@@ -234,8 +243,9 @@ Status DataDir::_init_file_system() {
     endmntent(mount_tablet);
 
     if (!is_find) {
-        LOG(WARNING) << "fail to find file system, path=" << _path;
-        return Status::InternalError("invalid store path: find file system failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(Substitute("file system $0 not found", _path)),
+            "find file system failed");
     }
 
     _file_system = mount_entry->mnt_fsname;
@@ -251,13 +261,15 @@ Status DataDir::_init_meta() {
     // init meta
     _meta = new (std::nothrow) OlapMeta(_path);
     if (_meta == nullptr) {
-        LOG(WARNING) << "new olap meta failed";
-        return Status::InternalError("new olap meta failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::MemoryAllocFailed("allocate memory for OlapMeta failed"),
+            "new OlapMeta failed");
     }
     OLAPStatus res = _meta->init();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "init meta failed";
-        return Status::InternalError("init meta failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(Substitute("open rocksdb failed, path=$0", _path)),
+            "init OlapMeta failed");
     }
     return Status::OK();
 }
@@ -344,13 +356,12 @@ void DataDir::clear_tablets(std::vector<TabletInfo>* tablet_infos) {
 }
 
 std::string DataDir::get_absolute_shard_path(int64_t shard_id) {
-    return strings::Substitute("$0$1/$2", _path, DATA_PREFIX, shard_id);
+    return Substitute("$0$1/$2", _path, DATA_PREFIX, shard_id);
 }
 
 std::string DataDir::get_absolute_tablet_path(int64_t shard_id, int64_t tablet_id,
                                               int32_t schema_hash) {
-    return strings::Substitute("$0/$1/$2", get_absolute_shard_path(shard_id), tablet_id,
-                               schema_hash);
+    return Substitute("$0/$1/$2", get_absolute_shard_path(shard_id), tablet_id, schema_hash);
 }
 
 void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
@@ -874,8 +885,10 @@ Status DataDir::update_capacity() {
             _disk_capacity_bytes = path_info.capacity;
         }
     } catch (boost::filesystem::filesystem_error& e) {
-        LOG(WARNING) << "get space info failed. path: " << _path << " erro:" << e.what();
-        return Status::InternalError("get path available capacity failed");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+            Status::IOError(
+                Substitute("get path $0 available capacity failed, error=$1", _path, e.what())),
+            "boost::filesystem::space failed");
     }
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
               << ", available capacity: " << _available_bytes;

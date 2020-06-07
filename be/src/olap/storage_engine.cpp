@@ -76,6 +76,7 @@ using std::set_difference;
 using std::string;
 using std::stringstream;
 using std::vector;
+using strings::Substitute;
 
 namespace doris {
 
@@ -92,11 +93,7 @@ Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_
     RETURN_IF_ERROR(_validate_options(options));
     LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
-    auto st = engine->_open();
-    if (st != OLAP_SUCCESS) {
-        LOG(WARNING) << "engine open failed, res=" << st;
-        return Status::InternalError("open engine failed");
-    }
+    RETURN_NOT_OK_STATUS_WITH_WARN(engine->_open(), "open engine failed");
     *engine_ptr = engine.release();
     LOG(INFO) << "success to init storage engine.";
     return Status::OK();
@@ -145,16 +142,16 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     }
 }
 
-OLAPStatus StorageEngine::_open() {
+Status StorageEngine::_open() {
     // init store_map
-    RETURN_NOT_OK(_init_store_map());
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_store_map(), "_init_store_map failed");
 
     _effective_cluster_id = config::cluster_id;
-    RETURN_NOT_OK_LOG(_check_all_root_path_cluster_id(), "fail to check cluster info.");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_all_root_path_cluster_id(), "fail to check cluster id");
 
     _update_storage_medium_type_count();
 
-    RETURN_NOT_OK(_check_file_descriptor_number());
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
     _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
 
@@ -170,22 +167,26 @@ OLAPStatus StorageEngine::_open() {
 
     _parse_default_rowset_type();
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus StorageEngine::_init_store_map() {
+Status StorageEngine::_init_store_map() {
     std::vector<DataDir*> tmp_stores;
     std::vector<std::thread> threads;
-    std::atomic<bool> init_error{false};
+    SpinLock error_msg_lock;
+    std::string error_msg;
     for (auto& path : _options.store_paths) {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
-        threads.emplace_back([store, &init_error]() {
+        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
             auto st = store->init();
             if (!st.ok()) {
-                init_error = true;
-                LOG(WARNING) << "Store load failed, status="<< st.to_string() << ", path=" << store->path();
+                {
+                    std::lock_guard<SpinLock> l(error_msg_lock);
+                    error_msg.append(st.to_string() + ";");
+                }
+                LOG(WARNING) << "Store load failed, status=" << st.to_string() << ", path=" << store->path();
             }
         });
     }
@@ -193,17 +194,17 @@ OLAPStatus StorageEngine::_init_store_map() {
         thread.join();
     }
 
-    if (init_error) {
+    if (!error_msg.empty()) {
         for (auto store : tmp_stores) {
             delete store;
         }
-        return OLAP_ERR_INVALID_ROOT_PATH;
+        return Status::InternalError(Substitute("init path failed, error=$0", error_msg));
     }
 
     for (auto store : tmp_stores) {
         _store_map.emplace(store->path(), store);
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void StorageEngine::_update_storage_medium_type_count() {
@@ -219,27 +220,26 @@ void StorageEngine::_update_storage_medium_type_count() {
     _available_storage_medium_type_count = available_storage_medium_types.size();
 }
 
-OLAPStatus StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id) {
-    OLAPStatus res = OLAP_SUCCESS;
-
+Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id) {
     if (cluster_id == -1 && _effective_cluster_id == -1) {
         // maybe this is a new cluster, cluster id will get from heartbeat message
-        return res;
+        return Status::OK();
     } else if (cluster_id != -1 && _effective_cluster_id == -1) {
         _effective_cluster_id = cluster_id;
-        return res;
+        return Status::OK();
     } else if (cluster_id == -1 && _effective_cluster_id != -1) {
         // _effective_cluster_id is the right effective cluster id
-        return res;
+        return Status::OK();
     } else {
         if (cluster_id != _effective_cluster_id) {
-            LOG(WARNING) << "multiple cluster ids is not equal. id1=" << _effective_cluster_id
-                    << " id2=" << cluster_id;
-            return OLAP_ERR_INVALID_CLUSTER_INFO;
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::Corruption(Substitute("multiple cluster ids is not equal. one=$0, other=",
+                                              _effective_cluster_id, cluster_id)),
+                "cluster id not equal");
         }
     }
 
-    return res;
+    return Status::OK();
 }
 
 void StorageEngine::set_store_used_flag(const string& path, bool is_used) {
@@ -329,24 +329,24 @@ void StorageEngine::_start_disk_stat_monitor() {
 }
 
 // TODO(lingbin): Should be in EnvPosix?
-OLAPStatus StorageEngine::_check_file_descriptor_number() {
+Status StorageEngine::_check_file_descriptor_number() {
     struct rlimit l;
     int ret = getrlimit(RLIMIT_NOFILE , &l);
     if (ret != 0) {
         LOG(WARNING) << "call getrlimit() failed. errno=" << strerror(errno)
                      << ", use default configuration instead.";
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     if (l.rlim_cur < config::min_file_descriptor_number) {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
                    << config::min_file_descriptor_number;
-        return OLAP_ERR_TOO_FEW_FILE_DESCRITPROR;
+        return Status::InternalError("file descriptors limit is too small");
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus StorageEngine::_check_all_root_path_cluster_id() {
+Status StorageEngine::_check_all_root_path_cluster_id() {
     int32_t cluster_id = -1;
     for (auto& it : _store_map) {
         int32_t tmp_cluster_id = it.second->cluster_id();
@@ -357,22 +357,22 @@ OLAPStatus StorageEngine::_check_all_root_path_cluster_id() {
         } else if (cluster_id == -1) {
             cluster_id = tmp_cluster_id;
         } else {
-            LOG(WARNING) << "multiple cluster ids is not equal. one=" << cluster_id
-                << ", other=" << tmp_cluster_id;
-            return OLAP_ERR_INVALID_CLUSTER_INFO;
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::Corruption(Substitute("multiple cluster ids is not equal. one=$0, other=",
+                                              cluster_id, tmp_cluster_id)),
+                "cluster id not equal");
         }
     }
 
     // judge and get effective cluster id
-    OLAPStatus res = OLAP_SUCCESS;
-    RETURN_NOT_OK(_judge_and_update_effective_cluster_id(cluster_id));
+    RETURN_IF_ERROR(_judge_and_update_effective_cluster_id(cluster_id));
 
     // write cluster id into cluster_id_path if get effective cluster id success
     if (_effective_cluster_id != -1 && !_is_all_cluster_id_exist) {
         set_cluster_id(_effective_cluster_id);
     }
 
-    return res;
+    return Status::OK();
 }
 
 Status StorageEngine::set_cluster_id(int32_t cluster_id) {
