@@ -130,7 +130,7 @@ private:
 
     Status _check_disk();
     OLAPStatus _read_and_write_test_file();
-    Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
+    Status _read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
