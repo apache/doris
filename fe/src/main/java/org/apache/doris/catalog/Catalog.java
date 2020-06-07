@@ -5051,6 +5051,11 @@ public class Catalog {
                 // this table is not a colocate table, do nothing
                 return;
             }
+
+            // when replayModifyTableColocate, we need the groupId info
+            String fullGroupName = db.getId() + "_" + oldGroup;
+            groupId = colocateTableIndex.getGroupSchema(fullGroupName).getGroupId();
+
             colocateTableIndex.removeTable(table.getId());
             table.setColocateGroup(null);
         }
