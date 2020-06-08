@@ -17,26 +17,15 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
-import com.google.gson.annotations.SerializedName;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Comparator;
 
 /**
  * The equivalent of C++'s std::pair<>.
  */
-public class Pair<F, S> implements Writable {
+public class Pair<F, S> {
     public static PairComparator<Pair<?, Comparable>> PAIR_VALUE_COMPARATOR = new PairComparator<>();
 
-    @SerializedName(value = "f")
     public F first;
-    @SerializedName(value = "s")
     public S second;
 
     public Pair(F first, S second) {
@@ -78,16 +67,5 @@ public class Pair<F, S> implements Writable {
         public int compare(T o1, T o2) {
             return o1.second.compareTo(o2.second);
         }
-    }
-
-    public static Pair read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Pair.class);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
     }
 }
