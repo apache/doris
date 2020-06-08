@@ -49,6 +49,11 @@ public class SchemaVersionAndHash implements Writable {
         Text.writeString(out, json);
     }
 
+    @Override
+    public String toString() {
+        return schemaVersion + ":" + schemaHash;
+    }
+
     public static SchemaVersionAndHash read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, SchemaVersionAndHash.class);
