@@ -24,7 +24,7 @@ import org.apache.doris.common.util.TimeUtils;
 import java.util.Map;
 import java.util.TimeZone;
 
-public class DynamicPartitionProperty{
+public class DynamicPartitionProperty {
     public static final String TIME_UNIT = "dynamic_partition.time_unit";
     public static final String START = "dynamic_partition.start";
     public static final String END = "dynamic_partition.end";
