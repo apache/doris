@@ -29,7 +29,6 @@ const string ScanNode::_s_materialize_tuple_timer = "MaterializeTupleTime(*)";
 const string ScanNode::_s_per_read_thread_throughput_counter =
     "PerReadThreadRawHdfsThroughput";
 const string ScanNode::_s_num_disks_accessed_counter = "NumDiskAccess";
-const string ScanNode::_s_scan_ranges_complete_counter = "ScanRangesComplete";
 const string ScanNode::_s_scanner_thread_counters_prefix = "ScannerThreads";
 const string ScanNode::_s_scanner_thread_total_wallclock_time =
     "ScannerThreadsTotalWallClockTime";
@@ -59,8 +58,6 @@ Status ScanNode::prepare(RuntimeState* state) {
                                  _bytes_read_counter,
                                  _read_timer),
             "");
-    _scan_ranges_complete_counter =
-        ADD_COUNTER(runtime_profile(), _s_scan_ranges_complete_counter, TUnit::UNIT);
     _num_disks_accessed_counter =
         ADD_COUNTER(runtime_profile(), _s_num_disks_accessed_counter, TUnit::UNIT);
 

@@ -92,32 +92,23 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     ADD_TIMER(_runtime_profile, "ShowHintsTime");
 
     _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
-    _read_compressed_counter =
-        ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
-    _read_uncompressed_counter =
-        ADD_COUNTER(_runtime_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _read_compressed_counter = ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
+    _read_uncompressed_counter = ADD_COUNTER(_runtime_profile, "UncompressedBytesRead", TUnit::BYTES);
     _block_load_timer = ADD_TIMER(_runtime_profile, "BlockLoadTime");
-    _block_load_counter =
-        ADD_COUNTER(_runtime_profile, "BlocksLoad", TUnit::UNIT);
-    _block_fetch_timer =
-        ADD_TIMER(_runtime_profile, "BlockFetchTime");
-    _raw_rows_counter =
-        ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
+    _block_load_counter = ADD_COUNTER(_runtime_profile, "BlocksLoad", TUnit::UNIT);
+    _block_fetch_timer = ADD_TIMER(_runtime_profile, "BlockFetchTime");
+    _raw_rows_counter = ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
     _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
     _block_seek_counter = ADD_COUNTER(_runtime_profile, "BlockSeekCount", TUnit::UNIT);
 
-    _rows_vec_cond_counter =
-        ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
-    _vec_cond_timer =
-        ADD_TIMER(_runtime_profile, "VectorPredEvalTime");
+    _rows_vec_cond_counter = ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _vec_cond_timer = ADD_TIMER(_runtime_profile, "VectorPredEvalTime");
 
-    _stats_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
-    _bf_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
-    _del_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
+    _stats_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _del_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
+    _key_range_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
 
     _io_timer = ADD_TIMER(_runtime_profile, "IOTimer");
     _decompressor_timer = ADD_TIMER(_runtime_profile, "DecompressorTimer");
@@ -128,7 +119,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
 
-    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "BitmapIndexFilterCount", TUnit::UNIT);
+    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
 
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
