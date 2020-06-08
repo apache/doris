@@ -265,6 +265,8 @@ The user can control the stop, pause and restart of the job by the three command
     * If the broker of the user kafka cluster has `auto.create.topics.enable = false` set, topic will not be created automatically, and the routine will be paused before any data is read, with the status `PAUSED`.
 
     So, if the user wants to be automatically created by the routine when the kafka topic does not exist, just set the broker in the kafka cluster** of the user's side to set auto.create.topics.enable = true` .
+5. Problems that may occur in the cloud environment
+     In some cloud environments, there are isolation measures for network segment and domain name resolution. The broker list specified in the routine load task must be accessible on the cloud machine. In addition, if `advertised.listeners` is configured in kafka, pay attention to `advertised.listeners`. The addresses in `advertised.listeners` need to be accessible on the cloud
 
 ## Related parameters
 

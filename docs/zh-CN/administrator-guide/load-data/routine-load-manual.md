@@ -266,6 +266,8 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     * 如果用户 kafka 集群的 broker 设置了 `auto.create.topics.enable = false`, 则 topic 不会被自动创建，例行作业会在没有读取任何数据之前就被暂停，状态为 `PAUSED`。
 
     所以，如果用户希望当 kafka topic 不存在的时候，被例行作业自动创建的话，只需要将**用户方的kafka集群**中的 broker 设置 `auto.create.topics.enable = true` 即可。
+ 5. 云上环境中可能出现的问题
+    在有些云上环境中存在网段和域名解析的隔离措施，创建routine load 任务中指定的 broker list 必须能够在云上机器能够访问，另外kafka 中如果配置了`advertised.listeners` 需要注意`advertised.listeners` 中的地址需要在云上可以被访问到
 
 ## 相关参数
 
