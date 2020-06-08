@@ -46,10 +46,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.Month;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
@@ -151,11 +151,25 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkTimeZone(String val) throws DdlException {
+        boolean validId = false;
+        for (String availableId : TimeZone.getAvailableIDs()) {
+            if (availableId != null && availableId.equals(val)) {
+                validId = true;
+                break;
+            }
+        }
+        if (!validId) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.TIME_ZONE);
+        }
+    }
+
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
         if (properties == null) {
             return false;
         }
         return properties.containsKey(DynamicPartitionProperty.TIME_UNIT) ||
+                properties.containsKey(DynamicPartitionProperty.TIME_ZONE) ||
                 properties.containsKey(DynamicPartitionProperty.START) ||
                 properties.containsKey(DynamicPartitionProperty.END) ||
                 properties.containsKey(DynamicPartitionProperty.PREFIX) ||
@@ -175,11 +189,13 @@ public class DynamicPartitionUtil {
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
         String start = properties.get(DynamicPartitionProperty.START);
+        String timeZone = properties.get(DynamicPartitionProperty.TIME_ZONE);
         String end = properties.get(DynamicPartitionProperty.END);
         String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         if (!((Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
+                Strings.isNullOrEmpty(timeZone) &&
                 Strings.isNullOrEmpty(prefix) &&
                 Strings.isNullOrEmpty(start) &&
                 Strings.isNullOrEmpty(end) &&
@@ -201,6 +217,9 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(buckets)) {
                 throw new DdlException("Must assign dynamic_partition.buckets properties");
+            }
+            if (Strings.isNullOrEmpty(timeZone)) {
+                properties.put(DynamicPartitionProperty.TIME_ZONE, ZoneId.systemDefault().toString());
             }
         }
         return true;
@@ -270,6 +289,13 @@ public class DynamicPartitionUtil {
             checkStartDayOfWeek(val);
             properties.remove(DynamicPartitionProperty.START_DAY_OF_WEEK);
             analyzedProperties.put(DynamicPartitionProperty.START_DAY_OF_WEEK, val);
+        }
+
+        if (properties.containsKey(DynamicPartitionProperty.TIME_ZONE)) {
+            String val = properties.get(DynamicPartitionProperty.TIME_ZONE);
+            checkTimeZone(val);
+            properties.remove(DynamicPartitionProperty.TIME_ZONE);
+            analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
         return analyzedProperties;
     }
@@ -418,7 +444,7 @@ public class DynamicPartitionUtil {
             // we should return 2020-04-25, which is the last month.
             realOffset -= 1;
         }
-        ZonedDateTime resultTime = current.withMonth(realOffset).withDayOfMonth(startOf.day);
+        ZonedDateTime resultTime = current.plusMonths(realOffset).withDayOfMonth(startOf.day);
         return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
     }
 
