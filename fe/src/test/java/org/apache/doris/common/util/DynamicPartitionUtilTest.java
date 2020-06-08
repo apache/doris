@@ -67,7 +67,7 @@ public class DynamicPartitionUtilTest {
     }
 
     @Test
-    public void testGetPartitionRangeString() throws DateTimeException{
+    public void testGetPartitionRangeString() throws DateTimeException {
         // TimeUnit: DAY
         
         // 1. 2020-05-25, offset -7
