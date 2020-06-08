@@ -63,6 +63,7 @@ public class LoadJob implements Writable {
     // QUORUM_FINISHED state is internal
     // To user, it should be transformed to FINISHED
     public enum JobState {
+        UNKNOWN, // only for show load state value check, details, see LoadJobV2's JobState
         PENDING,
         ETL,
         LOADING,
@@ -77,17 +78,17 @@ public class LoadJob implements Writable {
 
     private long id;
     private long dbId;
+    private long tableId;
     private String label;
     // when this job is a real time load job, the job is attach with a transaction
     private long transactionId = -1;
     long timestamp;
     private int timeoutSecond;
     private double maxFilterRatio;
-    private boolean deleteFlag;
     private JobState state;
 
     private BrokerDesc brokerDesc;
-    private PullLoadSourceInfo pullLoadSourceInfo;
+    private BrokerFileGroupAggInfo pullLoadSourceInfo;
 
     // progress has two functions at ETL stage:
     // 1. when progress < 100, it indicates ETL progress
@@ -144,11 +145,11 @@ public class LoadJob implements Writable {
             DeleteInfo deleteInfo) {
         this.id = id;
         this.dbId = dbId;
+        this.tableId = tableId;
         this.label = label; 
         this.transactionId = -1;
         this.timestamp = -1;
         this.timeoutSecond = DEFAULT_TIMEOUT_S;
-        this.deleteFlag = true;
         this.state = JobState.LOADING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
@@ -200,7 +201,6 @@ public class LoadJob implements Writable {
         this.timestamp = -1;
         this.timeoutSecond = timeoutSecond;
         this.maxFilterRatio = maxFilterRatio;
-        this.deleteFlag = false;
         this.state = JobState.PENDING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
@@ -245,6 +245,10 @@ public class LoadJob implements Writable {
         return dbId;
     }
 
+    public long getTableId() {
+        return tableId;
+    }
+
     public void setDbId(long dbId) {
         this.dbId = dbId;
     }
@@ -283,14 +287,6 @@ public class LoadJob implements Writable {
 
     public double getMaxFilterRatio() {
         return maxFilterRatio;
-    }
-    
-    public void setDeleteFlag(boolean deleteFlag) {
-        this.deleteFlag = deleteFlag;
-    }
-
-    public boolean getDeleteFlag() {
-        return deleteFlag;
     }
 
     public JobState getState() {
@@ -402,11 +398,11 @@ public class LoadJob implements Writable {
         return brokerDesc;
     }
 
-    public void setPullLoadSourceInfo(PullLoadSourceInfo sourceInfo) {
+    public void setPullLoadSourceInfo(BrokerFileGroupAggInfo sourceInfo) {
         this.pullLoadSourceInfo = sourceInfo;
     }
 
-    public PullLoadSourceInfo getPullLoadSourceInfo() {
+    public BrokerFileGroupAggInfo getPullLoadSourceInfo() {
         return pullLoadSourceInfo;
     }
 
@@ -647,7 +643,7 @@ public class LoadJob implements Writable {
     @Override
     public String toString() {
         return "LoadJob [id=" + id + ", dbId=" + dbId + ", label=" + label + ", timeoutSecond=" + timeoutSecond
-                + ", maxFilterRatio=" + maxFilterRatio + ", deleteFlag=" + deleteFlag + ", state=" + state
+                + ", maxFilterRatio=" + maxFilterRatio + ", state=" + state
                 + ", progress=" + progress + ", createTimeMs=" + createTimeMs + ", etlStartTimeMs=" + etlStartTimeMs
                 + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
                 + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
@@ -706,7 +702,7 @@ public class LoadJob implements Writable {
         out.writeLong(timestamp);
         out.writeInt(timeoutSecond);
         out.writeDouble(maxFilterRatio);
-        out.writeBoolean(deleteFlag);
+        out.writeBoolean(true); // delete flag, does not use anymore
         Text.writeString(out, state.name());
         out.writeInt(progress);
         out.writeLong(createTimeMs);
@@ -838,7 +834,6 @@ public class LoadJob implements Writable {
             Text.writeString(out, tableName);
         }
     }
-
     public void readFields(DataInput in) throws IOException {
         long version = Catalog.getCurrentCatalogJournalVersion();
 
@@ -853,7 +848,7 @@ public class LoadJob implements Writable {
         timeoutSecond = in.readInt();
         maxFilterRatio = in.readDouble();
         
-        deleteFlag = false;
+        boolean deleteFlag = false;
         if (version >= FeMetaVersion.VERSION_30) {
             deleteFlag = in.readBoolean();
         }
@@ -942,7 +937,7 @@ public class LoadJob implements Writable {
             }
             // Pull load
             if (in.readBoolean()) {
-                this.pullLoadSourceInfo = PullLoadSourceInfo.read(in);
+                this.pullLoadSourceInfo = BrokerFileGroupAggInfo.read(in);
             }
         }
 

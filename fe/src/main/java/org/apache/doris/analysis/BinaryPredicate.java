@@ -40,6 +40,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Most predicates with two operands..
@@ -56,7 +57,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         LE("<=", "le", TExprOpcode.LE),
         GE(">=", "ge", TExprOpcode.GE),
         LT("<", "lt", TExprOpcode.LT),
-        GT(">", "gt", TExprOpcode.GT);
+        GT(">", "gt", TExprOpcode.GT),
+        EQ_FOR_NULL("<=>", "eq_for_null", TExprOpcode.EQ_FOR_NULL);
 
         private final String description;
         private final String name;
@@ -97,6 +99,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return GT;
                 case GT:
                     return LE;
+                case EQ_FOR_NULL:
+                    return this;
             }
             return null;
         }
@@ -115,6 +119,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return GT;
                 case GT:
                     return LT;
+                case EQ_FOR_NULL:
+                    return EQ_FOR_NULL;
                 // case DISTINCT_FROM: return DISTINCT_FROM;
                 // case NOT_DISTINCT: return NOT_DISTINCT;
                 // case NULL_MATCHING_EQ:
@@ -124,7 +130,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        public boolean isEquivalence() { return this == EQ; };
+        public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
 
         public boolean isUnequivalence() { return this == NE; }
     }
@@ -141,6 +147,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
+        this.opcode = op.opcode;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkNotNull(e2);
@@ -172,6 +179,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     Operator.LT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                     Operator.GT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                    Operator.EQ_FOR_NULL.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
         }
     }
 
@@ -236,7 +245,6 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     public void vectorizedAnalyze(Analyzer analyzer) {
         super.vectorizedAnalyze(analyzer);
-        Type cmpType = getCmpType();
         Function match = null;
 
         //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
@@ -298,7 +306,7 @@ public class BinaryPredicate extends Predicate implements Writable {
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
-        
+
         return Type.DOUBLE;
     }
 
@@ -307,13 +315,34 @@ public class BinaryPredicate extends Predicate implements Writable {
         super.analyzeImpl(analyzer);
 
         for (Expr expr : children) {
-            if (expr instanceof Subquery && !expr.getType().isScalarType()) {
-                throw new AnalysisException("BinaryPredicate can't contain subquery or non scalar type");
-            }   
+            if (expr instanceof Subquery) {
+                Subquery subquery = (Subquery) expr;
+                if (!subquery.returnsScalarColumn()) {
+                    String msg = "Subquery of binary predicate must return a single column: " + expr.toSql();
+                    throw new AnalysisException(msg);
+                }
+                /**
+                 * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
+                 * Add assert: The stmt of subquery is added an assert condition (return error if row count > 1).
+                 * Input params:
+                 *     expr: k1=(select k1 from t2)
+                 *     subquery stmt: select k1 from t2
+                 * Output params:
+                 *     new expr: k1 = (select k1 from t2 (assert row count: return error if row count > 1 ))
+                 *     subquery stmt: select k1 from t2 (assert row count: return error if row count > 1 )
+                 */
+                if (!subquery.getType().isScalarType()) {
+                    subquery.getStatement().setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.LE);
+                }
+            }
+        }
+
+        // if children has subquery, it will be rewritten and reanalyzed in the future.
+        if (contains(Subquery.class)) {
+            return;
         }
 
         Type cmpType = getCmpType();
-
         // Ignore return value because type is always bool for predicates.
         castBinaryOp(cmpType);
 
@@ -368,6 +397,7 @@ public class BinaryPredicate extends Predicate implements Writable {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
         }
+
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false; 
             return getChild(0);
@@ -469,7 +499,6 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int isWritable = in.readInt();
         if (isWritable == 0) {
@@ -507,13 +536,24 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        if (first instanceof NullLiteral || second instanceof NullLiteral) {
-            return new NullLiteral();
+        final boolean isFirstNull = (first instanceof NullLiteral);
+        final boolean isSecondNull = (second instanceof NullLiteral);
+        if (op == Operator.EQ_FOR_NULL) {
+            if (isFirstNull && isSecondNull) {
+                return new BoolLiteral(true);
+            } else if (isFirstNull || isSecondNull) {
+                return new BoolLiteral(false);
+            }
+        } else  {
+            if (isFirstNull || isSecondNull){
+                return new NullLiteral();
+            }
         }
 
         final int compareResult = first.compareLiteral(second);
         switch(op) {
             case EQ:
+            case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
             case GE:
                 return new BoolLiteral(compareResult == 1 || compareResult == 0);
@@ -530,5 +570,9 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
         return this;
     }
-}
 
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(op);
+    }
+}

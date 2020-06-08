@@ -23,6 +23,7 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +34,7 @@ import java.nio.ByteBuffer;
 public class MasterOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
 
-    private final String originStmt;
+    private final OriginStatement originStmt;
     private final ConnectContext ctx;
     private TMasterOpResult result;
 
@@ -41,7 +42,7 @@ public class MasterOpExecutor {
     // the total time of thrift connectTime add readTime and writeTime
     private int thriftTimeoutMs;
 
-    public MasterOpExecutor(String originStmt, ConnectContext ctx, RedirectStatus status) {
+    public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status) {
         this.originStmt = originStmt;
         this.ctx = ctx;
         if (status.isNeedToWaitJournalSync()) {
@@ -73,13 +74,23 @@ public class MasterOpExecutor {
         }
         TMasterOpRequest params = new TMasterOpRequest();
         params.setCluster(ctx.getClusterName());
-        params.setSql(originStmt);
+        params.setSql(originStmt.originStmt);
+        params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
         params.setDb(ctx.getDatabase());
+        params.setSqlMode(ctx.getSessionVariable().getSqlMode());
         params.setResourceInfo(ctx.toResourceCtx());
-        params.setExecMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
-        params.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
         params.setUser_ip(ctx.getRemoteIP());
+        params.setTime_zone(ctx.getSessionVariable().getTimeZone());
+        params.setStmt_id(ctx.getStmtId());
+        params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
+        params.setCurrent_user_ident(ctx.getCurrentUserIdentity().toThrift());
+
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.setMem_limit(ctx.getSessionVariable().getMaxExecMemByte());
+        queryOptions.setQuery_timeout(ctx.getSessionVariable().getQueryTimeoutS());
+        queryOptions.setLoad_mem_limit(ctx.getSessionVariable().getLoadMemLimit());
+        params.setQuery_options(queryOptions);
 
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 

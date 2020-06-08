@@ -22,6 +22,7 @@ import org.apache.doris.analysis.HashDistributionDesc;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,7 +34,9 @@ import java.util.List;
  * Hash Distribution Info.
  */
 public class HashDistributionInfo extends DistributionInfo {
+    @SerializedName(value = "distributionColumns")
     private List<Column> distributionColumns;
+    @SerializedName(value = "bucketNum")
     private int bucketNum;
 
     public HashDistributionInfo() {
@@ -65,7 +68,6 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         out.writeInt(bucketNum);
     }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int columnCount = in.readInt();

@@ -64,7 +64,6 @@ protected:
         RuntimeState* state, ExprContext* context, FunctionContext::FunctionStateScope scope);
     virtual void close(
         RuntimeState* state, ExprContext* context, FunctionContext::FunctionStateScope scope);
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override;
 
     virtual bool is_constant() const;
 
@@ -110,9 +109,6 @@ private:
     int num_fixed_args() const {
         return _vararg_start_idx >= 0 ? _vararg_start_idx : _children.size();
     }
-
-    /// Loads the native or IR function from HDFS and puts the result in *udf.
-    Status get_udf(RuntimeState* state, llvm::Function** udf);
 
     /// Loads the native or IR function 'symbol' from HDFS and puts the result in *fn.
     /// If the function is loaded from an IR module, it cannot be called until the module

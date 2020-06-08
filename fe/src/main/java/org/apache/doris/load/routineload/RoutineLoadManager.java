@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -39,6 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,18 +53,18 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
-    private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 10;
 
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
 
-    // stream load job meta
+    // routine load job meta
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
 
@@ -88,8 +90,8 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void updateBeIdToMaxConcurrentTasks() {
-        beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true)
-                .stream().collect(Collectors.toMap(beId -> beId, beId -> DEFAULT_BE_CONCURRENT_TASK_NUM));
+        beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true).stream().collect(
+                Collectors.toMap(beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
     }
 
     // this is not real-time number
@@ -97,23 +99,24 @@ public class RoutineLoadManager implements Writable {
         return beIdToMaxConcurrentTasks.values().stream().mapToInt(i -> i).sum();
     }
 
-    private Map<Long, Integer> getBeIdConcurrentTaskMaps() {
-        Map<Long, Integer> beIdToConcurrentTasks = Maps.newHashMap();
-        for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(RoutineLoadJob.JobState.RUNNING)) {
-            Map<Long, Integer> jobBeIdToConcurrentTaskNum = routineLoadJob.getBeIdToConcurrentTaskNum();
-            for (Map.Entry<Long, Integer> entry : jobBeIdToConcurrentTaskNum.entrySet()) {
-                if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
-                    beIdToConcurrentTasks.put(entry.getKey(), beIdToConcurrentTasks.get(entry.getKey()) + entry.getValue());
+    // return the map of be id -> running tasks num
+    private Map<Long, Integer> getBeCurrentTasksNumMap() {
+        Map<Long, Integer> beCurrentTaskNumMap = Maps.newHashMap();
+        for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.RUNNING))) {
+            Map<Long, Integer> jobBeCurrentTasksNumMap = routineLoadJob.getBeCurrentTasksNumMap();
+            for (Map.Entry<Long, Integer> entry : jobBeCurrentTasksNumMap.entrySet()) {
+                if (beCurrentTaskNumMap.containsKey(entry.getKey())) {
+                    beCurrentTaskNumMap.put(entry.getKey(), beCurrentTaskNumMap.get(entry.getKey()) + entry.getValue());
                 } else {
-                    beIdToConcurrentTasks.put(entry.getKey(), entry.getValue());
+                    beCurrentTaskNumMap.put(entry.getKey(), entry.getValue());
                 }
             }
         }
-        return beIdToConcurrentTasks;
+        return beCurrentTaskNumMap;
 
     }
 
-    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt, String origStmt)
+    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
             throws UserException {
         // check load auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
@@ -137,7 +140,7 @@ public class RoutineLoadManager implements Writable {
                 throw new UserException("Unknown data source type: " + type);
         }
 
-        routineLoadJob.setOrigStmt(origStmt);
+        routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
         addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
     }
 
@@ -149,13 +152,14 @@ public class RoutineLoadManager implements Writable {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                         + dbName);
             }
-            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > Config.desired_max_waiting_jobs) {
-                throw new DdlException("There are more then " + Config.desired_max_waiting_jobs
-                                               + " routine load jobs in waiting queue, please retry later");
+            if (getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE,
+                    RoutineLoadJob.JobState.RUNNING, RoutineLoadJob.JobState.PAUSED)).size() > Config.max_routine_load_job_num) {
+                throw new DdlException("There are more then " + Config.max_routine_load_job_num
+                        + " routine load jobs are running. exceed limit.");
             }
 
             unprotectedAddJob(routineLoadJob);
-            Catalog.getInstance().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
+            Catalog.getCurrentCatalog().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
             LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {
             writeUnlock();
@@ -223,7 +227,8 @@ public class RoutineLoadManager implements Writable {
         }
 
         routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                                   "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job",
+                                   new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                                   "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
                                    false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
@@ -255,6 +260,9 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
+        routineLoadJob.autoResumeCount = 0;
+        routineLoadJob.firstResumeTimestamp = 0;
+        routineLoadJob.autoResumeLock = false;
         routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
@@ -288,7 +296,7 @@ public class RoutineLoadManager implements Writable {
                                                 tableName);
         }
         routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
-                                   "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job",
+                                    new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR, "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
                                    false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
@@ -310,7 +318,7 @@ public class RoutineLoadManager implements Writable {
         try {
             int result = 0;
             updateBeIdToMaxConcurrentTasks();
-            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
                 if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
                     result += entry.getValue() - beIdToConcurrentTasks.get(entry.getKey());
@@ -324,6 +332,9 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
+    // get the BE id with minimum running task on it
+    // return -1 if no BE is available.
+    // throw exception if unrecoverable errors happen.
     public long getMinTaskBeId(String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
@@ -335,14 +346,14 @@ public class RoutineLoadManager implements Writable {
             long result = -1L;
             int maxIdleSlotNum = 0;
             updateBeIdToMaxConcurrentTasks();
-            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Long beId : beIdsInCluster) {
                 if (beIdToMaxConcurrentTasks.containsKey(beId)) {
                     int idleTaskNum = 0;
                     if (beIdToConcurrentTasks.containsKey(beId)) {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
                     } else {
-                        idleTaskNum = DEFAULT_BE_CONCURRENT_TASK_NUM;
+                        idleTaskNum = Config.max_routine_load_task_num_per_be;
                     }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
@@ -352,15 +363,15 @@ public class RoutineLoadManager implements Writable {
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
                 }
             }
-            if (result < 0) {
-                throw new LoadException("There is no empty slot in cluster");
-            }
             return result;
         } finally {
             readUnlock();
         }
     }
 
+    // check if the specified BE is available for running task
+    // return true if it is available. return false if otherwise.
+    // throw exception if unrecoverable errors happen.
     public boolean checkBeToTask(long beId, String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
@@ -375,11 +386,11 @@ public class RoutineLoadManager implements Writable {
         readLock();
         try {
             int idleTaskNum = 0;
-            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             if (beIdToConcurrentTasks.containsKey(beId)) {
                 idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
             } else {
-                idleTaskNum = DEFAULT_BE_CONCURRENT_TASK_NUM;
+                idleTaskNum = Config.max_routine_load_task_num_per_be;
             }
             if (idleTaskNum > 0) {
                 return true;
@@ -497,12 +508,13 @@ public class RoutineLoadManager implements Writable {
         return false;
     }
 
-    public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) {
+    public List<RoutineLoadJob> getRoutineLoadJobByState(Set<RoutineLoadJob.JobState> desiredStates) {
         List<RoutineLoadJob> stateJobs = idToRoutineLoadJob.values().stream()
-                .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
+                .filter(entity -> desiredStates.contains(entity.getState())).collect(Collectors.toList());
         return stateJobs;
     }
 
+    // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
             routineLoadJob.processTimeoutTasks();
@@ -513,6 +525,7 @@ public class RoutineLoadManager implements Writable {
     // This function is called periodically.
     // Cancelled and stopped job will be remove after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
+        LOG.debug("begin to clean old routine load jobs ");
         writeLock();
         try {
             Iterator<Map.Entry<Long, RoutineLoadJob>> iterator = idToRoutineLoadJob.entrySet().iterator();
@@ -525,7 +538,7 @@ public class RoutineLoadManager implements Writable {
 
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
                                                                               routineLoadJob.getState());
-                    Catalog.getInstance().getEditLog().logRemoveRoutineLoadJob(operation);
+                    Catalog.getCurrentCatalog().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("end_timestamp", routineLoadJob.getEndTimestamp())
                                      .add("current_timestamp", currentTimestamp)
@@ -598,7 +611,6 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

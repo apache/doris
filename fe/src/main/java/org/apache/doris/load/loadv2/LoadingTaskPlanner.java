@@ -20,20 +20,17 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.DataPartition;
@@ -42,33 +39,36 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
+import java.util.Set;
 
 public class LoadingTaskPlanner {
     private static final Logger LOG = LogManager.getLogger(LoadingTaskPlanner.class);
 
     // Input params
+    private final long loadJobId;
     private final long txnId;
     private final long dbId;
     private final OlapTable table;
     private final BrokerDesc brokerDesc;
     private final List<BrokerFileGroup> fileGroups;
     private final boolean strictMode;
+    private final long timeoutS;    // timeout of load job, in second
 
     // Something useful
-    private Analyzer analyzer = new Analyzer(Catalog.getInstance(), null);
+    // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
+    private Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
     private DescriptorTable descTable = analyzer.getDescTbl();
 
     // Output params
@@ -77,22 +77,34 @@ public class LoadingTaskPlanner {
 
     private int nextNodeId = 0;
 
-    public LoadingTaskPlanner(long txnId, long dbId, OlapTable table,
+    public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode) {
+                              boolean strictMode, String timezone, long timeoutS) {
+        this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
         this.table = table;
         this.brokerDesc = brokerDesc;
         this.fileGroups = brokerFileGroups;
         this.strictMode = strictMode;
+        this.analyzer.setTimezone(timezone);
+        this.timeoutS = timeoutS;
+
+        /*
+         * TODO(cmy): UDF currently belongs to a database. Therefore, before using UDF,
+         * we need to check whether the user has corresponding permissions on this database.
+         * But here we have lost user information and therefore cannot check permissions.
+         * So here we first prohibit users from using UDF in load. If necessary, improve it later.
+         */
+        this.analyzer.setUDFAllowed(false);
     }
 
-    public void plan(List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) throws UserException {
+    public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
+            throws UserException {
         // Generate tuple descriptor
-        List<Expr> slotRefs = Lists.newArrayList();
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
-        for (Column col : table.getBaseSchema()) {
+        // use full schema to fill the descriptor table
+        for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
@@ -101,26 +113,23 @@ public class LoadingTaskPlanner {
             } else {
                 slotDesc.setIsNullable(false);
             }
-            slotRefs.add(new SlotRef(slotDesc));
         }
 
         // Generate plan trees
         // 1. Broker scan node
         BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
                                                      fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(table, brokerDesc, fileGroups, strictMode);
+        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNodes.add(scanNode);
         descTable.computeMemLayout();
 
         // 2. Olap table sink
-        String partitionNames = convertBrokerDescPartitionInfo();
-        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionNames);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        olapTableSink.init(loadId, txnId, dbId);
-        olapTableSink.finalize();
+        List<Long> partitionIds = getAllPartitionIds();
+        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
+        olapTableSink.init(loadId, txnId, dbId, timeoutS);
+        olapTableSink.complete();
 
         // 3. Plan fragment
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.RANDOM);
@@ -133,7 +142,7 @@ public class LoadingTaskPlanner {
             try {
                 fragment.finalize(analyzer, false);
             } catch (NotImplementedException e) {
-                LOG.info("Fragment finalize failed.{}", e);
+                LOG.info("Fragment finalize failed.{}", e.getMessage());
                 throw new UserException("Fragment finalize failed.");
             }
         }
@@ -152,51 +161,40 @@ public class LoadingTaskPlanner {
         return scanNodes;
     }
 
-    private String convertBrokerDescPartitionInfo() throws LoadException, MetaNotFoundException {
-        String result = "";
-        for (BrokerFileGroup brokerFileGroup : fileGroups) {
-            List<String> partitionNames = getPartitionNames(brokerFileGroup);
-            if (partitionNames == null) {
-                continue;
-            }
-            result += Joiner.on(",").join(partitionNames);
-            result += ",";
-        }
-        if (Strings.isNullOrEmpty(result)) {
-            return null;
-        }
-        result = result.substring(0, result.length() - 1);
-        return result;
+    public String getTimezone() {
+        return analyzer.getTimezone();
     }
 
-    private List<String> getPartitionNames(BrokerFileGroup brokerFileGroup)
-            throws MetaNotFoundException, LoadException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + " has been deleted when broker loading");
-        }
-        Table table = database.getTable(brokerFileGroup.getTableId());
-        if (table == null) {
-            throw new MetaNotFoundException("Table " + brokerFileGroup.getTableId()
-                                                    + " has been deleted when broker loading");
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new LoadException("Only olap table is supported in broker load");
-        }
-        OlapTable olapTable = (OlapTable) table;
-        List<Long> partitionIds = brokerFileGroup.getPartitionIds();
-        if (partitionIds == null || partitionIds.isEmpty()) {
-            return null;
-        }
-        List<String> result = Lists.newArrayList();
-        for (long partitionId : brokerFileGroup.getPartitionIds()) {
-            Partition partition = olapTable.getPartition(partitionId);
-            if (partition == null) {
-                throw new MetaNotFoundException("Unknown partition(" + partitionId + ") in table("
-                                                        + table.getName() + ")");
+    private List<Long> getAllPartitionIds() throws LoadException, MetaNotFoundException {
+        Set<Long> partitionIds = Sets.newHashSet();
+        for (BrokerFileGroup brokerFileGroup : fileGroups) {
+            if (brokerFileGroup.getPartitionIds() != null) {
+                partitionIds.addAll(brokerFileGroup.getPartitionIds());
             }
-            result.add(partition.getName());
+            // all file group in fileGroups should have same partitions, so only need to get partition ids
+            // from one of these file groups
+            break;
         }
-        return result;
+
+        if (partitionIds.isEmpty()) {
+            for (Partition partition : table.getPartitions()) {
+                partitionIds.add(partition.getId());
+            }
+        }
+
+        return Lists.newArrayList(partitionIds);
+    }
+
+    // when retry load by reusing this plan in load process, the load_id should be changed
+    public void updateLoadId(TUniqueId loadId) {
+        for (PlanFragment planFragment : fragments) {
+            if (!(planFragment.getSink() instanceof OlapTableSink)) {
+                continue;
+            }
+            OlapTableSink olapTableSink = (OlapTableSink) planFragment.getSink();
+            olapTableSink.updateLoadId(loadId);
+        }
+
+        LOG.info("update olap table sink's load id to {}, job: {}", DebugUtil.printId(loadId), loadJobId);
     }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -47,6 +48,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Root of the expr node hierarchy.
@@ -123,9 +125,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
     */
-
     // Returns true if an Expr is a builtin aggregate function.
-    public final static com.google.common.base.Predicate<Expr> IS_BUILTIN_AGG_FN =
+    public final static com.google.common.base.Predicate<Expr> CORRELATED_SUBQUERY_SUPPORT_AGG_FN =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -141,6 +142,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     }
                 }
             };
+
 
     public final static com.google.common.base.Predicate<Expr> IS_TRUE_LITERAL =
             new com.google.common.base.Predicate<Expr>() {
@@ -168,6 +170,12 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) { return arg instanceof BinaryPredicate; }
+            };
+
+    public static final com.google.common.base.Predicate<Expr> IS_NULL_LITERAL =
+            new com.google.common.base.Predicate<Expr>() {
+                @Override
+                public boolean apply(Expr arg) { return arg instanceof NullLiteral; }
             };
 
     /* TODO(zc)
@@ -632,7 +640,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * If smap is null, this function is equivalent to clone().
      * If preserveRootType is true, the resulting expr tree will be cast if necessary to
      * the type of 'this'.
-     * 
+     *
      * @throws AnalysisException
      */
     public Expr substitute(ExprSubstitutionMap smap, Analyzer analyzer, boolean preserveRootType)
@@ -964,11 +972,16 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     @Override
     public int hashCode() {
+        // in group by clause, group by list need to remove duplicate exprs, the expr may be not not analyzed, the id
+        // may be null
         if (id == null) {
-            throw new UnsupportedOperationException("Expr.hashCode() is not implemented");
-        } else {
-            return id.asInt();
+            int result = 31 * Objects.hashCode(type) + Objects.hashCode(opcode);
+            for (Expr child : children) {
+                result = 31 * result + Objects.hashCode(child);
+            }
+            return result;
         }
+        return id.asInt();
     }
 
     /**
@@ -1084,9 +1097,23 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
+    public boolean isBound(List<SlotId> slotIds) {
+        final List<TupleId> exprTupleIds = Lists.newArrayList();
+        final List<SlotId> exprSlotIds = Lists.newArrayList();
+        getIds(exprTupleIds, exprSlotIds);
+        return !exprSlotIds.retainAll(slotIds);
+    }
+
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
+        }
+    }
+
+    public void getTableNameToColumnNames(Map<String, Set<String>> tableNameToColumnNames) {
+        Preconditions.checkState(tableNameToColumnNames != null);
+        for (Expr child : children) {
+            child.getTableNameToColumnNames(tableNameToColumnNames);
         }
     }
 
@@ -1201,7 +1228,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Create an expression equivalent to 'this' but returning targetType;
      * possibly by inserting an implicit cast,
      * or by returning an altogether new expression
-     * or by returning 'this' with a modified return type'.
      *
      * @param targetType type to be cast to
      * @return cast expression, or converted literal,
@@ -1276,7 +1302,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(this.getClass()).add("id", id).add("type", type).add("sel",
+        return MoreObjects.toStringHelper(this.getClass()).add("id", id).add("type", type).add("sel",
           selectivity).add("#distinct", numDistinctValues).add("scale", outputScale).toString();
     }
 
@@ -1315,7 +1341,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return this;
     }
 
-    public double getConstFromExpr(Expr e) throws AnalysisException{
+    public static double getConstFromExpr(Expr e) throws AnalysisException{
         Preconditions.checkState(e.isConstant());
         double value = 0;
         if( e instanceof LiteralExpr){
@@ -1378,7 +1404,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, argTypes, Type.INVALID, false);
-        return Catalog.getInstance().getFunction(searchDesc, mode);
+        return Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
     }
 
     /**
@@ -1415,7 +1441,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Negates a boolean Expr.
      */
     public Expr negate() {
-        Preconditions.checkState(type == Type.BOOLEAN);
+        Preconditions.checkState(type.equals(Type.BOOLEAN));
         return new CompoundPredicate(CompoundPredicate.Operator.NOT, this, null);
     }
 
@@ -1432,8 +1458,21 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<Subquery> subqueries = Lists.newArrayList();
         collect(Subquery.class, subqueries);
-        Preconditions.checkState(subqueries.size() == 1);
+        Preconditions.checkState(subqueries.size() == 1,
+                "only support one subquery in " + this.toSql());
         return subqueries.get(0);
+    }
+
+    public boolean isCorrelatedPredicate(List<TupleId> tupleIdList) {
+        if (this instanceof SlotRef && !this.isBoundByTupleIds(tupleIdList)) {
+            return true;
+        }
+        for (Expr child : this.getChildren()) {
+            if (child.isCorrelatedPredicate(tupleIdList)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -1441,7 +1480,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         throw new IOException("Not implemented serializable ");
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         throw new IOException("Not implemented serializable ");
     }
@@ -1512,6 +1550,12 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         expr.write(output);
     }
 
+    /**
+     * The expr result may be null
+     * @param in
+     * @return
+     * @throws IOException
+     */
     public static Expr readIn(DataInput in) throws IOException {
         int code = in.readInt();
         ExprSerCode exprSerCode = ExprSerCode.fromCode(code);

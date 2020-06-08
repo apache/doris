@@ -17,14 +17,14 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.alter.RollupHandler;
-import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -59,10 +60,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
-import org.easymock.EasyMock;
-
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
 
 public class CatalogMocker {
     // user
@@ -201,21 +202,27 @@ public class CatalogMocker {
     }
 
     private static PaloAuth fetchAdminAccess() {
-        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
-        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
-                                             EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
-        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                         EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
-        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                          EasyMock.isA(String.class),
-                                          EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
-        EasyMock.replay(auth);
+        PaloAuth auth = new PaloAuth();
+        new Expectations(auth) {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+            }
+        };
         return auth;
     }
 
     public static SystemInfoService fetchSystemInfoService() {
-        SystemInfoService clusterInfo = EasyMock.createMock(SystemInfoService.class);
-        EasyMock.replay(clusterInfo);
+        SystemInfoService clusterInfo = new SystemInfoService();
         return clusterInfo;
     }
 
@@ -230,10 +237,12 @@ public class CatalogMocker {
                 new Partition(TEST_SINGLE_PARTITION_ID, TEST_SINGLE_PARTITION_NAME, baseIndex, distributionInfo);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setReplicationNum(TEST_SINGLE_PARTITION_ID, (short) 3);
+        partitionInfo.setIsInMemory(TEST_SINGLE_PARTITION_ID, false);
         DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
         OlapTable olapTable = new OlapTable(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA,
                                             KeysType.AGG_KEYS, partitionInfo, distributionInfo);
+        Deencapsulation.setField(olapTable, "baseIndexId", TEST_TBL_ID);
 
         Tablet tablet0 = new Tablet(TEST_TABLET0_ID);
         TabletMeta tabletMeta = new TabletMeta(TEST_DB_ID, TEST_TBL_ID, TEST_SINGLE_PARTITION_ID,
@@ -247,8 +256,8 @@ public class CatalogMocker {
         tablet0.addReplica(replica1);
         tablet0.addReplica(replica2);
 
-        olapTable.setIndexSchemaInfo(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1);
-        olapTable.setStorageTypeToIndex(TEST_TBL_ID, TStorageType.COLUMN);
+        olapTable.setIndexMeta(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
         olapTable.addPartition(partition);
         db.createTable(olapTable);
 
@@ -282,19 +291,19 @@ public class CatalogMocker {
         PartitionKey rangeP1Lower =
                 PartitionKey.createInfinityPartitionKey(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)), false);
         PartitionKey rangeP1Upper =
-                PartitionKey.createPartitionKey(Lists.newArrayList("10"),
+                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
                                                 Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
-        rangePartitionInfo.setRange(TEST_PARTITION1_ID, rangeP1);
+        rangePartitionInfo.setRange(TEST_PARTITION1_ID, false, rangeP1);
 
         PartitionKey rangeP2Lower =
-                PartitionKey.createPartitionKey(Lists.newArrayList("10"),
+                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
                                                 Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         PartitionKey rangeP2Upper =
-                PartitionKey.createPartitionKey(Lists.newArrayList("20"),
+                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20")),
                                                 Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP2 = Range.closedOpen(rangeP2Lower, rangeP2Upper);
-        rangePartitionInfo.setRange(TEST_PARTITION2_ID, rangeP2);
+        rangePartitionInfo.setRange(TEST_PARTITION2_ID, false, rangeP2);
 
         rangePartitionInfo.setReplicationNum(TEST_PARTITION1_ID, (short) 3);
         rangePartitionInfo.setReplicationNum(TEST_PARTITION2_ID, (short) 3);
@@ -305,6 +314,7 @@ public class CatalogMocker {
 
         OlapTable olapTable2 = new OlapTable(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA,
                                              KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
+        Deencapsulation.setField(olapTable2, "baseIndexId", TEST_TBL2_ID);
 
         Tablet baseTabletP1 = new Tablet(TEST_BASE_TABLET_P1_ID);
         TabletMeta tabletMetaBaseTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
@@ -331,8 +341,8 @@ public class CatalogMocker {
         baseTabletP2.addReplica(replica8);
 
 
-        olapTable2.setIndexSchemaInfo(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1);
-        olapTable2.setStorageTypeToIndex(TEST_TBL2_ID, TStorageType.COLUMN);
+        olapTable2.setIndexMeta(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
         olapTable2.addPartition(partition1);
         olapTable2.addPartition(partition2);
 
@@ -369,9 +379,8 @@ public class CatalogMocker {
 
         partition2.createRollupIndex(rollupIndexP2);
 
-        olapTable2.setIndexSchemaInfo(TEST_ROLLUP_ID, TEST_ROLLUP_NAME, TEST_ROLLUP_SCHEMA, 0, ROLLUP_SCHEMA_HASH,
-                                      (short) 1);
-        olapTable2.setStorageTypeToIndex(TEST_ROLLUP_ID, TStorageType.COLUMN);
+        olapTable2.setIndexMeta(TEST_ROLLUP_ID, TEST_ROLLUP_NAME, TEST_ROLLUP_SCHEMA, 0, ROLLUP_SCHEMA_HASH,
+                                      (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS);
         db.createTable(olapTable2);
 
         return db;
@@ -379,41 +388,78 @@ public class CatalogMocker {
 
     public static Catalog fetchAdminCatalog() {
         try {
-            Catalog catalog = EasyMock.createMock(Catalog.class);
-            EasyMock.expect(catalog.getAuth()).andReturn(fetchAdminAccess()).anyTimes();
+            FakeEditLog fakeEditLog = new FakeEditLog();
 
-            Database db = mockDb();
+            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
 
-            EasyMock.expect(catalog.getDb(TEST_DB_NAME)).andReturn(db).anyTimes();
-            EasyMock.expect(catalog.getDb(WRONG_DB)).andReturn(null).anyTimes();
-            EasyMock.expect(catalog.getDb(TEST_DB_ID)).andReturn(db).anyTimes();
-            EasyMock.expect(catalog.getDb(EasyMock.isA(String.class))).andReturn(new Database()).anyTimes();
-            EasyMock.expect(catalog.getDbNames()).andReturn(Lists.newArrayList(TEST_DB_NAME)).anyTimes();
-            EasyMock.expect(catalog.getLoadInstance()).andReturn(new Load()).anyTimes();
-            EasyMock.expect(catalog.getSchemaChangeHandler()).andReturn(new SchemaChangeHandler()).anyTimes();
-            EasyMock.expect(catalog.getRollupHandler()).andReturn(new RollupHandler()).anyTimes();
-            EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
-            catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq(WRONG_DB));
-            EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
-            catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class));
-            EasyMock.expectLastCall().anyTimes();
-            EasyMock.replay(catalog);
+            Database db = new Database();
+            PaloAuth paloAuth = fetchAdminAccess();
+
+            new Expectations(catalog) {
+                {
+                    catalog.getAuth();
+                    minTimes = 0;
+                    result = paloAuth;
+
+                    catalog.getDb(TEST_DB_NAME);
+                    minTimes = 0;
+                    result = db;
+
+                    catalog.getDb(WRONG_DB);
+                    minTimes = 0;
+                    result = null;
+
+                    catalog.getDb(TEST_DB_ID);
+                    minTimes = 0;
+                    result = db;
+
+                    catalog.getDb(anyString);
+                    minTimes = 0;
+                    result = new Database();
+
+                    catalog.getDbNames();
+                    minTimes = 0;
+                    result = Lists.newArrayList(TEST_DB_NAME);
+
+                    catalog.getLoadInstance();
+                    minTimes = 0;
+                    result = new Load();
+
+                    catalog.getEditLog();
+                    minTimes = 0;
+                    result = new EditLog("name");
+
+                    catalog.changeDb((ConnectContext) any, WRONG_DB);
+                    minTimes = 0;
+                    result = new DdlException("failed");
+
+                    catalog.changeDb((ConnectContext) any, anyString);
+                    minTimes = 0;
+                }
+            };
             return catalog;
-        } catch (DdlException | AnalysisException e) {
+        } catch (DdlException e) {
             return null;
         }
     }
 
     public static PaloAuth fetchBlockAccess() {
-        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
-        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
-                                             EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
-        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                         EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
-        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                          EasyMock.isA(String.class),
-                                          EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
-        EasyMock.replay(auth);
+        PaloAuth auth = new PaloAuth();
+        new Expectations(auth) {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+            }
+        };
         return auth;
     }
 }

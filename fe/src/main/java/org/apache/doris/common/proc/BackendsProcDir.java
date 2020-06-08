@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import com.google.gson.Gson;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.Cluster;
@@ -39,7 +40,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -52,7 +52,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("ErrMsg")
+            .add("MaxDiskUsedPct").add("ErrMsg").add("Version").add("Status")
             .build();
 
     public static final int IP_INDEX = 2;
@@ -73,10 +73,8 @@ public class BackendsProcDir implements ProcDirInterface {
 
         final List<List<String>> backendInfos = getClusterBackendInfos(null);
         for (List<String> backendInfo : backendInfos) {
-            List<String> oneInfo = new ArrayList<String>(backendInfo.size());
-            for (String info : backendInfo) {
-                oneInfo.add(info);
-            }
+            List<String> oneInfo = new ArrayList<>(backendInfo.size());
+            oneInfo.addAll(backendInfo);
             result.addRow(oneInfo);
         }
         return result;
@@ -89,10 +87,10 @@ public class BackendsProcDir implements ProcDirInterface {
      */ 
     public static List<List<String>> getClusterBackendInfos(String clusterName) {
         final SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
-        List<List<String>> backendInfos = new LinkedList<List<String>>();
-        List<Long> backendIds = null;
+        List<List<String>> backendInfos = new LinkedList<>();
+        List<Long> backendIds;
         if (!Strings.isNullOrEmpty(clusterName)) {
-            final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
+            final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
             // root not in any cluster
             if (null == cluster) {
                 return backendInfos;
@@ -107,7 +105,7 @@ public class BackendsProcDir implements ProcDirInterface {
 
         long start = System.currentTimeMillis();
         Stopwatch watch = Stopwatch.createUnstarted();
-        List<List<Comparable>> comparableBackendInfos = new LinkedList<List<Comparable>>();
+        List<List<Comparable>> comparableBackendInfos = new LinkedList<>();
         for (long backendId : backendIds) {
             Backend backend = clusterInfoService.getBackend(backendId);
             if (backend == null) {
@@ -132,15 +130,15 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));
             if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
-                backendInfo.add(String.valueOf("false"));
-                backendInfo.add(String.valueOf("true"));
+                backendInfo.add("false");
+                backendInfo.add("true");
             } else if (backend.isDecommissioned()
                     && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
-                backendInfo.add(String.valueOf("true"));
-                backendInfo.add(String.valueOf("false"));
+                backendInfo.add("true");
+                backendInfo.add("false");
             } else {
-                backendInfo.add(String.valueOf("false"));
-                backendInfo.add(String.valueOf("false"));
+                backendInfo.add("false");
+                backendInfo.add("false");
             }
             backendInfo.add(tabletNum.toString());
 
@@ -169,6 +167,8 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
 
             backendInfo.add(backend.getHeartbeatErrMsg());
+            backendInfo.add(backend.getVersion());
+            backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
 
             comparableBackendInfos.add(backendInfo);
         }
@@ -179,7 +179,7 @@ public class BackendsProcDir implements ProcDirInterface {
          
         // sort by cluster name, host name
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1, 3);
-        Collections.sort(comparableBackendInfos, comparator);
+        comparableBackendInfos.sort(comparator);
 
         for (List<Comparable> backendInfo : comparableBackendInfos) {
             List<String> oneInfo = new ArrayList<String>(backendInfo.size());
@@ -205,7 +205,7 @@ public class BackendsProcDir implements ProcDirInterface {
 
         long backendId = -1L;
         try {
-            backendId = Long.valueOf(beIdStr);
+            backendId = Long.parseLong(beIdStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid backend id format: " + beIdStr);
         }

@@ -45,6 +45,9 @@ std::string PrintTMetricKind(const TMetricKind::type& type);
 // This is used to set gflags build version
 std::string get_build_version(bool compact);
 
+// Returns a string "<product version number> (<short build hash>)"
+std::string get_short_version();
+
 // Returns "<program short name> version <GetBuildVersion(compact)>"
 std::string get_version_string(bool compact);
 

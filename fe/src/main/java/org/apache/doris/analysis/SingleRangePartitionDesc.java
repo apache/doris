@@ -17,27 +17,23 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.PartitionKeyDesc.PartitionRangeType;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Joiner.MapJoiner;
-import com.google.common.collect.Maps;
+import com.google.common.base.Preconditions;
+import org.apache.doris.thrift.TTabletType;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
-public class SingleRangePartitionDesc implements Writable {
+public class SingleRangePartitionDesc {
     private boolean isAnalyzed;
 
     private boolean ifNotExists;
@@ -48,11 +44,9 @@ public class SingleRangePartitionDesc implements Writable {
 
     private DataProperty partitionDataProperty;
     private Short replicationNum;
+    private boolean isInMemory = false;
+    private TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
     private Pair<Long, Long> versionInfo;
-
-    public SingleRangePartitionDesc() {
-        partitionKeyDesc = new PartitionKeyDesc();
-    }
 
     public SingleRangePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
                                     Map<String, String> properties) {
@@ -64,7 +58,7 @@ public class SingleRangePartitionDesc implements Writable {
         this.partitionKeyDesc = partitionKeyDesc;
         this.properties = properties;
 
-        this.partitionDataProperty = DataProperty.DEFAULT_HDD_DATA_PROPERTY;
+        this.partitionDataProperty = DataProperty.DEFAULT_DATA_PROPERTY;
         this.replicationNum = FeConstants.default_replication_num;
     }
 
@@ -88,6 +82,12 @@ public class SingleRangePartitionDesc implements Writable {
         return replicationNum;
     }
 
+    public boolean isInMemory() {
+        return isInMemory;
+    }
+
+    public TTabletType getTabletType() { return tabletType; }
+
     public Pair<Long, Long> getVersionInfo() {
         return versionInfo;
     }
@@ -103,25 +103,15 @@ public class SingleRangePartitionDesc implements Writable {
 
         FeNameFormat.checkPartitionName(partName);
 
-        if (!partitionKeyDesc.isMax()) {
-            if (partitionKeyDesc.getUpperValues().isEmpty() || partitionKeyDesc.getUpperValues().size() > partColNum) {
-                throw new AnalysisException("Invalid partition value number: " + partitionKeyDesc.toSql());
-            }
-        }
+        partitionKeyDesc.analyze(partColNum);
 
         if (otherProperties != null) {
-            // use given properties
-            if (properties != null && !properties.isEmpty()) {
-                MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
-                throw new AnalysisException("Unknown properties: " + mapJoiner.join(properties));
-            }
-
             this.properties = otherProperties;
         }
 
         // analyze data property
         partitionDataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
-                                                                     DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+                                                                     DataProperty.DEFAULT_DATA_PROPERTY);
         Preconditions.checkNotNull(partitionDataProperty);
 
         // analyze replication num
@@ -132,6 +122,11 @@ public class SingleRangePartitionDesc implements Writable {
 
         // analyze version info
         versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
+
+        // analyze in memory
+        isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+
+        tabletType = PropertyAnalyzer.analyzeTabletType(properties);
 
         if (otherProperties == null) {
             // check unknown properties
@@ -150,8 +145,12 @@ public class SingleRangePartitionDesc implements Writable {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("PARTITION ");
-        sb.append(partName + " VALUES LESS THEN ");
+        sb.append("PARTITION ").append(partName);
+        if (partitionKeyDesc.getPartitionType() == PartitionRangeType.LESS_THAN) {
+            sb.append(" VALUES LESS THEN ");
+        } else {
+            sb.append(" VALUES ");
+        }
         sb.append(partitionKeyDesc.toSql());
 
         if (properties != null && !properties.isEmpty()) {
@@ -166,52 +165,5 @@ public class SingleRangePartitionDesc implements Writable {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeBoolean(isAnalyzed);
-        out.writeBoolean(ifNotExists);
-        Text.writeString(out, partName);
-
-        partitionKeyDesc.write(out);
-
-        if (properties == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            int count = properties.size();
-            out.writeInt(count);
-            for (Map.Entry<String, String> enytry : properties.entrySet()) {
-                Text.writeString(out, enytry.getKey());
-                Text.writeString(out, enytry.getValue());
-            }
-        }
-
-        partitionDataProperty.write(out);
-        out.writeShort(replicationNum);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        isAnalyzed = in.readBoolean();
-        ifNotExists = in.readBoolean();
-        partName = Text.readString(in);
-
-        partitionKeyDesc.readFields(in);
-
-        boolean hasProp = in.readBoolean();
-        if (hasProp) {
-            properties = Maps.newHashMap();
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                properties.put(key, value);
-            }
-        }
-
-        partitionDataProperty = DataProperty.read(in);
-        replicationNum = in.readShort();
     }
 }

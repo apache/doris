@@ -26,6 +26,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
+#include "olap/row_block2.h"
 
 namespace doris {
 
@@ -182,6 +183,7 @@ TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN) { \
     ASSERT_EQ(_vectorized_batch->size(), 1); \
     sel = _vectorized_batch->selected(); \
     ASSERT_EQ(*(col_data + sel[0]), 5); \
+    delete pred; \
 } \
 
 TEST_IN_LIST_PREDICATE(int8_t, TINYINT, "TINYINT")
@@ -189,6 +191,71 @@ TEST_IN_LIST_PREDICATE(int16_t, SMALLINT, "SMALLINT")
 TEST_IN_LIST_PREDICATE(int32_t, INT, "INT")
 TEST_IN_LIST_PREDICATE(int64_t, BIGINT, "BIGINT")
 TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
+
+#define TEST_IN_LIST_PREDICATE_V2(TYPE, TYPE_NAME, FIELD_TYPE) \
+TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) { \
+    TabletSchema tablet_schema; \
+    SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
+                 "REPLACE", 1, false, true, &tablet_schema); \
+    int size = 10; \
+    Schema schema(tablet_schema); \
+    RowBlockV2 block(schema, size); \
+    std::set<TYPE> values; \
+    values.insert(4); \
+    values.insert(5); \
+    values.insert(6); \
+    ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values)); \
+    uint16_t sel[10]; \
+    for (int i = 0; i < 10; ++i) { \
+        sel[i] = i; \
+    } \
+    uint16_t selected_size = 10; \
+    ColumnBlock column = block.column_block(0); \
+    /* for non nulls */ \
+    for (int i = 0; i < size; ++i) { \
+        column.set_is_null(i, false); \
+        uint8_t* value = column.mutable_cell_ptr(i); \
+        *((TYPE*)value) = i; \
+    } \
+    \
+    pred->evaluate(&column, sel, &selected_size); \
+    ASSERT_EQ(selected_size, 3); \
+    ASSERT_EQ(*((TYPE*)column.cell_ptr(sel[0])), 4); \
+    ASSERT_EQ(*((TYPE*)column.cell_ptr(sel[1])), 5); \
+    ASSERT_EQ(*((TYPE*)column.cell_ptr(sel[2])), 6); \
+    \
+    /* for has nulls */ \
+    TabletSchema tablet_schema2; \
+    SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
+                 "REPLACE", 1, true, true, &tablet_schema2); \
+    Schema schema2(tablet_schema2); \
+    RowBlockV2 block2(schema2, size); \
+    ColumnBlock column2 = block2.column_block(0); \
+    for (int i = 0; i < size; ++i) { \
+        if (i % 2 == 0) { \
+            column2.set_is_null(i, true); \
+        } else { \
+            column2.set_is_null(i, false); \
+            uint8_t* value = column2.mutable_cell_ptr(i); \
+            *((TYPE*)value) = i; \
+        } \
+    } \
+    for (int i = 0; i < 10; ++i) { \
+        sel[i] = i; \
+    } \
+    selected_size = 10; \
+    \
+    pred->evaluate(&column2, sel, &selected_size); \
+    ASSERT_EQ(selected_size, 1); \
+    ASSERT_EQ(*((TYPE*)column2.cell_ptr(sel[0])), 5); \
+    delete pred; \
+} \
+
+TEST_IN_LIST_PREDICATE_V2(int8_t, TINYINT, "TINYINT")
+TEST_IN_LIST_PREDICATE_V2(int16_t, SMALLINT, "SMALLINT")
+TEST_IN_LIST_PREDICATE_V2(int32_t, INT, "INT")
+TEST_IN_LIST_PREDICATE_V2(int64_t, BIGINT, "BIGINT")
+TEST_IN_LIST_PREDICATE_V2(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     TabletSchema tablet_schema;
@@ -239,6 +306,7 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_FLOAT_EQ(*(col_data + sel[0]), 5.1);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
@@ -291,6 +359,7 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_DOUBLE_EQ(*(col_data + sel[0]), 5.1);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
@@ -352,6 +421,7 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value2);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, CHAR_COLUMN) {
@@ -371,8 +441,8 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     StringValue* col_data = reinterpret_cast<StringValue*>(_mem_pool->allocate(size * sizeof(StringValue)));
     col_vector->set_col_data(col_data);
     
-    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(50));
-    memset(string_buffer, 0, 50);
+    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i) {
         for (int j = 0; j <= 5; ++j) {
             string_buffer[j] = 'a' + i;
@@ -414,8 +484,8 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(50));
-    memset(string_buffer, 0, 50);
+    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i) {
         if (i % 2 == 0) {
             is_null[i] = true;
@@ -435,6 +505,7 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value2);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
@@ -516,6 +587,7 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value2);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DATE_COLUMN) {
@@ -585,6 +657,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DATETIME_COLUMN) {
@@ -654,6 +727,7 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
+    delete pred;
 }
 
 } // namespace doris

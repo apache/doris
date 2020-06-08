@@ -17,11 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -38,6 +33,9 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -49,6 +47,11 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+
 public class CreateTableTest {
 
     private TableName dbTableName;
@@ -59,7 +62,7 @@ public class CreateTableTest {
     private List<String> columnNames = Lists.newArrayList();
     private List<ColumnDef> columnDefs = Lists.newArrayList();
 
-    private Catalog catalog = Catalog.getInstance();
+    private Catalog catalog = Catalog.getCurrentCatalog();
     private Database db = new Database();
     private Analyzer analyzer;
 
@@ -88,7 +91,20 @@ public class CreateTableTest {
         new Expectations(analyzer) {
             {
                 analyzer.getClusterName();
+                minTimes = 0;
                 result = clusterName;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
             }
         };
 
@@ -101,22 +117,35 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.checkClusterCapacity(anyString);
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                result = beIds;
-
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                result = true;
 
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
+                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
+                result = beIds;
+
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
+                result = true;
             }
         };
 
@@ -136,7 +165,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         catalog.createTable(stmt);
@@ -147,15 +176,22 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+            }
+        };
+
+        new Expectations() {
+            {
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
 
         stmt.analyze(analyzer);
 
@@ -171,16 +207,27 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.checkClusterCapacity(anyString);
-
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -191,7 +238,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -210,16 +257,27 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.checkClusterCapacity(anyString);
-
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -229,7 +287,7 @@ public class CreateTableTest {
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -244,25 +302,38 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
                 systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
                 result = null;
 
-                catalog.getAuth();
-                result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -278,6 +349,7 @@ public class CreateTableTest {
         new Expectations(db) {
             {
                 db.getTable(tableName);
+                minTimes = 0;
                 result = olapTable;
             }
         };
@@ -286,20 +358,34 @@ public class CreateTableTest {
             {
 
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
+
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
-                systemInfoService.checkClusterCapacity(anyString);
+
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
@@ -314,25 +400,38 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
                 systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
                 result = beIds;
 
-                catalog.getAuth();
-                result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);

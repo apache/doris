@@ -28,6 +28,7 @@ import java.util.concurrent.CountDownLatch;
 public class MarkedCountDownLatch<K, V> extends CountDownLatch {
 
     private Multimap<K, V> marks;
+    private Status st = Status.OK;
 
     public MarkedCountDownLatch(int count) {
         super(count);
@@ -50,7 +51,16 @@ public class MarkedCountDownLatch<K, V> extends CountDownLatch {
         return Lists.newArrayList(marks.entries());
     }
 
-    public synchronized void countDownToZero() {
+    public Status getStatus() {
+        return st;
+    }
+
+    public synchronized void countDownToZero(Status status) {
+        // update status first before countDown.
+        // so that the waiting thread will get the correct status.
+        if (st.ok()) {
+            st = status;
+        }
         while(getCount() > 0) {
             super.countDown();
         }

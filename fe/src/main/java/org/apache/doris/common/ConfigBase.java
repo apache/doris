@@ -125,7 +125,7 @@ public class ConfigBase {
             // ensure that field has property string
             String confKey = anno.value().equals("") ? f.getName() : anno.value();
             String confVal = props.getProperty(confKey);
-            if (confVal == null) {
+            if (Strings.isNullOrEmpty(confVal)) {
                 continue;
             }
             

@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
@@ -64,8 +65,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-//import org.apache.doris.catalog.InlineView;
 
 /**
  * Repository of analysis state for single select block.
@@ -138,6 +137,8 @@ public class Analyzer {
     private TupleId visibleSemiJoinedTupleId_ = null;
     // for some situation that udf is not allowed.
     private boolean isUDFAllowed = true;
+    // timezone specified for some operation, such as broker load
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     
     public void setIsSubquery() {
         isSubquery = true;
@@ -150,6 +151,8 @@ public class Analyzer {
     
     public void setUDFAllowed(boolean val) { this.isUDFAllowed = val; }
     public boolean isUDFAllowed() { return this.isUDFAllowed; }
+    public void setTimezone(String timezone) { this.timezone = timezone; }
+    public String getTimezone() { return timezone; }
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
@@ -240,7 +243,7 @@ public class Analyzer {
             // expr rewrites can be disabled via a query option. When rewrites are enabled
             // BetweenPredicates should be rewritten first to help trigger other rules.
             rules.add(BetweenToCompoundRule.INSTANCE);
-            // Binary predicates must be rewritten to a canonical form for both Kudu predicate
+            // Binary predicates must be rewritten to a canonical form for both predicate
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
@@ -293,6 +296,9 @@ public class Analyzer {
      */
     public Analyzer(Analyzer parentAnalyzer) {
         this(parentAnalyzer, parentAnalyzer.globalState);
+        if (parentAnalyzer.isSubquery) {
+            this.isSubquery = true;
+        }
     }
 
     /**
@@ -427,6 +433,10 @@ public class Analyzer {
         return result;
     }
 
+    public List<TupleId> getAllTupleIds() {
+        return new ArrayList<>(tableRefMap_.keySet());
+    }
+
     /**
      * Resolves the given TableRef into a concrete BaseTableRef, ViewRef or
      * CollectionTableRef. Returns the new resolved table ref or the given table
@@ -547,6 +557,16 @@ public class Analyzer {
             }
             d = resolveColumnRef(newTblName, colName);
         }
+        /*
+         * Now, we only support the columns in the subquery to associate the outer query columns in parent level.
+         * If the level of the association exceeds one level, the associated columns in subquery could not be resolved.
+         * For example:
+         * Select k1 from table a where k1=(select k1 from table b where k1=(select k1 from table c where a.k1=k1));
+         * The inner subquery: select k1 from table c where a.k1=k1;
+         * There is a associated column (a.k1) which belongs to the outer query appears in the inner subquery.
+         * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
+         * The exception of this query like that: Unknown column 'k1' in 'a'
+         */
         if (d == null && hasAncestors() && isSubquery) {
             // analyzer father for subquery
             if (newTblName == null) {
@@ -580,6 +600,28 @@ public class Analyzer {
         } else {
             result.setIsNullable(false);
         }
+        slotRefMap.put(key, result);
+        return result;
+    }
+
+    /**
+     * Register a virtual column, and it is not a real column exist in table,
+     * so it does not need to resolve.
+     */
+    public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
+            throws AnalysisException {
+        // Make column name case insensitive
+        String key = colName;
+        SlotDescriptor result = slotRefMap.get(key);
+        if (result != null) {
+            result.setMultiRef(true);
+            return result;
+        }
+
+        result = addSlotDescriptor(tupleDescriptor);
+        Column col = new Column(colName, type);
+        result.setColumn(col);
+        result.setIsNullable(true);
         slotRefMap.put(key, result);
         return result;
     }
@@ -712,12 +754,22 @@ public class Analyzer {
         globalState.semiJoinedTupleIds.put(tid, rhsRef);
     }
 
+    public void registerConjunct(Expr e, TupleId tupleId) throws AnalysisException {
+        final List<Expr> exprs = Lists.newArrayList();
+        exprs.add(e);
+        registerConjuncts(exprs, tupleId);
+    }
 
-    /**
-     * Register all conjuncts in a list of predicates as Where clause conjuncts.
-     */
-    public void registerConjuncts(List<Expr> l) throws AnalysisException {
-        registerConjuncts(l, null);
+    public void registerConjuncts(List<Expr> l, TupleId tupleId) throws AnalysisException {
+        final List<TupleId> tupleIds = Lists.newArrayList();
+        tupleIds.add(tupleId);
+        registerConjuncts(l, tupleIds);
+    }
+
+    public void registerConjunct(Expr e, List<TupleId> tupleIds) throws AnalysisException {
+        final List<Expr> exprs = Lists.newArrayList();
+        exprs.add(e);
+        registerConjuncts(exprs, tupleIds);
     }
 
     // register all conjuncts and handle constant conjuncts with ids
@@ -806,7 +858,7 @@ public class Analyzer {
             return;
         }
         BinaryPredicate binaryPred = (BinaryPredicate) e;
-        if (binaryPred.getOp() != BinaryPredicate.Operator.EQ) {
+        if (!binaryPred.getOp().isEquivalence()) {
             return;
         }
         if (tupleIds.size() < 2) {
@@ -896,6 +948,31 @@ public class Analyzer {
                     && !globalState.assignedConjuncts.contains(e.getId())
                     && ((inclOjConjuncts && !e.isConstant())
                     || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+
+    /**
+     * Return all registered conjuncts that are fully bound by given list of tuple ids.
+     * the eqJoinConjuncts and sjClauseByConjunct is excluded.
+     * This method is used get conjuncts which may be able to pushed down to scan node.
+     */
+    public List<Expr> getConjuncts(List<TupleId> tupleIds) {
+        List<Expr> result = Lists.newArrayList();
+        List<ExprId> eqJoinConjunctIds = Lists.newArrayList();
+        for (List<ExprId> conjuncts : globalState.eqJoinConjuncts.values()) {
+            eqJoinConjunctIds.addAll(conjuncts);
+        }
+        for (Expr e : globalState.conjuncts.values()) {
+            if (e.isBoundByTupleIds(tupleIds)
+                    && !e.isAuxExpr()
+                    && !eqJoinConjunctIds.contains(e.getId())  // to exclude to conjuncts like (A.id = B.id)
+                    && !globalState.ojClauseByConjunct.containsKey(e.getId())
+                    && !globalState.sjClauseByConjunct.containsKey(e.getId())
+                    && canEvalPredicate(tupleIds, e)) {
                 result.add(e);
             }
         }
@@ -1017,19 +1094,6 @@ public class Analyzer {
         return false;
     }
 
-    /**
-     * Return slot descriptor corresponding to column referenced in the context
-     * of tupleDesc, or null if no such reference exists.
-     */
-    public SlotDescriptor getColumnSlot(TupleDescriptor tupleDesc, Column col) {
-        for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
-            if (slotDesc.getColumn() == col) {
-                return slotDesc;
-            }
-        }
-        return null;
-    }
-
     public DescriptorTable getDescTbl() {
         return globalState.descTbl;
     }
@@ -1042,23 +1106,16 @@ public class Analyzer {
         return uniqueTableAliasSet_;
     }
 
-    public List<Expr> getAllConjunt(TupleId id) {
+    public List<Expr> getAllConjuncts(TupleId id) {
         List<ExprId> conjunctIds = tuplePredicates.get(id);
         if (conjunctIds == null) {
             return null;
         }
         List<Expr> result = Lists.newArrayList();
-        List<ExprId> ojClauseConjuncts = null;
         for (ExprId conjunctId : conjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
-            if (ojClauseConjuncts != null) {
-                if (ojClauseConjuncts.contains(conjunctId)) {
-                    result.add(e);
-                }
-            } else {
-                result.add(e);
-            }
+            result.add(e);
         }
         return result;
     }
@@ -1384,7 +1441,7 @@ public class Analyzer {
             // TODO(zc)
             compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
         }
-        if (compatibleType == Type.VARCHAR) {
+        if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
                 compatibleType = Type.DATETIME;
             }
@@ -1404,7 +1461,7 @@ public class Analyzer {
      * the i-th expr among all expr lists is compatible.
      * Throw an AnalysisException if the types are incompatible.
      */
-    public void castToUnionCompatibleTypes(List<List<Expr>> exprLists)
+    public void castToSetOpsCompatibleTypes(List<List<Expr>> exprLists)
             throws AnalysisException {
         if (exprLists == null || exprLists.size() < 2) return;
 

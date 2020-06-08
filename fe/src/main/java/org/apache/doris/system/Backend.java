@@ -28,6 +28,7 @@ import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -36,6 +37,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,6 +61,7 @@ public class Backend implements Writable {
 
     private long id;
     private String host;
+    private String version;
 
     private int heartbeatPort; // heartbeat
     private AtomicInteger bePort; // be
@@ -80,9 +84,22 @@ public class Backend implements Writable {
     private AtomicReference<ImmutableMap<String, DiskInfo>> disksRef;
 
     private String heartbeatErrMsg = "";
+    
+    // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
+    // after init it, this variable is set to true.
+    private boolean initPathInfo = false;
+
+    private long lastMissingHeartbeatTime = -1;
+    // the max tablet compaction score of this backend.
+    // this field is set by tablet report, and just for metric monitor, no need to persist.
+    private AtomicLong tabletMaxCompactionScore = new AtomicLong(0);
+
+    // additional backendStatus information for BE, display in JSON format
+    private BackendStatus backendStatus = new BackendStatus();
 
     public Backend() {
         this.host = "";
+        this.version = "";
         this.lastUpdateMs = new AtomicLong();
         this.lastStartTime = new AtomicLong();
         this.isAlive = new AtomicBoolean();
@@ -91,9 +108,9 @@ public class Backend implements Writable {
         this.bePort = new AtomicInteger();
         this.httpPort = new AtomicInteger();
         this.beRpcPort = new AtomicInteger();
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
-        this.ownerClusterName = new AtomicReference<String>("");
+        this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
@@ -102,18 +119,19 @@ public class Backend implements Writable {
     public Backend(long id, String host, int heartbeatPort) {
         this.id = id;
         this.host = host;
+        this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = new AtomicInteger(-1);
         this.httpPort = new AtomicInteger(-1);
         this.beRpcPort = new AtomicInteger(-1);
         this.lastUpdateMs = new AtomicLong(-1L);
         this.lastStartTime = new AtomicLong(-1L);
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
         this.isAlive = new AtomicBoolean(false);
         this.isDecommissioned = new AtomicBoolean(false);
 
-        this.ownerClusterName = new AtomicReference<String>(""); 
+        this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
     }
@@ -124,6 +142,10 @@ public class Backend implements Writable {
 
     public String getHost() {
         return host;
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     public int getBePort() {
@@ -152,26 +174,21 @@ public class Backend implements Writable {
 
     // for test only
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
-        boolean isChanged = false;
         if (this.bePort.get() != bePort) {
-            isChanged = true;
             this.bePort.set(bePort);
         }
 
         if (this.httpPort.get() != httpPort) {
-            isChanged = true;
             this.httpPort.set(httpPort);
         }
 
         if (this.beRpcPort.get() != beRpcPort) {
-            isChanged = true;
             this.beRpcPort.set(beRpcPort);
         }
 
         long currentTime = System.currentTimeMillis();
         this.lastUpdateMs.set(currentTime);
         if (!isAlive.get()) {
-            isChanged = true;
             this.lastStartTime.set(currentTime);
             LOG.info("{} is alive,", this.toString());
             this.isAlive.set(true);
@@ -228,6 +245,10 @@ public class Backend implements Writable {
         this.lastStartTime.set(currentTime);
     }
 
+    public long getLastMissingHeartbeatTime() {
+        return lastMissingHeartbeatTime;
+    }
+
     public boolean isAlive() {
         return this.isAlive.get();
     }
@@ -242,6 +263,10 @@ public class Backend implements Writable {
 
     public void setDisks(ImmutableMap<String, DiskInfo> disks) {
         this.disksRef.set(disks);
+    }
+
+    public BackendStatus getBackendStatus() {
+        return backendStatus;
     }
 
     /**
@@ -338,9 +363,26 @@ public class Backend implements Writable {
     }
 
     public void updateDisks(Map<String, TDisk> backendDisks) {
-        // update status or add new diskInfo
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
-        Map<String, DiskInfo> newDisks = Maps.newHashMap();
+        // The very first time to init the path info
+        if (!initPathInfo) {
+            boolean allPathHashUpdated = true;
+            for (DiskInfo diskInfo : disks.values()) {
+                if (diskInfo.getPathHash() == 0) {
+                    allPathHashUpdated = false;
+                    break;
+                }
+            }
+            if (allPathHashUpdated) {
+                initPathInfo = true;
+                Catalog.getCurrentSystemInfo().updatePathInfo(new ArrayList<>(disks.values()), Lists.newArrayList());
+            }
+        }
+
+        // update status or add new diskInfo
+        Map<String, DiskInfo> newDiskInfos = Maps.newHashMap();
+        List<DiskInfo> addedDisks = Lists.newArrayList();
+        List<DiskInfo> removedDisks = Lists.newArrayList();
         /*
          * set isChanged to true only if new disk is added or old disk is dropped.
          * we ignore the change of capacity, because capacity info is only used in master FE.
@@ -356,10 +398,11 @@ public class Backend implements Writable {
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
+                addedDisks.add(diskInfo);
                 isChanged = true;
                 LOG.info("add new disk info. backendId: {}, rootPath: {}", id, rootPath);
             }
-            newDisks.put(rootPath, diskInfo);
+            newDiskInfos.put(rootPath, diskInfo);
 
             diskInfo.setTotalCapacityB(totalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
@@ -388,6 +431,7 @@ public class Backend implements Writable {
         for (DiskInfo diskInfo : disks.values()) {
             String rootPath = diskInfo.getRootPath();
             if (!backendDisks.containsKey(rootPath)) {
+                removedDisks.add(diskInfo);
                 isChanged = true;
                 LOG.warn("remove not exist rootPath. backendId: {}, rootPath: {}", id, rootPath);
             }
@@ -395,9 +439,10 @@ public class Backend implements Writable {
 
         if (isChanged) {
             // update disksRef
-            disksRef.set(ImmutableMap.copyOf(newDisks));
+            disksRef.set(ImmutableMap.copyOf(newDiskInfos));
+            Catalog.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
             // log disk changing
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
+            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(this);
         }
     }
 
@@ -435,7 +480,6 @@ public class Backend implements Writable {
         out.writeInt(brpcPort.get());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         host = Text.readString(in);
@@ -520,8 +564,6 @@ public class Backend implements Writable {
                 return BackendState.using;
             case 1:
                 return BackendState.offline;
-            case 2:
-                return BackendState.free;
             default:
                 return BackendState.free;
         }
@@ -538,13 +580,18 @@ public class Backend implements Writable {
         return DecommissionType.SystemDecommission;
     }
 
-    /*
+    /**
      * handle Backend's heartbeat response.
      * return true if any port changed, or alive state is changed.
      */
     public boolean handleHbResponse(BackendHbResponse hbResponse) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (!this.version.equals(hbResponse.getVersion())) {
+                isChanged = true;
+                this.version = hbResponse.getVersion();
+            }
+
             if (this.bePort.get() != hbResponse.getBePort()) {
                 isChanged = true;
                 this.bePort.set(hbResponse.getBePort());
@@ -578,9 +625,29 @@ public class Backend implements Writable {
             }
 
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
+            lastMissingHeartbeatTime = System.currentTimeMillis();
         }
 
         return isChanged;
+    }
+
+    public void setTabletMaxCompactionScore(long compactionScore) {
+        tabletMaxCompactionScore.set(compactionScore);
+    }
+
+    public long getTabletMaxCompactionScore() {
+        return tabletMaxCompactionScore.get();
+    }
+
+    /**
+     * Note: This class must be a POJO in order to display in JSON format
+     * Add additional information in the class to show in `show backends`
+     * if just change new added backendStatus, you can do like following
+     *     BackendStatus status = Backend.getBackendStatus();
+     *     status.newItem = xxx;
+     */
+    public class BackendStatus {
+        public String lastSuccessReportTabletsTime = "N/A";
     }
 }
 

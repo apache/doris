@@ -795,11 +795,6 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
     _bytes_written_counter->update(block->_valid_data_len);
     ++_writes_issued;
     if (_writes_issued == 1) {
-#if 0
-        if (DorisMetrics::num_queries_spilled() != NULL) {
-            DorisMetrics::num_queries_spilled()->increment(1);
-        }
-#endif
     }
     return Status::OK();
 }
@@ -1268,8 +1263,6 @@ void BufferedBlockMgr2::init(
     _profile.reset(new RuntimeProfile(&_obj_pool, "BlockMgr"));
     parent_profile->add_child(_profile.get(), true, NULL);
 
-    _mem_tracker_counter = ADD_COUNTER(_profile.get(), "MemoryLimit", TUnit::BYTES);
-    _mem_tracker_counter->set(mem_limit);
     _block_size_counter = ADD_COUNTER(_profile.get(), "MaxBlockSize", TUnit::BYTES);
     _block_size_counter->set(_max_block_size);
     _created_block_counter = ADD_COUNTER(_profile.get(), "BlocksCreated", TUnit::UNIT);

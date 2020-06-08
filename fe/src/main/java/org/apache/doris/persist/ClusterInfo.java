@@ -77,7 +77,6 @@ public class ClusterInfo implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         clusterName = Text.readString(in);
         clusterId = in.readLong();

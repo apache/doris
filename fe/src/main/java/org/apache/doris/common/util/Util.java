@@ -28,6 +28,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,6 +53,8 @@ public class Util {
 
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
+    private static final String[] ORDINAL_SUFFIX = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");
         TYPE_STRING_MAP.put(PrimitiveType.SMALLINT, "smallint(6)");
@@ -66,6 +70,8 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
+        TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
     }
     
     private static class CmdWorker extends Thread {
@@ -304,11 +310,11 @@ public class Util {
         if (directory.isDirectory()) {
             File[] files = directory.listFiles();
             if (null != files) {
-                for (int i = 0; i < files.length; i++) {
-                    if (files[i].isDirectory()) {
-                        deleteDirectory(files[i]);
+                for (File file : files) {
+                    if (file.isDirectory()) {
+                        deleteDirectory(file);
                     } else {
-                        files[i].delete();
+                        file.delete();
                     }
                 }
             }
@@ -331,6 +337,10 @@ public class Util {
         return sb.toString();
     }
 
+    // get response body as a string from the given url.
+    // "encodedAuthInfo", the base64 encoded auth info. like:
+    //      Base64.encodeBase64String("user:passwd".getBytes());
+    // If no auth info, pass a null.
     public static String getResultForUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
             int readTimeoutMs) {
         StringBuilder sb = new StringBuilder();
@@ -352,7 +362,7 @@ public class Util {
                 sb.append(line);
             }
         } catch (Exception e) {
-            LOG.warn("failed to get result from url: {}", urlStr, e);
+            LOG.warn("failed to get result from url: {}. {}", urlStr, e.getMessage());
             return null;
         } finally {
             if (stream != null) {
@@ -390,6 +400,82 @@ public class Util {
         }
 
         return result;
+    }
+
+    public static boolean getBooleanPropertyOrDefault(String valStr, boolean defaultVal, String hintMsg)
+            throws AnalysisException {
+        if (Strings.isNullOrEmpty(valStr)) {
+            return defaultVal;
+        }
+
+        try {
+            return Boolean.valueOf(valStr);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(hintMsg);
+        }
+    }
+
+    public static void stdoutWithTime(String msg) {
+        System.out.println("[" + TimeUtils.longToTimeString(System.currentTimeMillis()) + "] " + msg);
+    }
+
+    // not support encode negative value now
+    public static void encodeVarint64(long source, DataOutput out) throws IOException {
+        assert source >= 0;
+        short B = 128;
+
+        while (source > B) {
+            out.write((int)(source & (B - 1) | B));
+            source = source >> 7;
+        }
+        out.write((int) (source & (B - 1)));
+    }
+
+    // not support decode negative value now
+    public static long decodeVarint64(DataInput in) throws IOException {
+        long result = 0;
+        int shift = 0;
+        short B = 128;
+
+        while (true) {
+            int oneByte = in.readUnsignedByte();
+            boolean isEnd = (oneByte & B) == 0;
+            result = result | ((long)(oneByte & B - 1) << (shift * 7));
+            if (isEnd) {
+                break;
+            }
+            shift++;
+        }
+
+        return result;
+    }
+    
+    // return the ordinal string of an Integer
+    public static String ordinal(int i) {
+        switch (i % 100) {
+            case 11:
+            case 12:
+            case 13:
+                return i + "th";
+            default:
+                return i + ORDINAL_SUFFIX[i % 10];
+        }
+    }
+
+    // get an input stream from url, the caller is responsible for closing the stream
+    // "encodedAuthInfo", the base64 encoded auth info. like:
+    //      Base64.encodeBase64String("user:passwd".getBytes());
+    // If no auth info, pass a null.
+    public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
+            int readTimeoutMs) throws IOException {
+        URL url = new URL(urlStr);
+        URLConnection conn = url.openConnection();
+        if (encodedAuthInfo != null) {
+            conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+        }
+        conn.setConnectTimeout(connectTimeoutMs);
+        conn.setReadTimeout(readTimeoutMs);
+        return conn.getInputStream();
     }
 }
 

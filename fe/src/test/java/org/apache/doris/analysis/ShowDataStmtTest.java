@@ -32,9 +32,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import mockit.Expectations;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class ShowDataStmtTest {
 
@@ -51,69 +50,79 @@ public class ShowDataStmtTest {
 
     private Database db;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() throws AnalysisException {
         auth = new PaloAuth();
 
         
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
                 result = invertedIndex;
             }
         };
 
         db = CatalogMocker.mockDb();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 analyzer.getClusterName();
+                minTimes = 0;
                 result = SystemInfoService.DEFAULT_CLUSTER;
 
                 analyzer.getDefaultDb();
+                minTimes = 0;
                 result = "testCluster:testDb";
 
                 Catalog.getCurrentCatalog();
+                minTimes = 0;
                 result = catalog;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
                 result = catalog;
 
                 Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
                 result = invertedIndex;
 
                 catalog.getAuth();
+                minTimes = 0;
                 result = auth;
 
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
 
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = "root";
 
                 ctx.getRemoteIP();
+                minTimes = 0;
                 result = "192.168.1.1";
             }
         };
         
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -126,13 +135,13 @@ public class ShowDataStmtTest {
         ShowDataStmt stmt = new ShowDataStmt(null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATA FROM `testCluster:testDb`", stmt.toString());
-        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(false, stmt.hasTable());
         
         stmt = new ShowDataStmt("testDb", "test_tbl");
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATA FROM `default_cluster:testDb`.`test_tbl`", stmt.toString());
-        Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
     }
 }

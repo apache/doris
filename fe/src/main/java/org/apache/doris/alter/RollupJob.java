@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -31,6 +32,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -337,7 +339,7 @@ public class RollupJob extends AlterJob {
         if (!clearFailed && batchClearAlterTask != null) {
             return 1;
         }
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -403,7 +405,7 @@ public class RollupJob extends AlterJob {
         // here we just rejoin tasks to AgentTaskQueue.
         // task report process will later resend these tasks
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -510,7 +512,7 @@ public class RollupJob extends AlterJob {
         this.finishedTime = System.currentTimeMillis();
 
         // log
-        Catalog.getInstance().getEditLog().logCancelRollup(this);
+        Catalog.getCurrentCatalog().getEditLog().logCancelRollup(this);
         LOG.debug("cancel rollup job[{}] finished. because: {}", tableId, cancelMsg);
     }
 
@@ -595,6 +597,10 @@ public class RollupJob extends AlterJob {
         // the version is not set now
         rollupReplica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
+        if (finishTabletInfo.isSetPath_hash()) {
+            rollupReplica.setPathHash(finishTabletInfo.getPath_hash());
+        }
+
         setReplicaFinished(partitionId, rollupReplicaId);
         rollupReplica.setState(ReplicaState.NORMAL);
 
@@ -615,7 +621,7 @@ public class RollupJob extends AlterJob {
             return 0;
         }
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = "Db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -743,9 +749,8 @@ public class RollupJob extends AlterJob {
                 } // end for partitions
 
                 // set index's info
-                olapTable.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0,
-                                             rollupSchemaHash, rollupShortKeyColumnCount);
-                olapTable.setStorageTypeToIndex(rollupIndexId, rollupStorageType);
+                olapTable.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0, rollupSchemaHash,
+                        rollupShortKeyColumnCount, rollupStorageType, KeysType.fromThrift(rollupKeysType));
                 Preconditions.checkState(olapTable.getState() == OlapTableState.ROLLUP);
 
                 this.state = JobState.FINISHING;
@@ -755,7 +760,7 @@ public class RollupJob extends AlterJob {
             db.writeUnlock();
         }
 
-        Catalog.getInstance().getEditLog().logFinishingRollup(this);
+        Catalog.getCurrentCatalog().getEditLog().logFinishingRollup(this);
         LOG.info("rollup job[{}] is finishing.", this.getTableId());
 
         return 1;
@@ -878,9 +883,8 @@ public class RollupJob extends AlterJob {
                 }
             }
 
-            olapTable.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0,
-                                         rollupSchemaHash, rollupShortKeyColumnCount);
-            olapTable.setStorageTypeToIndex(rollupIndexId, rollupStorageType);
+            olapTable.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0, rollupSchemaHash,
+                    rollupShortKeyColumnCount, rollupStorageType, KeysType.fromThrift(rollupKeysType));
         } finally {
             db.writeUnlock();
         }
@@ -934,7 +938,7 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void finishJob() {
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = String.format("database %d does not exist", dbId);
             LOG.warn(cancelMsg);
@@ -986,7 +990,6 @@ public class RollupJob extends AlterJob {
         // transaction id
         jobInfo.add(transactionId);
 
-
         // job state
         jobInfo.add(state.name());
 
@@ -1002,6 +1005,7 @@ public class RollupJob extends AlterJob {
         } else {
             jobInfo.add("N/A");
         }
+        jobInfo.add(Config.alter_table_timeout_second);
 
         jobInfos.add(jobInfo);
     }
@@ -1065,7 +1069,6 @@ public class RollupJob extends AlterJob {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

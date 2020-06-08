@@ -17,15 +17,17 @@
 
 package org.apache.doris.task;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.DppScheduler;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
@@ -41,15 +43,9 @@ import org.apache.doris.thrift.TEtlState;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -57,9 +53,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-@RunWith(PowerMockRunner.class)
-@PrepareForTest({ HadoopLoadEtlTask.class, Catalog.class })
-@PowerMockIgnore("javax.management.*")
 public class LoadEtlTaskTest {
     private long dbId;
     private long tableId;
@@ -69,8 +62,11 @@ public class LoadEtlTaskTest {
     private long backendId;
 
     private String label;
-    
+    @Mocked
     private Catalog catalog;
+    @Mocked
+    private EditLog editLog;
+    @Mocked
     private Load load;
     private Database db;
 
@@ -89,20 +85,28 @@ public class LoadEtlTaskTest {
     }
     
     @Test
-    public void testRunEtlTask() throws Exception {
+    public void testRunEtlTask(@Mocked DppScheduler dppScheduler) throws Exception {
         // mock catalog
         db = UnitTestUtil.createDb(dbId, tableId, paritionId, indexId, tabletId, backendId, 1L, 0L);
-        catalog = EasyMock.createNiceMock(Catalog.class);
-        EasyMock.expect(catalog.getDb(dbId)).andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getDb(db.getFullName())).andReturn(db).anyTimes();
-        // mock editLog
-        EditLog editLog = EasyMock.createMock(EditLog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        // mock static getInstance
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
-        
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbId);
+                minTimes = 0;
+                result = db;
+
+                catalog.getDb(db.getFullName());
+                minTimes = 0;
+                result = db;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
         // create job
         LoadJob job = new LoadJob(label);
         job.setState(JobState.ETL);
@@ -125,36 +129,52 @@ public class LoadEtlTaskTest {
         job.setIdToTableLoadInfo(idToTableLoadInfo);
 
         // mock load
-        load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.addLoadingPartitions(EasyMock.isA(Set.class))).andReturn(true).times(1);
-        EasyMock.expect(load.updateLoadJobState(job, JobState.LOADING)).andReturn(true).times(1);
-        EasyMock.replay(load);
-        EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(1);
-        EasyMock.replay(catalog);
+        new Expectations() {
+            {
+                load.addLoadingPartitions((Set) any);
+                minTimes = 0;
+                result = true;
+
+                load.updateLoadJobState(job, JobState.LOADING);
+                times = 1;
+                result = true;
+
+                catalog.getLoadInstance();
+                times = 1;
+                result = load;
+            }
+        };
         
         // mock dppscheduler
-        DppScheduler dppScheduler = EasyMock.createMock(DppScheduler.class);
         EtlStatus runningStatus = new EtlStatus();
         runningStatus.setState(TEtlState.RUNNING);
         Map<String, String> stats = Maps.newHashMap();
         stats.put("map() completion", "1");
         stats.put("reduce() completion", "0.2");
         runningStatus.setStats(stats);
-        EasyMock.expect(dppScheduler.getEtlJobStatus(EasyMock.anyString())).andReturn(runningStatus).times(1);
+
         EtlStatus finishedStatus = new EtlStatus();
         finishedStatus.setState(TEtlState.FINISHED);
         Map<String, String> counters = Maps.newHashMap();
         counters.put("dpp.norm.ALL", "100");
         counters.put("dpp.abnorm.ALL", "0");
         finishedStatus.setCounters(counters);
-        EasyMock.expect(dppScheduler.getEtlJobStatus(EasyMock.anyString())).andReturn(finishedStatus).times(1);
+
         Map<String, Long> etlFiles = Maps.newHashMap();
         etlFiles.put("label_0.0.0.0", 1L);
-        EasyMock.expect(dppScheduler.getEtlFiles(EasyMock.anyString())).andReturn(etlFiles).times(1);
-        EasyMock.replay(dppScheduler);
-        PowerMock.expectNew(DppScheduler.class, EasyMock.anyObject(DppConfig.class)).andReturn(dppScheduler).times(3);
-        PowerMock.replay(DppScheduler.class);
-        
+
+        new Expectations() {
+            {
+                dppScheduler.getEtlJobStatus(anyString);
+                times = 2;
+                returns(runningStatus, finishedStatus);
+
+                dppScheduler.getEtlFiles(anyString);
+                times = 1;
+                result = etlFiles;
+            }
+        };
+
         // test exec: running
         HadoopLoadEtlTask loadEtlTask = new HadoopLoadEtlTask(job);
         loadEtlTask.exec();
@@ -175,7 +195,7 @@ public class LoadEtlTaskTest {
                 .getIdToPartitionLoadInfo().get(paritionId).getVersion());
         int tabletNum = 0;
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
-        for (MaterializedIndex olapTable : partition.getMaterializedIndices()) {
+        for (MaterializedIndex olapTable : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : olapTable.getTablets()) {
                 ++tabletNum;
                 Assert.assertTrue(tabletLoadInfos.containsKey(tablet.getId()));

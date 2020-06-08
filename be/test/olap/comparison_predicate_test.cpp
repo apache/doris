@@ -20,6 +20,7 @@
 #include <google/protobuf/stubs/common.h>
 
 #include "olap/field.h"
+#include "olap/wrapper_field.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "runtime/mem_pool.h"
@@ -176,6 +177,7 @@ TEST_F(TestEqualPredicate, TYPE_NAME##_COLUMN) { \
     ASSERT_EQ(_vectorized_batch->size(), 1); \
     sel = _vectorized_batch->selected(); \
     ASSERT_EQ(*(col_data + sel[0]), 5); \
+    delete pred; \
 } \
 
 TEST_EQUAL_PREDICATE(int8_t, TINYINT, "TINYINT")
@@ -228,6 +230,7 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_FLOAT_EQ(*(col_data + sel[0]), 5.0);
+    delete pred;
 }
 
 TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
@@ -274,6 +277,7 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_DOUBLE_EQ(*(col_data + sel[0]), 5.0);
+    delete pred;
 }
 
 TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
@@ -323,9 +327,24 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value);
+    delete pred;
 }
 
 TEST_F(TestEqualPredicate, STRING_COLUMN) {
+    TabletSchema char_tablet_schema;
+    SetTabletSchema(std::string("STRING_COLUMN"), "CHAR",
+                 "REPLACE", 5, false, true, &char_tablet_schema);
+    // test WrapperField.from_string() for char type
+    WrapperField* field = WrapperField::create(char_tablet_schema.column(0));
+    ASSERT_EQ(OLAP_SUCCESS, field->from_string("true"));
+    const std::string tmp = field->to_string();
+    ASSERT_EQ(5, tmp.size());
+    ASSERT_EQ('t', tmp[0]);
+    ASSERT_EQ('r', tmp[1]);
+    ASSERT_EQ('u', tmp[2]);
+    ASSERT_EQ('e', tmp[3]);
+    ASSERT_EQ(0, tmp[4]);
+
     TabletSchema tablet_schema;
     SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR",
                  "REPLACE", 1, false, true, &tablet_schema);
@@ -389,6 +408,8 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value);
+    delete field;
+    delete pred;
 }
 
 TEST_F(TestEqualPredicate, DATE_COLUMN) {
@@ -450,6 +471,7 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value);
     ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
+    delete pred;
 }
 
 TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
@@ -511,6 +533,7 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value);
     ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
+    delete pred;
 }
 
 #define TEST_LESS_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE) \
@@ -566,6 +589,7 @@ TEST_F(TestLessPredicate, TYPE_NAME##_COLUMN) { \
         sum += *(col_data + sel[i]); \
     } \
     ASSERT_EQ(sum, 4); \
+    delete pred; \
 } \
 
 TEST_LESS_PREDICATE(int8_t, TINYINT, "TINYINT")
@@ -627,6 +651,7 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
         sum += *(col_data + sel[i]);
     }
     ASSERT_FLOAT_EQ(sum, 4.0);
+    delete pred;
 }
 
 TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
@@ -682,6 +707,7 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
         sum += *(col_data + sel[i]);
     }
     ASSERT_DOUBLE_EQ(sum, 4.0);
+    delete pred;
 }
 
 TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
@@ -741,6 +767,7 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
     }
     ASSERT_EQ(sum.integer, 4);
     ASSERT_EQ(sum.fraction, 4);
+    delete pred;
 }
 
 TEST_F(TestLessPredicate, STRING_COLUMN) {
@@ -805,6 +832,7 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_TRUE(strncmp((*(col_data + sel[0])).ptr, "bb", 2) == 0);
+    delete pred;
 }
 
 TEST_F(TestLessPredicate, DATE_COLUMN) {
@@ -863,6 +891,7 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-08");
+    delete pred;
 }
 
 TEST_F(TestLessPredicate, DATETIME_COLUMN) {
@@ -922,17 +951,12 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-08 00:01:00");
+    delete pred;
 }
 
 } // namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();

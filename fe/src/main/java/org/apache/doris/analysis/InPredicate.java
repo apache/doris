@@ -29,9 +29,9 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TInPredicate;
 
-import com.google.common.collect.Lists;
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,6 +53,8 @@ public class InPredicate extends Predicate {
     private final boolean isNotIn;
     private static final String IN = "in";
     private static final String NOT_IN = "not_in";
+
+    private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
@@ -97,6 +99,11 @@ public class InPredicate extends Predicate {
         isNotIn = other.isNotIn();
     }
 
+    public int getInElementNum() {
+        // the first child is compare expr
+        return getChildren().size() - 1;
+    }
+
     @Override
     public Expr clone() {
         return new InPredicate(this);
@@ -118,6 +125,10 @@ public class InPredicate extends Predicate {
     public Expr negate() {
       return new InPredicate(getChild(0), children.subList(1, children.size()),
           !isNotIn);
+    }
+
+    public List<Expr> getListChildren() {
+        return  children.subList(1, children.size());
     }
 
     public boolean isNotIn() {
@@ -142,7 +153,7 @@ public class InPredicate extends Predicate {
 //       OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
 //               FunctionOperator.FILTER_IN, true, true, type);
 //       Preconditions.checkState(match != null);
-//       Preconditions.checkState(match.getReturnType() == Type.BOOLEAN);
+//       Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
 //       this.vectorOpcode = match.opcode;
 //       LOG.info(debugString() + " opcode: " + vectorOpcode);
    }
@@ -248,12 +259,22 @@ public class InPredicate extends Predicate {
             return this;
         }
 
-        List<Expr> inListChildren = children.subList(1, children.size());
-        if (inListChildren.contains(leftChildValue)) {
-            return new BoolLiteral(true);
-        } else {
-            return new BoolLiteral(false);
+        if (leftChildValue instanceof NullLiteral) {
+            return leftChildValue;
         }
+
+        List<Expr> inListChildren = children.subList(1, children.size());
+        boolean containsLeftChild = inListChildren.contains(leftChildValue);
+
+        // See QueryPlanTest.java testConstantInPredicate() for examples.
+        // This logic should be same as logic in in_predicate.cpp: get_boolean_val()
+        if (containsLeftChild) {
+            return new BoolLiteral(!isNotIn);
+        }
+        if (inListChildren.contains(NULL_LITERAL)) {
+            return new NullLiteral();
+        }
+        return new BoolLiteral(isNotIn);
     }
 
     @Override

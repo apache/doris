@@ -42,18 +42,6 @@ public:
             _column_reader(NULL),
             _stream_factory(NULL) {
             _offsets.clear();
-        _map_in_streams.clear();
-
-        _present_buffers.clear();
-        
-        _data_buffers.clear();
-
-        _second_buffers.clear();
-
-        _dictionary_buffers.clear();
-
-        _length_buffers.clear();
-
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
@@ -71,31 +59,25 @@ public:
                 new(std::nothrow) OutStreamFactory(COMPRESS_LZ4,
                                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
         ASSERT_TRUE(_stream_factory != NULL);
-        config::column_dictionary_key_ration_threshold = 30;
+        config::column_dictionary_key_ratio_threshold = 30;
         config::column_dictionary_key_size_threshold = 1000;
     }
     
     virtual void TearDown() {
         SAFE_DELETE(_column_writer);
-
         SAFE_DELETE(_column_reader);
-
         SAFE_DELETE(_stream_factory);
-        
         SAFE_DELETE(_shared_buffer);
         
         _offsets.clear();
-
+        for (auto in_stream : _map_in_streams) {
+            delete in_stream.second;
+        }
         _map_in_streams.clear();
-
         _present_buffers.clear();
-        
         _data_buffers.clear();
-
         _second_buffers.clear();
-
         _dictionary_buffers.clear();
-
         _length_buffers.clear();
     }
 
@@ -233,7 +215,6 @@ public:
     }
 
     ColumnWriter *_column_writer;
-
     ColumnReader *_column_reader;
     std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
@@ -242,23 +223,15 @@ public:
     OutStreamFactory *_stream_factory;
 
     std::vector<size_t> _offsets;
-
     std::vector<StorageByteBuffer*> _present_buffers;
-
     std::vector<StorageByteBuffer*> _data_buffers;
-
     std::vector<StorageByteBuffer*> _second_buffers;
-
     std::vector<StorageByteBuffer*> _dictionary_buffers;
-
     std::vector<StorageByteBuffer*> _length_buffers;
 
     StorageByteBuffer* _shared_buffer;
-
     std::map<StreamName, ReadOnlyFileStream *> _map_in_streams;
-
     FileHandler helper;
-
     OlapReaderStatistics _stats;
 };
 
@@ -1780,6 +1753,69 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     ASSERT_NE(_column_reader->next_vector(
         _col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
 }
+TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
+    // write data
+    TabletSchema tablet_schema;
+
+    SetTabletSchemaWithOneColumn(
+            "DatetimeColumnWithoutPresent",
+            "DATETIME",
+            "REPLACE",
+            8,
+            true,
+            true, &tablet_schema);
+    CreateColumnWriter(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    write_row.set_null(0);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+
+    std::vector<string> val_string_array;
+    val_string_array.push_back("1000-01-01 00:00:00");
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    write_row.set_not_null(0);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+
+    ColumnDataHeaderMessage header;
+    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+
+    // read data
+    CreateColumnReader(tablet_schema);
+
+    RowCursor read_row;
+    read_row.init(tablet_schema);
+
+    _col_vector.reset(new ColumnVector());
+    ASSERT_EQ(_column_reader->next_vector(
+            _col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    bool *is_null = _col_vector->is_null();
+    ASSERT_EQ(is_null[0], true);
+
+    char *data = reinterpret_cast<char *>(_col_vector->col_data());
+    ASSERT_EQ(is_null[1], false);
+
+    data += sizeof(uint64_t);
+    read_row.set_field_content(0, data, _mem_pool.get());
+    std::cout << read_row.to_string() << std::endl;
+    ASSERT_TRUE(strncmp(read_row.to_string().c_str(),
+            "0&1000-01-01 00:00:00", strlen("0&1000-01-01 00:00:00")) == 0);
+
+    ASSERT_NE(_column_reader->next_vector(
+            _col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+}
+
 
 TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
     // write data
@@ -2980,7 +3016,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();

@@ -33,8 +33,11 @@ struct StringValue {
     // TODO: change ptr to an offset relative to a contiguous memory block,
     // so that we can send row batches between nodes without having to swizzle
     // pointers
+    // NOTE: This struct should keep the same memory layout with Slice, otherwise
+    // it will lead to BE crash.
+    // TODO(zc): we should unify this struct with Slice some day.
     char* ptr;
-    int len;
+    size_t len;
 
     StringValue(char* ptr, int len): ptr(ptr), len(len) {}
     StringValue(): ptr(NULL), len(0) {}
@@ -124,9 +127,6 @@ struct StringValue {
     static StringValue from_string_val(const doris_udf::StringVal& sv) {
         return StringValue(reinterpret_cast<char*>(sv.ptr), sv.len);
     }
-
-    // For C++/IR interop, we need to be able to look up types by name.
-    static const char* s_llvm_class_name;
 };
 
 // This function must be called 'hash_value' to be picked up by boost.

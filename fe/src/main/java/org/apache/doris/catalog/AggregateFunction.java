@@ -116,6 +116,27 @@ public class AggregateFunction extends Function {
         returnsNonNullOnEmpty = false;
     }
 
+    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
+                             Type retType, Type intermediateType, boolean hasVarArgs,
+                             HdfsURI location, String updateFnSymbol, String initFnSymbol,
+                             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
+                             String removeFnSymbol, String finalizeFnSymbol) {
+        super(fnName, argTypes, retType, hasVarArgs);
+        setLocation(location);
+        this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
+        this.updateFnSymbol = updateFnSymbol;
+        this.initFnSymbol = initFnSymbol;
+        this.serializeFnSymbol = serializeFnSymbol;
+        this.mergeFnSymbol = mergeFnSymbol;
+        this.getValueFnSymbol = getValueFnSymbol;
+        this.removeFnSymbol = removeFnSymbol;
+        this.finalizeFnSymbol = finalizeFnSymbol;
+        ignoresDistinct = false;
+        isAnalyticFn = false;
+        isAggregateFn = true;
+        returnsNonNullOnEmpty = false;
+    }
+
     public static AggregateFunction createBuiltin(String name,
             List<Type> argTypes, Type retType, Type intermediateType,
             String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
@@ -132,8 +153,20 @@ public class AggregateFunction extends Function {
             String serializeFnSymbol, String getValueFnSymbol, String removeFnSymbol,
             String finalizeFnSymbol, boolean ignoresDistinct, boolean isAnalyticFn,
             boolean returnsNonNullOnEmpty) {
+        return createBuiltin(name, argTypes, retType, intermediateType, false,
+                initFnSymbol, updateFnSymbol, mergeFnSymbol,
+                serializeFnSymbol, getValueFnSymbol, removeFnSymbol,
+                finalizeFnSymbol, ignoresDistinct, isAnalyticFn,returnsNonNullOnEmpty);
+    }
+
+    public static AggregateFunction createBuiltin(String name,
+                                                  List<Type> argTypes, Type retType, Type intermediateType, boolean hasVarArgs,
+                                                  String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
+                                                  String serializeFnSymbol, String getValueFnSymbol, String removeFnSymbol,
+                                                  String finalizeFnSymbol, boolean ignoresDistinct, boolean isAnalyticFn,
+                                                  boolean returnsNonNullOnEmpty) {
         AggregateFunction fn = new AggregateFunction(new FunctionName(name),
-                argTypes, retType, intermediateType, null, updateFnSymbol, initFnSymbol,
+                argTypes, retType, intermediateType, hasVarArgs, null, updateFnSymbol, initFnSymbol,
                 serializeFnSymbol, mergeFnSymbol, getValueFnSymbol, removeFnSymbol,
                 finalizeFnSymbol);
         fn.setBinaryType(TFunctionBinaryType.BUILTIN);
@@ -177,11 +210,11 @@ public class AggregateFunction extends Function {
 
     // Used to create UDAF
     public AggregateFunction(FunctionName fnName, Type[] argTypes,
-                             Type retType, Type intermediateType, String location,
+                             Type retType, boolean hasVarArgs, Type intermediateType, String location,
                              String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
                              String serializeFnSymbol, String finalizeFnSymbol,
                              String getValueFnSymbol, String removeFnSymbol) {
-        super(fnName, argTypes, retType, false);
+        super(fnName, argTypes, retType, hasVarArgs);
         this.setLocation(new HdfsURI(location));
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
         this.updateFnSymbol = updateFnSymbol;
@@ -202,6 +235,7 @@ public class AggregateFunction extends Function {
         FunctionName name;
         Type[] argTypes;
         Type retType;
+        boolean hasVarArgs;
         Type intermediateType;
         String objectFile;
         String initFnSymbol;
@@ -232,6 +266,11 @@ public class AggregateFunction extends Function {
 
         public AggregateFunctionBuilder retType(Type type) {
             this.retType = type;
+            return this;
+        }
+
+        public AggregateFunctionBuilder hasVarArgs(boolean hasVarArgs) {
+            this.hasVarArgs = hasVarArgs;
             return this;
         }
 
@@ -281,8 +320,8 @@ public class AggregateFunction extends Function {
         }
 
         public AggregateFunction build() {
-            AggregateFunction fn = new AggregateFunction(name, argTypes, retType, intermediateType, objectFile,
-                    initFnSymbol, updateFnSymbol, mergeFnSymbol,
+            AggregateFunction fn = new AggregateFunction(name, argTypes, retType, hasVarArgs, intermediateType,
+                    objectFile, initFnSymbol, updateFnSymbol, mergeFnSymbol,
                     serializeFnSymbol, finalizeFnSymbol,
                     getValueFnSymbol, removeFnSymbol);
             fn.setBinaryType(binaryType);
@@ -396,7 +435,6 @@ public class AggregateFunction extends Function {
         output.writeBoolean(returnsNonNullOnEmpty);
     }
 
-    @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);
 
@@ -419,13 +457,21 @@ public class AggregateFunction extends Function {
     @Override
     public String getProperties() {
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateFunctionStmt.OBJECT_FILE_KEY, getLocation().toString());
+        properties.put(CreateFunctionStmt.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
         properties.put(CreateFunctionStmt.MD5_CHECKSUM, checksum);
         properties.put(CreateFunctionStmt.INIT_KEY, initFnSymbol);
         properties.put(CreateFunctionStmt.UPDATE_KEY, updateFnSymbol);
         properties.put(CreateFunctionStmt.MERGE_KEY, mergeFnSymbol);
         properties.put(CreateFunctionStmt.SERIALIZE_KEY, serializeFnSymbol);
         properties.put(CreateFunctionStmt.FINALIZE_KEY, finalizeFnSymbol);
+
+        //getValueFn and removeFn may be null if not analytic agg
+        if (getValueFnSymbol != null) {
+            properties.put(CreateFunctionStmt.GET_VALUE_KEY, getValueFnSymbol);
+        }
+        if (removeFnSymbol != null) {
+            properties.put(CreateFunctionStmt.REMOVE_KEY, removeFnSymbol);
+        }
         return new Gson().toJson(properties);
     }
 }

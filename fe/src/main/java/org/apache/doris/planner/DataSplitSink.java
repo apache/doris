@@ -31,10 +31,9 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -51,6 +50,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,8 +59,9 @@ import java.util.Map;
 import java.util.Set;
 
 // This class used to split data read from file to batch
+@Deprecated
 public class DataSplitSink extends DataSink {
-    private static final Logger LOG = LogManager.getLogger(Planner.class);
+    private static final Logger LOG = LogManager.getLogger(DataSplitSink.class);
 
     private final OlapTable targetTable;
 
@@ -360,7 +361,7 @@ public class DataSplitSink extends DataSink {
         }
 
         public static List<EtlRangePartitionInfo> createParts(
-                OlapTable tbl, Map<String, Expr> exprByCol, Set<String> targetPartitions,
+                OlapTable tbl, Map<String, Expr> exprByCol, Set<Long> targetPartitionIds,
                 List<Expr> partitionExprs) throws AnalysisException {
             List<EtlRangePartitionInfo> parts = Lists.newArrayList();
             PartitionInfo partInfo = tbl.getPartitionInfo();
@@ -369,8 +370,8 @@ public class DataSplitSink extends DataSink {
                 for (Column col : rangePartitionInfo.getPartitionColumns()) {
                     partitionExprs.add(exprByCol.get(col.getName()));
                 }
-                for (Partition part : tbl.getPartitions()) {
-                    if (targetPartitions != null && !targetPartitions.contains(part.getName())) {
+                for (Partition part : tbl.getAllPartitions()) {
+                    if (targetPartitionIds != null && !targetPartitionIds.contains(part.getId())) {
                         continue;
                     }
                     DistributionInfo distInfo = part.getDistributionInfo();
@@ -381,8 +382,7 @@ public class DataSplitSink extends DataSink {
                             distInfo.getBucketNum()));
                 }
             } else if (partInfo.getType() == PartitionType.UNPARTITIONED) {
-                Preconditions.checkState(tbl.getPartitions().size() == 1,
-                        ErrorCode.ERR_BAD_PARTS_IN_UNPARTITION_TABLE.getDeclaringClass());
+                Preconditions.checkState(tbl.getPartitions().size() == 1, tbl.getId());
                 for (Partition part : tbl.getPartitions()) {
                     DistributionInfo distInfo = part.getDistributionInfo();
                     parts.add(new EtlRangePartitionInfo(

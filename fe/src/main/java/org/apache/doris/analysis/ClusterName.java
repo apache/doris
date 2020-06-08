@@ -62,7 +62,6 @@ public class ClusterName implements Writable {
         Text.writeString(out, db);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         cluster = Text.readString(in);
         db = Text.readString(in);

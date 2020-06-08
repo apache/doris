@@ -29,21 +29,19 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * author: wuyunfeng
- * date: 18/1/5 19:15
- * project: palo2
- */
 public class TransTablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId")
             .add("CommittedPartitionIds")
             .build();
 
-    private long tid;
+    private long dbId;
+    private long txnId;
 
-    public TransTablesProcDir(long tid) {
-        this.tid = tid;
+
+    public TransTablesProcDir(long dbId, long txnId) {
+        this.dbId = dbId;
+        this.txnId = txnId;
     }
 
     @Override
@@ -55,7 +53,7 @@ public class TransTablesProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         // get info
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> tableInfos = transactionMgr.getTableTransInfo(tid);
+        List<List<Comparable>> tableInfos = transactionMgr.getTableTransInfo(dbId, txnId);
         // sort by table id
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
         Collections.sort(tableInfos, comparator);
@@ -88,6 +86,6 @@ public class TransTablesProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid table id format: " + tableIdStr);
         }
 
-        return new TransPartitionProcNode(tid, tableId);
+        return new TransPartitionProcNode(dbId, txnId, tableId);
     }
 }

@@ -22,6 +22,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.EsTable;
@@ -41,7 +42,6 @@ import com.google.common.collect.Range;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.BufferedReader;
@@ -102,7 +102,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr1, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr1, esTable);
         } catch (Exception e) {
             e.printStackTrace();
             hasException = true;
@@ -112,23 +112,23 @@ public class EsStateStoreTest {
         assertEquals(2, esTableState.getPartitionedIndexStates().size());
         RangePartitionInfo definedPartInfo = (RangePartitionInfo) esTable.getPartitionInfo();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTableState.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange();
+        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange(false);
         assertEquals(2, rangeMap.size());
         Range<PartitionKey> part0 = rangeMap.get(new Long(0));
         EsIndexState esIndexState1 = esTableState.getIndexState(0);
         assertEquals(5, esIndexState1.getShardRoutings().size());
         assertEquals("index1", esIndexState1.getIndexName());
         PartitionKey lowKey = PartitionKey.createInfinityPartitionKey(definedPartInfo.getPartitionColumns(), false);
-        PartitionKey upperKey = PartitionKey.createPartitionKey(Lists.newArrayList("2018-10-01"), 
+        PartitionKey upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-01")),
                 definedPartInfo.getPartitionColumns());
         Range<PartitionKey> newRange = Range.closedOpen(lowKey, upperKey);
         assertEquals(newRange, part0);
         Range<PartitionKey> part1 = rangeMap.get(new Long(1));
         EsIndexState esIndexState2 = esTableState.getIndexState(1);
         assertEquals("index2", esIndexState2.getIndexName());
-        lowKey = PartitionKey.createPartitionKey(Lists.newArrayList("2018-10-01"), 
+        lowKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-01")),
                 definedPartInfo.getPartitionColumns());
-        upperKey = PartitionKey.createPartitionKey(Lists.newArrayList("2018-10-02"), 
+        upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-02")),
                 definedPartInfo.getPartitionColumns());
         newRange = Range.closedOpen(lowKey, upperKey);
         assertEquals(newRange, part1);
@@ -149,7 +149,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr3, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr3, esTable);
         } catch (Exception e) {
             e.printStackTrace();
             hasException = true;
@@ -164,14 +164,14 @@ public class EsStateStoreTest {
         // check partition info
         RangePartitionInfo definedPartInfo = (RangePartitionInfo) esTable.getPartitionInfo();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTableState.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange();
+        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange(false);
         assertEquals(1, rangeMap.size());
         Range<PartitionKey> part0 = rangeMap.get(new Long(0));
         EsIndexState esIndexState1 = esTableState.getIndexState(0);
         assertEquals(5, esIndexState1.getShardRoutings().size());
         assertEquals("index1", esIndexState1.getIndexName());
         PartitionKey lowKey = PartitionKey.createInfinityPartitionKey(definedPartInfo.getPartitionColumns(), false);
-        PartitionKey upperKey = PartitionKey.createPartitionKey(Lists.newArrayList("2018-10-01"), 
+        PartitionKey upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-01")),
                 definedPartInfo.getPartitionColumns());
         Range<PartitionKey> newRange = Range.closedOpen(lowKey, upperKey);
         assertEquals(newRange, part0);
@@ -197,7 +197,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr4, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr4, esTable);
         } catch (Exception e) {
             e.printStackTrace();
             hasException = true;
@@ -230,7 +230,7 @@ public class EsStateStoreTest {
         boolean hasException = false;
         EsTableState esTableState = null;
         try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr2, esTable);
+            esTableState = esStateStore.getTableState(clusterStateStr2, esTable);
         } catch (Exception e) {
             hasException = true;
         }

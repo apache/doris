@@ -17,13 +17,17 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
+
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class AgentTaskExecutor {
-    private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
+
+    private static final ExecutorService EXECUTOR = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_agent_task_threads_num, "agent-task-pool");
 
     public AgentTaskExecutor() {
+
     }
     
     public static void submit(AgentBatchTask task) {

@@ -21,8 +21,10 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
@@ -44,6 +46,12 @@ public class AgentTaskQueue {
     // backend id -> (task type -> (signature -> agent task))
     private static Table<Long, TTaskType, Map<Long, AgentTask>> tasks = HashBasedTable.create();
     private static int taskNum = 0;
+
+    public static synchronized void addBatchTask(AgentBatchTask batchTask) {
+        for (AgentTask task : batchTask.getAllTasks()) {
+            addTask(task);
+        }
+    }
  
     public static synchronized boolean addTask(AgentTask task) {
         long backendId = task.getBackendId();
@@ -70,6 +78,14 @@ public class AgentTaskQueue {
         return true;
     }
     
+    // remove all task in AgentBatchTask.
+    // the caller should make sure all tasks in AgentBatchTask is type of 'type'
+    public static synchronized void removeBatchTask(AgentBatchTask batchTask, TTaskType type) {
+        for (AgentTask task : batchTask.getAllTasks()) {
+            removeTask(task.getBackendId(), type, task.getSignature());
+        }
+    }
+
     public static synchronized void removeTask(long backendId, TTaskType type, long signature) {
         if (!tasks.contains(backendId, type)) {
             return;
@@ -101,8 +117,7 @@ public class AgentTaskQueue {
         }
 
         PushTask pushTask = (PushTask) task;
-        if (pushTask.getVersion() != version || pushTask.getVersionHash() != versionHash
-                || pushTask.getPushType() != pushType) {
+        if (pushTask.getVersion() != version || pushTask.getPushType() != pushType) {
             return;
         }
 
@@ -128,6 +143,15 @@ public class AgentTaskQueue {
         return signatureMap.get(signature);
     }
     
+    // this is just for unit test
+    public static synchronized List<AgentTask> getTask(TTaskType type) {
+        List<AgentTask> res = Lists.newArrayList();
+        for (Map<Long, AgentTask> agentTasks : tasks.column(TTaskType.ALTER).values()) {
+            res.addAll(agentTasks.values());
+        }
+        return res;
+    }
+
     public static synchronized List<AgentTask> getDiffTasks(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
         List<AgentTask> diffTasks = new ArrayList<AgentTask>();
         if (!tasks.containsRow(backendId)) {
@@ -191,6 +215,19 @@ public class AgentTaskQueue {
 
     public static synchronized int getTaskNum() {
         return taskNum;
+    }
+
+    public static synchronized Multimap<Long, Long> getTabletIdsByType(TTaskType type) {
+        Multimap<Long, Long> tabletIds = HashMultimap.create();
+        Map<Long, Map<Long, AgentTask>> taskMap = tasks.column(type);
+        if (taskMap != null) {
+            for (Map<Long, AgentTask> signatureMap : taskMap.values()) {
+                for (AgentTask task : signatureMap.values()) {
+                    tabletIds.put(task.getDbId(), task.getTabletId());
+                }
+            }
+        }
+        return tabletIds;
     }
 
     public static synchronized int getTaskNum(long backendId, TTaskType type, boolean isFailed) {

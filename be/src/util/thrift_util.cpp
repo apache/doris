@@ -17,19 +17,21 @@
 
 #include "util/thrift_util.h"
 
-#include <boost/shared_ptr.hpp>
-#include <boost/thread.hpp>
 #include <thrift/Thrift.h>
-#include <thrift/transport/TSocket.h>
+#include <thrift/concurrency/PosixThreadFactory.h>
+#include <thrift/concurrency/ThreadManager.h>
 #include <thrift/server/TNonblockingServer.h>
 #include <thrift/transport/TServerSocket.h>
-#include <thrift/concurrency/ThreadManager.h>
-#include <thrift/concurrency/PosixThreadFactory.h>
+#include <thrift/transport/TSocket.h>
 
-#include "util/hash_util.hpp"
-#include "util/thrift_server.h"
-#include "gen_cpp/Types_types.h"
+#include <boost/shared_ptr.hpp>
+#include <boost/thread.hpp>
+
 #include "gen_cpp/Data_types.h"
+#include "gen_cpp/Types_types.h"
+#include "util/hash_util.hpp"
+#include "util/monotime.h"
+#include "util/thrift_server.h"
 
 // TCompactProtocol requires some #defines to work right.  They also define UNLIKLEY
 // so we need to undef this.
@@ -43,28 +45,28 @@
 
 namespace doris {
 
-ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size) :
-        _mem_buffer(new apache::thrift::transport::TMemoryBuffer(initial_buffer_size)) {
+ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size)
+        : _mem_buffer(new apache::thrift::transport::TMemoryBuffer(initial_buffer_size)) {
     if (compact) {
-        apache::thrift::protocol::TCompactProtocolFactoryT<
-                apache::thrift::transport::TMemoryBuffer> factory;
+        apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
+                factory;
         _protocol = factory.getProtocol(_mem_buffer);
     } else {
-        apache::thrift::protocol::TBinaryProtocolFactoryT<apache::thrift::transport::TMemoryBuffer> factory;
+        apache::thrift::protocol::TBinaryProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
+                factory;
         _protocol = factory.getProtocol(_mem_buffer);
     }
 }
 
 boost::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
-        boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem,
-        bool compact) {
+        boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact) {
     if (compact) {
-        apache::thrift::protocol::TCompactProtocolFactoryT<
-                apache::thrift::transport::TMemoryBuffer> tproto_factory;
+        apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
+                tproto_factory;
         return tproto_factory.getProtocol(mem);
     } else {
-        apache::thrift::protocol::TBinaryProtocolFactoryT<
-                apache::thrift::transport::TMemoryBuffer> tproto_factory;
+        apache::thrift::protocol::TBinaryProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
+                tproto_factory;
         return tproto_factory.getProtocol(mem);
     }
 }
@@ -89,18 +91,11 @@ void init_thrift_logging() {
     apache::thrift::GlobalOutput.setOutputFunction(thrift_output_function);
 }
 
-Status wait_for_local_server(
-        const ThriftServer& server,
-        int num_retries,
-        int retry_interval_ms) {
+Status wait_for_local_server(const ThriftServer& server, int num_retries, int retry_interval_ms) {
     return wait_for_server("localhost", server.port(), num_retries, retry_interval_ms);
 }
 
-Status wait_for_server(
-        const std::string& host,
-        int port,
-        int num_retries,
-        int retry_interval_ms) {
+Status wait_for_server(const std::string& host, int port, int num_retries, int retry_interval_ms) {
     int retry_count = 0;
 
     while (retry_count < num_retries) {
@@ -116,11 +111,10 @@ Status wait_for_server(
         }
 
         ++retry_count;
-        VLOG_QUERY << "Waiting " << retry_interval_ms << "ms for Thrift server at "
-                   << host << ":" << port
-                   << " to come up, failed attempt " << retry_count
-                   << " of " << num_retries;
-        usleep(retry_interval_ms * 1000);
+        VLOG_QUERY << "Waiting " << retry_interval_ms << "ms for Thrift server at " << host << ":"
+                   << port << " to come up, failed attempt " << retry_count << " of "
+                   << num_retries;
+        SleepFor(MonoDelta::FromMilliseconds(retry_interval_ms));
     }
 
     return Status::InternalError("Server did not come up");
@@ -145,4 +139,4 @@ bool t_network_address_comparator(const TNetworkAddress& a, const TNetworkAddres
 
     return false;
 }
-}
+} // namespace doris

@@ -72,7 +72,6 @@ public class BrokerLoadErrorHub extends LoadErrorHub {
             }
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             brokerName = Text.readString(in);
             path = Text.readString(in);

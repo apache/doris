@@ -46,12 +46,10 @@ class ObjectPool;
 class Status;
 class ExecEnv;
 class Expr;
-class LlvmCodeGen;
 class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
 class ResultBufferMgr;
-class ThreadPool;
 class DiskIoMgrs;
 class TmpFileMgr;
 class BufferedBlockMgr;
@@ -68,15 +66,15 @@ public:
     // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id,
                  const TQueryOptions& query_options,
-                 const std::string& now, ExecEnv* exec_env);
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env);
+        const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.
-    RuntimeState(const std::string& now);
+    RuntimeState(const TQueryGlobals& query_globals);
 
     // Empty d'tor to avoid issues with scoped_ptr.
     ~RuntimeState();
@@ -84,7 +82,7 @@ public:
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id,
                 const TQueryOptions& query_options,
-                const std::string& now, ExecEnv* exec_env);
+                const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // Set up four-level hierarchy of mem trackers: process, query, fragment instance.
     // The instance tracker is tied to our profile.
@@ -92,6 +90,9 @@ public:
     // will add a fourth level when they are initialized.
     // This function also initializes a user function mem tracker (in the fourth level).
     Status init_mem_trackers(const TUniqueId& query_id);
+
+    // for ut only
+    Status init_instance_mem_tracker();
 
     /// Called from Init() to set up buffer reservations and the file group.
     Status init_buffer_poolstate();
@@ -136,8 +137,11 @@ public:
     int num_scanner_threads() const {
         return _query_options.num_scanner_threads;
     }
-    const DateTimeValue* now() const {
-        return _now.get();
+    int64_t timestamp_ms() const {
+        return _timestamp_ms;
+    }
+    const std::string& timezone() const {
+        return _timezone;
     }
     const std::string& user() const {
         return _user;
@@ -181,12 +185,6 @@ public:
         return _root_node_id + 1;
     }
 
-    // Returns true if the codegen object has been created. Note that this may return false
-    // even when codegen is enabled if nothing has been codegen'd.
-    bool codegen_created() const {
-        return _codegen.get() != NULL;
-    }
-
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() {
         return &_profile;
@@ -195,18 +193,6 @@ public:
     // Returns true if codegen is enabled for this query.
     bool codegen_enabled() const {
         return !_query_options.disable_codegen;
-    }
-
-    // Returns CodeGen object.  Returns NULL if codegen is disabled.
-    LlvmCodeGen* llvm_codegen() {
-        return _codegen.get();
-    }
-    // Returns CodeGen object.  Returns NULL if the codegen object has not been
-    // created. If codegen is enabled for the query, the codegen object will be
-    // created as part of the RuntimeState's initialization.
-    // Otherwise, it can be created by calling create_codegen().
-    LlvmCodeGen* codegen() {
-        return _codegen.get();
     }
 
     // Create a codegen object in _codegen. No-op if it has already been called.
@@ -268,12 +254,6 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    // Returns _codegen in 'codegen'. If 'initialize' is true, _codegen will be created if
-    // it has not been initialized by a previous call already. If 'initialize' is false,
-    // 'codegen' will be set to NULL if _codegen has not been initialized.
-    Status get_codegen(LlvmCodeGen** codegen, bool initialize);
-    Status get_codegen(LlvmCodeGen** codegen);
-
     bool is_cancelled() const {
         return _is_cancelled;
     }
@@ -331,7 +311,7 @@ public:
     // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
     // or a mem limit was exceeded). Exec nodes should check this periodically so execution
     // doesn't continue if the query terminates abnormally.
-    Status check_query_state();
+    Status check_query_state(const std::string& msg);
 
     std::vector<std::string>& output_files() {
         return _output_files;
@@ -409,6 +389,10 @@ public:
     void append_error_msg_to_file(const std::string& line, const std::string& error_msg,
         bool is_summary = false);
 
+    int64_t num_bytes_load_total() {
+        return _num_bytes_load_total.load();
+    }
+
     int64_t num_rows_load_total() {
         return _num_rows_load_total.load();
     }
@@ -427,6 +411,18 @@ public:
 
     void update_num_rows_load_total(int64_t num_rows) {
         _num_rows_load_total.fetch_add(num_rows);
+    }
+
+    void set_num_rows_load_total(int64_t num_rows) {
+        _num_rows_load_total.store(num_rows);
+    }
+
+    void update_num_bytes_load_total(int64_t bytes_load) {
+        _num_bytes_load_total.fetch_add(bytes_load);
+    }
+
+    void set_update_num_bytes_load_total(int64_t bytes_load) {
+        _num_bytes_load_total.store(bytes_load);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -491,6 +487,10 @@ public:
     /// Helper to call QueryState::StartSpilling().
     Status StartSpilling(MemTracker* mem_tracker);
 
+    // get mem limit for load channel
+    // if load mem limit is not set, or is zero, using query mem limit instead.
+    int64_t get_load_mem_limit();
+
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
@@ -532,15 +532,15 @@ private:
 
     // Username of user that is executing the query to which this RuntimeState belongs.
     std::string _user;
-    // Query-global timestamp, e.g., for implementing now().
-    // Use pointer to avoid inclusion of timestampvalue.h and avoid clang issues.
-    boost::scoped_ptr<DateTimeValue> _now;
+
+    //Query-global timestamp_ms
+    int64_t _timestamp_ms;
+    std::string _timezone;
 
     TUniqueId _query_id;
     TUniqueId _fragment_instance_id;
     TQueryOptions _query_options;
-    ExecEnv* _exec_env;
-    boost::scoped_ptr<LlvmCodeGen> _codegen;
+    ExecEnv* _exec_env = nullptr;
 
     // Thread resource management object for this fragment's execution.  The runtime
     // state is responsible for returning this pool to the thread mgr.
@@ -599,6 +599,8 @@ private:
     std::atomic<int64_t> _num_rows_load_unselected; // rows filtered by predicates
     std::atomic<int64_t> _num_print_error_rows;
 
+    std::atomic<int64_t> _num_bytes_load_total;  // total bytes read from source
+
     std::vector<std::string> _export_output_files;
 
     std::string _import_label;
@@ -611,7 +613,7 @@ private:
     int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
-    std::ofstream* _error_log_file; // error file path, absolute path
+    std::ofstream* _error_log_file = nullptr; // error file path, absolute path
     std::unique_ptr<LoadErrorHub> _error_hub;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 

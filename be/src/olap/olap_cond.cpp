@@ -190,39 +190,35 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     return OLAP_SUCCESS;
 }
 
-bool Cond::eval(char* right) const {
-    //通过单列上的单个查询条件对row进行过滤
-    if (right == NULL) {
-        return false;
-    }
-    if (*reinterpret_cast<bool*>(right) && op != OP_IS) {
+bool Cond::eval(const RowCursorCell& cell) const {
+    if (cell.is_null() && op != OP_IS) {
         //任何operand和NULL的运算都是false
         return false;
     }
 
     switch (op) {
     case OP_EQ:
-        return operand_field->cmp(right) == 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) == 0;
     case OP_NE:
-        return operand_field->cmp(right) != 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) != 0;
     case OP_LT:
-        return operand_field->cmp(right) > 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) > 0;
     case OP_LE:
-        return operand_field->cmp(right) >= 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) >= 0;
     case OP_GT:
-        return operand_field->cmp(right) < 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) < 0;
     case OP_GE:
-        return operand_field->cmp(right) <= 0;
+        return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
     case OP_IN: {
         for (const WrapperField* field : operand_set) {
-            if (field->cmp(right) == 0) {
+            if (field->field()->compare_cell(*field, cell) == 0) {
                 return true;
             }
         }
         return false;
     }
     case OP_IS: {
-        if (operand_field->is_null() == *reinterpret_cast<bool*>(right)) {
+        if (operand_field->is_null() == cell.is_null()) {
             return true;
         } else {
             return false;
@@ -463,7 +459,50 @@ bool Cond::eval(const BloomFilter& bf) const {
         break;
     }
 
-    return false;
+    return true;
+}
+
+bool Cond::eval(const segment_v2::BloomFilter* bf) const {
+    //通过单列上BloomFilter对block进行过滤。
+    switch (op) {
+    case OP_EQ: {
+        bool existed = false;
+        if (operand_field->is_string_type()) {
+            Slice* slice = (Slice*)(operand_field->ptr());
+            existed = bf->test_bytes(slice->data, slice->size);
+        } else {
+            existed = bf->test_bytes(operand_field->ptr(), operand_field->size());
+        }
+        return existed;
+    }
+    case OP_IN: {
+        FieldSet::const_iterator it = operand_set.begin();
+        for (; it != operand_set.end(); ++it) {
+            bool existed = false;
+            if ((*it)->is_string_type()) {
+                Slice* slice = (Slice*)((*it)->ptr());
+                existed = bf->test_bytes(slice->data, slice->size);
+            } else {
+                existed = bf->test_bytes((*it)->ptr(), (*it)->size());
+            }
+            if (existed) { return true; }
+        }
+        return false;
+    }
+    case OP_IS: {
+        // IS [NOT] NULL can only used in to filter IS NULL predicate.
+        if (operand_field->is_null()) {
+            return bf->test_bytes(nullptr, 0);
+        } else {
+            // is not null
+            return !bf->test_bytes(nullptr, 0);
+        }
+    }
+    default:
+        break;
+    }
+
+    return true;
 }
 
 CondColumn::~CondColumn() {
@@ -485,11 +524,10 @@ OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& col
 
 bool CondColumn::eval(const RowCursor& row) const {
     //通过一列上的所有查询条件对单行数据进行过滤
-    Field* field = const_cast<Field*>(row.get_field_by_index(_col_index));
-    char* buf = field->get_field_ptr(row.get_buf());
+    auto cell = row.cell(_col_index);
     for (auto& each_cond : _conds) {
         // As long as there is one condition not satisfied, we can return false
-        if (!each_cond->eval(buf)) {
+        if (!each_cond->eval(cell)) {
             return false;
         }
     }
@@ -555,6 +593,16 @@ bool CondColumn::eval(const BloomFilter& bf) const {
     return true;
 }
 
+bool CondColumn::eval(const segment_v2::BloomFilter* bf) const {
+    for (auto& each_cond : _conds) {
+        if (!each_cond->eval(bf)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 OLAPStatus Conditions::append_condition(const TCondition& tcond) {
     int32_t index = _get_field_index(tcond.column_name);
     if (index < 0) {
@@ -589,7 +637,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     }
     
     for (auto& each_cond : _columns) {
-        if (each_cond.second->is_key() && !each_cond.second->eval(row)) {
+        if (_cond_column_is_key_or_duplicate(each_cond.second) && !each_cond.second->eval(row)) {
             return false;
         }
     }
@@ -601,16 +649,14 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
 }
 
 bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
-    //通过所有列上的删除条件对version进行过滤
+    // ZoneMap will store min/max of rowset.
+    // The function is to filter rowset using ZoneMaps
+    // and query predicates.
     for (auto& cond_it : _columns) {
-        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
-            LOG(WARNING) << "where condition not equal zone maps size. "
-                         << "cond_id=" << cond_it.first
-                         << ", zone_map_size=" << zone_maps.size();
-            return false;
-        }
-        if (cond_it.second->is_key() && !cond_it.second->eval(zone_maps[cond_it.first])) {
-            return true;
+        if (_cond_column_is_key_or_duplicate(cond_it.second)) {
+            if (cond_it.first < zone_maps.size() && !cond_it.second->eval(zone_maps.at(cond_it.first))) {
+                return true;
+            }
         }
     }
     return false;
@@ -620,7 +666,8 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     if (_columns.empty()) {
         return DEL_NOT_SATISFIED;
     }
-    //通过所有列上的删除条件对version进行过滤
+    // ZoneMap and DeletePredicate are all stored in TabletMeta.
+    // This function is to filter rowset using ZoneMap and Delete Predicate.
     /*
      * the relationship between condcolumn A and B is A & B.
      * if any delete condition is not satisfied, the data can't be filtered.
@@ -633,9 +680,9 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     for (auto& cond_it : _columns) {
         /*
          * this is base on the assumption that the delete condition
-         * is only about key field, not about value field.
+         * is only about key field, not about value field except the storage model is duplicate.
         */
-        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
+        if (_cond_column_is_key_or_duplicate(cond_it.second) && cond_it.first > zone_maps.size()) {
             LOG(WARNING) << "where condition not equal column statistics size. "
                          << "cond_id=" << cond_it.first
                          << ", zone_map_size=" << zone_maps.size();
@@ -643,7 +690,7 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
             continue;
         }
 
-        int del_ret = cond_it.second->del_eval(zone_maps[cond_it.first]);
+        int del_ret = cond_it.second->del_eval(zone_maps.at(cond_it.first));
         if (DEL_SATISFIED == del_ret) {
             continue;
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {
@@ -664,6 +711,14 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
         ret = DEL_SATISFIED;
     }
     return ret;
+}
+
+CondColumn* Conditions::get_column(int32_t cid) const {
+    auto iter = _columns.find(cid);
+    if (iter != _columns.end()) {
+        return iter->second;
+    }
+    return nullptr;
 }
 
 }  // namespace doris

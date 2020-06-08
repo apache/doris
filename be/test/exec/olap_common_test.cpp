@@ -40,7 +40,7 @@ void construct_scan_range(TPaloScanRange* doris_scan_range) {
     doris_scan_range->hosts.push_back(host);
     doris_scan_range->__set_schema_hash("216424022");
     doris_scan_range->__set_version("0");
-    doris_scan_range->__set_version_hash("3997217299075720338");
+    doris_scan_range->__set_version_hash("0");
     doris_scan_range->engine_table_name.push_back("ShowQStats");
     doris_scan_range->__set_db_name("olap");
     TKeyRange key_range;

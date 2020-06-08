@@ -17,24 +17,26 @@
 
 package org.apache.doris.mysql.privilege;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 
-import mockit.NonStrictExpectations;
-
 public class MockedAuth {
 
     public static void mockedAuth(PaloAuth auth) {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 // auth.checkHasPriv((ConnectContext) any,, priv, levels)
@@ -43,21 +45,26 @@ public class MockedAuth {
     }
 
     public static void mockedConnectContext(ConnectContext ctx, String user, String ip) {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = user;
 
                 ctx.getRemoteIP();
+                minTimes = 0;
                 result = ip;
 
                 ctx.getState();
+                minTimes = 0;
                 result = new QueryState();
 
                 ctx.getCurrentUserIdentity();
+                minTimes = 0;
                 UserIdentity userIdentity = new UserIdentity(user, ip);
                 userIdentity.setIsAnalyzed();
                 result = userIdentity;

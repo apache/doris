@@ -52,8 +52,16 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String HELP = "# HELP ";
     private static final String TYPE = "# TYPE ";
 
+    private int ordinal = 0;
+    private int metricNumber = 0;
+
     public PrometheusMetricVisitor(String prefix) {
         super(prefix);
+    }
+
+    @Override
+    public void setMetricNumber(int metricNumber) {
+        this.metricNumber = metricNumber;
     }
 
     @Override
@@ -175,13 +183,20 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         final String NODE_INFO = "node_info";
         sb.append(Joiner.on(" ").join(TYPE, NODE_INFO, "gauge\n"));
         sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
-                .append(Catalog.getInstance().getFrontends(null).size()).append("\n");
+                .append(Catalog.getCurrentCatalog().getFrontends(null).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
                 .append(Catalog.getCurrentSystemInfo().getBackendIds(false).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"alive\"} ")
                 .append(Catalog.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
                 .append(Catalog.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
+        sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(
+                Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count()).append("\n");
+
+        // only master FE has this metrics, to help the Grafana knows who is the master
+        if (Catalog.getCurrentCatalog().isMaster()) {
+            sb.append(NODE_INFO).append("{type=\"is_master\"} ").append(1).append("\n");
+        }
         return;
     }
 }

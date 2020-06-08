@@ -17,23 +17,31 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.BrokerHbResponse;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class FsBroker implements Writable, Comparable<FsBroker> {
+    @SerializedName(value = "ip")
     public String ip;
+    @SerializedName(value = "port")
     public int port;
     // msg for ping result
     public String heartbeatErrMsg = "";
-    public long lastUpdateTime;
+    public long lastUpdateTime = -1;
+    
+    @SerializedName(value = "lastStartTime")
     public long lastStartTime = -1;
-
+    @SerializedName(value = "isAlive")
     public boolean isAlive;
 
     public FsBroker() {
@@ -107,12 +115,11 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, ip);
-        out.writeInt(port);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         ip = Text.readString(in);
         port = in.readInt();
     }
@@ -123,9 +130,14 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
     }
 
     public static FsBroker readIn(DataInput in) throws IOException {
-        FsBroker broker = new FsBroker();
-        broker.readFields(in);
-        return broker;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_73) {
+            FsBroker broker = new FsBroker();
+            broker.readFields(in);
+            return broker;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, FsBroker.class);
+        }
     }
 }
 

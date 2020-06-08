@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -28,9 +30,11 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -40,10 +44,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -81,12 +88,19 @@ public class InsertStmt extends DdlStmt {
     public static final String STREAMING = "STREAMING";
 
     private final TableName tblName;
-    private final Set<String> targetPartitions;
+    private final PartitionNames targetPartitionNames;
+    // parsed from targetPartitionNames.
+    // if targetPartitionNames is not set, add all formal partitions' id of the table into it
+    private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
-    private final QueryStmt queryStmt;
+    private QueryStmt queryStmt;
     private final List<String> planHints;
     private Boolean isRepartition;
     private boolean isStreaming = false;
+    private String label = null;
+    private boolean isUserSpecifiedLabel = false;
+    // uuid will be generated at analysis phase, and be used as loadid and query id of insert plan
+    private UUID uuid;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -107,26 +121,31 @@ public class InsertStmt extends DdlStmt {
     private DataSink dataSink;
     private DataPartition dataPartition;
 
-    List<Column> targetColumns = Lists.newArrayList();
+    private List<Column> targetColumns = Lists.newArrayList();
 
-    public InsertStmt(InsertTarget target, List<String> cols, InsertSource source, List<String> hints) {
+    /*
+     * InsertStmt may be analyzed twice, but transaction must be only begun once.
+     * So use a boolean to check if transaction already begun.
+     */
+    private boolean isTransactionBegin = false;
+
+    public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
-        List<String> tmpPartitions = target.getPartitions();
-        if (tmpPartitions != null) {
-            targetPartitions = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            targetPartitions.addAll(tmpPartitions);
-        } else {
-            targetPartitions = null;
-        }
+        this.targetPartitionNames = target.getPartitionNames();
+        this.label = label;
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
-        targetColumnNames = cols;
+        this.targetColumnNames = cols;
+
+        if (!Strings.isNullOrEmpty(label)) {
+            isUserSpecifiedLabel = true;
+        }
     }
 
     // Ctor for CreateTableAsSelectStmt
     public InsertStmt(TableName name, QueryStmt queryStmt) {
         this.tblName = name;
-        this.targetPartitions = null;
+        this.targetPartitionNames = null;
         this.targetColumnNames = null;
         this.queryStmt = queryStmt;
         this.planHints = null;
@@ -189,6 +208,10 @@ public class InsertStmt extends DdlStmt {
         return queryStmt;
     }
 
+    public void setQueryStmt(QueryStmt queryStmt) {
+        this.queryStmt = queryStmt;
+    }
+
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
@@ -205,13 +228,28 @@ public class InsertStmt extends DdlStmt {
         return isStreaming;
     }
 
-    // Only valid when this statement is streaming
-    public OlapTableSink getOlapTableSink() {
-        return (OlapTableSink) dataSink;
+    public String getLabel() {
+        return label;
+    }
+
+    public boolean isUserSpecifiedLabel() {
+        return isUserSpecifiedLabel;
+    }
+
+    public UUID getUUID() {
+        return uuid;
+    }
+
+    public DataSink getDataSink() {
+        return dataSink;
     }
 
     public Database getDbObj() {
         return db;
+    }
+
+    public boolean isTransactionBegin() {
+        return isTransactionBegin;
     }
 
     @Override
@@ -231,8 +269,8 @@ public class InsertStmt extends DdlStmt {
         }
 
         // check partition
-        if (targetPartitions != null && targetPartitions.isEmpty()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED);
+        if (targetPartitionNames != null) {
+            targetPartitionNames.analyze(analyzer);
         }
 
         // set target table and
@@ -245,22 +283,32 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        if (targetTable instanceof OlapTable) {
-            String dbName = tblName.getDb();
-            // check exist
-            db = analyzer.getCatalog().getDb(dbName);
-            // although the insert stmt maybe failed at next stage, but has to begin transaction here
-            // if get transactionid at add job stage, the transaction id maybe a little larger, it maybe error at alter job to check
-            // if all previous job finished
-            UUID uuid = UUID.randomUUID();
-            String jobLabel = "insert_" + uuid;
-            LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
-            long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
-            transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                    jobLabel, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
+        db = analyzer.getCatalog().getDb(tblName.getDb());
+        uuid = UUID.randomUUID();
+
+        // create label and begin transaction
+        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        if (!isExplain() && !isTransactionBegin) {
+            if (Strings.isNullOrEmpty(label)) {
+                label = "insert_" + uuid.toString();
+            }
+
+            if (targetTable instanceof OlapTable) {
+                LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
+                MetricRepo.COUNTER_LOAD_ADD.increase(1L);
+                transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                        Lists.newArrayList(targetTable.getId()), label,
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        sourceType, timeoutSecond);
+            }
+            isTransactionBegin = true;
+        }
+
+        // init data sink
+        if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-            sink.init(loadId, transactionId, db.getId());
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond);
         }
     }
 
@@ -276,32 +324,33 @@ public class InsertStmt extends DdlStmt {
         if (targetTable instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) targetTable;
 
-            if (olapTable.getPartitions().size() == 0) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, tblName);
-            }
-
             // partition
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
                 }
-                for (String partName : targetPartitions) {
-                    Partition part = olapTable.getPartition(partName);
+                for (String partName : targetPartitionNames.getPartitionNames()) {
+                    Partition part = olapTable.getPartition(partName, targetPartitionNames.isTemp());
                     if (part == null) {
                         ErrorReport.reportAnalysisException(
                                 ErrorCode.ERR_UNKNOWN_PARTITION, partName, targetTable.getName());
                     }
+                    targetPartitionIds.add(part.getId());
+                }
+            } else {
+                for (Partition partition : olapTable.getPartitions()) {
+                    targetPartitionIds.add(partition.getId());
                 }
             }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
-            for (Column col : olapTable.getBaseSchema()) {
+            for (Column col : olapTable.getFullSchema()) {
                 SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
                 slotDesc.setIsMaterialized(true);
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
-                if (true == col.isAllowNull()) {
+                if (col.isAllowNull()) {
                     slotDesc.setIsNullable(true);
                 } else {
                     slotDesc.setIsNullable(false);
@@ -310,17 +359,15 @@ public class InsertStmt extends DdlStmt {
             // will use it during create load job
             indexIdToSchemaHash = olapTable.getIndexIdToSchemaHash();
         } else if (targetTable instanceof MysqlTable) {
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
         } else if (targetTable instanceof BrokerTable) {
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
 
             BrokerTable brokerTable = (BrokerTable) targetTable;
-            List<String> paths = brokerTable.getPaths();
-
             if (!brokerTable.isWritable()) {
                 throw new AnalysisException("table " + brokerTable.getName()
                                                     + "is not writable. path should be an dir");
@@ -340,16 +387,18 @@ public class InsertStmt extends DdlStmt {
             if (mentionedCols.contains(col.getName())) {
                 continue;
             }
-            if (col.getDefaultValue() == null) {
+            if (col.getDefaultValue() == null && !col.isAllowNull()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NOT_MENTIONED, col.getName());
             }
         }
     }
 
-    public void analyzeSubquery(Analyzer analyzer) throws UserException {
+    private void analyzeSubquery(Analyzer analyzer) throws UserException {
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         if (targetColumnNames == null) {
+            // the mentioned columns are columns which are visible to user, so here we use
+            // getBaseSchema(), not getFullSchema()
             for (Column col : targetTable.getBaseSchema()) {
                 mentionedColumns.add(col.getName());
                 targetColumns.add(col);
@@ -365,6 +414,43 @@ public class InsertStmt extends DdlStmt {
                 }
                 targetColumns.add(col);
             }
+            // hll column mush in mentionedColumns
+            for (Column col : targetTable.getBaseSchema()) {
+                if (col.getType().isHllType() && !mentionedColumns.contains(col.getName())) {
+                    throw new AnalysisException (" hll column " + col.getName() + " mush in insert into columns");
+                }
+                if (col.getType().isBitmapType() && !mentionedColumns.contains(col.getName())) {
+                    throw new AnalysisException (" object column " + col.getName() + " mush in insert into columns");
+                }
+            }
+        }
+
+        /*
+         * When doing schema change, there may be some shadow columns. we should add
+         * them to the end of targetColumns. And use 'origColIdxsForShadowCols' to save
+         * the index of column in 'targetColumns' which the shadow column related to.
+         * eg: origin targetColumns: (A,B,C), shadow column: __doris_shadow_B after
+         * processing, targetColumns: (A, B, C, __doris_shadow_B), and
+         * origColIdxsForShadowCols has 1 element: "1", which is the index of column B
+         * in targetColumns.
+         * 
+         * Rule A: If the column which the shadow column related to is not mentioned,
+         * then do not add the shadow column to targetColumns. They will be filled by
+         * null or default value when loading.
+         */
+        List<Integer> origColIdxsForShadowCols = Lists.newArrayList();
+        for (Column column : targetTable.getFullSchema()) {
+            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                String origName = Column.removeNamePrefix(column.getName());
+                for (int i = 0; i < targetColumns.size(); i++) {
+                    if (targetColumns.get(i).nameEquals(origName, false)) {
+                        // Rule A
+                        origColIdxsForShadowCols.add(i);
+                        targetColumns.add(column);
+                        break;
+                    }
+                }
+            }
         }
 
         // parse query statement
@@ -378,38 +464,117 @@ public class InsertStmt extends DdlStmt {
 
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
+        
+        // handle VALUES() or SELECT constant list
         if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty()) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (selectStmt.getValueList() != null) {
+                // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows.get(rowIdx), rowIdx + 1);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForShadowCols);
                 }
-                for (int i = 0; i < selectStmt.getResultExprs().size(); ++i) {
-                    selectStmt.getResultExprs().set(i, selectStmt.getValueList().getFirstRow().get(i));
-                    selectStmt.getBaseTblResultExprs().set(i, selectStmt.getValueList().getFirstRow().get(i));
+
+                // clear these 2 structures, rebuild them using VALUES exprs
+                selectStmt.getResultExprs().clear();
+                selectStmt.getBaseTblResultExprs().clear();
+
+                for (int i = 0; i < selectStmt.getValueList().getFirstRow().size(); ++i) {
+                    selectStmt.getResultExprs().add(selectStmt.getValueList().getFirstRow().get(i));
+                    selectStmt.getBaseTblResultExprs().add(selectStmt.getValueList().getFirstRow().get(i));
                 }
             } else {
-                analyzeRow(analyzer, targetColumns, selectStmt.getResultExprs(), 1);
+                // INSERT INTO SELECT 1,2,3 ...
+                List<ArrayList<Expr>> rows = Lists.newArrayList();
+                rows.add(selectStmt.getResultExprs());
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols);
+                // rows may be changed in analyzeRow(), so rebuild the result exprs
+                selectStmt.getResultExprs().clear();
+                for (Expr expr : rows.get(0)) {
+                    selectStmt.getResultExprs().add(expr);
+                }
             }
             isStreaming = true;
         } else {
+            // INSERT INTO SELECT ... FROM tbl
+            if (!origColIdxsForShadowCols.isEmpty()) {
+                // extend the result expr by duplicating the related exprs
+                for (Integer idx : origColIdxsForShadowCols) {
+                    queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(idx));
+                }
+            }
+            // check compatibility
             for (int i = 0; i < targetColumns.size(); ++i) {
                 Column column = targetColumns.get(i);
                 if (column.getType().isHllType()) {
                     Expr expr = queryStmt.getResultExprs().get(i);
                     checkHllCompatibility(column, expr);
                 }
+
+                if (column.getAggregationType() == AggregateType.BITMAP_UNION) {
+                    Expr expr = queryStmt.getResultExprs().get(i);
+                    checkBitmapCompatibility(column, expr);
+                }
+            }
+        }
+
+        // expand baseTblResultExprs and colLabels in QueryStmt
+        if (!origColIdxsForShadowCols.isEmpty()) {
+            if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
+                for (Integer idx : origColIdxsForShadowCols) {
+                    queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(idx));
+                }
+            }
+
+            if (queryStmt.getResultExprs().size() != queryStmt.getColLabels().size()) {
+                for (Integer idx : origColIdxsForShadowCols) {
+                    queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
+                }
+            }
+        }
+
+        if (LOG.isDebugEnabled()) {
+            for (Expr expr : queryStmt.getResultExprs()) {
+                LOG.debug("final result expr: {}, {}", expr, System.identityHashCode(expr));
+            }
+            for (Expr expr : queryStmt.getBaseTblResultExprs()) {
+                LOG.debug("final base table result expr: {}, {}", expr, System.identityHashCode(expr));
+            }
+            for (String colLabel : queryStmt.getColLabels()) {
+                LOG.debug("final col label: {}", colLabel);
             }
         }
     }
 
-    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, ArrayList<Expr> row, int rowIdx)
-            throws AnalysisException {
+    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
+            int rowIdx, List<Integer> origColIdxsForShadowCols) throws AnalysisException {
         // 1. check number of fields if equal with first row
-        if (row.size() != targetColumns.size()) {
-            throw new AnalysisException("Column count doesn't match value count at row " + rowIdx);
+        // targetColumns contains some shadow columns, which is added by system,
+        // so we should minus this
+        if (rows.get(rowIdx).size() != targetColumns.size() - origColIdxsForShadowCols.size()) {
+            throw new AnalysisException("Column count doesn't match value count at row " + (rowIdx + 1));
         }
+
+        ArrayList<Expr> row = rows.get(rowIdx);
+        if (!origColIdxsForShadowCols.isEmpty()) {
+            /**
+             * we should extends the row for shadow columns.
+             * eg:
+             *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
+             *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
+             */
+            ArrayList<Expr> extentedRow = Lists.newArrayList();
+            extentedRow.addAll(row);
+            
+            for (Integer idx : origColIdxsForShadowCols) {
+                extentedRow.add(extentedRow.get(idx));
+            }
+
+            row = extentedRow;
+            rows.set(rowIdx, row);
+        }
+
+        // check the compatibility of expr in row and column in targetColumns
         for (int i = 0; i < row.size(); ++i) {
             Expr expr = row.get(i);
             Column col = targetColumns.get(i);
@@ -427,6 +592,10 @@ public class InsertStmt extends DdlStmt {
             }
 
             expr.analyze(analyzer);
+
+            if (col.getAggregationType() == AggregateType.BITMAP_UNION) {
+                checkBitmapCompatibility(col, expr);
+            }
 
             row.set(i, checkTypeCompatibility(col, expr));
         }
@@ -462,7 +631,7 @@ public class InsertStmt extends DdlStmt {
     }
     private void checkHllCompatibility(Column col, Expr expr) throws AnalysisException {
         final String hllMismatchLog = "Column's type is HLL,"
-                + " SelectList must contains HLL or hll_hash function's result, column=" + col.getName();
+                + " SelectList must contains HLL or hll_hash or hll_empty function's result, column=" + col.getName();
         if (expr instanceof SlotRef) {
             final SlotRef slot = (SlotRef) expr;
             if (!slot.getType().equals(Type.HLL)) {
@@ -470,11 +639,20 @@ public class InsertStmt extends DdlStmt {
             }
         } else if (expr instanceof FunctionCallExpr) {
             final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
-            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash") &&
+                    !functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
                 throw new AnalysisException(hllMismatchLog);
             }
         } else {
             throw new AnalysisException(hllMismatchLog);
+        }
+    }
+
+    private void checkBitmapCompatibility(Column col, Expr expr) throws AnalysisException {
+        String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
+                col.getName());
+        if (!expr.getType().isBitmapType()) {
+            throw new AnalysisException(errorMsg);
         }
     }
 
@@ -496,22 +674,32 @@ public class InsertStmt extends DdlStmt {
             exprByName.put(col.getName(), expr);
         }
         // reorder resultExprs in table column order
-        for (Column col : targetTable.getBaseSchema()) {
+        for (Column col : targetTable.getFullSchema()) {
             if (exprByName.containsKey(col.getName())) {
                 resultExprs.add(exprByName.get(col.getName()));
             } else {
-                resultExprs.add(checkTypeCompatibility(col, new StringLiteral(col.getDefaultValue())));
+                if (col.getDefaultValue() == null) {
+                    /*
+                    The import stmt has been filtered in function checkColumnCoverage when
+                        the default value of column is null and column is not nullable.
+                    So the default value of column may simply be null when column is nullable
+                     */
+                    Preconditions.checkState(col.isAllowNull());
+                    resultExprs.add(NullLiteral.create(col.getType()));
+                }
+                else {
+                    resultExprs.add(checkTypeCompatibility(col, new StringLiteral(col.getDefaultValue())));
+                }
             }
         }
     }
 
-    public DataSink createDataSink() throws AnalysisException {
+    private DataSink createDataSink() throws AnalysisException {
         if (dataSink != null) {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            String partitionNames = targetPartitions == null ? null : Joiner.on(",").join(targetPartitions);
-            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, partitionNames);
+            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
@@ -532,12 +720,19 @@ public class InsertStmt extends DdlStmt {
         return dataSink;
     }
 
-    public void finalize() throws UserException {
-        if (targetTable instanceof OlapTable) {
-            ((OlapTableSink) dataSink).finalize();
+    public void complete() throws UserException {
+        if (!isExplain() && targetTable instanceof OlapTable) {
+            ((OlapTableSink) dataSink).complete();
+            // add table indexes to transaction state
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId);
+            if (txnState == null) {
+                throw new DdlException("txn does not exist: " + transactionId);
+            }
+            txnState.addTableIndexes((OlapTable) targetTable);
         }
     }
 
+    @Override
     public ArrayList<Expr> getResultExprs() {
         return resultExprs;
     }
@@ -555,5 +750,14 @@ public class InsertStmt extends DdlStmt {
         dataSink = null;
         dataPartition = null;
         targetColumns.clear();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        if (isExplain()) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }

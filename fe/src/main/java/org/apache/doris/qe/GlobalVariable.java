@@ -19,13 +19,15 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.Version;
 
+import java.time.ZoneId;
+
 // You can place your global variable in this class with public and VariableMgr.VarAttr annotation.
 // You can get this variable from MySQL client with statement `SELECT @@variable_name`,
 // and change its value through `SET variable_name = xxx`
 // NOTE: If you want access your variable safe, please hold VariableMgr's lock before access.
 public final class GlobalVariable {
     @VariableMgr.VarAttr(name = "version_comment", flag = VariableMgr.READ_ONLY)
-    public static String versionComment = "Doris version " + Version.PALO_BUILD_VERSION;
+    public static String versionComment = "Doris version " + Version.DORIS_BUILD_VERSION;
 
     @VariableMgr.VarAttr(name = "version", flag = VariableMgr.READ_ONLY)
     public static String version = "5.1.0";
@@ -37,7 +39,7 @@ public final class GlobalVariable {
     public static int lowerCaseTableNames = 0;
 
     @VariableMgr.VarAttr(name = "license", flag = VariableMgr.READ_ONLY)
-    public static String license = "Baidu";
+    public static String license = "Apache License, Version 2.0";
 
     @VariableMgr.VarAttr(name = "language", flag = VariableMgr.READ_ONLY)
     public static String language = "/palo/share/english/";
@@ -48,7 +50,7 @@ public final class GlobalVariable {
 
     // A string to be executed by the server for each client that connects
     @VariableMgr.VarAttr(name = "system_time_zone", flag = VariableMgr.READ_ONLY)
-    private static String systemTimeZone = "CST";
+    public static String systemTimeZone = ZoneId.systemDefault().normalized().toString();
 
     // The amount of memory allocated for caching query results
     @VariableMgr.VarAttr(name = "query_cache_size")

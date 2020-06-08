@@ -17,35 +17,36 @@
 
 package org.apache.doris.planner;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.PartitionLoadInfo;
 import org.apache.doris.load.Source;
 import org.apache.doris.load.TableLoadInfo;
-import org.apache.doris.thrift.TMiniLoadEtlFunction;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TCsvScanNode;
+import org.apache.doris.thrift.TMiniLoadEtlFunction;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
-import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
+
+import com.google.common.base.MoreObjects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 public class CsvScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(CsvScanNode.class);
@@ -186,7 +187,7 @@ public class CsvScanNode extends ScanNode {
 
     @Override
     protected String debugString() {
-        ToStringHelper helper = Objects.toStringHelper(this);
+        ToStringHelper helper = MoreObjects.toStringHelper(this);
         return helper.addValue(super.debugString()).toString();
     }
 

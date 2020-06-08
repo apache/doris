@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.action;
 
+import org.apache.commons.validator.routines.UrlValidator;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -27,14 +28,16 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -42,6 +45,7 @@ import java.util.stream.Collectors;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class SystemAction extends WebBaseAction {
+    private static final Logger LOG = LogManager.getLogger(SystemAction.class);
 
     public SystemAction(ActionController controller) {
         super(controller);
@@ -68,7 +72,9 @@ public class SystemAction extends WebBaseAction {
     private void appendSystemInfo(StringBuilder buffer, String procPath, String path) {
         buffer.append("<h2>System Info</h2>");
         buffer.append("<p>This page lists the system info, like /proc in Linux.</p>");
-        buffer.append("<p class=\"text-info\"> Current path: " + path + "</p>");
+        buffer.append("<p class=\"text-info\"> Current path: " + path + "<a href=\"?path=" + getParentPath(path)
+                + "\" class=\"btn btn-primary\" style=\"float: right;\">"
+                + "Parent Dir</a></p><br/>");
 
         ProcNodeInterface procNode = getProcNode(procPath);
         if (procNode == null) {
@@ -82,15 +88,12 @@ public class SystemAction extends WebBaseAction {
         if (!Catalog.getCurrentCatalog().isMaster()) {
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
-            ConnectContext context = new ConnectContext(null);
-            context.setCatalog(Catalog.getCurrentCatalog());
-            context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            context.setQualifiedUser(PaloAuth.ADMIN_USER);
-            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, context,
-                    RedirectStatus.FORWARD_NO_SYNC);
+            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),
+                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC);
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {
+                LOG.warn("Fail to forward. ", e);
                 buffer.append("<p class=\"text-error\"> Failed to forward request to master</p>");
                 return;
             }
@@ -124,20 +127,13 @@ public class SystemAction extends WebBaseAction {
         Preconditions.checkNotNull(columnNames);
         Preconditions.checkNotNull(rows);
 
-        appendBackButton(buffer, path);
         appendTableHeader(buffer, columnNames);
         appendSystemTableBody(buffer, rows, isDir, path);
         appendTableFooter(buffer);
     }
 
-    private void appendBackButton(StringBuilder buffer, String path) {
-        String parentDir = getParentPath(path);
-        buffer.append("<a href=\"?path=" + parentDir
-                + "\" class=\"btn btn-primary\">"
-                + "parent dir</a>");
-    }
-
     private void appendSystemTableBody(StringBuilder buffer, List<List<String>> rows, boolean isDir, String path) {
+        UrlValidator validator = new UrlValidator();
         for ( List<String> strList : rows) {
             buffer.append("<tr>");
             int columnIndex = 1;
@@ -147,6 +143,10 @@ public class SystemAction extends WebBaseAction {
                     String escapeStr = str.replace("%", "%25");
                     buffer.append("<a href=\"?path=" + path + "/" + escapeStr + "\">");
                     buffer.append(str);
+                    buffer.append("</a>");
+                } else if (validator.isValid(str)) {
+                    buffer.append("<a href=\"" + str + "\">");
+                    buffer.append("URL");
                     buffer.append("</a>");
                 } else {
                     buffer.append(str.replaceAll("\\n", "<br/>"));

@@ -97,7 +97,6 @@ public class ColocatePersistInfo implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {

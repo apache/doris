@@ -34,7 +34,9 @@ import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.Set;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class ThriftServer {
     private static final Logger LOG = LogManager.getLogger(ThriftServer.class);
@@ -65,14 +67,23 @@ public class ThriftServer {
         TThreadedSelectorServer.Args args =
           new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port)).protocolFactory(
             new TBinaryProtocol.Factory()).processor(processor);
+        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool");
+        args.executorService(threadPoolExecutor);
         server = new TThreadedSelectorServer(args);
     }
 
     private void createThreadPoolServer() throws TTransportException {
-        TThreadPoolServer.Args args =
-          new TThreadPoolServer.Args(new TServerSocket(port)).protocolFactory(
+        TServerSocket.ServerSocketTransportArgs socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+            .bindAddr(new InetSocketAddress(port))
+            .clientTimeout(Config.thrift_client_timeout_ms)
+            .backlog(Config.thrift_backlog_num);
+
+        TThreadPoolServer.Args serverArgs =
+          new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
             new TBinaryProtocol.Factory()).processor(processor);
-        server = new TThreadPoolServer(args);
+        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool");
+        serverArgs.executorService(threadPoolExecutor);
+        server = new TThreadPoolServer(serverArgs);
     }
 
     public void start() throws IOException {

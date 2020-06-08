@@ -55,7 +55,7 @@ public:
     BrokerScanner(
         RuntimeState* state,
         RuntimeProfile* profile,
-        const TBrokerScanRangeParams& params, 
+        const TBrokerScanRangeParams& params,
         const std::vector<TBrokerRangeDesc>& ranges,
         const std::vector<TNetworkAddress>& broker_addresses,
         ScannerCounter* counter);
@@ -80,12 +80,6 @@ private:
     // Split one text line to values
     void split_line(
         const Slice& line, std::vector<Slice>* values);
-
-    // Writes a slot in _tuple from an value containing text data.
-    bool write_slot(
-        const std::string& column_name, const TColumnType& column_type,
-        const Slice& value, const SlotDescriptor* slot,
-        Tuple* tuple, MemPool* tuple_pool, std::stringstream* error_msg);
 
     void fill_fix_length_string(
         const Slice& value, MemPool* pool,
@@ -123,7 +117,7 @@ private:;
 
     bool _scanner_eof;
 
-    // When we fetch range doesn't start from 0, 
+    // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line
     bool _skip_next_line;
 

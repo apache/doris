@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 
@@ -25,7 +26,7 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // modify one column
-public class ModifyColumnClause extends AlterClause {
+public class ModifyColumnClause extends AlterTableClause {
     private ColumnDef columnDef;
     private ColumnPosition colPos;
     // which rollup is to be modify, if rollup is null, modify base table.
@@ -48,6 +49,7 @@ public class ModifyColumnClause extends AlterClause {
 
     public ModifyColumnClause(ColumnDef columnDef, ColumnPosition colPos, String rollup,
                               Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
         this.colPos = colPos;
         this.rollupName = rollup;

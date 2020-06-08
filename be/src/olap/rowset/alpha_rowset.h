@@ -20,8 +20,6 @@
 
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_group.h"
-#include "olap/rowset/alpha_rowset_reader.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/data_dir.h"
 #include "olap/tuple.h"
@@ -33,61 +31,27 @@ namespace doris {
 
 class AlphaRowset;
 using AlphaRowsetSharedPtr = std::shared_ptr<AlphaRowset>;
+class AlphaRowsetWriter;
+class AlphaRowsetReader;
+class OlapSnapshotConverter;
+class RowsetFactory;
 
 class AlphaRowset : public Rowset {
 public:
-    AlphaRowset(const TabletSchema* schema, const std::string rowset_path,
-                DataDir* data_dir, RowsetMetaSharedPtr rowset_meta);
     virtual ~AlphaRowset() {}
 
-    static bool is_valid_rowset_path(std::string path);
+    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
 
-    OLAPStatus init() override;
-
-    // this api is for lazy loading data
-    // always means that there are some io
-    OLAPStatus load() override;
-
-    std::shared_ptr<RowsetReader> create_reader() override;
+    OLAPStatus split_range(const RowCursor& start_key,
+                           const RowCursor& end_key,
+                           uint64_t request_block_row_count,
+                           std::vector<OlapTuple>* ranges) override;
 
     OLAPStatus remove() override;
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta) override;
+    OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) override;
 
-    RowsetMetaSharedPtr rowset_meta() const override;
-
-    size_t data_disk_size() const override;
-
-    size_t index_disk_size() const override;
-
-    bool empty() const override;
-
-    bool zero_num_rows() const override;
-
-    size_t num_rows() const override;
-
-    Version version() const override;
-
-    void set_version_and_version_hash(Version version, VersionHash version_hash) override;
-
-    int64_t end_version() const override;
-
-    int64_t start_version() const override;
-
-    VersionHash version_hash() const override;
-
-    bool in_use() const override;
-
-    void acquire() override;
-
-    void release() override;
-    
-    int64_t ref_count() const override;
-
-    OLAPStatus make_snapshot(const std::string& snapshot_path,
-                             std::vector<std::string>* success_links) override;
-    OLAPStatus copy_files_to_path(const std::string& dest_path,
-                                  std::vector<std::string>* success_files) override;
+    OLAPStatus copy_files_to(const std::string& dir) override;
 
     OLAPStatus convert_from_old_files(const std::string& snapshot_path,
                                  std::vector<std::string>* success_files);
@@ -96,27 +60,6 @@ public:
                                  std::vector<std::string>* success_files);
 
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
-
-    RowsetId rowset_id() const override;
-
-    int64_t creation_time() override;
-
-    bool is_pending() const override;
-
-    PUniqueId load_id() const override;
-
-    int64_t txn_id() const override;
-
-    int64_t partition_id() const override;
-
-    // flag for push delete rowset
-    bool delete_flag() override;
-
-    OLAPStatus split_range(
-            const RowCursor& start_key,
-            const RowCursor& end_key,
-            uint64_t request_block_row_count,
-            vector<OlapTuple>* ranges);
     
     bool check_path(const std::string& path) override;
 
@@ -124,28 +67,32 @@ public:
     // info by using segment's info
     OLAPStatus reset_sizeinfo();
 
-    std::string unique_id() override;
+protected:
+    friend class RowsetFactory;
 
-    const std::string& rowset_path() const {
-        return _rowset_path;
-    }
+    AlphaRowset(const TabletSchema* schema,
+                std::string rowset_path,
+                RowsetMetaSharedPtr rowset_meta);
+    
+    // init segment groups
+    OLAPStatus init() override;
+
+    OLAPStatus do_load(bool use_cache) override;
+
+    void do_close() override { }
+
+    // add custom logic when rowset is published
+    void make_visible_extra(Version version, VersionHash version_hash) override;
 
 private:
-    OLAPStatus _init_segment_groups();
-
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
 
 private:
     friend class AlphaRowsetWriter;
     friend class AlphaRowsetReader;
-    const TabletSchema* _schema;
-    std::string _rowset_path;
-    DataDir* _data_dir;
-    RowsetMetaSharedPtr _rowset_meta;
+    friend class OlapSnapshotConverter;
+
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
-    bool _is_cumulative_rowset;
-    bool _is_pending_rowset;
-    atomic_t _ref_count;
 };
 
 } // namespace doris

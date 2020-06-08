@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -41,14 +43,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -58,17 +54,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
-@PrepareForTest({ Catalog.class, FrontendOptions.class })
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
     static ConnectContext context = new ConnectContext(null);
     static {
         context.setQueryId(new TUniqueId(1, 2));
     }
+    @Mocked
     static Catalog catalog;
+    @Mocked
     static EditLog editLog;
+    @Mocked
+    static FrontendOptions frontendOptions;
     static Analyzer analyzer = new Analyzer(catalog, null);
     static Backend backendA;
     static Backend backendB;
@@ -86,27 +83,42 @@ public class CoordinatorTest extends Coordinator {
             InvocationTargetException, NoSuchFieldException,
             SecurityException, NoSuchMethodException {
         coor = new Coordinator(context, analyzer, planner);
+        new Expectations() {
+            {
+                editLog.logAddBackend((Backend) any);
+                minTimes = 0;
 
-        editLog = EasyMock.createMock(EditLog.class);
-        editLog.logAddBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logDropBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logBackendStateChange(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
+                editLog.logDropBackend((Backend) any);
+                minTimes = 0;
 
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        EasyMock.replay(catalog);
+                editLog.logBackendStateChange((Backend) any);
+                minTimes = 0;
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
 
-        PowerMock.mockStatic(FrontendOptions.class);
-        EasyMock.expect(FrontendOptions.getLocalHostAddress()).andReturn("127.0.0.1").anyTimes();
-        PowerMock.replay(FrontendOptions.class);
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
+                result = FeConstants.meta_version;
+            }
+        };
+
+        new Expectations(frontendOptions) {
+            {
+                FrontendOptions.getLocalHostAddress();
+                minTimes = 0;
+                result = "127.0.0.1";
+            }
+        };
 
         FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
         backendA = new Backend(0, "machineA", 0);

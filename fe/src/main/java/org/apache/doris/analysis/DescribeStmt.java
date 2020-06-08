@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
@@ -52,6 +53,7 @@ public class DescribeStmt extends ShowStmt {
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("IndexKeysType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Null", ScalarType.createVarchar(10)))
@@ -71,7 +73,7 @@ public class DescribeStmt extends ShowStmt {
                     .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
-    private static final List<String> EMPTY_ROW = Arrays.asList("", "", "", "", "", "", "");
+    private static final List<String> EMPTY_ROW = Arrays.asList("", "", "", "", "", "", "", "");
 
     private TableName dbTableName;
     private ProcNodeInterface node;
@@ -103,7 +105,7 @@ public class DescribeStmt extends ShowStmt {
                                                 dbTableName.getTbl());
         }
 
-        Database db = Catalog.getInstance().getDb(dbTableName.getDb());
+        Database db = Catalog.getCurrentCatalog().getDb(dbTableName.getDb());
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbTableName.getDb());
         }
@@ -117,7 +119,12 @@ public class DescribeStmt extends ShowStmt {
             if (!isAllTables) {
                 // show base table schema only
                 String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                        + "/" + table.getId();
+                        + "/";
+                if (table.getType() == TableType.OLAP) {
+                    procString += ((OlapTable) table).getBaseIndexId();
+                } else {
+                    procString += table.getId();
+                }
 
                 node = ProcService.getInstance().open(procString);
                 if (node == null) {
@@ -132,9 +139,9 @@ public class DescribeStmt extends ShowStmt {
 
                     // indices order
                     List<Long> indices = Lists.newArrayList();
-                    indices.add(olapTable.getId());
+                    indices.add(olapTable.getBaseIndexId());
                     for (Long indexId : indexIdToSchema.keySet()) {
-                        if (indexId != olapTable.getId()) {
+                        if (indexId != olapTable.getBaseIndexId()) {
                             indices.add(indexId);
                         }
                     }
@@ -144,6 +151,7 @@ public class DescribeStmt extends ShowStmt {
                         long indexId = indices.get(i);
                         List<Column> columns = indexIdToSchema.get(indexId);
                         String indexName = olapTable.getIndexNameById(indexId);
+                        MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
                         for (int j = 0; j < columns.size(); ++j) {
                             Column column = columns.get(j);
 
@@ -155,9 +163,13 @@ public class DescribeStmt extends ShowStmt {
                             if (bfColumns != null && bfColumns.contains(column.getName())) {
                                 extras.add("BLOOM_FILTER");
                             }
+                            if (column.getDefineExpr() != null) {
+                                extras.add(column.getDefineExpr().toSql().toUpperCase());
+                            }
                             String extraStr = StringUtils.join(extras, ",");
 
                             List<String> row = Arrays.asList("",
+                                                             "",
                                                              column.getName(),
                                                              column.getOriginType().toString(),
                                                              column.isAllowNull() ? "Yes" : "No",
@@ -168,6 +180,7 @@ public class DescribeStmt extends ShowStmt {
 
                             if (j == 0) {
                                 row.set(0, indexName);
+                                row.set(1, indexMeta.getKeysType().name());
                             }
 
                             totalRows.add(row);

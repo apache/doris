@@ -42,7 +42,7 @@ boost::shared_ptr<DorisScanRange> construct_scan_ranges() {
     doris_scan_range.hosts.push_back(host);
     doris_scan_range.__set_schema_hash("462300563");
     doris_scan_range.__set_version("94");
-    doris_scan_range.__set_version_hash("422202811388534102");
+    doris_scan_range.__set_version_hash("0");
     doris_scan_range.engine_table_name.push_back("DorisTestStats");
     doris_scan_range.__set_db_name("olap");
     TKeyRange key_range;

@@ -77,6 +77,19 @@ DecimalV2Val DecimalV2Operators::cast_to_decimalv2_val(
 }
 
 DecimalV2Val DecimalV2Operators::cast_to_decimalv2_val(
+        FunctionContext* context, const DateTimeVal& val) {
+    if (val.is_null) {
+        return DecimalV2Val::null();
+    }
+
+    DateTimeValue dt_value = DateTimeValue::from_datetime_val(val);
+    DecimalV2Value dv(dt_value.to_int64(), 0);
+    DecimalV2Val result;
+    dv.to_decimal_val(&result);
+    return result;
+}
+
+DecimalV2Val DecimalV2Operators::cast_to_decimalv2_val(
         FunctionContext* context, const StringVal& val) {
     if (val.is_null) {
         return DecimalV2Val::null();

@@ -29,6 +29,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "olap/olap_cond.h"
 
 using apache::thrift::ThriftDebugString;
 using std::numeric_limits;
@@ -104,10 +105,10 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     // 检查指定的列是不是key，是不是float或doulbe类型
     const TabletColumn& column = schema.column(field_index);
 
-    if (!column.is_key()
+    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
             || column.type() == OLAP_FIELD_TYPE_DOUBLE
             || column.type() == OLAP_FIELD_TYPE_FLOAT) {
-        LOG(WARNING) << "field is not key column, or its type is float or double.";
+        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type is float or double.";
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
@@ -148,8 +149,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
         valid_condition = valid_unsigned_number<uint64_t>(value_str);
     } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
         valid_condition = valid_decimal(value_str, column.precision(), column.frac());
-    } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR
-               || field_type == OLAP_FIELD_TYPE_HLL) {
+    } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR) {
         if (value_str.size() <= column.length()) {
             valid_condition = true;
         }
@@ -342,5 +342,13 @@ void DeleteHandler::finalize() {
     _is_inited = false;
 }
 
-}  // namespace doris
+void DeleteHandler::get_delete_conditions_after_version(int32_t version,
+        std::vector<const Conditions*>* delete_conditions) const {
+    for (auto& del_cond : _del_conds) {
+        if (del_cond.filter_version > version) {
+            delete_conditions->emplace_back(del_cond.del_cond);
+        }
+    }
+}
 
+}  // namespace doris

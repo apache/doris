@@ -19,7 +19,6 @@ package org.apache.doris.http;
 
 import org.apache.doris.http.action.IndexAction;
 import org.apache.doris.http.action.NotFoundAction;
-import org.apache.doris.qe.QeService;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,14 +42,12 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
     private static final Logger LOG = LogManager.getLogger(HttpServerHandler.class);
 
     private ActionController controller = null;
-    protected QeService qeService = null;
     protected FullHttpRequest fullRequest = null;
     protected HttpRequest request = null;
     private BaseAction action = null;
     
-    public HttpServerHandler(ActionController controller, QeService qeService) {
+    public HttpServerHandler(ActionController controller) {
         super();
-        this.qeService = qeService;
         this.controller = controller;
     }
     
@@ -73,7 +70,6 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
             action = getAction(req);
             if (action != null) {
                 LOG.debug("action: {} ", action.getClass().getName());
-                action.setQeService(qeService);
                 action.handleRequest(req);
             }
         } else {

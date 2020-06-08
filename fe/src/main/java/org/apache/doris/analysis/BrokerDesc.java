@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 
 import com.google.common.collect.Maps;
 
@@ -62,7 +63,6 @@ public class BrokerDesc implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         int size = in.readInt();
@@ -78,5 +78,15 @@ public class BrokerDesc implements Writable {
         BrokerDesc desc = new BrokerDesc();
         desc.readFields(in);
         return desc;
+    }
+
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(" WITH BROKER ").append(name);
+        if (properties != null && !properties.isEmpty()) {
+            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false);
+            sb.append(" (").append(printableMap.toString()).append(")");
+        }
+        return sb.toString();
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -174,7 +175,7 @@ public abstract class AlterJob implements Writable {
         return true;
     }
 
-    /*
+    /**
      * this should be call in each round.
      * otherwise,
      * alter job will not perceived backend's down event during job created and first handle round.
@@ -188,18 +189,14 @@ public abstract class AlterJob implements Writable {
             return false;
         } else if (!backend.isAlive()) {
             long currentTime = System.currentTimeMillis();
-            if (backend.getLastUpdateMs() > 0
-                    && currentTime - backend.getLastUpdateMs() > Config.max_backend_down_time_second * 1000) {
-                // this backend is done for a long time and not restart automatically.
-                // we consider it as dead
-                return false;
-            }
-            return true;
-        } else if (backend.isDecommissioned()) {
-            return false;
+            // If this backend is done for a long time and not restart automatically.
+            // we consider it as dead and return false.
+            return backend.getLastUpdateMs() <= 0
+                    || currentTime - backend.getLastUpdateMs() <= Config.max_backend_down_time_second * 1000;
+        } else {
+            return !backend.isDecommissioned();
         }
-        
-        return true;
+
     }
 
     public static AlterJob read(DataInput in) throws IOException {
@@ -220,38 +217,39 @@ public abstract class AlterJob implements Writable {
     /*
      * abstract methods
      */
-    /*
+
+    /**
      * add replicas which need to be handled in this job
      */
     public abstract void addReplicaId(long parentId, long replicaId, long backendId);
 
-    /*
+    /**
      * set replicas as finished when replica task report sucess
      */
     public abstract void setReplicaFinished(long parentId, long replicaId);
 
-    /*
+    /**
      * send tasks to backends
      */
     public abstract boolean sendTasks();
 
-    /*
+    /**
      * cancel job
      */
     public abstract void cancel(OlapTable olapTable, String msg);
 
-    /*
+    /**
      * remove replica related tasks in some failure situation
      */
     public abstract void removeReplicaRelatedTask(long parentId, long tabletId, long replicaId, long backendId);
     
-    /*
+    /**
      * handle replica finish task report 
      */
     public abstract void handleFinishedReplica(AgentTask task, TTabletInfo finishTabletInfo, long reportVersion)
             throws MetaNotFoundException;
 
-    /*
+    /**
      * return
      *      -1: need cancel
      *       0: waiting next poll
@@ -259,19 +257,19 @@ public abstract class AlterJob implements Writable {
      */
     public abstract int tryFinishJob();
 
-    /*
+    /**
      * clear some date structure in this job to save memory
      */
     public abstract void clear();
 
-    /*
+    /**
      * do something when state transfering from FINISHING to FINISHED.
      * eg:
      *  set table's state to NORMAL
      */
     public abstract void finishJob();
 
-    /*
+    /**
      * replay methods
      *   corresponding to start/finished/cancelled
      */
@@ -289,13 +287,12 @@ public abstract class AlterJob implements Writable {
         if (isPreviousLoadFinished) {
             return true;
         } else {
-            isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr()
-                    .isPreviousTransactionsFinished(transactionId, dbId);
+            isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                    transactionId, dbId, Lists.newArrayList(tableId));
             return isPreviousLoadFinished;
         }
     }
     
-    @Override
     public synchronized void readFields(DataInput in) throws IOException {
         // read common members as write in AlterJob.write().
         // except 'type' member, which is read in AlterJob.read()

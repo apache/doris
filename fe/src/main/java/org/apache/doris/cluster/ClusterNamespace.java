@@ -27,7 +27,6 @@ import com.google.common.base.Strings;
  * method to makeup full name or get real name, full name is made up generally 
  * in stmt's analyze.
  * 
- * @author chenhao
  */
 
 public class ClusterNamespace {

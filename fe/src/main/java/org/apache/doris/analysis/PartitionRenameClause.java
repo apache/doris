@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 
@@ -25,13 +26,15 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // rename table
-public class PartitionRenameClause extends AlterClause {
+public class PartitionRenameClause extends AlterTableClause {
     private String partitionName;
     private String newPartitionName;
 
     public PartitionRenameClause(String partitionName, String newPartitionName) {
+        super(AlterOpType.RENAME);
         this.partitionName = partitionName;
         this.newPartitionName = newPartitionName;
+        this.needTableStable = false;
     }
 
     public String getPartitionName() {

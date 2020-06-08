@@ -55,6 +55,14 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;
+
+    if (tnode.es_scan_node.__isset.docvalue_context) {
+        _docvalue_context = tnode.es_scan_node.docvalue_context;
+    }
+
+    if (tnode.es_scan_node.__isset.fields_context) {
+        _fields_context = tnode.es_scan_node.fields_context;
+    }
     return Status::OK();
 }
 
@@ -88,7 +96,8 @@ Status EsHttpScanNode::build_conjuncts_list() {
     Status status = Status::OK();
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         EsPredicate* predicate = _pool->add(
-                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc));
+                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc, _pool));
+        predicate->set_field_context(_fields_context);
         status = predicate->build_disjuncts_list();
         if (status.ok()) {
             _predicates.push_back(predicate);
@@ -153,13 +162,23 @@ Status EsHttpScanNode::start_scanners() {
         _num_running_scanners = _scan_ranges.size();
     }
 
+    _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
-        std::promise<Status> p;
-        std::future<Status> f = p.get_future();
         _scanner_threads.emplace_back(&EsHttpScanNode::scanner_worker, this, i,
-                    _scan_ranges.size(), std::ref(p));
-        Status status = f.get();
-        if (!status.ok()) return status;
+                    _scan_ranges.size(), std::ref(_scanners_status[i]));
+    }
+    return Status::OK();
+}
+
+Status EsHttpScanNode::collect_scanners_status() {
+    // NOTE. if open() was called, but set_range() was NOT called for some reason.
+    // then close() was called. 
+    // there would cause a core because _scanners_status's iterator was in [0, _scan_ranges) other than [0, _scanners_status)
+    // it is said that the fragment-call-frame is calling scan-node in this way....
+    // in my options, it's better fixed in fragment-call-frame. e.g. call close() according the return value of open()
+    for (int i = 0; i < _scanners_status.size(); i++) {
+        std::future<Status> f = _scanners_status[i].get_future();
+        RETURN_IF_ERROR(f.get());
     }
     return Status::OK();
 }
@@ -247,11 +266,13 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
                 << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
         }
     }
-    
+
     return Status::OK();
 }
 
 Status EsHttpScanNode::close(RuntimeState* state) {
+
+
     if (is_closed()) {
         return Status::OK();
     }
@@ -266,7 +287,14 @@ Status EsHttpScanNode::close(RuntimeState* state) {
 
     _batch_queue.clear();
 
-    return ExecNode::close(state);
+    //don't need to hold lock to update_status in close function
+    //collect scanners status
+    update_status(collect_scanners_status());
+
+    //close exec node
+    update_status(ExecNode::close(state));
+
+    return _process_status;
 }
 
 // This function is called after plan node has been prepared.
@@ -319,7 +347,7 @@ Status EsHttpScanNode::scanner_scan(
             memset(tuple, 0, _tuple_desc->num_null_bytes());
 
             // Get from scanner
-            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));
+            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof, _docvalue_context));
             if (scanner_eof) {
                 continue;
             }
@@ -411,13 +439,20 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range.shard_id);
     properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
     properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range.es_hosts);
+    // push down limit to Elasticsearch
+    if (limit() != -1 && limit() <= _runtime_state->batch_size()) {
+        properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
+    }
+
+    bool doc_value_mode = false;
     properties[ESScanReader::KEY_QUERY] 
-        = ESScrollQueryBuilder::build(properties, _column_names, _predicates);
+        = ESScrollQueryBuilder::build(properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
+
 
     // start scanner to scan
     std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(
                     _runtime_state, runtime_profile(), _tuple_id,
-                    properties, scanner_expr_ctxs, &counter));
+                    properties, scanner_expr_ctxs, &counter, doc_value_mode));
     status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx << "] process failed. status="

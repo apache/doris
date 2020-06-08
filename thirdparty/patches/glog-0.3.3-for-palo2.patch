@@ -288,26 +288,26 @@
      file_length_ = bytes_since_flush_ = 0;
      rollover_attempt_ = kRolloverAttemptFrequency-1;
    }
- 
-+
+
 +  if ((file_ == NULL) && (!inited_) && (FLAGS_log_split_method == "size")) {
-+     CheckFileNumQuota();
-+     const char* filename = file_list_.back().name.c_str();
-+     int fd = open(filename, O_WRONLY | O_CREAT /* | O_EXCL */ | O_APPEND, 0664);
-+     if (fd != -1) {
-+     	#ifdef HAVE_FCNTL
-+     	// Mark the file close-on-exec. We don't really care if this fails
-+     	fcntl(fd, F_SETFD, FD_CLOEXEC);
-+     	#endif
-+
-+     	file_ = fdopen(fd, "a");  // Make a FILE*.
-+     	if (file_ == NULL) {  // Man, we're screwed!, try to create new log file
-+           close(fd);
-+     	} 
-+        inited_ = true;
++    CheckFileNumQuota();
++    const char* filename = file_list_.back().name.c_str();
++    int fd = open(filename, O_WRONLY | O_CREAT /* | O_EXCL */ | O_APPEND, 0664);
++    if (fd != -1) {
++#ifdef HAVE_FCNTL
++      // Mark the file close-on-exec. We don't really care if this fails
++      fcntl(fd, F_SETFD, FD_CLOEXEC);
++#endif
++      file_ = fopen(filename, "a+"); // Read and append a FILE*.
++      if (file_ == NULL) {      // Man, we're screwed!, try to create new log file
++        close(fd);
++      }
++      fseek(file_, 0, SEEK_END);
++      file_length_ = bytes_since_flush_ = ftell(file_);
++      inited_ = true;
 +    }
-+  }  
-+
++  }
++ 
    // If there's no destination file, make one before outputting
    if (file_ == NULL) {
      // Try to rollover the log file every 32 log messages.  The only time

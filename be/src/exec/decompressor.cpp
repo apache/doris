@@ -115,9 +115,9 @@ Status GzipDecompressor::decompress(
         *input_bytes_read = input_len - _z_strm.avail_in;
         *decompressed_len = output_max_len - _z_strm.avail_out;
 
-        LOG(INFO) << "gzip dec ret: " << ret
-                  << " input_bytes_read: " << *input_bytes_read
-                  << " decompressed_len: " << *decompressed_len;
+        VLOG(10) << "gzip dec ret: " << ret
+                 << " input_bytes_read: " << *input_bytes_read
+                 << " decompressed_len: " << *decompressed_len;
 
         if (ret == Z_BUF_ERROR) {
             // Z_BUF_ERROR indicates that inflate() could not consume more input or

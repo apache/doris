@@ -160,11 +160,13 @@ public class ScalarFunction extends Function {
                     beFn += "_float_val";
                     break;
                 case DOUBLE:
+                case TIME:
                     beFn += "_double_val";
                     break;
                 case CHAR:
                 case VARCHAR:
                 case HLL:
+                case BITMAP:
                     beFn += "_string_val";
                     break;
                 case DATE:
@@ -232,11 +234,13 @@ public class ScalarFunction extends Function {
     public static ScalarFunction createUdf(
             FunctionName name, Type[] args,
             Type returnType, boolean isVariadic,
-            String objectFile, String symbol) {
+            String objectFile, String symbol, String prepareFnSymbol, String closeFnSymbol) {
         ScalarFunction fn = new ScalarFunction(name, args, returnType, isVariadic);
         fn.setBinaryType(TFunctionBinaryType.HIVE);
         fn.setUserVisible(true);
         fn.symbolName = symbol;
+        fn.prepareFnSymbol = prepareFnSymbol;
+        fn.closeFnSymbol = closeFnSymbol;
         fn.setLocation(new HdfsURI(objectFile));
         return fn;
     }
@@ -286,7 +290,6 @@ public class ScalarFunction extends Function {
         writeOptionString(output, closeFnSymbol);
     }
 
-    @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);
         symbolName = Text.readString(input);
@@ -301,7 +304,7 @@ public class ScalarFunction extends Function {
     @Override
     public String getProperties() {
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateFunctionStmt.OBJECT_FILE_KEY, getLocation().toString());
+        properties.put(CreateFunctionStmt.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
         properties.put(CreateFunctionStmt.MD5_CHECKSUM, checksum);
         properties.put(CreateFunctionStmt.SYMBOL_KEY, symbolName);
         return new Gson().toJson(properties);

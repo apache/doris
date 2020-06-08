@@ -68,6 +68,8 @@ message PTabletWriterOpenRequest {
     repeated PTabletWithPartition tablets = 5;
     required int32 num_senders = 6;
     required bool need_gen_rollup = 7;
+    optional int64 load_mem_limit = 8;
+    optional int64 load_channel_timeout_s = 9;
 };
 
 message PTabletWriterOpenResult {
@@ -95,6 +97,8 @@ message PTabletWriterAddBatchRequest {
 message PTabletWriterAddBatchResult {
     required PStatus status = 1;
     repeated PTabletInfo tablet_vec = 2;
+    optional int64 execution_time_us = 3;
+    optional int64 wait_lock_time_us = 4;
 };
 
 // tablet writer cancel
@@ -119,6 +123,7 @@ enum PPlanFragmentCancelReason {
     LIMIT_REACH = 1;
     USER_CANCEL = 2;
     INTERNAL_ERROR = 3;
+    TIMEOUT = 4;
 };
 
 message PCancelPlanFragmentRequest {

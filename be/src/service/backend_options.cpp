@@ -19,8 +19,9 @@
 
 #include <algorithm>
 
-#include <boost/algorithm/string.hpp>
+#include "gutil/strings/split.h"
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "util/network_util.h"
@@ -87,8 +88,8 @@ bool BackendOptions::analyze_priority_cidrs() {
     }
     LOG(INFO) << "priority cidrs in conf: " << config::priority_networks;
 
-    std::vector<std::string> cidr_strs;
-    boost::split(cidr_strs, config::priority_networks, boost::is_any_of(PRIORITY_CIDR_SEPARATOR));
+    std::vector<std::string> cidr_strs = strings::Split(
+            config::priority_networks, PRIORITY_CIDR_SEPARATOR);
 
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;

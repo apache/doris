@@ -76,7 +76,7 @@ public class MysqlErrPacketTest {
         Assert.assertEquals("HY000", new String(MysqlProto.readFixedString(buffer, 5)));
         // sql state
         // NOTE: we put one space if MysqlErrPacket's errorMessage is null or empty
-        Assert.assertEquals(" ", new String(MysqlProto.readEofString(buffer)));
+        Assert.assertEquals("Unknown error", new String(MysqlProto.readEofString(buffer)));
 
         Assert.assertEquals(0, buffer.remaining());
     }

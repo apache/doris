@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TypesConstants;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,7 +58,7 @@ public class ExportPendingTask extends MasterTask {
         }
 
         long dbId = job.getDbId();
-        db = Catalog.getInstance().getDb(dbId);
+        db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, "database does not exist");
             return;
@@ -113,6 +114,8 @@ public class ExportPendingTask extends MasterTask {
                 snapshotRequest.setSchema_hash(Integer.parseInt(paloScanRange.getSchema_hash()));
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
                 snapshotRequest.setVersion_hash(Long.parseLong(paloScanRange.getVersion_hash()));
+                snapshotRequest.setTimeout(job.getTimeoutSecond());
+                snapshotRequest.setPreferred_snapshot_version(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
 
                 AgentClient client = new AgentClient(host, port);
                 TAgentResult result = client.makeSnapshot(snapshotRequest);

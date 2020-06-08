@@ -20,6 +20,7 @@ package org.apache.doris.task;
 import org.apache.doris.load.LoadJob;
 
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Set;
 
 // One pull load job
+@Deprecated
 public class PullLoadJob {
     private static final Logger LOG = LogManager.getLogger(PullLoadTask.class);
 

@@ -24,36 +24,59 @@
 
 namespace doris {
 
-// Similar to the KuduOnceDynamic class, but accepts a lambda function.
-class DorisInitOnce {
+// Utility class for implementing thread-safe call-once semantics.
+//
+// call() will return stored result regardless of whether the first invocation
+// returns a success status or not.
+//
+// Example:
+//   class Resource {
+//   public:
+//     Status init() {
+//       _init_once.call([this] { return _do_init(); });
+//     }
+//
+//     bool is_inited() const {
+//       return _init_once.has_called() && _init_once.stored_result().ok();
+//     }
+//   private:
+//     Status _do_init() { /* init logic here */ }
+//     DorisCallOnce<Status> _init_once;
+//   };
+template<typename ReturnType>
+class DorisCallOnce {
 public:
-    DorisInitOnce()
-        : _init_succeeded(false) {}
+    DorisCallOnce()
+        : _has_called(false) {}
 
     // If the underlying `once_flag` has yet to be invoked, invokes the provided
     // lambda and stores its return value. Otherwise, returns the stored Status.
     template<typename Fn>
-    OLAPStatus init(Fn fn) {
+    ReturnType call(Fn fn) {
         std::call_once(_once_flag, [this, fn] {
             _status = fn();
-            if (OLAP_SUCCESS == _status) {
-                _init_succeeded.store(true, std::memory_order_release);
-            }
+            _has_called.store(true, std::memory_order_release);
         });
         return _status;
     }
 
-    // std::memory_order_acquire here and std::memory_order_release in
-    // init(), taken together, mean that threads can safely synchronize on
-    // _init_succeeded.
-    bool init_succeeded() const {
-        return _init_succeeded.load(std::memory_order_acquire);
+    // Return whether `call` has been invoked or not.
+    bool has_called() const {
+        // std::memory_order_acquire here and std::memory_order_release in
+        // init(), taken together, mean that threads can safely synchronize on
+        // _has_called.
+        return _has_called.load(std::memory_order_acquire);
+    }
+
+    // Return the stored result. The result is only meaningful when `has_called() == true`.
+    ReturnType stored_result() const {
+        return _status;
     }
 
 private:
-    std::atomic<bool> _init_succeeded;
+    std::atomic<bool> _has_called;
     std::once_flag _once_flag;
-    OLAPStatus _status;
+    ReturnType _status;
 };
 
 } // namespace doris

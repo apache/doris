@@ -49,8 +49,7 @@ class BitWriter {
   int bytes_written() const { return byte_offset_ + BitUtil::Ceil(bit_offset_, 8); }
 
   // Writes a value to buffered_values_, flushing to buffer_ if necessary.  This is bit
-  // packed. num_bits must be <= 32. If 'v' is larger than 'num_bits' bits, the higher
-  // bits are ignored.
+  // packed.
   void PutValue(uint64_t v, int num_bits);
 
   // Writes v to the next aligned byte using num_bits. If T is larger than num_bits, the

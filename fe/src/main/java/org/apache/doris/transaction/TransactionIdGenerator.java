@@ -30,7 +30,7 @@ public class TransactionIdGenerator {
     
     private long nextId = NEXT_ID_INIT_VALUE;
     // has to set it to an invalid value, then it will be logged when id is firstly increment
-    private long batchEndId = -1;
+    private long batchEndId = 0;
     
     private EditLog editLog;
     
@@ -65,10 +65,8 @@ public class TransactionIdGenerator {
     public void write(DataOutput out) throws IOException {
         out.writeLong(batchEndId);
     }
-
     public void readFields(DataInput in) throws IOException {
-        long endId = in.readLong();
-        batchEndId = endId;
+        batchEndId = in.readLong();
         // maybe a little rough
         nextId = batchEndId;
     }

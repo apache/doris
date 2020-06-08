@@ -54,7 +54,7 @@ import java.util.UUID;
 
 public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
-    private static final int RETRY_NUM = 3;
+    private static final int RETRY_NUM = 2;
 
     protected final ExportJob job;
 
@@ -201,6 +201,7 @@ public class ExportExportingTask extends MasterTask {
         }
         
         try {
+            coord.setTimeout(leftTimeSecond);
             coord.exec();
         } catch (Exception e) {
             LOG.warn("export Coordinator execute failed. job: {}", job.getId(), e);
@@ -256,7 +257,7 @@ public class ExportExportingTask extends MasterTask {
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString("Doris Version", Version.PALO_BUILD_VERSION);
+        summaryProfile.addInfoString("Doris Version", Version.DORIS_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, "xxx");
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());
@@ -275,7 +276,7 @@ public class ExportExportingTask extends MasterTask {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
+            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
         } catch (AnalysisException e) {
             String failMsg = "get broker failed. export job: " + job.getId() + ". msg: " + e.getMessage();
             LOG.warn(failMsg);

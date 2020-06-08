@@ -19,41 +19,31 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
 
 public class AlterDatabaseQuotaStmt extends DdlStmt {
     private String dbName;
-    private String quotaQuantity;
+    private QuotaType quotaType;
+    private String quotaValue;
     private long quota;
-    private static ImmutableMap<String, Long> validUnitMultiplier = 
-        ImmutableMap.<String, Long>builder().put("B", 1L)
-        .put("K", 1024L)
-        .put("KB", 1024L)
-        .put("M", 1024L * 1024)
-        .put("MB", 1024L * 1024)
-        .put("G", 1024L * 1024 * 1024)
-        .put("GB", 1024L * 1024 * 1024)
-        .put("T", 1024L * 1024 * 1024 * 1024)
-        .put("TB", 1024L * 1024 * 1024 * 1024)
-        .put("P", 1024L * 1024 * 1024 * 1024 * 1024)
-        .put("PB", 1024L * 1024 * 1024 * 1024 * 1024).build();
 
-    private String quotaPattern = "(\\d+)(\\D*)";
+    public enum QuotaType {
+        NONE,
+        DATA,
+        REPLICA
+    }
 
-    public AlterDatabaseQuotaStmt(String dbName, String quotaQuantity) {
+    public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaValue) {
         this.dbName = dbName;
-        this.quotaQuantity = quotaQuantity;
+        this.quotaType = quotaType;
+        this.quotaValue = quotaValue;
     }
 
     public String getDbName() {
@@ -64,32 +54,8 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         return quota;
     }
 
-    private void analyzeQuotaQuantity() throws UserException {
-        Pattern r = Pattern.compile(quotaPattern);
-        Matcher m = r.matcher(quotaQuantity);
-        if (m.matches()) {
-            try {
-                quota = Long.parseLong(m.group(1));
-            } catch(NumberFormatException nfe) {
-                throw new AnalysisException("invalid quota:" + m.group(1));
-            }
-            if (quota < 0L) {
-                throw new AnalysisException("Quota must larger than 0");
-            }
-
-            String unit = "B";
-            String tmpUnit = m.group(2);
-            if (!Strings.isNullOrEmpty(tmpUnit)) {
-                unit = tmpUnit.toUpperCase();
-            }
-            if (validUnitMultiplier.containsKey(unit)) {
-                quota = quota * validUnitMultiplier.get(unit);
-            } else {
-                throw new AnalysisException("invalid unit:" + tmpUnit);
-            }
-        } else {
-            throw new AnalysisException("invalid quota expression:" + quotaQuantity);
-        }
+    public QuotaType getQuotaType() {
+        return quotaType;
     }
 
     @Override
@@ -104,11 +70,16 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        analyzeQuotaQuantity();
+        if (quotaType == QuotaType.DATA) {
+            quota = ParseUtil.analyzeDataVolumn(quotaValue);
+        } else if (quotaType == QuotaType.REPLICA) {
+            quota = ParseUtil.analyzeReplicaNumber(quotaValue);
+        }
+
     }
 
     @Override
     public String toSql() {
-        return "ALTER DATABASE " + dbName + " SET DATA QUOTA " + quotaQuantity;
+        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") +" QUOTA " + quotaValue;
     }
 }

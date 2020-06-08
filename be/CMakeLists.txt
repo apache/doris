@@ -29,15 +29,20 @@ endif()
 project(doris CXX C)
 
 # set CMAKE_BUILD_TYPE
-if (DEFINED ENV{BUILD_TYPE})
-    set(CMAKE_BUILD_TYPE $ENV{BUILD_TYPE})
-endif()
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RELEASE)
 endif()
 
 string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
 message(STATUS "Build type is ${CMAKE_BUILD_TYPE}")
+
+# set CMAKE_BUILD_TARGET_ARCH
+# use `lscpu | grep 'Architecture' | awk '{print $2}'` only support system which language is en_US.UTF-8
+execute_process(COMMAND bash "-c" "uname -m"
+                OUTPUT_VARIABLE
+                CMAKE_BUILD_TARGET_ARCH
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -49,15 +54,12 @@ set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 
-# LLVM
-if (DEFINED ENV{DORIS_LLVM_HOME})
-    set(LLVM_HOME "$ENV{DORIS_LLVM_HOME}")
+if (APPLE)
+    set(MAKE_TEST "ON")
 else()
-    set(LLVM_HOME "${THIRDPARTY_DIR}/llvm")
+    option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 endif()
-set(LLVM_BIN "${LLVM_HOME}/bin")
-
-option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
+message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
@@ -65,7 +67,14 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.2")
         message(FATAL_ERROR "Need GCC version at least 4.8.2")
     endif()
-else()
+
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER "7.3.0")
+        message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
+    else()
+        #   -Werror: compile warnings should be errors when using the toolchain compiler.
+        set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -Werror")
+    endif()
+elseif (NOT APPLE)
     message(FATAL_ERROR "Compiler should be GNU")
 endif()
 
@@ -92,7 +101,7 @@ endif()
 message(STATUS "build gensrc if necessary")
 execute_process(COMMAND make -C ${BASE_DIR}/../gensrc/
                 RESULT_VARIABLE MAKE_GENSRC_RESULT)
-if(NOT ${MAKE_GENSRC_RESULT} EQUAL 0)
+if(NOT ${MAKE_GENSRC_RESULT} EQUAL 0 AND NOT APPLE)
     message(FATAL_ERROR "Failed to build ${BASE_DIR}/../gensrc/")
 endif()
 
@@ -101,7 +110,11 @@ set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
 set(BOOST_ROOT ${THIRDPARTY_DIR})
 
-find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system date_time program_options)
+if (NOT APPLE)
+    find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system date_time program_options)
+else()
+    find_package(Boost 1.55.0 COMPONENTS thread regex filesystem system date_time program_options)
+endif()
 include_directories(${Boost_INCLUDE_DIRS})
 message(STATUS ${Boost_LIBRARIES})
 
@@ -165,9 +178,6 @@ endif()
 add_library(libevent STATIC IMPORTED)
 set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
 
-add_library(LLVMSupport STATIC IMPORTED)
-set_target_properties(LLVMSupport PROPERTIES IMPORTED_LOCATION ${LLVM_HOME}/lib/libLLVMSupport.a)
-
 add_library(crypto STATIC IMPORTED)
 set_target_properties(crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcrypto.a)
 
@@ -222,71 +232,21 @@ set_target_properties(bitshuffle PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/
 add_library(roaring STATIC IMPORTED)
 set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libroaring.a)
 
+add_library(orc STATIC IMPORTED)
+set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
+
+add_library(cctz STATIC IMPORTED)
+set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
-# llvm-config
-find_program(LLVM_CONFIG_EXECUTABLE llvm-config
-  PATHS
-  ${LLVM_BIN}
-  NO_DEFAULT_PATH
-)
+# Check if functions are supported in this platform. All flags will generated
+# in gensrc/build/common/env_config.h.
+# You can check funcion here which depends on platform. Don't forget add this
+# to be/src/common/env_config.h.in
+include(CheckFunctionExists)
+check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 
-if (NOT LLVM_CONFIG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm-config")
-endif (NOT LLVM_CONFIG_EXECUTABLE)
-
-# clang++
-find_program(LLVM_CLANG_EXECUTABLE clang++
-  PATHS
-  ${LLVM_BIN}
-  NO_DEFAULT_PATH
-)
-
-if (NOT LLVM_CLANG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find clang++")
-endif (NOT LLVM_CLANG_EXECUTABLE)
-
-# opt
-find_program(LLVM_OPT_EXECUTABLE opt
-  PATHS
-  ${LLVM_BIN}
-  NO_DEFAULT_PATH
-)
-
-if (NOT LLVM_OPT_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm opt")
-endif (NOT LLVM_OPT_EXECUTABLE)
-
-message(STATUS "LLVM llvm-config found at: ${LLVM_CONFIG_EXECUTABLE}")
-message(STATUS "LLVM clang++ found at: ${LLVM_CLANG_EXECUTABLE}")
-message(STATUS "LLVM opt found at: ${LLVM_OPT_EXECUTABLE}")
-
-# Get all llvm depends
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --includedir
-  OUTPUT_VARIABLE LLVM_INCLUDE_DIR
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --libdir
-  OUTPUT_VARIABLE LLVM_LIBRARY_DIR
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --ldflags
-  OUTPUT_VARIABLE LLVM_LFLAGS
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-# Get the link libs we need.  llvm has many and we don't want to link all of the libs
-# if we don't need them.   
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --libnames core mcjit native ipo bitreader target
-  OUTPUT_VARIABLE LLVM_MODULE_LIBS
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
 # compiler flags that are common across debug/release builds
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
@@ -305,8 +265,9 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DLLVM_ON_UNIX")
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
 if (WITH_MYSQL)
@@ -324,7 +285,7 @@ endif()
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "-g -Wno-unused-local-typedefs")
+set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 
 # For CMAKE_BUILD_TYPE=Debug
 #   -ggdb: Enable gdb debugging
@@ -339,24 +300,20 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb -O0 -gdwarf-2")
 #   -gdwarf-2: Debug information is stored as dwarf2 to be as compatible as possible
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
 
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O1 -fsanitize=address -DADDRESS_SANITIZER")
-SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=leak -DLEAK_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -fsanitize=undefined")
+SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize=undefined")
 # Ignore a number of noisy errors with too many false positives:
-# TODO(zc): 
+# TODO(zc):
 # SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-sanitize=alignment,function,vptr,float-divide-by-zero,float-cast-overflow")
 # Don't enforce wrapped signed integer arithmetic so that the sanitizer actually sees
-# undefined wrapping:
-SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-wrapv")
-# To ease debugging, turn off all optimizations:
-SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -O0")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER")
+SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -383,75 +340,8 @@ message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 # Thrift requires these two definitions for some types that we use
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 
-# TODO: this does not work well.  the config file will output -I/<include path> and
-# also -DNDEBUG.  I've hard coded the #define that are necessary but we should make
-# this better.  The necesesary flags are only #defines so maybe just def/undef those
-# around #include to llvm headers?
-#execute_process(
-#  COMMAND ${LLVM_CONFIG_EXECUTABLE} --cppflags
-#  OUTPUT_VARIABLE LLVM_CFLAGS
-#  OUTPUT_STRIP_TRAILING_WHITESPACE
-#)
-set(LLVM_CFLAGS 
-    "-D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS")
-if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "5.0.0")
-    message(STATUS "GCC version is less than 5.0.0, no need to set -D__GLIBCXX_BITSIZE_INT_N_0=128 and -D__GLIBCXX_TYPE_INT_N_0=__int128")
-else()
-    SET(LLVM_CFLAGS "${LLVM_LFLAGS} -D__GLIBCXX_BITSIZE_INT_N_0=128 -D__GLIBCXX_TYPE_INT_N_0=__int128")
-endif()
-
-# Set clang flags for cross-compiling to IR.
-# IR_COMPILE is #defined for the cross compile to remove code that bloats the IR.
-# Note that we don't enable any optimization. We want unoptimized IR since we will be
-# modifying it at runtime, then re-compiling (and optimizing) the modified code. The final
-# optimizations will be less effective if the initial code is also optimized.
-set(CLANG_IR_CXX_FLAGS "-gcc-toolchain" ${GCC_HOME})
-set(CLANG_IR_CXX_FLAGS ${CLANG_IR_CXX_FLAGS} "-std=c++11" "-c" "-emit-llvm" "-D__STDC_CONSTANT_MACROS" "-D__STDC_FORMAT_MACROS" "-D__STDC_LIMIT_MACROS" "-DIR_COMPILE" "-DNDEBUG" "-DHAVE_INTTYPES_H" "-DHAVE_NETINET_IN_H" "-DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG" "-D__GLIBCXX_BITSIZE_INT_N_0=128" "-D__GLIBCXX_TYPE_INT_N_0=__int128" "-U_GLIBCXX_USE_FLOAT128" "-DLLVM_ON_UNIX")
-
-message(STATUS "CLANG_IR_CXX_FLAGS: ${CLANG_IR_CXX_FLAGS}")
-
-# CMake really doesn't like adding link directories and wants absolute paths
-# Reconstruct it with LLVM_MODULE_LIBS and LLVM_LIBRARY_DIR
-string(REPLACE " " ";" LLVM_LIBS_LIST ${LLVM_MODULE_LIBS})
-set (LLVM_MODULE_LIBS "")
-foreach (LIB ${LLVM_LIBS_LIST})
-  set(LLVM_MODULE_LIBS ${LLVM_MODULE_LIBS} "${LLVM_LIBRARY_DIR}/${LIB}")
-endforeach(LIB)
-
-message(STATUS "LLVM include dir: ${LLVM_INCLUDE_DIR}")
-message(STATUS "LLVM lib dir: ${LLVM_LIBRARY_DIR}")
-message(STATUS "LLVM libs: ${LLVM_MODULE_LIBS}")
-message(STATUS "LLVM compile flags: ${LLVM_CFLAGS}")
-
-# When the Toolchain is used we use LLVM 3.3 that was built in a different path that it
-# is invoked from, and a GCC that resides in a different location. LVVM 3.3 relies on
-# hard-coded path information about where to find the system headers and does not support
-# specifying the -gcc-toolchain flag to dynamically provide this information. Because of
-# these reasons we need to manually add the system c++ headers to the path when we
-# compile the IR code with clang.
-
-if(DEFINED ENV{CLANG_COMPATIBLE_FLAGS})
-    set(CLANG_COMPATIBLE_FLAGS $ENV{CLANG_COMPATIBLE_FLAGS})
-endif()
-
-message(STATUS "CLANG_BASE_FLAGS: ${CLANG_BASE_FLAGS}")
-message(STATUS "CLANG_COMPATIBLE_FLAGS: ${CLANG_COMPATIBLE_FLAGS}")
-
-set(CLANG_INCLUDE_FLAGS
-    "-I${LLVM_HOME}/include"
-    "-I${BASE_DIR}/src"
-    "-I${GENSRC_DIR}"
-    "-I${THIRDPARTY_DIR}/include"
-    "-I${THIRDPARTY_DIR}/include/thrift/"
-    "-I${THIRDPARTY_DIR}/include/event/"
-    "-I${GPERFTOOLS_HOME}/include"
-    ${CLANG_BASE_FLAGS}
-    ${CLANG_COMPATIBLE_FLAGS}
-)
-
 # Set include dirs
-include_directories(${LLVM_INCLUDE_DIR})
-include_directories( 
+include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
     ${GENSRC_DIR}/
@@ -461,7 +351,6 @@ include_directories(
     ${THIRDPARTY_DIR}/include/event/
 )
 
-
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
@@ -469,14 +358,15 @@ set(WL_END_GROUP "-Wl,--end-group")
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
-    CodeGen
     Common
     Env
     Exec
     Exprs
     Gutil
+    Memory
     Olap
     Rowset
+    OlapFs
     Runtime
     Service
     Udf
@@ -485,14 +375,9 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
+    Plugin
     ${WL_END_GROUP}
 )
-
-if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES
-        mysql
-        )
-endif()
 
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
@@ -504,7 +389,6 @@ set(DORIS_DEPENDENCIES
     libs2
     snappy
     ${Boost_LIBRARIES}
-    ${LLVM_MODULE_LIBS}
     thrift
     thriftnb
     glog
@@ -531,6 +415,8 @@ set(DORIS_DEPENDENCIES
     zstd
     arrow
     parquet
+    orc
+    cctz
     ${WL_END_GROUP}
 )
 
@@ -538,6 +424,12 @@ if(WITH_LZO)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
         lzo
     )
+endif()
+
+if (WITH_MYSQL)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+        mysql
+        )
 endif()
 
 # Add all external dependencies. They should come after the palo libs.
@@ -574,11 +466,10 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
 )
 
 # Set libraries for test
-set (TEST_LINK_LIBS ${DORIS_LINK_LIBS} 
+set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
     gmock
     gtest
-    LLVMSupport
     ${WL_END_GROUP}
 )
 
@@ -592,7 +483,6 @@ if (${MAKE_TEST} STREQUAL "ON")
 endif ()
 
 add_subdirectory(${SRC_DIR}/agent)
-add_subdirectory(${SRC_DIR}/codegen)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
@@ -610,6 +500,7 @@ add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf_samples)
 add_subdirectory(${SRC_DIR}/util)
+add_subdirectory(${SRC_DIR}/plugin)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
@@ -628,6 +519,24 @@ FUNCTION(ADD_BE_TEST TEST_NAME)
     ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
 ENDFUNCTION()
 
+FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
+    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
+
+    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+    get_filename_component(PLUGIN_DIR_NAME ${PLUGIN_NAME} PATH)
+    get_filename_component(PLUGIN_FILE_NAME ${PLUGIN_NAME} NAME)
+
+    ADD_LIBRARY(${PLUGIN_FILE_NAME} SHARED ${PLUGIN_NAME}.cpp)
+
+    TARGET_LINK_LIBRARIES(${PLUGIN_FILE_NAME} ${DORIS_LINK_LIBS})
+    SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+    if (NOT "${PLUGIN_DIR_NAME}" STREQUAL "")
+        SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${PLUGIN_DIR_NAME}")
+    endif ()
+
+ENDFUNCTION()
+
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/agent)
     add_subdirectory(${TEST_DIR}/common)
@@ -640,6 +549,8 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/runtime)
     add_subdirectory(${TEST_DIR}/udf)
     add_subdirectory(${TEST_DIR}/util)
+    add_subdirectory(${TEST_DIR}/plugin)
+    add_subdirectory(${TEST_DIR}/plugin/example)
 endif ()
 
 # Install be

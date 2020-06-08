@@ -22,12 +22,12 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Set;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -38,7 +38,7 @@ public class InsertLoadJobTest {
     public void testGetTableNames(@Mocked Catalog catalog,
                                   @Injectable Database database,
                                   @Injectable Table table) throws MetaNotFoundException {
-        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1000, "");
+        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1000, "", "");
         String tableName = "table1";
         new Expectations() {
             {

@@ -17,26 +17,23 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.util.PropertyAnalyzer;
 
 import java.util.Map;
 
 // clause which is used to modify table properties
-public class ModifyTablePropertiesClause extends AlterClause {
-
-    private static final String KEY_STORAGE_TYPE = "storage_type";
-    private static final String KEY_COLOCATE_WITH = "colocate_with";
+public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private Map<String, String> properties;
 
     public ModifyTablePropertiesClause(Map<String, String> properties) {
+        super(AlterOpType.MODIFY_TABLE_PROPERTY);
         this.properties = properties;
     }
 
@@ -46,31 +43,53 @@ public class ModifyTablePropertiesClause extends AlterClause {
             throw new AnalysisException("Properties is not set");
         }
 
-        if (properties.size() == 1 && properties.containsKey(KEY_COLOCATE_WITH)) {
+        if (properties.size() != 1
+                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            throw new AnalysisException("Can only set one table property at a time");
+        }
+
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
             if (Config.disable_colocate_join) {
                 throw new AnalysisException("Colocate table is disabled by Admin");
             }
-
-            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(
-                    ConnectContext.get(), ConnectContext.get().getDatabase(), PrivPredicate.ALTER)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                        "ALTER");
-            }
-        } else if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    "ALTER");
-        }
-
-        if (properties.containsKey(KEY_STORAGE_TYPE)) {
-            // if set storage type, we need ADMIN privs.
-            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                    "ADMIN");
-            }
-
-            if (!properties.get(KEY_STORAGE_TYPE).equals("column")) {
+            this.needTableStable = false;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).equalsIgnoreCase("column")) {
                 throw new AnalysisException("Can only change storage type to COLUMN");
             }
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE).equalsIgnoreCase("hash")) {
+                throw new AnalysisException("Can only change distribution type to HASH");
+            }
+            this.needTableStable = false;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK).equalsIgnoreCase("true")) {
+                throw new AnalysisException(
+                        "Property " + PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK + " should be set to true");
+            }
+            this.needTableStable = false;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            // do nothing, these 2 properties will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
+                throw new AnalysisException(
+                        "Property " + PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT + " should be v2");
+            }
+        } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+            // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            PropertyAnalyzer.analyzeReplicationNum(properties, false);
+        } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            short defaultReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, true);
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, Short.toString(defaultReplicationNum));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
+            throw new AnalysisException("Alter tablet type not supported");
+        } else {
+            throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
     }
 

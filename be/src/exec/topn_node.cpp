@@ -70,13 +70,6 @@ Status TopNNode::prepare(RuntimeState* state) {
     _tuple_row_less_than.reset(
             new TupleRowComparator(_sort_exec_exprs, _is_asc_order, _nulls_first));
 
-    if (state->codegen_level() > 0) {
-        bool success = _tuple_row_less_than->codegen(state);
-        if (success) {
-            // AddRuntimeExecOption("Codegen Enabled");
-        }
-    }
-
     _abort_on_default_limit_exceeded = _abort_on_default_limit_exceeded &&
                                        state->abort_on_default_limit_exceeded();
     _materialized_tuple_desc = _row_descriptor.tuple_descriptors()[0];
@@ -87,8 +80,7 @@ Status TopNNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
-    RETURN_IF_ERROR(state->check_query_state());
+    RETURN_IF_ERROR(state->check_query_state("Top n, before open."));
     RETURN_IF_ERROR(_sort_exec_exprs.open(state));
 
     // Avoid creating them after every Reset()/Open().
@@ -122,8 +114,7 @@ Status TopNNode::open(RuntimeState* state) {
                 insert_tuple_row(batch.get_row(i));
             }
             RETURN_IF_CANCELLED(state);
-            // RETURN_IF_LIMIT_EXCEEDED(state);
-            RETURN_IF_ERROR(state->check_query_state());
+            RETURN_IF_ERROR(state->check_query_state("Top n, while getting next from child 0."));
         } while (!eos);
     }
 
@@ -142,8 +133,7 @@ Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
-    RETURN_IF_ERROR(state->check_query_state());
+    RETURN_IF_ERROR(state->check_query_state("Top n, before moving result to row_batch."));
 
     while (!row_batch->at_capacity() && (_get_next_iter != _sorted_top_n.end())) {
         if (_num_rows_skipped < _offset) {
@@ -173,9 +163,6 @@ Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     // block(s) in the pool are all full or when the pool has reached a certain size.
     if (*eos) {
         row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), false);
-        if (memory_used_counter() != NULL) {
-            COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
-        }
     }
     return Status::OK();
 }

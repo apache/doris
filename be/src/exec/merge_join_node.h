@@ -46,8 +46,6 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status close(RuntimeState* state);
 
-    static const char* LLVM_CLASS_NAME;
-
 protected:
     void debug_string(int indentation_level, std::stringstream* out) const;
 

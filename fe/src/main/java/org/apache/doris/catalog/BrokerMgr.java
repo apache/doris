@@ -66,6 +66,19 @@ public class BrokerMgr {
         return brokerListMap;
     }
 
+    public List<FsBroker> getAllBrokers() {
+        List<FsBroker> brokers = Lists.newArrayList();
+        lock.lock();
+        try {
+            for (List<FsBroker> list : brokerListMap.values()) {
+                brokers.addAll(list);
+            }
+        } finally {
+            lock.unlock();
+        }
+        return brokers;
+    }
+
     public void execute(ModifyBrokerClause clause) throws DdlException {
         switch (clause.getOp()) {
             case OP_ADD:
@@ -185,7 +198,7 @@ public class BrokerMgr {
                 }
                 addedBrokerAddress.add(new FsBroker(pair.first, pair.second));
             }
-            Catalog.getInstance().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
+            Catalog.getCurrentCatalog().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
             for (FsBroker address : addedBrokerAddress) {
                 brokerAddrsMap.put(address.ip, address);
             }
@@ -237,7 +250,7 @@ public class BrokerMgr {
                     throw new DdlException("Broker(" + pair.first + ":" + pair.second + ") has not in brokers.");
                 }
             }
-            Catalog.getInstance().getEditLog().logDropBroker(new ModifyBrokerInfo(name, dropedAddressList));
+            Catalog.getCurrentCatalog().getEditLog().logDropBroker(new ModifyBrokerInfo(name, dropedAddressList));
             for (FsBroker address : dropedAddressList) {
                 brokerAddrsMap.remove(address.ip, address);
             }
@@ -268,7 +281,7 @@ public class BrokerMgr {
             if (!brokersMap.containsKey(name)) {
                 throw new DdlException("Unknown broker name(" + name + ")");
             }
-            Catalog.getInstance().getEditLog().logDropAllBroker(name);
+            Catalog.getCurrentCatalog().getEditLog().logDropAllBroker(name);
             brokersMap.remove(name);
             brokerListMap.remove(name);
         } finally {
@@ -360,7 +373,6 @@ public class BrokerMgr {
             }
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             brokerName = Text.readString(in);
             int size = in.readInt();

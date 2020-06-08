@@ -20,12 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+@Deprecated
 public class MigrateDbStmt extends DdlStmt {
 
     private ClusterName src;
@@ -58,6 +60,10 @@ public class MigrateDbStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+        if (Config.disable_cluster_feature) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "MIGRATION CLUSTER");
+        }
+
         src.analyze(analyzer);
         dest.analyze(analyzer);
 

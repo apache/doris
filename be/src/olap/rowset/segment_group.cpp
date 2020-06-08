@@ -33,6 +33,7 @@
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
 #include "util/stack_util.h"
+#include "util/file_utils.h"
 
 using std::ifstream;
 using std::string;
@@ -65,7 +66,7 @@ namespace doris {
         } \
     } while (0);
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* schema,
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
             const std::string& rowset_path_prefix, Version version, VersionHash version_hash,
             bool delete_flag, int32_t segment_group_id, int32_t num_segments)
       : _tablet_id(tablet_id),
@@ -101,7 +102,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSch
     }
 }
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* schema,
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
         const std::string& rowset_path_prefix, bool delete_flag,
         int32_t segment_group_id, int32_t num_segments, bool is_pending,
         TPartitionId partition_id, TTransactionId transaction_id) : _tablet_id(tablet_id),
@@ -155,13 +156,13 @@ std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string&
     if (_segment_group_id > 0) {
         tmp_sg_id = _segment_group_id;
     }
-    std::string file_name = std::to_string(_rowset_id) + "_"
+    std::string file_name = _rowset_id.to_string() + "_"
             + std::to_string(tmp_sg_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
 }
 
-std::string SegmentGroup::_construct_file_name(int64_t rowset_id, int32_t segment_id, const string& suffix) const {
-    std::string file_name = std::to_string(rowset_id) + "_"
+std::string SegmentGroup::_construct_file_name(const RowsetId& rowset_id, int32_t segment_id, const string& suffix) const {
+    std::string file_name = rowset_id.to_string() + "_"
             + std::to_string(_segment_group_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
 }
@@ -189,7 +190,7 @@ std::string SegmentGroup::construct_data_file_path(int32_t segment_id) const {
 }
 
 void SegmentGroup::acquire() {
-    atomic_inc(&_ref_count);
+    ++_ref_count;
 }
 
 int64_t SegmentGroup::ref_count() {
@@ -197,7 +198,7 @@ int64_t SegmentGroup::ref_count() {
 }
 
 void SegmentGroup::release() {
-    atomic_dec(&_ref_count);
+    --_ref_count;
 }
 
 bool SegmentGroup::is_in_use() {
@@ -215,20 +216,26 @@ bool SegmentGroup::delete_all_files() {
         string index_path = construct_index_file_path(seg_id);
         string data_path = construct_data_file_path(seg_id);
 
-        LOG(INFO) << "delete index file. path=" << index_path;
+        VLOG(3) << "delete index file. path=" << index_path;
         if (remove(index_path.c_str()) != 0) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to delete index file. err=" << strerror_r(errno, errmsg, 64)
-                         << ", path=" << index_path;
-            success = false;
+            // if the errno is not ENOENT, log the error msg.
+            // ENOENT stands for 'No such file or directory'
+            if (errno != ENOENT) {
+                char errmsg[64];
+                LOG(WARNING) << "fail to delete index file. err=" << strerror_r(errno, errmsg, 64)
+                        << ", path=" << index_path;
+                success = false;
+            }
         }
 
-        LOG(INFO) << "delete data file. path=" << data_path;
+        VLOG(3) << "delete data file. path=" << data_path;
         if (remove(data_path.c_str()) != 0) {
-            char errmsg[64];
-            LOG(WARNING) << "fail to delete data file. err=" << strerror_r(errno, errmsg, 64)
-                         << ", path=" << data_path;
-            success = false;
+            if (errno != ENOENT) {
+                char errmsg[64];
+                LOG(WARNING) << "fail to delete data file. err=" << strerror_r(errno, errmsg, 64)
+                        << ", path=" << data_path;
+                success = false;
+            }
         }
     }
     return success;
@@ -242,13 +249,13 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         return OLAP_SUCCESS;
     }
 
-    // 1. rollup tablet num_key_columns() will less than base tablet zone_map_fields.size().
+    // 1. rollup tablet get_num_zone_map_columns() will less than base tablet zone_map_fields.size().
     //    For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
-    // 2. adding column to existed table, num_key_columns() will larger than
+    // 2. adding column to existed table, get_num_zone_map_columns() will larger than
     //    zone_map_fields.size()
 
     int num_new_keys = 0;
-    for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+    for (size_t i = 0; i < get_num_zone_map_columns(); ++i) {
         const TabletColumn& column = _schema->column(i);
 
         WrapperField* first = WrapperField::create(column);
@@ -276,7 +283,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
 
 OLAPStatus SegmentGroup::add_zone_maps(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields) {
-    DCHECK(zone_map_fields.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_fields.size() == get_num_zone_map_columns());
     for (size_t i = 0; i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
@@ -295,7 +302,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
 OLAPStatus SegmentGroup::add_zone_maps(
         std::vector<std::pair<std::string, std::string> > &zone_map_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(zone_map_strings.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_strings.size() <= get_num_zone_map_columns());
     for (size_t i = 0; i < zone_map_strings.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
@@ -313,7 +320,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::load() {
+OLAPStatus SegmentGroup::load(bool use_cache) {
     if (_empty) {
         _index_loaded = true;
         return OLAP_SUCCESS;
@@ -347,7 +354,7 @@ OLAPStatus SegmentGroup::load() {
         
         // get full path for one segment
         std::string path = construct_index_file_path(seg_id);
-        if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block))
+        if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block, use_cache))
                 != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment. [path='" << path << "']";
             
@@ -580,11 +587,14 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
     OLAPStatus res = OLAP_SUCCESS;
     if (!_new_segment_created) {
         string file_path = construct_index_file_path(_num_segments - 1);
-        boost::filesystem::path tablet_path(_rowset_path_prefix);
-        boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
-        std::string data_dir_string = data_dir_path.string();
-        DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
-        data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_id));
+        StorageEngine* engine = StorageEngine::instance();
+        if (engine != nullptr) {
+            boost::filesystem::path tablet_path(_rowset_path_prefix);
+            boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
+            std::string data_dir_string = data_dir_path.string();
+            DataDir* data_dir = engine->get_store(data_dir_string);
+            data_dir->add_pending_ids(ROWSET_ID_PREFIX + _rowset_id.to_string());
+        }
         res = _current_file_handler.open_with_mode(
                         file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
         if (res != OLAP_SUCCESS) {
@@ -687,6 +697,13 @@ const TabletSchema& SegmentGroup::get_tablet_schema() {
     return *_schema;
 }
 
+int SegmentGroup::get_num_zone_map_columns() {
+    if (_schema->keys_type() == KeysType::DUP_KEYS) {
+        return _schema->num_columns();
+    }
+    return _schema->num_key_columns();
+}
+
 int SegmentGroup::get_num_key_columns() {
     return _schema->num_key_columns();
 }
@@ -707,50 +724,13 @@ int64_t SegmentGroup::get_tablet_id() {
     return _tablet_id;
 }
 
-OLAPStatus SegmentGroup::make_snapshot(const std::string& snapshot_path,
-                                       std::vector<std::string>* success_links) {
+OLAPStatus SegmentGroup::copy_files_to(const std::string& dir) {
     if (_empty) {
         return OLAP_SUCCESS;
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
-        std::string snapshot_data_file_name = construct_data_file_path(snapshot_path, segment_id);
-        if (check_dir_existed(snapshot_data_file_name)) {
-            LOG(WARNING) << "snapshot dest file already exist, fail to make snapshot."
-                         << " file=" << snapshot_data_file_name;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        std::string cur_data_file_name = construct_data_file_path(segment_id);
-        if (link(cur_data_file_name.c_str(), snapshot_data_file_name.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << cur_data_file_name << ", "
-                << "to=" << snapshot_data_file_name << ", " << "errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
-        }
-        success_links->push_back(snapshot_data_file_name);
-        std::string snapshot_index_file_name = construct_index_file_path(snapshot_path, segment_id);
-        if (check_dir_existed(snapshot_index_file_name)) {
-            LOG(WARNING) << "snapshot dest file already exist, fail to make snapshot."
-                         << " file=" << snapshot_index_file_name;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        std::string cur_index_file_name = construct_index_file_path(segment_id);
-        if (link(cur_index_file_name.c_str(), snapshot_index_file_name.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << cur_index_file_name << ", "
-                << "to=" << snapshot_index_file_name << ", " << "errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
-        }
-        success_links->push_back(snapshot_index_file_name);
-    }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
-                                            std::vector<std::string>* success_files) {
-    if (_empty) {
-        return OLAP_SUCCESS;
-    }
-    for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
-        std::string dest_data_file = construct_data_file_path(dest_path, segment_id);
-        if (check_dir_existed(dest_data_file)) {
+        std::string dest_data_file = construct_data_file_path(dir, segment_id);
+        if (FileUtils::check_exist(dest_data_file)) {
             LOG(WARNING) << "file already exists:" << dest_data_file;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
@@ -761,9 +741,8 @@ OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
                          << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
-        success_files->push_back(dest_data_file);
-        std::string dest_index_file = construct_index_file_path(dest_path, segment_id);
-        if (check_dir_existed(dest_index_file)) {
+        std::string dest_index_file = construct_index_file_path(dir, segment_id);
+        if (FileUtils::check_exist(dest_index_file)) {
             LOG(WARNING) << "file already exists:" << dest_index_file;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
@@ -774,7 +753,6 @@ OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
                          << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
-        success_files->push_back(dest_index_file);
     }
     return OLAP_SUCCESS;
 }
@@ -792,9 +770,10 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(_rowset_path_prefix, segment_id);
         // if file exist should remove it because same file name does not mean same data
-        if (check_dir_existed(new_data_file_name)) {
+        if (FileUtils::check_exist(new_data_file_name)) {
             LOG(INFO) << "file already exist, remove it. file=" << new_data_file_name;
-            RETURN_NOT_OK(remove_dir(new_data_file_name));
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove(new_data_file_name), OLAP_ERR_CANNOT_CREATE_DIR, 
+                    "remove path failed. path=" + new_data_file_name);
         }
         std::string old_data_file_name = construct_old_data_file_path(snapshot_path, segment_id);
         if (link(old_data_file_name.c_str(), new_data_file_name.c_str()) != 0) {
@@ -807,9 +786,12 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
         }
         success_links->push_back(new_data_file_name);
         std::string new_index_file_name = construct_index_file_path(_rowset_path_prefix, segment_id);
-        if (check_dir_existed(new_index_file_name)) {
+        if (FileUtils::check_exist(new_index_file_name)) {
             LOG(INFO) << "file already exist, remove it. file=" << new_index_file_name;
-            RETURN_NOT_OK(remove_dir(new_index_file_name));
+            
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove(new_index_file_name), 
+                    OLAP_ERR_CANNOT_CREATE_DIR,
+                    "remove path failed. path=" + new_index_file_name);
         }
         std::string old_index_file_name = construct_old_index_file_path(snapshot_path, segment_id);
         if (link(old_index_file_name.c_str(), new_index_file_name.c_str()) != 0) {
@@ -834,7 +816,7 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(_rowset_path_prefix, segment_id);
         std::string old_data_file_name = construct_old_data_file_path(snapshot_path, segment_id);
-        if (!check_dir_existed(old_data_file_name)) {
+        if (!FileUtils::check_exist(old_data_file_name)) {
             if (link(new_data_file_name.c_str(), old_data_file_name.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link. from=" << new_data_file_name << ", "
                     << "to=" << old_data_file_name << ", " << "errno=" << Errno::no();
@@ -846,7 +828,7 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
                 << "to=" << old_data_file_name;
         std::string new_index_file_name = construct_index_file_path(_rowset_path_prefix, segment_id);
         std::string old_index_file_name = construct_old_index_file_path(snapshot_path, segment_id);
-        if (!check_dir_existed(old_index_file_name)) {
+        if (!FileUtils::check_exist(old_index_file_name)) {
             if (link(new_index_file_name.c_str(), old_index_file_name.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link. from=" << new_index_file_name << ", "
                     << "to=" << old_index_file_name << ", " << "errno=" << Errno::no();
@@ -863,38 +845,51 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
 OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_remove) {
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string old_data_file_name = construct_old_data_file_path(_rowset_path_prefix, segment_id);
-        if (check_dir_existed(old_data_file_name)) {
-            RETURN_NOT_OK(remove_dir(old_data_file_name));
+        if (FileUtils::check_exist(old_data_file_name)) {
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove(old_data_file_name), 
+                    OLAP_ERR_CANNOT_CREATE_DIR, 
+                    "remove path failed. path" + old_data_file_name);
+            
             links_to_remove->push_back(old_data_file_name);
         }
         std::string old_index_file_name = construct_old_index_file_path(_rowset_path_prefix, segment_id);
-        if (check_dir_existed(old_index_file_name)) {
-            RETURN_NOT_OK(remove_dir(old_index_file_name));
+        if (FileUtils::check_exist(old_index_file_name)) {
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove(old_index_file_name),
+                                      OLAP_ERR_CANNOT_CREATE_DIR,
+                                      "remove path failed. path" + old_index_file_name);
+
             links_to_remove->push_back(old_index_file_name);
         }
         // if segment group id == 0, it maybe convert from old files which do not have segment group id in file path
         if (_segment_group_id == 0) {
             old_data_file_name = _construct_err_sg_data_file_path(_rowset_path_prefix, segment_id);
-            if (check_dir_existed(old_data_file_name)) {
-                RETURN_NOT_OK(remove_dir(old_data_file_name));
+            if (FileUtils::check_exist(old_data_file_name)) {
+                RETURN_WITH_WARN_IF_ERROR(FileUtils::remove(old_data_file_name),
+                                          OLAP_ERR_CANNOT_CREATE_DIR,
+                                          "remove path failed. path" + old_data_file_name);
                 links_to_remove->push_back(old_data_file_name);
             }
             old_index_file_name = _construct_err_sg_index_file_path(_rowset_path_prefix, segment_id);
-            if (check_dir_existed(old_index_file_name)) {
-                RETURN_NOT_OK(remove_dir(old_index_file_name));
+            if (FileUtils::check_exist(old_index_file_name)) {
+                RETURN_WITH_WARN_IF_ERROR(FileUtils::remove(old_index_file_name),
+                                          OLAP_ERR_CANNOT_CREATE_DIR,
+                                          "remove path failed. path" + old_index_file_name);
+
                 links_to_remove->push_back(old_index_file_name);
             }
         }
     }
     std::string pending_delta_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
-    if (check_dir_existed(pending_delta_path)) {
+    if (FileUtils::check_exist(pending_delta_path)) {
         LOG(INFO) << "remove pending delta path:" << pending_delta_path;
-        RETURN_NOT_OK(remove_all_dir(pending_delta_path));
+        RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_all(pending_delta_path),
+                                  OLAP_ERR_CANNOT_CREATE_DIR,
+                                  "remove path failed. path" + pending_delta_path);
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, int64_t rowset_id) {
+OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id) {
     if (dest_path.empty()) {
         LOG(WARNING) << "dest path is empty, return error";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -902,7 +897,7 @@ OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, int
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string data_file_name = _construct_file_name(rowset_id, segment_id, ".dat");
         std::string new_data_file_path = dest_path + "/" + data_file_name;
-        if (!check_dir_existed(new_data_file_path)) {
+        if (!FileUtils::check_exist(new_data_file_path)) {
             std::string origin_data_file_path = construct_data_file_path(_rowset_path_prefix, segment_id);
             if (link(origin_data_file_path.c_str(), new_data_file_path.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link. from=" << origin_data_file_path
@@ -912,7 +907,7 @@ OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, int
         }
         std::string index_file_name = _construct_file_name(rowset_id, segment_id, ".idx");
         std::string new_index_file_path = dest_path + "/" + index_file_name;
-        if (!check_dir_existed(new_index_file_path)) {
+        if (!FileUtils::check_exist(new_index_file_path)) {
             std::string origin_idx_file_path = construct_index_file_path(_rowset_path_prefix, segment_id);
             if (link(origin_idx_file_path.c_str(), new_index_file_path.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link. from=" << origin_idx_file_path

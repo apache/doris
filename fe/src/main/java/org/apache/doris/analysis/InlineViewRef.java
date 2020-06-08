@@ -29,8 +29,9 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,7 +58,7 @@ public class InlineViewRef extends TableRef {
     // BEGIN: Members that need to be reset()
 
     // The select or union statement of the inline view
-    private final QueryStmt queryStmt;
+    private QueryStmt queryStmt;
 
     // queryStmt has its own analysis context
     private Analyzer inlineViewAnalyzer;
@@ -394,6 +395,10 @@ public class InlineViewRef extends TableRef {
 
     public QueryStmt getViewStmt() {
         return queryStmt;
+    }
+
+    public void setViewStmt(QueryStmt queryStmt) {
+        this.queryStmt = queryStmt;
     }
 
     public Analyzer getAnalyzer() {

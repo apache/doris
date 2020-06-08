@@ -33,8 +33,6 @@
 
 namespace doris {
 
-const char* ExprContext::_s_llvm_class_name = "class.doris::ExprContext";
-
 ExprContext::ExprContext(Expr* root) :
         _fn_contexts_ptr(NULL),
         _root(root),
@@ -324,6 +322,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.float_val = v.val;
         return &_result.float_val;
     }
+    case TYPE_TIME:
     case TYPE_DOUBLE: {
         doris_udf::DoubleVal v = e->get_double_val(this, row);
         if (v.is_null) {
@@ -334,10 +333,11 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_OBJECT: {
         doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
         _result.string_val.len = v.len;
@@ -513,4 +513,20 @@ Status ExprContext::get_error(int start_idx, int end_idx) const {
   }
   return Status::OK();
 }
+
+std::string ExprContext::get_error_msg() const {
+    for (auto fn_ctx: _fn_contexts) {
+        if (fn_ctx->has_error()) {
+            return std::string(fn_ctx->error_msg());
+        }
+    }
+    return "";
+}
+
+void ExprContext::clear_error_msg() {
+    for (auto fn_ctx: _fn_contexts) {
+        fn_ctx->clear_error_msg();
+    }
+}
+
 }

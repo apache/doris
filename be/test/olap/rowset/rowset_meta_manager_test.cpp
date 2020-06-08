@@ -23,7 +23,7 @@
 #include "gmock/gmock.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
-#include "olap/new_status.h"
+#include "olap/storage_engine.h"
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
 
@@ -38,11 +38,25 @@ using std::string;
 
 namespace doris {
 
+static StorageEngine* k_engine = nullptr;
+
 const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
 
 class RowsetMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
+        config::tablet_map_shard_size = 1;
+        config::txn_map_shard_size = 1;
+        config::txn_shard_size = 1;
+        std::vector<StorePath> paths;
+        paths.emplace_back("_engine_data_path", -1);
+        EngineOptions options;
+        options.store_paths = paths;
+        options.backend_uid = UniqueId::gen_uid();
+        if (k_engine == nullptr) {
+            k_engine = new StorageEngine(options);
+        }
+
         std::string meta_path = "./meta";
         ASSERT_TRUE(boost::filesystem::create_directory(meta_path));
         _meta = new(std::nothrow) OlapMeta(meta_path);
@@ -70,15 +84,18 @@ public:
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
-    TabletUid _tablet_uid;
+    TabletUid _tablet_uid {0, 0};
 };
 
 TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
-    uint64_t rowset_id = 10000;
+    RowsetId rowset_id;
+    rowset_id.init(10000);
     RowsetMeta rowset_meta;
     rowset_meta.init_from_json(_json_rowset_meta);
     ASSERT_EQ(rowset_meta.rowset_id(), rowset_id);
-    OLAPStatus status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, &rowset_meta);
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta.to_rowset_pb(&rowset_meta_pb);
+    OLAPStatus status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;
@@ -94,7 +111,8 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
 }
 
 TEST_F(RowsetMetaManagerTest, TestLoad) {
-    uint64_t rowset_id = 10000;
+    RowsetId rowset_id;
+    rowset_id.init(10000);
     OLAPStatus status = RowsetMetaManager::load_json_rowset_meta(_meta, rowset_meta_path);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));

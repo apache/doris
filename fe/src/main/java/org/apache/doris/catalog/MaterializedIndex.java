@@ -19,8 +19,10 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,30 +36,48 @@ import java.util.Map.Entry;
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
-public class MaterializedIndex extends MetaObject implements Writable {
+public class MaterializedIndex extends MetaObject implements Writable, GsonPostProcessable {
     public enum IndexState {
         NORMAL,
+        @Deprecated
         ROLLUP,
-        SCHEMA_CHANGE
+        @Deprecated
+        SCHEMA_CHANGE,
+        SHADOW; // index in SHADOW state is visible to load process, but invisible to query
+
+        public boolean isVisible() {
+            return this == IndexState.NORMAL || this == IndexState.SCHEMA_CHANGE;
+        }
+    }
+    
+    public enum IndexExtState {
+        ALL,
+        VISIBLE, // index state in NORMAL and SCHEMA_CHANGE
+        SHADOW // index state in SHADOW
     }
 
+    @SerializedName(value = "id")
     private long id;
-
+    @SerializedName(value = "state")
     private IndexState state;
+    @SerializedName(value = "rowCount")
     private long rowCount;
 
     private Map<Long, Tablet> idToTablets;
+    @SerializedName(value = "tablets")
     // this is for keeping tablet order
     private List<Tablet> tablets;
 
     // for push after rollup index finished
+    @SerializedName(value = "rollupIndexId")
     private long rollupIndexId;
+    @SerializedName(value = "rollupFinishedVersion")
     private long rollupFinishedVersion;
 
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
-        this.idToTablets = new HashMap<Long, Tablet>();
-        this.tablets = new ArrayList<Tablet>();
+        this.idToTablets = new HashMap<>();
+        this.tablets = new ArrayList<>();
     }
 
     public MaterializedIndex(long id, IndexState state) {
@@ -68,8 +88,8 @@ public class MaterializedIndex extends MetaObject implements Writable {
             this.state = IndexState.NORMAL;
         }
 
-        this.idToTablets = new HashMap<Long, Tablet>();
-        this.tablets = new ArrayList<Tablet>();
+        this.idToTablets = new HashMap<>();
+        this.tablets = new ArrayList<>();
 
         this.rowCount = 0;
 
@@ -160,6 +180,14 @@ public class MaterializedIndex extends MetaObject implements Writable {
         return dataSize;
     }
 
+    public long getReplicaCount() {
+        long replicaCount = 0;
+        for (Tablet tablet : getTablets()) {
+            replicaCount += tablet.getReplicas().size();
+        }
+        return replicaCount;
+    }
+
     public int getTabletOrderIdx(long tabletId) {
         int idx = 0;
         for (Tablet tablet : tablets) {
@@ -190,7 +218,6 @@ public class MaterializedIndex extends MetaObject implements Writable {
         out.writeLong(rollupFinishedVersion);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -267,5 +294,13 @@ public class MaterializedIndex extends MetaObject implements Writable {
         buffer.append("rollup finished version: ").append(rollupFinishedVersion).append("; ");
 
         return buffer.toString();
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        // build "idToTablets" from "tablets"
+        for (Tablet tablet : tablets) {
+            idToTablets.put(tablet.getId(), tablet);
+        }
     }
 }

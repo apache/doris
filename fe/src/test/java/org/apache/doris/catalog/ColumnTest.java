@@ -20,15 +20,10 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 
-import org.easymock.EasyMock;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -36,21 +31,19 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class ColumnTest {
     
     private Catalog catalog;
 
+    private FakeCatalog fakeCatalog;
+
     @Before
     public void setUp() {
-        catalog = EasyMock.createMock(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        catalog = Deencapsulation.newInstance(Catalog.class);
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        FakeCatalog.setCatalog(catalog);
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test
@@ -81,8 +74,7 @@ public class ColumnTest {
         
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        Column rColumn1 = new Column();
-        rColumn1.readFields(dis);
+        Column rColumn1 = Column.read(dis);
         Assert.assertEquals("user", rColumn1.getName());
         Assert.assertEquals(PrimitiveType.CHAR, rColumn1.getDataType());
         Assert.assertEquals(AggregateType.SUM, rColumn1.getAggregationType());

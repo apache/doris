@@ -32,11 +32,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /*
- * Author: Chenmingyu
- * Date: Jun 10, 2019
- */
-
-/*
  * This class saves the schema of a colocation group
  */
 public class ColocateGroupSchema implements Writable {
@@ -131,7 +126,6 @@ public class ColocateGroupSchema implements Writable {
         out.writeShort(replicationNum);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         groupId = GroupId.read(in);
         int size = in.readInt();

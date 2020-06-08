@@ -19,20 +19,19 @@
 #define DORIS_BE_SRC_TASK_WORKER_POOL_H
 
 #include <atomic>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
 #include <deque>
-#include <mutex>
+#include <memory>
 #include <utility>
 #include <vector>
+
 #include "agent/status.h"
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "olap/utils.h"
+#include "util/condition_variable.h"
+#include "util/mutex.h"
 
 namespace doris {
 
@@ -46,10 +45,12 @@ public:
         PUSH,
         REALTIME_PUSH,
         PUBLISH_VERSION,
+        // Deprecated
         CLEAR_ALTER_TASK,
         CLEAR_TRANSACTION_TASK,
         DELETE,
         ALTER_TABLE,
+        // Deprecated
         QUERY_SPLIT_KEY,
         CLONE,
         STORAGE_MEDIUM_MIGRATE,
@@ -84,10 +85,8 @@ public:
     virtual void submit_task(const TAgentTaskRequest& task);
 
 private:
-    bool _record_task_info(
-            const TTaskType::type task_type, int64_t signature, const std::string& user);
-    void _remove_task_info(
-            const TTaskType::type task_type, int64_t signature, const std::string& user);
+    bool _register_task_info(const TTaskType::type task_type, int64_t signature);
+    void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _spawn_callback_worker_thread(CALLBACK_FUNCTION callback_func);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
@@ -97,7 +96,6 @@ private:
     static void* _drop_tablet_worker_thread_callback(void* arg_this);
     static void* _push_worker_thread_callback(void* arg_this);
     static void* _publish_version_worker_thread_callback(void* arg_this);
-    static void* _clear_alter_task_worker_thread_callback(void* arg_this);
     static void* _clear_transaction_task_worker_thread_callback(void* arg_this);
     static void* _alter_tablet_worker_thread_callback(void* arg_this);
     static void* _clone_worker_thread_callback(void* arg_this);
@@ -116,7 +114,7 @@ private:
 
     void _alter_tablet(
             TaskWorkerPool* worker_pool_this,
-            const TAlterTabletReq& create_rollup_request,
+            const TAgentTaskRequest& alter_tablet_request,
             int64_t signature,
             const TTaskType::type task_type,
             TFinishTaskRequest* finish_task_request);
@@ -135,29 +133,27 @@ private:
             bool overwrite,
             std::vector<std::string>* error_msgs);
 
+    // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
     TBackend _backend;
-    AgentUtils* _agent_utils;
-    MasterServerClient* _master_client;
+    std::unique_ptr<AgentUtils> _agent_utils;
+    std::unique_ptr<MasterServerClient> _master_client;
     ExecEnv* _env;
-#ifdef BE_TEST
-    AgentServerClient* _agent_client;
-#endif
 
-    std::deque<TAgentTaskRequest> _tasks;
+    // Protect task queue
     Mutex _worker_thread_lock;
-    Condition _worker_thread_condition_lock;
+    ConditionVariable _worker_thread_condition_variable;
+    std::deque<TAgentTaskRequest> _tasks;
+
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
     CALLBACK_FUNCTION _callback_function;
-    static std::atomic_ulong _s_report_version;
-    static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
-    static std::map<TTaskType::type, std::map<std::string, uint32_t>> _s_running_task_user_count;
-    static std::map<TTaskType::type, std::map<std::string, uint32_t>> _s_total_task_user_count;
-    static std::map<TTaskType::type, uint32_t> _s_total_task_count;
-    static Mutex _s_task_signatures_lock;
-    static Mutex _s_running_task_user_count_lock;
+
     static FrontendServiceClientCache _master_service_client_cache;
+    static std::atomic_ulong _s_report_version;
+
+    static Mutex _s_task_signatures_lock;
+    static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 };  // class TaskWorkerPool

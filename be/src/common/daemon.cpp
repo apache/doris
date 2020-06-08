@@ -31,6 +31,7 @@
 #include "util/doris_metrics.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/chunk_allocator.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/user_function_cache.h"
 #include "exprs/operators.h"
@@ -43,12 +44,18 @@
 #include "exprs/math_functions.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/es_functions.h"
+#include "exprs/hash_functions.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/decimal_operators.h"
 #include "exprs/decimalv2_operators.h"
+#include "exprs/time_operators.h"
 #include "exprs/utility_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
+#include "exprs/grouping_sets_functions.h"
+#include "exprs/timezone_db.h"
+#include "exprs/bitmap_function.h"
+#include "exprs/hll_function.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "util/time.h"
@@ -82,7 +89,7 @@ void* tcmalloc_gc_thread(void* dummy) {
 
     return NULL;
 }
-    
+
 void* memory_maintenance_thread(void* dummy) {
     while (true) {
         sleep(config::memory_maintenance_sleep_time_s);
@@ -92,20 +99,20 @@ void* memory_maintenance_thread(void* dummy) {
         if (env != nullptr) {
             BufferPool* buffer_pool = env->buffer_pool();
             if (buffer_pool != nullptr) buffer_pool->Maintenance();
-            
+
             // The process limit as measured by our trackers may get out of sync with the
             // process usage if memory is allocated or freed without updating a MemTracker.
             // The metric is refreshed whenever memory is consumed or released via a MemTracker,
             // so on a system with queries executing it will be refreshed frequently. However
             // if the system is idle, we need to refresh the tracker occasionally since
             // untracked memory may be allocated or freed, e.g. by background threads.
-            if (env->process_mem_tracker() != nullptr && 
+            if (env->process_mem_tracker() != nullptr &&
                      !env->process_mem_tracker()->is_consumption_metric_null()) {
                 env->process_mem_tracker()->RefreshConsumptionFromMetric();
-            }   
-        }   
-    }   
-    
+            }
+        }
+    }
+
     return NULL;
 }
 
@@ -127,53 +134,53 @@ void* calculate_metrics(void* dummy) {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     while (true) {
-        DorisMetrics::metrics()->trigger_hook();
+        DorisMetrics::instance()->metrics()->trigger_hook();
 
         if (last_ts == -1L) {
             last_ts = GetCurrentTimeMicros() / 1000;
-            lst_push_bytes = DorisMetrics::push_request_write_bytes.value();
-            lst_query_bytes = DorisMetrics::query_scan_bytes.value();
-            DorisMetrics::system_metrics()->get_disks_io_time(&lst_disks_io_time);
-            DorisMetrics::system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
+            lst_push_bytes = DorisMetrics::instance()->push_request_write_bytes.value();
+            lst_query_bytes = DorisMetrics::instance()->query_scan_bytes.value();
+            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         } else {
             int64_t current_ts = GetCurrentTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
             // 1. push bytes per second
-            int64_t current_push_bytes = DorisMetrics::push_request_write_bytes.value();
+            int64_t current_push_bytes = DorisMetrics::instance()->push_request_write_bytes.value();
             int64_t pps = (current_push_bytes - lst_push_bytes) / (interval + 1);
-            DorisMetrics::push_request_write_bytes_per_second.set_value(
+            DorisMetrics::instance()->push_request_write_bytes_per_second.set_value(
                 pps < 0 ? 0 : pps);
             lst_push_bytes = current_push_bytes;
 
             // 2. query bytes per second
-            int64_t current_query_bytes = DorisMetrics::query_scan_bytes.value();
+            int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes.value();
             int64_t qps = (current_query_bytes - lst_query_bytes) / (interval + 1);
-            DorisMetrics::query_scan_bytes_per_second.set_value(
+            DorisMetrics::instance()->query_scan_bytes_per_second.set_value(
                 qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
             // 3. max disk io util
-            DorisMetrics::max_disk_io_util_percent.set_value(
-                DorisMetrics::system_metrics()->get_max_io_util(lst_disks_io_time, 15));
+            DorisMetrics::instance()->max_disk_io_util_percent.set_value(
+                DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time, 15));
             // update lst map
-            DorisMetrics::system_metrics()->get_disks_io_time(&lst_disks_io_time);
+            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
 
             // 4. max network traffic
             int64_t max_send = 0;
             int64_t max_receive = 0;
-            DorisMetrics::system_metrics()->get_max_net_traffic(
+            DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
                 lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
-            DorisMetrics::max_network_send_bytes_rate.set_value(max_send);
-            DorisMetrics::max_network_receive_bytes_rate.set_value(max_receive);
+            DorisMetrics::instance()->max_network_send_bytes_rate.set_value(max_send);
+            DorisMetrics::instance()->max_network_receive_bytes_rate.set_value(max_receive);
             // update lst map
-            DorisMetrics::system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
+            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         }
 
         sleep(15); // 15 seconds
-    }   
-    
+    }
+
     return NULL;
 }
 
@@ -198,7 +205,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
         }
     }
     DorisMetrics::instance()->initialize(
-        "doris_be", paths, init_system_metrics, disk_devices, network_interfaces);
+        paths, init_system_metrics, disk_devices, network_interfaces);
 
     if (config::enable_metric_calculator) {
         pthread_t calculator_pid;
@@ -260,12 +267,18 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     TimestampFunctions::init();
     DecimalOperators::init();
     DecimalV2Operators::init();
+    TimeOperators::init();
     UtilityFunctions::init();
     CompoundPredicate::init();
     JsonFunctions::init();
     HllHashFunctions::init();
     ESFunctions::init();
     GeoFunctions::init();
+    GroupingSetsFunctions::init();
+    TimezoneDatabase::init();
+    BitmapFunctions::init();
+    HllFunctions::init();
+    HashFunctions::init();
 
     pthread_t tc_malloc_pid;
     pthread_create(&tc_malloc_pid, NULL, tcmalloc_gc_thread, NULL);
@@ -278,6 +291,8 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     LOG(INFO) << MemInfo::debug_string();
     init_doris_metrics(paths);
     init_signals();
+
+    ChunkAllocator::init_instance(config::chunk_reserved_bytes_limit);
 }
 
 }

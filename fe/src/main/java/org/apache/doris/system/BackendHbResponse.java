@@ -23,7 +23,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/*
+/**
  * Backend heartbeat response contains Backend's be port, http port and brpc port
  */
 public class BackendHbResponse extends HeartbeatResponse implements Writable {
@@ -31,12 +31,13 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private int bePort;
     private int httpPort;
     private int brpcPort;
+    private String version = "";
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
     }
 
-    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime) {
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, String version) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -44,6 +45,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.httpPort = httpPort;
         this.brpcPort = brpcPort;
         this.hbTime = hbTime;
+        this.version = version;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -67,6 +69,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public int getBrpcPort() {
         return brpcPort;
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     public static BackendHbResponse read(DataInput in) throws IOException {

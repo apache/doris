@@ -25,7 +25,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-// drop user cmy;
+// drop user cmy@['domain'];
+// drop user cmy  <==> drop user cmy@'%'
+// drop user cmy@'192.168.1.%'
 public class DropUserStmt extends DdlStmt {
     private UserIdentity userIdent;
 
@@ -41,10 +43,6 @@ public class DropUserStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         userIdent.analyze(analyzer.getClusterName());
-
-        if (!userIdent.getHost().equals("%")) {
-            throw new AnalysisException("Can not drop user with specified host: " + userIdent.getHost());
-        }
 
         // only user with GLOBAL level's GRANT_PRIV can drop user.
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {

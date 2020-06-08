@@ -17,6 +17,7 @@
 
 #include "runtime/primitive_type.h"
 #include <sstream>
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 //to_tcolumn_type_thrift only test
@@ -68,6 +69,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::DATETIME:
         return TYPE_DATETIME;
 
+    case TPrimitiveType::TIME:
+        return TYPE_TIME;
+
     case TPrimitiveType::VARCHAR:
         return TYPE_VARCHAR;
 
@@ -85,6 +89,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
             
     case TPrimitiveType::HLL:
         return TYPE_HLL;
+
+    case TPrimitiveType::OBJECT:
+        return TYPE_OBJECT;
 
     default:
         return INVALID_TYPE;
@@ -129,6 +136,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_DATETIME:
         return TPrimitiveType::DATETIME;
 
+    case TYPE_TIME:
+        return TPrimitiveType::TIME;
+
     case TYPE_VARCHAR:
         return TPrimitiveType::VARCHAR;
 
@@ -146,6 +156,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_HLL:
         return TPrimitiveType::HLL;
+
+    case TYPE_OBJECT:
+        return TPrimitiveType::OBJECT;
             
     default:
         return TPrimitiveType::INVALID_TYPE;
@@ -190,6 +203,9 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_DATETIME:
         return "DATETIME";
 
+    case TYPE_TIME:
+        return "TIME";
+
     case TYPE_VARCHAR:
         return "VARCHAR";
 
@@ -204,8 +220,13 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_CHAR:
         return "CHAR";
+
     case TYPE_HLL:
         return "HLL";
+
+    case TYPE_OBJECT:
+        return "OBJECT";
+
     default:
         return "";
     };
@@ -270,6 +291,9 @@ std::string type_to_odbc_string(PrimitiveType t) {
             
     case TYPE_HLL:
         return "hll";
+
+    case TYPE_OBJECT:
+        return "object";
     };
 
     return "unknown";
@@ -282,6 +306,24 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val) {
     TTypeDesc type_desc;
     TScalarType scalar_type;
     scalar_type.__set_type(val);
+    type_node.__set_scalar_type(scalar_type);  
+    types_list.push_back(type_node);
+    type_desc.__set_types(types_list);
+    return type_desc;
+}
+
+// for test only
+TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name) {
+    std::vector<TTypeNode>  types_list;
+    TTypeNode type_node;
+    TTypeDesc type_desc;
+    TScalarType scalar_type;
+    scalar_type.__set_type(val);
+    std::vector<TStructField> fields;
+    TStructField field;
+    field.__set_name(name);
+    fields.push_back(field);
+    type_node.__set_struct_fields(fields);
     type_node.__set_scalar_type(scalar_type);  
     types_list.push_back(type_node);
     type_desc.__set_types(types_list);

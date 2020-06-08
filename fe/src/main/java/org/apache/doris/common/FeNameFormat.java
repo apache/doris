@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.system.SystemInfoService;
 
@@ -63,6 +64,9 @@ public class FeNameFormat {
         if (Strings.isNullOrEmpty(columnName) || !columnName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
         }
+        if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+        }
     }
 
     public static void checkLabel(String label) throws AnalysisException {
@@ -73,7 +77,7 @@ public class FeNameFormat {
     
     public static void checkUserName(String userName) throws AnalysisException {
         if (Strings.isNullOrEmpty(userName) || !userName.matches(COMMON_NAME_REGEX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CANNOT_USER, "CREATE USER", userName);
+            throw new AnalysisException("invalid user name: " + userName);
         }
     }
 
@@ -93,6 +97,10 @@ public class FeNameFormat {
         if (res) {
             throw new AnalysisException(errMsg + ": " + role);
         }
+    }
+
+    public static void checkResourceName(String resourceName) throws AnalysisException {
+        checkCommonName("resource", resourceName);
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {

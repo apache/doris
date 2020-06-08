@@ -54,11 +54,11 @@ public class BootstrapFinishAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        boolean canRead = Catalog.getInstance().canRead();
+        boolean isReady = Catalog.getCurrentCatalog().isReady();
 
         // to json response
         BootstrapResult result = null;
-        if (canRead) {
+        if (isReady) {
             result = new BootstrapResult();
             String clusterIdStr = request.getSingleParameter(CLUSTER_ID);
             String token = request.getSingleParameter(TOKEN);
@@ -73,29 +73,29 @@ public class BootstrapFinishAction extends RestBaseAction {
                 }
 
                 if (result.status == ActionStatus.OK) {
-                    if (clusterId != Catalog.getInstance().getClusterId()) {
+                    if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
                         result.status = ActionStatus.FAILED;
-                        result.msg = "invalid cluster id: " + clusterId;
+                        result.msg = "invalid cluster id: " + Catalog.getCurrentCatalog().getClusterId();
                     }
                 }
 
                 if (result.status == ActionStatus.OK) {
-                    if (!token.equals(Catalog.getInstance().getToken())) {
+                    if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
                         result.status = ActionStatus.FAILED;
-                        result.msg = "invalid cluster id: " + clusterId;
+                        result.msg = "invalid token: " + Catalog.getCurrentCatalog().getToken();
                     }
                 }
 
                 if (result.status == ActionStatus.OK) {
                     // cluster id and token are valid, return replayed journal id
-                    long replayedJournalId = Catalog.getInstance().getReplayedJournalId();
+                    long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
                     result.setMaxReplayedJournal(replayedJournalId);
                     result.setQueryPort(Config.query_port);
                     result.setRpcPort(Config.rpc_port);
                 }
             }
         } else {
-            result = new BootstrapResult("unfinished");
+            result = new BootstrapResult("not ready");
         }
 
         // send result

@@ -27,11 +27,9 @@
 namespace doris {
 
 class QueryBuilder {
-
 public:
     virtual void to_json(rapidjson::Document* document, rapidjson::Value* query) = 0;
-    virtual ~QueryBuilder() {
-    };
+    virtual ~QueryBuilder() {}
 };
 
 // process esquery(fieldA, json dsl) function
@@ -99,13 +97,25 @@ public:
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 };
 
+
+// process like predicate : k1 is null or k1 is not null"
+class ExistsQueryBuilder : public QueryBuilder {
+
+public:
+    ExistsQueryBuilder(const ExtIsNullPredicate& like_predicate);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
+
+private:
+    std::string _field;
+};
+
 // proccess bool compound query, and play the role of a bridge for transferring predicates to es native query
 class BooleanQueryBuilder : public QueryBuilder {
 
 public:
     BooleanQueryBuilder(const std::vector<ExtPredicate*>& predicates);
     BooleanQueryBuilder();
-    ~BooleanQueryBuilder();
+    virtual ~BooleanQueryBuilder();
     // class method for transfer predicate to es query value, invoker should enclose this value with `query`
     static void to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document* root, rapidjson::Value* query);
     // validate esquery syntax

@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -61,12 +62,13 @@ public:
         TupleId tuple_id,
         const std::map<std::string, std::string>& properties,
         const std::vector<ExprContext*>& conjunct_ctxs,
-        EsScanCounter* counter);
+        EsScanCounter* counter,
+        bool doc_value_mode);
     ~EsHttpScanner();
 
     Status open();
 
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof);
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, const std::map<std::string, std::string>& docvalue_context);
 
     void close();
 
@@ -92,6 +94,8 @@ private:
     EsScanCounter* _counter;
     std::unique_ptr<ESScanReader> _es_reader;
     std::unique_ptr<ScrollParser> _es_scroll_parser;
+
+    bool _doc_value_mode;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;

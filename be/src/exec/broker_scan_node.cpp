@@ -26,6 +26,8 @@
 #include "runtime/dpp_sink_internal.h"
 #include "exec/broker_scanner.h"
 #include "exec/parquet_scanner.h"
+#include "exec/orc_scanner.h"
+#include "exec/json_scanner.h"
 #include "exprs/expr.h"
 #include "util/runtime_profile.h"
 
@@ -39,7 +41,7 @@ BrokerScanNode::BrokerScanNode(
             _tuple_desc(nullptr),
             _num_running_scanners(0),
             _scan_finished(false),
-            _max_buffered_batches(1024),
+            _max_buffered_batches(32),
             _wait_scanner_timer(nullptr) {
 }
 
@@ -280,6 +282,22 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
                 scan_range.broker_addresses,
                 counter);
         break;
+    case TFileFormatType::FORMAT_ORC:
+        scan = new ORCScanner(_runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+        break;
+    case TFileFormatType::FORMAT_JSON:
+        scan = new JsonScanner(_runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+        break;
     default:
         scan = new BrokerScanner(
                 _runtime_state,
@@ -342,26 +360,6 @@ Status BrokerScanNode::scanner_scan(
                 continue;
             }
 
-            // The reason we check if partition_expr_ctxs is empty is when loading data to
-            // a unpartitioned table who has no partition_expr_ctxs, user can specify
-            // a partition name. And we check here to avoid crash and make our
-            // process run as normal
-            if (scan_range.params.__isset.partition_ids && !partition_expr_ctxs.empty()) {
-                int64_t partition_id = get_partition_id(partition_expr_ctxs, row);
-                if (partition_id == -1 || 
-                        !std::binary_search(scan_range.params.partition_ids.begin(), 
-                                           scan_range.params.partition_ids.end(), 
-                                           partition_id)) {
-                    counter->num_rows_filtered++;
-
-                    std::stringstream error_msg;
-                    error_msg << "No corresponding partition, partition id: " << partition_id;
-                    _runtime_state->append_error_msg_to_file(Tuple::to_string(tuple, *_tuple_desc), 
-                                                             error_msg.str());
-                    continue;
-                }
-            }
-
             // eval conjuncts of this row.
             if (eval_conjuncts(&conjunct_ctxs[0], conjunct_ctxs.size(), row)) {
                 row_batch->commit_last_row();
@@ -380,7 +378,11 @@ Status BrokerScanNode::scanner_scan(
             while (_process_status.ok() && 
                    !_scan_finished.load() && 
                    !_runtime_state->is_cancelled() &&
-                   _batch_queue.size() >= _max_buffered_batches) {
+                    // stop pushing more batch if
+                    // 1. too many batches in queue, or
+                    // 2. at least one batch in queue and memory exceed limit.
+                   (_batch_queue.size() >= _max_buffered_batches
+                    || (mem_tracker()->any_limit_exceeded() && !_batch_queue.empty()))) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }
             // Process already set failed, so we just return OK
@@ -427,13 +429,12 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
             _scan_ranges[start_idx + i].scan_range.broker_scan_range;
         status = scanner_scan(scan_range, scanner_expr_ctxs, partition_expr_ctxs, &counter);
         if (!status.ok()) {
-            LOG(WARNING) << "Scanner[" << start_idx + i << "] prcess failed. status="
+            LOG(WARNING) << "Scanner[" << start_idx + i << "] process failed. status="
                 << status.get_error_msg();
         }
     }
 
     // Update stats
-    _runtime_state->update_num_rows_load_total(counter.num_rows_total);
     _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
     _runtime_state->update_num_rows_load_unselected(counter.num_rows_unselected);
 

@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-/**
- * Created by zhaochun on 2018/4/23.
- */
 public class ImportColumnDesc {
     private String columnName;
     private Expr expr;

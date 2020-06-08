@@ -23,6 +23,7 @@
 #include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 #include <thread>
@@ -54,13 +55,13 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(
     }
     t_info.__set_properties(std::move(properties));
 
-    ctx.kafka_info = new KafkaLoadInfo(t_info);
+    ctx.kafka_info.reset(new KafkaLoadInfo(t_info));
     ctx.need_rollback = false;
 
     std::shared_ptr<DataConsumer> consumer;
     RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
 
-    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(partition_ids); 
+    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(partition_ids);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -68,17 +69,17 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(
 }
 
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
-    std::unique_lock<std::mutex> l(_lock); 
+    std::unique_lock<std::mutex> l(_lock);
     if (_task_map.find(task.id) != _task_map.end()) {
         // already submitted
         LOG(INFO) << "routine load task " << UniqueId(task.id) << " has already been submitted";
         return Status::OK();
     }
 
-    // the max queue size of thread pool is 100, here we use 80 as a very conservative limit
-    if (_thread_pool.get_queue_size() >= 80) {
-        LOG(INFO) << "too many tasks in queue: " << _thread_pool.get_queue_size() << ", reject task: " << UniqueId(task.id);
-        return Status::InternalError("too many tasks");
+    // thread pool's queue size > 0 means there are tasks waiting to be executed, so no more tasks should be submitted.
+    if (_thread_pool.get_queue_size() > 0) {
+        LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id);
+        return Status::TooManyTasks(UniqueId(task.id).to_string());
     }
 
     // create the context
@@ -105,7 +106,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     put_result.params = std::move(task.params);
     put_result.__isset.params = true;
     ctx->put_result = std::move(put_result);
-
+    if(task.__isset.format) {
+        ctx->format = task.format;
+    }
     // the routine load task'txn has alreay began in FE.
     // so it need to rollback if encounter error.
     ctx->need_rollback = true;
@@ -114,7 +117,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     // set source related params
     switch (task.type) {
         case TLoadSourceType::KAFKA:
-            ctx->kafka_info = new KafkaLoadInfo(task.kafka_load_info);
+            ctx->kafka_info.reset(new KafkaLoadInfo(task.kafka_load_info));
             break;
         default:
             LOG(WARNING) << "unknown load source type: " << task.type;
@@ -126,7 +129,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     // register the task
     ctx->ref();
     _task_map[ctx->id] = ctx;
-    
+
     // offer the task to thread pool
     if (!_thread_pool.offer(
             boost::bind<void>(&RoutineLoadTaskExecutor::exec_task, this, ctx,
@@ -164,7 +167,7 @@ void RoutineLoadTaskExecutor::exec_task(
 #define HANDLE_ERROR(stmt, err_msg) \
     do { \
         Status _status_ = (stmt); \
-        if (UNLIKELY(!_status_.ok())) { \
+        if (UNLIKELY(!_status_.ok() && _status_.code() != TStatusCode::PUBLISH_TIMEOUT)) { \
             err_handler(ctx, _status_, err_msg); \
             cb(ctx); \
             return; \
@@ -175,7 +178,7 @@ void RoutineLoadTaskExecutor::exec_task(
 
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
-    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");    
+    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
 
     // create and set pipe
     std::shared_ptr<StreamLoadPipe> pipe;
@@ -211,7 +214,7 @@ void RoutineLoadTaskExecutor::exec_task(
     // only for test
     HANDLE_ERROR(_execute_plan_for_test(ctx), "test failed");
 #endif
-    
+
     // start to consume, this may block a while
     HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
 
@@ -219,14 +222,52 @@ void RoutineLoadTaskExecutor::exec_task(
     HANDLE_ERROR(ctx->future.get(), "consume failed");
 
     ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
-    
+
     // return the consumer back to pool
     // call this before commit txn, in case the next task can come very fast
-    consumer_pool->return_consumers(consumer_grp.get()); 
+    consumer_pool->return_consumers(consumer_grp.get());
 
     // commit txn
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx), "commit failed");
 
+    // commit kafka offset
+    switch (ctx->load_src_type) {
+        case TLoadSourceType::KAFKA: {
+            std::shared_ptr<DataConsumer> consumer;
+            Status st = _data_consumer_pool.get_consumer(ctx, &consumer);
+            if (!st.ok()) {
+                // Kafka Offset Commit is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st.get_error_msg();
+                break;
+            }
+
+            std::vector<RdKafka::TopicPartition*> topic_partitions;
+            for (auto& kv : ctx->kafka_info->cmt_offset) {
+                RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(
+                        ctx->kafka_info->topic, kv.first, kv.second);
+                topic_partitions.push_back(tp1);
+            }
+
+            st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->commit(topic_partitions);
+            if (!st.ok()) {
+                // Kafka Offset Commit is idempotent, Failure should not block the normal process
+                // So just print a warning
+                LOG(WARNING) << st.get_error_msg();
+            }
+            _data_consumer_pool.return_consumer(consumer);
+
+            // delete TopicPartition finally
+            auto tp_deleter = [&topic_partitions] () {
+                std::for_each(topic_partitions.begin(), topic_partitions.end(),
+                    [](RdKafka::TopicPartition* tp1) { delete tp1; });
+            };
+            DeferOp delete_tp(std::bind<void>(tp_deleter));
+        }
+            break;
+        default:
+            return;
+    }
     cb(ctx);
 }
 
@@ -254,7 +295,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
         std::shared_ptr<StreamLoadPipe> pipe = _exec_env->load_stream_mgr()->get(ctx->id);
         bool eof = false;
         std::stringstream ss;
-        while (true) { 
+        while (true) {
             char one;
             size_t len = 1;
             Status st = pipe->read((uint8_t*) &one, &len, &eof);

@@ -24,6 +24,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
@@ -35,7 +36,6 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // list all multi load before commit
 public class MultiList extends RestBaseAction {
-    private static final String DB_KEY = "db";
 
     private ExecuteEnv execEnv;
 
@@ -47,19 +47,19 @@ public class MultiList extends RestBaseAction {
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiList action = new MultiList(controller, executeEnv);
-        controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_list", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_multi_list", action);
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {
             throw new DdlException("No database selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
-        checkDbAuth(authInfo, fullDbName, PrivPredicate.LOAD);
+        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
         // only Master has these load info
         if (redirectToMaster(request, response)) {

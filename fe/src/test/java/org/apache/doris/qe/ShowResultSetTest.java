@@ -18,16 +18,17 @@
 package org.apache.doris.qe;
 
 import com.google.common.collect.Lists;
+import mockit.Mocked;
 import org.junit.Assert;
-import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.util.List;
 
 public class ShowResultSetTest {
+    @Mocked
+    ShowResultSetMetaData metaData;
     @Test
     public void testNormal() {
-        ShowResultSetMetaData metaData = EasyMock.createMock(ShowResultSetMetaData.class);
         List<List<String>> rows = Lists.newArrayList();
 
         rows.add(Lists.newArrayList("col1-0", "col2-0"));
@@ -45,7 +46,6 @@ public class ShowResultSetTest {
 
     @Test(expected = IndexOutOfBoundsException.class)
     public void testOutOfBound() {
-        ShowResultSetMetaData metaData = EasyMock.createMock(ShowResultSetMetaData.class);
         List<List<String>> rows = Lists.newArrayList();
 
         rows.add(Lists.newArrayList("col1-0", "col2-0"));
@@ -57,7 +57,6 @@ public class ShowResultSetTest {
 
     @Test(expected = NumberFormatException.class)
     public void testBadNumber() {
-        ShowResultSetMetaData metaData = EasyMock.createMock(ShowResultSetMetaData.class);
         List<List<String>> rows = Lists.newArrayList();
 
         rows.add(Lists.newArrayList(" 123", "456"));

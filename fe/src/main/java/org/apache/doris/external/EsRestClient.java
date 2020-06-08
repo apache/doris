@@ -86,7 +86,7 @@ public class EsRestClient {
         return nodes;
     }
 
-    public String getIndexMetaData(String indexName) {
+    public String getIndexMetaData(String indexName) throws Exception {
         String path = "_cluster/state?indices=" + indexName
                 + "&metric=routing_table,nodes,metadata&expand_wildcards=open";
         return execute(path);
@@ -94,17 +94,52 @@ public class EsRestClient {
     }
 
     /**
+     *
+     * Get the Elasticsearch cluster version
+     *
+     * @return
+     */
+    public EsMajorVersion version() throws Exception {
+        Map<String, String> versionMap = get("/", "version");
+
+        EsMajorVersion majorVersion;
+        try {
+            majorVersion = EsMajorVersion.parse(versionMap.get("version"));
+        } catch (Exception e) {
+            LOG.warn("detect es version failure on node [{}]", currentNode);
+            return EsMajorVersion.V_5_X;
+        }
+        return majorVersion;
+    }
+
+    /**
      * execute request for specific path
+     *
      * @param path the path must not leading with '/'
      * @return
      */
-    private String execute(String path) {
+    private String execute(String path) throws Exception {
         selectNextNode();
         boolean nextNode;
+        Exception scratchExceptionForThrow = null;
         do {
-            Request request = new Request.Builder()
-                    .get()
-                    .addHeader("Authorization", basicAuth)
+            Request.Builder builder = new Request.Builder();
+            if (!Strings.isEmpty(basicAuth)) {
+                builder.addHeader("Authorization", basicAuth);
+            }
+
+            // maybe should add HTTP schema to the address
+            // actually, at this time we can only process http protocol
+            // NOTE. currentNode may have some spaces.
+            // User may set a config like described below:
+            // hosts: "http://192.168.0.1:8200, http://192.168.0.2:8200"
+            // then currentNode will be "http://192.168.0.1:8200", " http://192.168.0.2:8200"
+            currentNode = currentNode.trim();
+            if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
+                currentNode = "http://" + currentNode;
+            }
+
+            Request request = builder.get()
                     .url(currentNode + "/" + path)
                     .build();
             try {
@@ -114,16 +149,20 @@ public class EsRestClient {
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
+                scratchExceptionForThrow = e;
             }
             nextNode = selectNextNode();
             if (!nextNode) {
-                LOG.error("try all nodes [{}],no other nodes left", nodes);
+                LOG.warn("try all nodes [{}],no other nodes left", nodes);
             }
         } while (nextNode);
+        if (scratchExceptionForThrow != null) {
+            throw scratchExceptionForThrow;
+        }
         return null;
     }
 
-    public <T> T get(String q, String key) {
+    public <T> T get(String q, String key) throws Exception {
         return parseContent(execute(q), key);
     }
 

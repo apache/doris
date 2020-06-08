@@ -55,13 +55,7 @@ public class BackendLoadStatistic {
         public int compare(BackendLoadStatistic o1, BackendLoadStatistic o2) {
             double score1 = o1.getLoadScore(medium);
             double score2 = o2.getLoadScore(medium);
-            if (score1 > score2) {
-                return 1;
-            } else if (score1 == score2) {
-                return 0;
-            } else {
-                return -1;
-            }
+            return Double.compare(score1, score2);
         }
     }
 
@@ -70,14 +64,7 @@ public class BackendLoadStatistic {
         public int compare(BackendLoadStatistic o1, BackendLoadStatistic o2) {
             Double score1 = o1.getMixLoadScore();
             Double score2 = o2.getMixLoadScore();
-
-            if (score1 > score2) {
-                return 1;
-            } else if (score1 == score2) {
-                return 0;
-            } else {
-                return -1;
-            }
+            return score1.compareTo(score2);
         }
     }
 
@@ -180,11 +167,7 @@ public class BackendLoadStatistic {
             throw new LoadBalanceException("backend " + beId + " does not exist");
         }
 
-        if (!be.isAvailable()) {
-            isAvailable = false;
-        } else {
-            isAvailable = true;
-        }
+        isAvailable = be.isAvailable();
 
         ImmutableMap<String, DiskInfo> disks = be.getDisks();
         for (DiskInfo diskInfo : disks.values()) {
@@ -203,7 +186,7 @@ public class BackendLoadStatistic {
 
         totalReplicaNumMap = invertedIndex.getReplicaNumByBeIdAndStorageMedium(beId);
         // This is very tricky. because the number of replica on specified medium we get
-        // from getReplicaNumByBeIdAndStorageMedium() is counted based on meta data.
+        // from getReplicaNumByBeIdAndStorageMedium() is defined by table properties,
         // but in fact there may not has SSD disk on this backend. So if we found that no SSD disk on this
         // backend, set the replica number to 0, otherwise, the average replica number on specified medium
         // will be incorrect.
@@ -333,7 +316,7 @@ public class BackendLoadStatistic {
         return false;
     }
 
-    /*
+    /**
      * Classify the paths into 'low', 'mid' and 'high',
      * and skip offline path, and path with different storage medium 
      */

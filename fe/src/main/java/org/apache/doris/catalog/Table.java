@@ -18,12 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -33,7 +35,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -49,7 +51,6 @@ public class Table extends MetaObject implements Writable {
         SCHEMA,
         INLINE_VIEW,
         VIEW,
-        KUDU,
         BROKER,
         ELASTICSEARCH
     }
@@ -57,34 +58,63 @@ public class Table extends MetaObject implements Writable {
     protected long id;
     protected String name;
     protected TableType type;
-    protected List<Column> baseSchema;
-    // tree map for case-insensitive lookup
+    protected long createTime;
+    /*
+     *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
+     *  eg. for OlapTable, when doing schema change, there will be some shadow columns which are not visible
+     *      to query but visible to load process.
+     *  If you want to get all visible columns, you should call getBaseSchema() method, which is override in
+     *  sub classes.
+     *  
+     *  NOTICE: the order of this fullSchema is meaningless to OlapTable
+     */
+    /**
+     * The fullSchema of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     * The properties of base columns in fullSchema are same as properties in baseIndex.
+     * For example:
+     * Table (c1 int, c2 int, c3 int)
+     * Schema change (c3 to bigint)
+     * When OlapTable is changing schema, the fullSchema is (c1 int, c2 int, c3 int, SHADOW_NAME_PRFIX_c3 bigint)
+     * The fullSchema of OlapTable is mainly used by Scanner of Load job.
+     *
+     * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
+     */
+    protected List<Column> fullSchema;
+    // tree map for case-insensitive lookup.
+    /**
+     * The nameToColumn of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     */
     protected Map<String, Column> nameToColumn;
 
     // DO NOT persist this variable.
     protected boolean isTypeRead = false;
+    // table(view)'s comment
+    protected String comment = "";
 
     public Table(TableType type) {
         this.type = type;
-        this.baseSchema = new LinkedList<Column>();
+        this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
     }
 
-    public Table(long id, String tableName, TableType type, List<Column> baseSchema) {
+    public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
         this.id = id;
         this.name = tableName;
         this.type = type;
-        this.baseSchema = baseSchema;
-
+        // must copy the list, it should not be the same object as in indexIdToSchmea
+        if (fullSchema != null) {
+            this.fullSchema = Lists.newArrayList(fullSchema);
+        }
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        if (baseSchema != null) {
-            for (Column col : baseSchema) {
+        if (this.fullSchema != null) {
+            for (Column col : this.fullSchema) {
                 nameToColumn.put(col.getName(), col);
             }
         } else {
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
+        this.createTime = Instant.now().getEpochSecond();
     }
 
     public boolean isTypeRead() {
@@ -107,30 +137,29 @@ public class Table extends MetaObject implements Writable {
         return type;
     }
 
-    public int getKeysNum() {
-        int keysNum = 0;
-        for (Column column : baseSchema) {
-            if (column.isKey()) {
-                keysNum += 1;
-            }
-        }
-        return keysNum;
+    public List<Column> getFullSchema() {
+        return fullSchema;
     }
 
+    // should override in subclass if necessary
     public List<Column> getBaseSchema() {
-        return baseSchema;
+        return fullSchema;
     }
 
-    public void setNewBaseSchema(List<Column> newSchema) {
-        this.baseSchema = newSchema;
+    public void setNewFullSchema(List<Column> newSchema) {
+        this.fullSchema = newSchema;
         this.nameToColumn.clear();
-        for (Column col : baseSchema) {
+        for (Column col : fullSchema) {
             nameToColumn.put(col.getName(), col);
         }
     }
 
     public Column getColumn(String name) {
         return nameToColumn.get(name);
+    }
+
+    public long getCreateTime() {
+        return createTime;
     }
 
     public TTableDescriptor toThrift() {
@@ -146,8 +175,6 @@ public class Table extends MetaObject implements Writable {
             table = new MysqlTable();
         } else if (type == TableType.VIEW) {
             table = new View();
-        } else if (type == TableType.KUDU) {
-            table = new KuduTable();
         } else if (type == TableType.BROKER) {
             table = new BrokerTable();
         } else if (type == TableType.ELASTICSEARCH) {
@@ -158,15 +185,6 @@ public class Table extends MetaObject implements Writable {
 
         table.setTypeRead(true);
         table.readFields(in);
-        if (type == TableType.VIEW) {
-            View view = (View) table;
-            try {
-                view.init();
-            } catch (UserException e) {
-                throw new IOException(e.getMessage());
-            }
-        }
-
         return table;
     }
 
@@ -182,14 +200,18 @@ public class Table extends MetaObject implements Writable {
         Text.writeString(out, name);
 
         // base schema
-        int columnCount = baseSchema.size();
+        int columnCount = fullSchema.size();
         out.writeInt(columnCount);
-        for (Column column : baseSchema) {
+        for (Column column : fullSchema) {
             column.write(out);
         }
+
+        Text.writeString(out, comment);
+
+        // write create time
+        out.writeLong(createTime);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             type = TableType.valueOf(Text.readString(in));
@@ -205,8 +227,21 @@ public class Table extends MetaObject implements Writable {
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
-            this.baseSchema.add(column);
+            this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_63) {
+            comment = Text.readString(in);
+        } else {
+            comment = "";
+        }
+
+        // read create time
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_64) {
+            this.createTime = in.readLong();
+        } else {
+            this.createTime = -1L;
         }
     }
 
@@ -226,7 +261,7 @@ public class Table extends MetaObject implements Writable {
 
     public String getEngine() {
         if (this instanceof OlapTable) {
-            return "Palo";
+            return "Doris";
         } else if (this instanceof MysqlTable) {
             return "MySQL";
         } else if (this instanceof SchemaTable) {
@@ -244,10 +279,14 @@ public class Table extends MetaObject implements Writable {
     }
 
     public String getComment() {
-        if (this instanceof View) {
-            return "VIEW";
+        if (!Strings.isNullOrEmpty(comment)) {
+            return comment;
         }
-        return "";
+        return type.name();
+    }
+
+    public void setComment(String comment) {
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     public CreateTableStmt toCreateTableStmt(String dbName) {
@@ -267,9 +306,10 @@ public class Table extends MetaObject implements Writable {
     /*
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
-     * 3. if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
+     * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
      *      schedule the tablet to repair it(only for VERSION_IMCOMPLETE case, this will be checked in
      *      TabletScheduler).
+     * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
      */
     public boolean needSchedule() {
         if (type != TableType.OLAP) {
@@ -277,7 +317,7 @@ public class Table extends MetaObject implements Writable {
         }
 
         OlapTable olapTable = (OlapTable) this;
-        
+
         if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             LOG.debug("table {} is a colocate table, skip tablet checker.", name);
             return false;

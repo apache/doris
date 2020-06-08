@@ -21,12 +21,14 @@
 #include <map>
 #include <memory>
 
+#include "common/logging.h"
 #include "exec/exec_node.h"
 #include "exec/tablet_sink.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/data_stream_sender.h"
 #include "runtime/result_sink.h"
+#include "runtime/memory_scratch_sink.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/data_spliter.h"
 #include "runtime/export_sink.h"
@@ -69,7 +71,14 @@ Status DataSink::create_data_sink(
         tmp_sink = new ResultSink(row_desc, output_exprs, thrift_sink.result_sink, 1024);
         sink->reset(tmp_sink);
         break;
+    case TDataSinkType::MEMORY_SCRATCH_SINK:
+        if (!thrift_sink.__isset.memory_scratch_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
 
+        tmp_sink = new MemoryScratchSink(row_desc, output_exprs, thrift_sink.memory_scratch_sink);
+        sink->reset(tmp_sink);
+        break;
     case TDataSinkType::MYSQL_TABLE_SINK: {
 #ifdef DORIS_WITH_MYSQL
         if (!thrift_sink.__isset.mysql_table_sink) {

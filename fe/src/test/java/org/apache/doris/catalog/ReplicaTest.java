@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import static org.junit.Assert.assertEquals;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeMetaVersion;
 
@@ -35,7 +36,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
 
 public class ReplicaTest {
     
@@ -85,14 +85,14 @@ public class ReplicaTest {
         Assert.assertEquals(newRowCount, replica.getRowCount());
 
         // check version catch up
-        Assert.assertFalse(replica.checkVersionCatchUp(5, 98765));
-        Assert.assertFalse(replica.checkVersionCatchUp(newVersion, 76543));
-        Assert.assertTrue(replica.checkVersionCatchUp(newVersion, newVersionHash));
+        Assert.assertFalse(replica.checkVersionCatchUp(5, 98765, false));
+        Assert.assertTrue(replica.checkVersionCatchUp(newVersion, 76543, false));
+        Assert.assertTrue(replica.checkVersionCatchUp(newVersion, newVersionHash, false));
     }
 
     @Test
     public void testSerialization() throws Exception {
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 Catalog.getCurrentCatalogJournalVersion();
                 result = FeMetaVersion.VERSION_45;

@@ -25,6 +25,7 @@
 
 #include <errno.h>
 
+#include "common/config.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
@@ -34,7 +35,7 @@ using std::string;
 
 namespace doris {
 
-Cache* FileHandler::_s_fd_cache;
+Cache* FileHandler::_s_fd_cache = nullptr;
 
 FileHandler::FileHandler() :
         _fd(-1),
@@ -42,6 +43,10 @@ FileHandler::FileHandler() :
         _file_name(""),
         _is_using_cache(false),
         _cache_handle(NULL) {
+    static std::once_flag once_flag;
+    std::call_once(once_flag, [] {
+        _s_fd_cache = new_lru_cache(config::file_descriptor_cache_capacity);
+    });
 }
 
 FileHandler::~FileHandler() {
@@ -86,11 +91,10 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
     }
 
     CacheKey key(file_name.c_str(), file_name.size());
-    Cache* fd_cache = get_fd_cache();
-    _cache_handle = fd_cache->lookup(key);
+    _cache_handle = _s_fd_cache->lookup(key);
     if (NULL != _cache_handle) {
         FileDescriptor* file_desc =
-            reinterpret_cast<FileDescriptor*>(fd_cache->value(_cache_handle));
+            reinterpret_cast<FileDescriptor*>(_s_fd_cache->value(_cache_handle));
         _fd = file_desc->fd;
         VLOG(3) << "success to open file with cache. file_name=" << file_name
                 << ", mode=" << flag << " fd=" << _fd;
@@ -106,7 +110,7 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
             return OLAP_ERR_IO_ERROR;
         }
         FileDescriptor* file_desc = new FileDescriptor(_fd);
-        _cache_handle = fd_cache->insert(
+        _cache_handle = _s_fd_cache->insert(
                             key, file_desc, 1,
                             &_delete_cache_file_descriptor);
         VLOG(3) << "success to open file with cache. "
@@ -148,7 +152,7 @@ OLAPStatus FileHandler::open_with_mode(const string& file_name, int flag, int mo
 }
 
 OLAPStatus FileHandler::release() {
-    get_fd_cache()->release(_cache_handle);
+    _s_fd_cache->release(_cache_handle);
     _cache_handle = NULL;
     _is_using_cache = false;
     return OLAP_SUCCESS;

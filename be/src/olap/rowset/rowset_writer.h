@@ -18,50 +18,52 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
 
+#include "gutil/macros.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/schema.h"
-#include "olap/row_block.h"
 #include "gen_cpp/types.pb.h"
-#include "runtime/mem_pool.h"
+#include "olap/column_mapping.h"
 
 namespace doris {
 
-class RowsetWriter;
-using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
+class ContiguousRow;
+class RowCursor;
 
 class RowsetWriter {
 public:
-    virtual ~RowsetWriter() { }
+    RowsetWriter() = default;
+    virtual ~RowsetWriter() = default;
 
     virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    // add a row to rowset
-    virtual OLAPStatus add_row(RowCursor* row_block) = 0;
+    // Memory note: input `row` is guaranteed to be copied into writer's internal buffer, including all slice data
+    // referenced by `row`. That means callers are free to de-allocate memory for `row` after this method returns.
+    virtual OLAPStatus add_row(const RowCursor& row) = 0;
+    virtual OLAPStatus add_row(const ContiguousRow& row) = 0;
 
-    virtual OLAPStatus add_row(const char* row, Schema* schema) = 0;
-
+    // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual OLAPStatus add_rowset(RowsetSharedPtr rowset) = 0;
+
+    // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual OLAPStatus add_rowset_for_linked_schema_change(
                 RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) = 0;
 
+    // explicit flush all buffered rows into segment file.
+    // note that `add_row` could also trigger flush when certain conditions are met
     virtual OLAPStatus flush() = 0;
 
-    // get a rowset
+    // finish building and return pointer to the built rowset (guaranteed to be inited).
+    // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
-
-    // TODO(hkp): this interface should be optimized!
-    virtual MemPool* mem_pool() = 0;
 
     virtual Version version() = 0;
 
-    virtual int32_t num_rows() = 0;
+    virtual int64_t num_rows() = 0;
 
     virtual RowsetId rowset_id() = 0;
 
-    virtual OLAPStatus garbage_collection() = 0;
-
-    virtual DataDir* data_dir() = 0;
+private:
+    DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };
 
 } // namespace doris

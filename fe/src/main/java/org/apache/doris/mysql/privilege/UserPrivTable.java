@@ -38,18 +38,12 @@ public class UserPrivTable extends PrivTable {
     public UserPrivTable() {
     }
 
-    public void getPrivs(String host, String user, PrivBitSet savedPrivs) {
+    public void getPrivs(UserIdentity currentUser, PrivBitSet savedPrivs) {
         GlobalPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
 
-            // check host
-            if (!globalPrivEntry.isAnyHost() && !globalPrivEntry.getHostPattern().match(host)) {
-                continue;
-            }
-
-            // check user
-            if (!globalPrivEntry.isAnyUser() && !globalPrivEntry.getUserPattern().match(user)) {
+            if (!globalPrivEntry.match(currentUser, true)) {
                 continue;
             }
 
@@ -115,18 +109,25 @@ public class UserPrivTable extends PrivTable {
                             || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
                 // found the matched entry
                 if (currentUser != null) {
-                    currentUser.add(entry.getUserIdent());
+                    currentUser.add(globalPrivEntry.getDomainUserIdent());
                 }
                 return true;
             } else {
-                continue;
+                // case A. this means we already matched a entry by user@host, but password is incorrect.
+                // return false, NOT continue matching other entries.
+                // For example, there are 2 entries in order:
+                // 1. cmy@"192.168.%" identified by '123';
+                // 2. cmy@"%" identified by 'abc';
+                // if user cmy@'192.168.1.1' try to login with password 'abc', it will be denied.
+                return false;
             }
         }
 
         return false;
     }
 
-    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd) {
+    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+            List<UserIdentity> currentUser) {
         for (PrivEntry entry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
 
@@ -141,37 +142,33 @@ public class UserPrivTable extends PrivTable {
             }
 
             if (MysqlPassword.checkPlainPass(globalPrivEntry.getPassword(), remotePasswd)) {
+                if (currentUser != null) {
+                    currentUser.add(globalPrivEntry.getDomainUserIdent());
+                }
                 return true;
+            } else {
+                // set case A. in checkPassword()
+                return false;
             }
         }
 
         return false;
     }
 
-    public void setPassword(GlobalPrivEntry passwdEntry, boolean addIfNotExist) throws DdlException {
-        GlobalPrivEntry existingEntry = (GlobalPrivEntry) getExistingEntry(passwdEntry);
-        if (existingEntry == null) {
-            if (!addIfNotExist) {
-                throw new DdlException("User " + passwdEntry.getUserIdent() + " does not exist");
-            }
-            existingEntry = passwdEntry;
-            addEntry(existingEntry, false /* err on exist */, false /* err on non exist */);
-        } else {
-            if (existingEntry.isSetByDomainResolver() && !passwdEntry.isSetByDomainResolver()) {
-                LOG.info("cannot set password, existing entry is set by resolver: {}", existingEntry);
-                throw new DdlException("Cannot set password, existing entry is set by resolver");
-            } else if (!existingEntry.isSetByDomainResolver() && passwdEntry.isSetByDomainResolver()) {
-                LOG.info("Cannot set password, existing entry is not set by resolver: {}", existingEntry);
-                throw new DdlException("Cannot set password, existing entry is not set by resolver");
-            }
-        }
-
-        existingEntry.setPassword(passwdEntry.getPassword());
+    /*
+     * set password for specified entry. It is same as adding an entry to the user priv table.
+     */
+    public void setPassword(GlobalPrivEntry passwdEntry, boolean errOnNonExist) throws DdlException {
+        GlobalPrivEntry addedEntry = (GlobalPrivEntry) addEntry(passwdEntry, false /* err on exist */,
+                errOnNonExist /* err on non exist */);
+        addedEntry.setPassword(passwdEntry.getPassword());
     }
 
-    public boolean doesUserExist(UserIdentity userIdent, boolean exactMatch) {
+    // return true only if user exist and not set by domain
+    // user set by domain should be checked in property manager
+    public boolean doesUserExist(UserIdentity userIdent) {
         for (PrivEntry privEntry : entries) {
-            if (privEntry.match(userIdent, exactMatch)) {
+            if (privEntry.match(userIdent, true /* exact match */) && !privEntry.isSetByDomainResolver()) {
                 return true;
             }
         }

@@ -17,17 +17,19 @@
 
 package org.apache.doris.catalog;
 
+import java.util.Objects;
+
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
@@ -62,9 +64,11 @@ public class ScalarType extends Type {
     public static final int MAX_PRECISION = 38;
     public static final int MAX_SCALE = MAX_PRECISION;
 
+    @SerializedName(value = "type")
     private final PrimitiveType type;
 
     // Only used for type CHAR.
+    @SerializedName(value = "len")
     private int len = -1;
     private boolean isAssignedStrLenInColDefinition = false;
 
@@ -73,7 +77,9 @@ public class ScalarType extends Type {
     // It is invalid to have one by -1 and not the other.
     // TODO: we could use that to store DECIMAL(8,*), indicating a decimal
     // with 8 digits of precision and any valid ([0-8]) scale.
+    @SerializedName(value = "precision")
     private int precision;
+    @SerializedName(value = "scale")
     private int scale;
 
     protected ScalarType(PrimitiveType type) {
@@ -121,10 +127,14 @@ public class ScalarType extends Type {
                 return createVarcharType();
             case HLL:
                 return createHllType();
+            case BITMAP:
+                return BITMAP;
             case DATE:
                 return DATE;
             case DATETIME:
                 return DATETIME;
+            case TIME:
+                return TIME;
             case DECIMAL:
                 return (ScalarType) createDecimalType();
             case DECIMALV2:
@@ -164,10 +174,14 @@ public class ScalarType extends Type {
                 return createVarcharType();
             case "HLL":
                 return createHllType();
+            case "BITMAP":
+                return BITMAP;
             case "DATE":
                 return DATE;
             case "DATETIME":
                 return DATETIME;
+            case "TIME":
+                return TIME;
             case "DECIMAL":
                 return (ScalarType) createDecimalType();
             case "DECIMALV2":
@@ -261,7 +275,7 @@ public class ScalarType extends Type {
     public static ScalarType createVarcharType() {
         return DEFAULT_VARCHAR;
     }
- 
+
     public static ScalarType createHllType() {
         ScalarType type = new ScalarType(PrimitiveType.HLL);
         type.len = MAX_HLL_LENGTH;
@@ -311,7 +325,7 @@ public class ScalarType extends Type {
                 stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
                 break;
             case BOOLEAN:
-                return "tinyint(1)";
+                return "boolean";
             case TINYINT:
                 return "tinyint(4)";
             case SMALLINT:
@@ -327,6 +341,7 @@ public class ScalarType extends Type {
             case DATE:
             case DATETIME:
             case HLL:
+            case BITMAP:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:
@@ -347,7 +362,7 @@ public class ScalarType extends Type {
         container.types.add(node);
         switch(type) {
             case VARCHAR:
-            case CHAR: 
+            case CHAR:
             case HLL: {
                 node.setType(TTypeNodeType.SCALAR);
                 TScalarType scalarType = new TScalarType();
@@ -630,8 +645,13 @@ public class ScalarType extends Type {
             return t1;
         }
 
-        if (t1.type == PrimitiveType.HLL || t2.type == PrimitiveType.HLL) {
-            return createHllType();
+        boolean t1IsHLL = t1.type == PrimitiveType.HLL;
+        boolean t2IsHLL = t2.type == PrimitiveType.HLL;
+        if (t1IsHLL || t2IsHLL) {
+            if (t1IsHLL && t2IsHLL) {
+                return createHllType();
+            }
+            return INVALID;
         }
 
         if (t1.isStringType() || t2.isStringType()) {
@@ -640,12 +660,12 @@ public class ScalarType extends Type {
 
         if ((t1.isDecimal() || t1.isDecimalV2()) && t2.isDate()
                 || t1.isDate() && (t2.isDecimal() || t2.isDecimalV2())) {
-            return INVALID;    
+            return INVALID;
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             return DECIMALV2;
-        } 
+        }
 
         if (t1.isDecimal() || t2.isDecimal()) {
             return DECIMAL;
@@ -713,34 +733,33 @@ public class ScalarType extends Type {
     public int getStorageLayoutBytes() {
         switch (type) {
             case BOOLEAN:
-                return 0;
             case TINYINT:
                 return 1;
             case SMALLINT:
                 return 2;
             case INT:
-                return 4;
-            case BIGINT:
-                return 8;
-            case LARGEINT:
-                return 16;
             case FLOAT:
                 return 4;
+            case BIGINT:
+            case TIME:
+            case DATETIME:
+                return 8;
+            case LARGEINT:
+            case DECIMALV2:
+                return 16;
             case DOUBLE:
                 return 12;
             case DATE:
                 return 3;
-            case DATETIME:
-                return 8;
             case DECIMAL:
                 return 40;
-            case DECIMALV2:
-                return 16;
             case CHAR:
             case VARCHAR:
                 return len;
             case HLL:
                 return 16385;
+            case BITMAP:
+                return 1024; // this is a estimated value
             default:
                 return 0;
         }
@@ -758,5 +777,14 @@ public class ScalarType extends Type {
             thrift.setScale(scale);
         }
         return thrift;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 0;
+        result = 31 * result + Objects.hashCode(type);
+        result = 31 * result + precision;
+        result = 31 * result + scale;
+        return result;
     }
 }

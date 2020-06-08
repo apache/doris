@@ -43,6 +43,8 @@ std::string StreamLoadContext::to_json() const {
         break;
     case TStatusCode::LABEL_ALREADY_EXISTS:
         writer.String("Label Already Exists");
+        writer.Key("ExistingJobStatus");
+        writer.String(existing_job_status.c_str());
         break;
     default:
         writer.String("Fail");
@@ -68,6 +70,17 @@ std::string StreamLoadContext::to_json() const {
     writer.Int64(receive_bytes);
     writer.Key("LoadTimeMs");
     writer.Int64(load_cost_nanos / 1000000);
+    writer.Key("BeginTxnTimeMs");
+    writer.Int64(begin_txn_cost_nanos / 1000000);
+    writer.Key("StreamLoadPutTimeMs");
+    writer.Int64(stream_load_put_cost_nanos / 1000000);
+    writer.Key("ReadDataTimeMs");
+    writer.Int64(read_data_cost_nanos / 1000000);
+    writer.Key("WriteDataTimeMs");
+    writer.Int(write_data_cost_nanos / 1000000);
+    writer.Key("CommitAndPublishTimeMs");
+    writer.Int64(commit_and_publish_txn_cost_nanos / 1000000);
+
     if (!error_url.empty()) {
         writer.Key("ErrorURL");
         writer.String(error_url.c_str());
@@ -76,7 +89,7 @@ std::string StreamLoadContext::to_json() const {
     return s.GetString();
 }
 
-/* 
+/*
  * The old mini load result format is as followes:
  * (which defined in src/util/json_util.cpp)
  *
@@ -121,7 +134,7 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
 
 std::string StreamLoadContext::brief(bool detail) const {
     std::stringstream ss;
-    ss << "id=" << id << ", job id=" << job_id << ", txn id=" << txn_id << ", label=" << label;
+    ss << "id=" << id << ", job_id=" << job_id << ", txn_id=" << txn_id << ", label=" << label;
     if (detail) {
         switch(load_src_type) {
             case TLoadSourceType::KAFKA:

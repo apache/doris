@@ -40,7 +40,7 @@ class RuntimeState;
 
 class EsPredicateTest : public testing::Test {
 public:
-    EsPredicateTest() : _runtime_state("EsPredicateTest") {
+    EsPredicateTest() : _runtime_state(TQueryGlobals()) {
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
         TDescriptorTable t_desc_table;
 
@@ -146,7 +146,7 @@ TEST_F(EsPredicateTest, normal) {
     TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     std::vector<EsPredicate*> predicates;
     for (int i = 0; i < conjunct_ctxs.size(); ++i) {
-        EsPredicate* predicate = new EsPredicate(conjunct_ctxs[i], tuple_desc);
+        EsPredicate* predicate = new EsPredicate(conjunct_ctxs[i], tuple_desc, &_obj_pool);
         if (predicate->build_disjuncts_list().ok()) {
             predicates.push_back(predicate);
         }
@@ -163,6 +163,9 @@ TEST_F(EsPredicateTest, normal) {
     std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"range\":{\"id\":{\"gt\":\"10\"}}}]}}]}}";
     LOG(INFO) << "compound bool query" << actual_bool_json;
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    for (auto predicate : predicates) {
+        delete predicate;
+    }
 }
 
 

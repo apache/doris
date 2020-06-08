@@ -22,8 +22,9 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/rle_page.h"
-#include "util/arena.h"
 #include "util/logging.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
@@ -36,9 +37,10 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        Arena arena;
+        MemTracker tracker;
+        MemPool pool(&tracker);
         uint8_t null_bitmap = 0;
-        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, &arena);
+        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &pool);
         ColumnBlockView column_block_view(&block);
 
         size_t n = 1;
@@ -54,23 +56,29 @@ public:
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType rle_page_builder(builder_options);
         rle_page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        Slice s = rle_page_builder.finish();
+        OwnedSlice s = rle_page_builder.finish();
         ASSERT_EQ(size, rle_page_builder.count());
-        LOG(INFO) << "RLE Encoded size for 10k values: " << s.size
-                << ", original size:" << size * sizeof(CppType);
+
+        //check first value and last value
+        CppType first_value;
+        rle_page_builder.get_first_value(&first_value);
+        ASSERT_EQ(src[0], first_value);
+        CppType last_value;
+        rle_page_builder.get_last_value(&last_value);
+        ASSERT_EQ(src[size - 1], last_value);
 
         PageDecoderOptions decodeder_options;
-        PageDecoderType rle_page_decoder(s, decodeder_options);
+        PageDecoderType rle_page_decoder(s.slice(), decodeder_options);
         Status status = rle_page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(0, rle_page_decoder.current_index());
         ASSERT_EQ(size, rle_page_decoder.count());
 
-        Arena arena;
-
-        CppType* values = reinterpret_cast<CppType*>(arena.Allocate(size * sizeof(CppType)));
-        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, &arena);
+        MemTracker tracker;
+        MemPool pool(&tracker);
+        CppType* values = reinterpret_cast<CppType*>(pool.allocate(size * sizeof(CppType)));
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
+        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, size, &pool);
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = size;
         status = rle_page_decoder.next_batch(&size_to_fetch, &column_block_view);
@@ -144,11 +152,11 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT> rle_page_builder(builder_options);
     rle_page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
-    Slice s = rle_page_builder.finish();
+    OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 4 bytes values
-    ASSERT_EQ(10, s.size);
+    ASSERT_EQ(10, s.slice().size);
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
@@ -178,11 +186,11 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_BOOL> rle_page_builder(builder_options);
     rle_page_builder.add(reinterpret_cast<const uint8_t *>(bools.get()), &size);
-    Slice s = rle_page_builder.finish();
+    OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 1 bytes values
-    ASSERT_EQ(7, s.size);
+    ASSERT_EQ(7, s.slice().size);
 }
 
 }

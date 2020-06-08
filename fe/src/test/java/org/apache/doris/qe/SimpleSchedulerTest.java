@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
@@ -28,46 +30,47 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
-@PrepareForTest(Catalog.class)
 public class SimpleSchedulerTest {
     static Reference<Long> ref = new Reference<Long>();
 
+    @Mocked
     private Catalog catalog;
+    @Mocked
     private EditLog editLog;
 
     @Before
     public void setUp() {
-        editLog = EasyMock.createMock(EditLog.class);
-        editLog.logAddBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logDropBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logBackendStateChange(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
+        new Expectations() {
+            {
+                editLog.logAddBackend((Backend) any);
+                minTimes = 0;
 
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        EasyMock.replay(catalog);
+                editLog.logDropBackend((Backend) any);
+                minTimes = 0;
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+                editLog.logBackendStateChange((Backend) any);
+                minTimes = 0;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
     }
 
     // TODO(lingbin): PALO-2051.
@@ -189,12 +192,12 @@ public class SimpleSchedulerTest {
         threeBackends.put((long) 102, backendC);
         ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
 
-        SimpleScheduler.updateBlacklistBackends(Long.valueOf(100));
-        SimpleScheduler.updateBlacklistBackends(Long.valueOf(101));
+        SimpleScheduler.addToBlacklist(Long.valueOf(100));
+        SimpleScheduler.addToBlacklist(Long.valueOf(101));
         address = SimpleScheduler.getHost(immutableThreeBackends, ref);
         // only backendc can work
         Assert.assertEquals(address.hostname, "addressC");
-        SimpleScheduler.updateBlacklistBackends(Long.valueOf(102));
+        SimpleScheduler.addToBlacklist(Long.valueOf(102));
         // no backend can work
         address = SimpleScheduler.getHost(immutableThreeBackends, ref);
         Assert.assertNull(address);

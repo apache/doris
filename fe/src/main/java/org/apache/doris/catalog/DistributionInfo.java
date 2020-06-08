@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.commons.lang.NotImplementedException;
 
@@ -40,6 +41,10 @@ public abstract class DistributionInfo implements Writable {
         RANDOM
     }
 
+    // for Gson runtime type adaptor
+    @SerializedName(value = "typeStr")
+    protected String typeStr;
+    @SerializedName(value = "type")
     protected DistributionInfoType type;
     
     public DistributionInfo() {
@@ -48,6 +53,7 @@ public abstract class DistributionInfo implements Writable {
 
     public DistributionInfo(DistributionInfoType type) {
         this.type = type;
+        this.typeStr = this.type.name();
     }
 
     public DistributionInfoType getType() {
@@ -68,7 +74,6 @@ public abstract class DistributionInfo implements Writable {
         Text.writeString(out, type.name());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         type = DistributionInfoType.valueOf(Text.readString(in));
     }

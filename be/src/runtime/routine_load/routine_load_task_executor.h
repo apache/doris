@@ -22,7 +22,8 @@
 #include <mutex>
 
 #include "runtime/routine_load/data_consumer_pool.h"
-#include "util/thread_pool.hpp"
+#include "util/doris_metrics.h"
+#include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 
 #include "gen_cpp/internal_service.pb.h"
@@ -44,8 +45,12 @@ public:
 
     RoutineLoadTaskExecutor(ExecEnv* exec_env):
         _exec_env(exec_env),
-        _thread_pool(10, 100),
+        _thread_pool(config::routine_load_thread_pool_size, 1),
         _data_consumer_pool(10) {
+        REGISTER_GAUGE_DORIS_METRIC(routine_load_task_count, [this]() {
+            std::lock_guard<std::mutex> l(_lock);
+            return _task_map.size();
+        });
 
         _data_consumer_pool.start_bg_worker();
     }
@@ -74,7 +79,7 @@ private:
 
 private:
     ExecEnv* _exec_env;
-    ThreadPool _thread_pool;
+    PriorityThreadPool _thread_pool;
     DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;

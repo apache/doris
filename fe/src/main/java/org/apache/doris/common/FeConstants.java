@@ -20,20 +20,35 @@ package org.apache.doris.common;
 public class FeConstants {
     // Database and table's default configurations, we will never change them
     public static short default_replication_num = 3;
-    public static int shortkey_max_column_count = 5;
+    /*
+     * Those two fields is responsible for determining the default key columns in duplicate table.
+     * If user does not specify key of duplicate table in create table stmt,
+     * the default key columns will be supplemented by Doris.
+     * The default key columns are first 36 bytes(DEFAULT_DUP_KEYS_BYTES) of the columns in define order.
+     * If the number of key columns in the first 36 is less than 3(DEFAULT_DUP_KEYS_COUNT),
+     * the first 3 columns will be used.
+     */
+    public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
     public static long default_db_data_quota_bytes = 1024 * 1024 * 1024 * 1024L; // 1TB
+    public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
 
     public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
 
     // dpp version
-    public static String dpp_version = "3_1_0";
+    public static String dpp_version = "3_2_0";
 
     // bloom filter false positive probability
     public static double default_bloom_filter_fpp = 0.05;
 
+    // set to true to skip some step when running FE unit test
+    public static boolean runningUnitTest = false;
+
+    // default scheduler interval is 10 seconds
+    public static int default_scheduler_interval_millisecond = 10000;
+
     // general model
     // Current meta data version. Use this version to write journals and image
-    public static int meta_version = FeMetaVersion.VERSION_56;
+    public static int meta_version = FeMetaVersion.VERSION_CURRENT;
 }

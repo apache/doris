@@ -23,7 +23,7 @@
 
 #include <boost/filesystem.hpp>
 
-#include "olap/rowset/alpha_rowset_writer.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -93,9 +93,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   PUniqueId load_id;
   load_id.set_hi(0);
   load_id.set_lo(0);
-  OLAPStatus res = StorageEngine::instance()->txn_manager()->prepare_txn(
-      request.partition_id, request.transaction_id, tablet->tablet_id(),
-      tablet->schema_hash(), tablet->tablet_uid(), load_id);
+  RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(request.partition_id,
+      tablet, request.transaction_id, load_id));
 
   // prepare txn will be always successful
   // if current tablet is under schema change, origin tablet is successful and
@@ -141,10 +140,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         PUniqueId load_id;
         load_id.set_hi(0);
         load_id.set_lo(0);
-        res = StorageEngine::instance()->txn_manager()->prepare_txn(
-            request.partition_id, request.transaction_id,
-            related_tablet->tablet_id(), related_tablet->schema_hash(),
-            related_tablet->tablet_uid(), load_id);
+        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(request.partition_id,
+            related_tablet, request.transaction_id, load_id));
         // prepare txn will always be successful
         tablet_vars->push_back(TabletVars());
         TabletVars& new_item = tablet_vars->back();
@@ -161,6 +158,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   // not call validate request here, because realtime load does not
   // contain version info
 
+  OLAPStatus res;
   // check delete condition if push for delete
   std::queue<DeletePredicatePB> del_preds;
   if (push_type == PUSH_FOR_DELETE) {
@@ -200,10 +198,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
       }
 
       OLAPStatus rollback_status =
-          StorageEngine::instance()->txn_manager()->rollback_txn(
-              request.partition_id, request.transaction_id,
-              tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash(), 
-              tablet_var.tablet->tablet_uid());
+          StorageEngine::instance()->txn_manager()->rollback_txn(request.partition_id, 
+            tablet_var.tablet, request.transaction_id);
       // has to check rollback status to ensure not delete a committed rowset
       if (rollback_status == OLAP_SUCCESS) {
         // actually, olap_index may has been deleted in delete_transaction()
@@ -225,12 +221,9 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
       del_preds.pop();
     }
     OLAPStatus commit_status =
-        StorageEngine::instance()->txn_manager()->commit_txn(
-            tablet_var.tablet->data_dir()->get_meta(), request.partition_id,
-            request.transaction_id, tablet_var.tablet->tablet_id(),
-            tablet_var.tablet->schema_hash(), tablet_var.tablet->tablet_uid(), 
-            load_id, tablet_var.rowset_to_add,
-            false);
+        StorageEngine::instance()->txn_manager()->commit_txn(request.partition_id,
+            tablet_var.tablet, request.transaction_id,
+            load_id, tablet_var.rowset_to_add, false);
     if (commit_status != OLAP_SUCCESS &&
         commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
       res = commit_status;
@@ -263,19 +256,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
     RowCursor row;
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
-    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-    if (rowset_writer == nullptr) {
-        LOG(WARNING) << "new rowset writer failed.";
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-    RowsetWriterContext context;
     uint32_t num_rows = 0;
-    RowsetId rowset_id = 0;
-    res = cur_tablet->next_rowset_id(&rowset_id);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "generate rowset id failed, res:" << res;
-        return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;
-    }
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
@@ -330,19 +311,30 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         // 2. init RowsetBuilder of cur_tablet for current push
         VLOG(3) << "init RowsetBuilder.";
         RowsetWriterContext context;
-        context.rowset_id = rowset_id;
+        context.rowset_id = StorageEngine::instance()->next_rowset_id();
         context.tablet_uid = cur_tablet->tablet_uid();
         context.tablet_id = cur_tablet->tablet_id();
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();
-        context.rowset_type = ALPHA_ROWSET;
+        context.rowset_type = StorageEngine::instance()->default_rowset_type();
         context.rowset_path_prefix = cur_tablet->tablet_path();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
-        context.data_dir = cur_tablet->data_dir();
         context.txn_id = _request.transaction_id;
         context.load_id = load_id;
-        rowset_writer->init(context);
+        // although the hadoop load output files are fully sorted,
+        // but it depends on thirparty implementation, so we conservatively
+        // set this value to OVERLAP_UNKNOWN
+        context.segments_overlap = OVERLAP_UNKNOWN;
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        res = RowsetFactory::create_rowset_writer(context, &rowset_writer);
+        if (OLAP_SUCCESS != res) {
+            LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
+                         << ", txn_id=" << _request.transaction_id
+                         << ", res=" << res;
+            break;
+        }
 
         // 3. New RowsetBuilder to write data into rowset
         VLOG(3) << "init rowset builder. tablet=" << cur_tablet->full_name()
@@ -359,13 +351,13 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
             // Convert from raw to delta
             VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
-                res = reader->next(&row, rowset_writer->mem_pool());
+                res = reader->next(&row);
                 if (OLAP_SUCCESS != res) {
                     LOG(WARNING) << "read next row failed."
                         << " res=" << res << " read_rows=" << num_rows;
                     break;
                 } else {
-                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(&row))) {
+                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
                         LOG(WARNING) << "fail to attach row to rowset_writer. "
                             << " res=" << res
                             << ", tablet=" << cur_tablet->full_name()
@@ -490,7 +482,7 @@ OLAPStatus BinaryReader::finalize() {
   return OLAP_SUCCESS;
 }
 
-OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
+OLAPStatus BinaryReader::next(RowCursor* row) {
   OLAPStatus res = OLAP_SUCCESS;
 
   if (!_ready || NULL == row) {
@@ -559,9 +551,9 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         column.type() == OLAP_FIELD_TYPE_VARCHAR ||
         column.type() == OLAP_FIELD_TYPE_HLL) {
       Slice slice(_row_buf + offset, field_size);
-      row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
+      row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
     } else {
-      row->set_field_content(i, _row_buf + offset, mem_pool);
+      row->set_field_content_shallow(i, _row_buf + offset);
     }
     offset += field_size;
   }
@@ -622,7 +614,7 @@ OLAPStatus LzoBinaryReader::finalize() {
   return OLAP_SUCCESS;
 }
 
-OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
+OLAPStatus LzoBinaryReader::next(RowCursor* row) {
   OLAPStatus res = OLAP_SUCCESS;
 
   if (!_ready || NULL == row) {
@@ -685,9 +677,9 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         column.type() == OLAP_FIELD_TYPE_VARCHAR ||
         column.type() == OLAP_FIELD_TYPE_HLL) {
       Slice slice(_row_buf + _next_row_start + offset, field_size);
-      row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
+      row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
     } else {
-      row->set_field_content(i, _row_buf + _next_row_start + offset, mem_pool);
+      row->set_field_content_shallow(i, _row_buf + _next_row_start + offset);
     }
 
     offset += field_size;

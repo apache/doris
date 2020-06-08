@@ -19,6 +19,8 @@
 
 #include <sstream>
 
+#include "gutil/stringprintf.h"
+
 namespace doris {
 
 std::string Bitmap::DebugString(bool print_bits) const {
@@ -130,6 +132,23 @@ bool BitmapFindFirst(const uint8_t *bitmap, size_t offset, size_t bitmap_size,
     }
 
     return false;
+}
+
+std::string BitmapToString(const uint8_t *bitmap, size_t num_bits) {
+  std::string s;
+  size_t index = 0;
+  while (index < num_bits) {
+    StringAppendF(&s, "%4zu: ", index);
+    for (int i = 0; i < 8 && index < num_bits; ++i) {
+      for (int j = 0; j < 8 && index < num_bits; ++j) {
+        StringAppendF(&s, "%d", BitmapTest(bitmap, index));
+        index++;
+      }
+      StringAppendF(&s, " ");
+    }
+    StringAppendF(&s, "\n");
+  }
+  return s;
 }
 
 }

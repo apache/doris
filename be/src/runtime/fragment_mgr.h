@@ -23,11 +23,13 @@
 #include <unordered_map>
 #include <functional>
 #include <thread>
+#include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 #include "util/hash_util.hpp"
 #include "http/rest_monitor_iface.h"
 
@@ -36,6 +38,7 @@ namespace doris {
 class ExecEnv;
 class FragmentExecState;
 class TExecPlanFragmentParams;
+class TUniqueId;
 class PlanFragmentExecutor;
 
 std::string to_load_error_http_path(const std::string& file_name);
@@ -66,6 +69,11 @@ public:
 
     Status trigger_profile_report(const PTriggerProfileReportRequest* request);
 
+    // input: TScanOpenParams fragment_instance_id
+    // output: selected_columns
+    // execute external query, all query info are packed in TScanOpenParams
+    Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
+
 private:
     void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                      FinishCallback cb);
@@ -82,8 +90,7 @@ private:
     bool _stop;
     std::thread _cancel_thread;
     // every job is a pool
-    ThreadPool _thread_pool;
-
+    PriorityThreadPool _thread_pool;
 };
 
 }

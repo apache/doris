@@ -27,8 +27,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -74,7 +72,7 @@ public class Planner {
     }
 
     public void plan(StatementBase queryStmt, Analyzer analyzer, TQueryOptions queryOptions)
-            throws NotImplementedException, UserException, AnalysisException {
+            throws UserException {
         createPlanFragments(queryStmt, analyzer, queryOptions);
     }
 
@@ -132,22 +130,21 @@ public class Planner {
      * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
-    public void createPlanFragments(StatementBase statment, Analyzer analyzer, TQueryOptions queryOptions)
-            throws NotImplementedException, UserException, AnalysisException {
+    public void createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
+            throws UserException {
         QueryStmt queryStmt;
-        if (statment instanceof InsertStmt) {
-            queryStmt = ((InsertStmt) statment).getQueryStmt();
+        if (statement instanceof InsertStmt) {
+            queryStmt = ((InsertStmt) statement).getQueryStmt();
         } else {
-            queryStmt = (QueryStmt) statment;
+            queryStmt = (QueryStmt) statement;
         }
 
-        plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statment);
+        plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
-        List<Expr> resultExprs = queryStmt.getResultExprs();
-        if (statment instanceof InsertStmt) {
-            InsertStmt insertStmt = (InsertStmt) statment;
+        if (statement instanceof InsertStmt) {
+            InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
         }
 
@@ -161,6 +158,8 @@ public class Planner {
         // TupleDescriptor.avgSerializedSize
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
+        // materialized view selector
+        singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
@@ -177,13 +176,12 @@ public class Planner {
         QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
-        if (statment instanceof InsertStmt) {
-            InsertStmt insertStmt = (InsertStmt) statment;
-
+        if (statement instanceof InsertStmt) {
+            InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
-            rootFragment.setSink(insertStmt.createDataSink());
-            insertStmt.finalize();
-            ArrayList<Expr> exprs = ((InsertStmt) statment).getResultExprs();
+            rootFragment.setSink(insertStmt.getDataSink());
+            insertStmt.complete();
+            ArrayList<Expr> exprs = ((InsertStmt) statement).getResultExprs();
             List<Expr> resExprs = Expr.substituteList(
                     exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
             rootFragment.setOutputExprs(resExprs);
@@ -197,8 +195,9 @@ public class Planner {
         for (PlanFragment fragment : fragments) {
             fragment.finalize(analyzer, !queryOptions.allow_unsupported_formats);
         }
-
         Collections.reverse(fragments);
+
+        setOutfileSink(queryStmt);
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -210,6 +209,21 @@ public class Planner {
                 LOG.debug("this isn't block query");
             }
         }
+    }
+
+    // if query stmt has OUTFILE clause, set info into ResultSink.
+    // this should be done after fragments are generated.
+    private void setOutfileSink(QueryStmt queryStmt) {
+        if (!queryStmt.hasOutFileClause()) {
+            return;
+        }
+        PlanFragment topFragment = fragments.get(0);
+        if (!(topFragment.getSink() instanceof ResultSink)) {
+            return;
+        }
+
+        ResultSink resultSink = (ResultSink) topFragment.getSink();
+        resultSink.setOutfileInfo(queryStmt.getOutFileClause());
     }
 
     /**

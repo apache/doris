@@ -26,8 +26,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TLargeIntLiteral;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,6 +36,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Objects;
 
 // large int for the num that native types can not
 public class LargeIntLiteral extends LiteralExpr {
@@ -149,7 +150,7 @@ public class LargeIntLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr.type == Type.LARGEINT) {
+        if (expr.type.equals(Type.LARGEINT)) {
             return value.compareTo(((LargeIntLiteral) expr).value);
         } else {
             BigInteger intValue = new BigInteger(((IntLiteral) expr).getStringValue());
@@ -211,7 +212,6 @@ public class LargeIntLiteral extends LiteralExpr {
         Text.writeString(out, value.toString());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = new BigInteger(Text.readString(in));
@@ -221,5 +221,10 @@ public class LargeIntLiteral extends LiteralExpr {
         LargeIntLiteral largeIntLiteral = new LargeIntLiteral();
         largeIntLiteral.readFields(in);
         return largeIntLiteral;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(value);
     }
 }

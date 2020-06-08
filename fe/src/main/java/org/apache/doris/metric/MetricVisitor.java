@@ -21,6 +21,9 @@ import org.apache.doris.monitor.jvm.JvmStats;
 
 import com.codahale.metrics.Histogram;
 
+/*
+ * MetricVisitor will visit the metrics in metric repo and print them in StringBuilder
+ */
 public abstract class MetricVisitor {
 
     protected String prefix;
@@ -28,6 +31,8 @@ public abstract class MetricVisitor {
     public MetricVisitor(String prefix) {
         this.prefix = prefix;
     }
+
+    public abstract void setMetricNumber(int metricNumber);
 
     public abstract void visitJvm(StringBuilder sb, JvmStats jvmStats);
 

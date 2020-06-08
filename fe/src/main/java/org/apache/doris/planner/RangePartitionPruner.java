@@ -94,6 +94,8 @@ public class RangePartitionPruner implements PartitionPruner {
             if (filter.lowerBoundInclusive && filter.upperBoundInclusive
                     && filter.lowerBound != null && filter.upperBound != null
                     && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
+
+                // eg: [10, 10], [null, null]
                 if (filter.lowerBound instanceof NullLiteral && filter.upperBound instanceof NullLiteral) {
                     // replace Null with min value
                     LiteralExpr minKeyValue = LiteralExpr.createInfinity(
@@ -109,6 +111,7 @@ public class RangePartitionPruner implements PartitionPruner {
                 maxKey.popColumn();
                 return result;
             }
+
             // no in predicate
             BoundType lowerType = filter.lowerBoundInclusive ? BoundType.CLOSED : BoundType.OPEN;
             BoundType upperType = filter.upperBoundInclusive ? BoundType.CLOSED : BoundType.OPEN;

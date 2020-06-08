@@ -21,15 +21,18 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
+import java.lang.reflect.Field;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -73,6 +76,29 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
+    // user can set instance num after exchange, no need to be equal to nums of before exchange
+    public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
+    /*
+     * configure the mem limit of load process on BE. 
+     * Previously users used exec_mem_limit to set memory limits.
+     * To maintain compatibility, the default value of load_mem_limit is 0,
+     * which means that the load memory limit is still using exec_mem_limit.
+     * Users can set a value greater than zero to explicitly specify the load memory limit.
+     * This variable is mainly for INSERT operation, because INSERT operation has both query and load part.
+     * Using only the exec_mem_limit variable does not make a good distinction of memory limit between the two parts.
+     */
+    public static final String LOAD_MEM_LIMIT = "load_mem_limit";
+    public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
+    public static final String USE_V2_ROLLUP = "use_v2_rollup";
+    public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
+    public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
+    public static final String EVENT_SCHEDULER = "event_scheduler";
+    public static final String STORAGE_ENGINE = "storage_engine";
+    public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
+
+    // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
+    public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
+    public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -89,8 +115,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = IS_REPORT_SUCCESS)
     private boolean isReportSucc = false;
 
+    // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE)
-    private String sqlMode = "";
+    private long sqlMode = 0L;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     private String resourceGroup = "normal";
@@ -158,7 +185,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TIME_ZONE)
     private String timeZone = "CST";
 
-    // The current time zone
+    @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
+    private int exchangeInstanceParallel = -1;
+
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
     private int sqlSafeUpdates = 0;
 
@@ -192,8 +221,43 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     private boolean forwardToMaster = false;
 
+    @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
+    private long loadMemLimit = 0L;
+
+    // the default rowset type flag which will be passed to Backends through heartbeat
+    @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
+    private String defaultRowsetType = "alpha";
+
+    @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
+    private boolean useV2Rollup = false;
+
+    // TODO(ml): remove it after test
+    @VariableMgr.VarAttr(name = TEST_MATERIALIZED_VIEW)
+    private boolean testMaterializedView = false;
+
+    @VariableMgr.VarAttr(name = REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL)
+    private boolean rewriteCountDistinct = true;
+
+    // compatible with some mysql client connect, say DataGrip of JetBrains
+    @VariableMgr.VarAttr(name = EVENT_SCHEDULER)
+    private String eventScheduler = "OFF";
+    @VariableMgr.VarAttr(name = STORAGE_ENGINE)
+    private String storageEngine = "olap";
+    @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
+    private int divPrecisionIncrement = 4;
+
+    // -1 means unset, BE will use its config value
+    @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
+    private int maxScanKeyNum = -1;
+    @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
+    private int maxPushdownConditionsPerColumn = -1;
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
+    }
+
+    public long getLoadMemLimit() {
+        return loadMemLimit;
     }
 
     public int getQueryTimeoutS() {
@@ -208,11 +272,11 @@ public class SessionVariable implements Serializable, Writable {
         return waitTimeout;
     }
 
-    public String getSqlMode() {
+    public long getSqlMode() {
         return sqlMode;
     }
 
-    public void setSqlMode(String sqlMode) {
+    public void setSqlMode(long sqlMode) {
         this.sqlMode = sqlMode;
     }
 
@@ -220,144 +284,72 @@ public class SessionVariable implements Serializable, Writable {
         return autoCommit;
     }
 
-    public void setAutoCommit(boolean autoCommit) {
-        this.autoCommit = autoCommit;
-    }
-
     public String getTxIsolation() {
         return txIsolation;
-    }
-
-    public void setTxIsolation(String txIsolation) {
-        this.txIsolation = txIsolation;
     }
 
     public String getCharsetClient() {
         return charsetClient;
     }
 
-    public void setCharsetClient(String charsetClient) {
-        this.charsetClient = charsetClient;
-    }
-
     public String getCharsetConnection() {
         return charsetConnection;
-    }
-
-    public void setCharsetConnection(String charsetConnection) {
-        this.charsetConnection = charsetConnection;
     }
 
     public String getCharsetResults() {
         return charsetResults;
     }
 
-    public void setCharsetResults(String charsetResults) {
-        this.charsetResults = charsetResults;
-    }
-
     public String getCharsetServer() {
         return charsetServer;
-    }
-
-    public void setCharsetServer(String charsetServer) {
-        this.charsetServer = charsetServer;
     }
 
     public String getCollationConnection() {
         return collationConnection;
     }
 
-    public void setCollationConnection(String collationConnection) {
-        this.collationConnection = collationConnection;
-    }
-
     public String getCollationDatabase() {
         return collationDatabase;
-    }
-
-    public void setCollationDatabase(String collationDatabase) {
-        this.collationDatabase = collationDatabase;
     }
 
     public String getCollationServer() {
         return collationServer;
     }
 
-    public void setCollationServer(String collationServer) {
-        this.collationServer = collationServer;
-    }
-
     public boolean isSqlAutoIsNull() {
         return sqlAutoIsNull;
-    }
-
-    public void setSqlAutoIsNull(boolean sqlAutoIsNull) {
-        this.sqlAutoIsNull = sqlAutoIsNull;
     }
 
     public long getSqlSelectLimit() {
         return sqlSelectLimit;
     }
 
-    public void setSqlSelectLimit(long sqlSelectLimit) {
-        this.sqlSelectLimit = sqlSelectLimit;
-    }
-
     public int getMaxAllowedPacket() {
         return maxAllowedPacket;
-    }
-
-    public void setMaxAllowedPacket(int maxAllowedPacket) {
-        this.maxAllowedPacket = maxAllowedPacket;
     }
 
     public int getAutoIncrementIncrement() {
         return autoIncrementIncrement;
     }
 
-    public void setAutoIncrementIncrement(int autoIncrementIncrement) {
-        this.autoIncrementIncrement = autoIncrementIncrement;
-    }
-
     public int getQueryCacheType() {
         return queryCacheType;
-    }
-
-    public void setQueryCacheType(int queryCacheType) {
-        this.queryCacheType = queryCacheType;
     }
 
     public int getInteractiveTimeout() {
         return interactiveTimeout;
     }
 
-    public void setInteractiveTimeout(int interactiveTimeout) {
-        this.interactiveTimeout = interactiveTimeout;
-    }
-
     public int getWaitTimeout() {
         return waitTimeout;
-    }
-
-    public void setWaitTimeout(int waitTimeout) {
-        this.waitTimeout = waitTimeout;
     }
 
     public int getNetWriteTimeout() {
         return netWriteTimeout;
     }
 
-    public void setNetWriteTimeout(int netWriteTimeout) {
-        this.netWriteTimeout = netWriteTimeout;
-    }
-
     public int getNetReadTimeout() {
         return netReadTimeout;
-    }
-
-    public void setNetReadTimeout(int netReadTimeout) {
-        this.netReadTimeout = netReadTimeout;
     }
 
     public String getTimeZone() {
@@ -372,24 +364,12 @@ public class SessionVariable implements Serializable, Writable {
         return sqlSafeUpdates;
     }
 
-    public void setSqlSafeUpdates(int sqlSafeUpdates) {
-        this.sqlSafeUpdates = sqlSafeUpdates;
-    }
-
     public int getNetBufferLength() {
         return netBufferLength;
     }
 
-    public void setNetBufferLength(int netBufferLength) {
-        this.netBufferLength = netBufferLength;
-    }
-
     public int getCodegenLevel() {
         return codegenLevel;
-    }
-
-    public void setCodegenLevel(int codegenLevel) {
-        this.codegenLevel = codegenLevel;
     }
 
     public void setMaxExecMemByte(long maxExecMemByte) {
@@ -400,12 +380,12 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public void setQueryTimeoutS(int queryTimeoutS) {
-        this.queryTimeoutS = queryTimeoutS;
+    public void setLoadMemLimit(long loadMemLimit) {
+        this.loadMemLimit = loadMemLimit;
     }
 
-    public void setReportSucc(boolean isReportSucc) {
-        this.isReportSucc = isReportSucc;
+    public void setQueryTimeoutS(int queryTimeoutS) {
+        this.queryTimeoutS = queryTimeoutS;
     }
 
     public String getResourceGroup() {
@@ -420,35 +400,85 @@ public class SessionVariable implements Serializable, Writable {
         return disableColocateJoin;
     }
 
-    public void setDisableColocateJoin(boolean disableColocateJoin) {
-        this.disableColocateJoin = disableColocateJoin;
-    }
-
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
     }
 
-    public void setParallelExecInstanceNum(int parallelExecInstanceNum) {
-        if (parallelExecInstanceNum < MIN_EXEC_INSTANCE_NUM) {
-            this.parallelExecInstanceNum = MIN_EXEC_INSTANCE_NUM;
-        } else if (parallelExecInstanceNum > MAX_EXEC_INSTANCE_NUM) {
-            this.parallelExecInstanceNum = MAX_EXEC_INSTANCE_NUM;
-        } else {
-            this.parallelExecInstanceNum = parallelExecInstanceNum;
-        }
+    public int getExchangeInstanceParallel() {
+        return exchangeInstanceParallel;
     }
 
     public boolean getEnableInsertStrict() { return enableInsertStrict; }
-    public void setEnableInsertStrict(boolean enableInsertStrict) { this.enableInsertStrict = enableInsertStrict; }
 
-    
-   // Serialize to thrift object
+    public void setEnableInsertStrict(boolean enableInsertStrict) {
+        this.enableInsertStrict = enableInsertStrict;
+    }
+
     public boolean getForwardToMaster() {
         return forwardToMaster;
     }
 
-    public void setForwardToMaster(boolean forwardToMaster) {
-        this.forwardToMaster = forwardToMaster;
+    public boolean isUseV2Rollup() { return useV2Rollup; }
+
+    // for unit test
+    public void setUseV2Rollup(boolean useV2Rollup) {
+        this.useV2Rollup = useV2Rollup;
+    }
+
+    public boolean getTestMaterializedView() {
+        return this.testMaterializedView;
+    }
+
+    public void setTestMaterializedView(boolean testMaterializedView) {
+        this.testMaterializedView = testMaterializedView;
+    }
+
+    public boolean isRewriteCountDistinct() {
+        return rewriteCountDistinct;
+    }
+
+    public void setRewriteCountDistinct(boolean rewriteCountDistinct) {
+        this.rewriteCountDistinct = rewriteCountDistinct;
+    }
+
+    public String getEventScheduler() {
+        return eventScheduler;
+    }
+
+    public void setEventScheduler(String eventScheduler) {
+        this.eventScheduler = eventScheduler;
+    }
+
+    public String getStorageEngine() {
+        return storageEngine;
+    }
+
+    public void setStorageEngine(String storageEngine) {
+        this.storageEngine = storageEngine;
+    }
+
+    public int getDivPrecisionIncrement() {
+        return divPrecisionIncrement;
+    }
+
+    public String getDefaultRowsetType() {
+        return defaultRowsetType;
+    }
+
+    public int getMaxScanKeyNum() {
+        return maxScanKeyNum;
+    }
+
+    public void setMaxScanKeyNum(int maxScanKeyNum) {
+        this.maxScanKeyNum = maxScanKeyNum;
+    }
+
+    public int getMaxPushdownConditionsPerColumn() {
+        return maxPushdownConditionsPerColumn;
+    }
+
+    public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
+        this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
     }
 
     // Serialize to thrift object
@@ -456,91 +486,159 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMem_limit(maxExecMemByte);
-        
+
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMin_reservation(0);
         tResult.setMax_reservation(maxExecMemByte);
-        tResult.setInitial_reservation_total_claims(maxExecMemByte); 
+        tResult.setInitial_reservation_total_claims(maxExecMemByte);
         tResult.setBuffer_pool_limit(maxExecMemByte);
- 
+
         tResult.setQuery_timeout(queryTimeoutS);
         tResult.setIs_report_success(isReportSucc);
         tResult.setCodegen_level(codegenLevel);
 
         tResult.setBatch_size(batchSize);
         tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
+        tResult.setLoad_mem_limit(loadMemLimit);
+
+        if (maxScanKeyNum > -1) {
+            tResult.setMax_scan_key_num(maxScanKeyNum);
+        }
+        if (maxPushdownConditionsPerColumn > -1) {
+            tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
+        }
         return tResult;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(codegenLevel);
-        out.writeInt(netBufferLength);
-        out.writeInt(sqlSafeUpdates);
-        Text.writeString(out, timeZone);
-        out.writeInt(netReadTimeout);
-        out.writeInt(netWriteTimeout);
-        out.writeInt(waitTimeout);
-        out.writeInt(interactiveTimeout);
-        out.writeInt(queryCacheType);
-        out.writeInt(autoIncrementIncrement);
-        out.writeInt(maxAllowedPacket);
-        out.writeLong(sqlSelectLimit);
-        out.writeBoolean(sqlAutoIsNull);
-        Text.writeString(out, collationDatabase);
-        Text.writeString(out, collationConnection);
-        Text.writeString(out, charsetServer);
-        Text.writeString(out, charsetResults);
-        Text.writeString(out, charsetConnection);
-        Text.writeString(out, charsetClient);
-        Text.writeString(out, txIsolation);
-        out.writeBoolean(autoCommit);
-        Text.writeString(out, resourceGroup);
-        Text.writeString(out, sqlMode);
-        out.writeBoolean(isReportSucc);
-        out.writeInt(queryTimeoutS);
-        out.writeLong(maxExecMemByte);
-        Text.writeString(out, collationServer);
-        out.writeInt(batchSize);
-        out.writeBoolean(disableStreamPreaggregations); 
-        out.writeInt(parallelExecInstanceNum);
+        JSONObject root = new JSONObject();
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        root.put(attr.name(), (Boolean) field.get(this));
+                        break;
+                    case "int":
+                        root.put(attr.name(), (Integer) field.get(this));
+                        break;
+                    case "long":
+                        root.put(attr.name(), (Long) field.get(this));
+                        break;
+                    case "float":
+                        root.put(attr.name(), (Float) field.get(this));
+                        break;
+                    case "double":
+                        root.put(attr.name(), (Double) field.get(this));
+                        break;
+                    case "String":
+                        root.put(attr.name(), (String) field.get(this));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+            }
+        } catch (Exception e) {
+            throw new IOException("failed to write session variable: " + e.getMessage());
+        }
+        Text.writeString(out, root.toString());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
-        codegenLevel =  in.readInt();
-        netBufferLength = in.readInt();
-        sqlSafeUpdates = in.readInt();
-        timeZone = Text.readString(in);
-        netReadTimeout = in.readInt();
-        netWriteTimeout = in.readInt();
-        waitTimeout = in.readInt();
-        interactiveTimeout = in.readInt();
-        queryCacheType = in.readInt();
-        autoIncrementIncrement = in.readInt();
-        maxAllowedPacket = in.readInt();
-        sqlSelectLimit = in.readLong();
-        sqlAutoIsNull = in.readBoolean();
-        collationDatabase = Text.readString(in);
-        collationConnection = Text.readString(in);
-        charsetServer = Text.readString(in);
-        charsetResults = Text.readString(in);
-        charsetConnection = Text.readString(in);
-        charsetClient = Text.readString(in);
-        txIsolation = Text.readString(in);
-        autoCommit = in.readBoolean();
-        resourceGroup = Text.readString(in);
-        sqlMode = Text.readString(in);
-        isReportSucc = in.readBoolean();
-        queryTimeoutS = in.readInt();
-        maxExecMemByte = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
-            collationServer = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67) {
+            codegenLevel = in.readInt();
+            netBufferLength = in.readInt();
+            sqlSafeUpdates = in.readInt();
+            timeZone = Text.readString(in);
+            netReadTimeout = in.readInt();
+            netWriteTimeout = in.readInt();
+            waitTimeout = in.readInt();
+            interactiveTimeout = in.readInt();
+            queryCacheType = in.readInt();
+            autoIncrementIncrement = in.readInt();
+            maxAllowedPacket = in.readInt();
+            sqlSelectLimit = in.readLong();
+            sqlAutoIsNull = in.readBoolean();
+            collationDatabase = Text.readString(in);
+            collationConnection = Text.readString(in);
+            charsetServer = Text.readString(in);
+            charsetResults = Text.readString(in);
+            charsetConnection = Text.readString(in);
+            charsetClient = Text.readString(in);
+            txIsolation = Text.readString(in);
+            autoCommit = in.readBoolean();
+            resourceGroup = Text.readString(in);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
+                sqlMode = in.readLong();
+            } else {
+                // read old version SQL mode
+                Text.readString(in);
+                sqlMode = 0L;
+            }
+            isReportSucc = in.readBoolean();
+            queryTimeoutS = in.readInt();
+            maxExecMemByte = in.readLong();
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
+                collationServer = Text.readString(in);
+            }
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
+                batchSize = in.readInt();
+                disableStreamPreaggregations = in.readBoolean();
+                parallelExecInstanceNum = in.readInt();
+            }
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
+                exchangeInstanceParallel = in.readInt();
+            }
+        } else {
+            readFromJson(in);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
-            batchSize = in.readInt();
-            disableStreamPreaggregations = in.readBoolean();
-            parallelExecInstanceNum = in.readInt();
+    }
+
+    private void readFromJson(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        JSONObject root = new JSONObject(json);
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+
+                if (!root.has(attr.name())) {
+                    continue;
+                }
+
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        field.set(this, root.getBoolean(attr.name()));
+                        break;
+                    case "int":
+                        field.set(this, root.getInt(attr.name()));
+                        break;
+                    case "long":
+                        field.set(this, root.getLong(attr.name()));
+                        break;
+                    case "float":
+                        field.set(this, root.getFloat(attr.name()));
+                        break;
+                    case "double":
+                        field.set(this, root.getDouble(attr.name()));
+                        break;
+                    case "String":
+                        field.set(this, root.getString(attr.name()));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+            }
+        } catch (Exception e) {
+            throw new IOException("failed to read session variable: " + e.getMessage());
         }
     }
 }

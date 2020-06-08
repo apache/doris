@@ -64,6 +64,10 @@ public class TableInfo implements Writable {
         return new TableInfo(dbId, tableId, -1L, partitionId, "", "", newPartitionName);
     }
 
+    public static TableInfo createForModifyDistribution(long dbId, long tableId) {
+        return new TableInfo(dbId, tableId, -1L, -1, "", "", "");
+    }
+
     public long getDbId() {
         return dbId;
     }
@@ -104,7 +108,6 @@ public class TableInfo implements Writable {
         Text.writeString(out, newPartitionName);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

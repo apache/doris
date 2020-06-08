@@ -19,13 +19,16 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -33,6 +36,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
@@ -73,6 +77,8 @@ public class SystemInfoService {
     private long lastBackendIdForCreation = -1;
     private long lastBackendIdForOther = -1;
 
+    private AtomicReference<ImmutableMap<Long, DiskInfo>> pathHashToDishInfoRef;
+
     // sort host backends list by num of backends, descending
     private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>> (){
         @Override
@@ -92,6 +98,7 @@ public class SystemInfoService {
 
         lastBackendIdForCreationMap = new ConcurrentHashMap<String, Long>();
         lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
+        pathHashToDishInfoRef = new AtomicReference<ImmutableMap<Long, DiskInfo>>(ImmutableMap.<Long, DiskInfo>of());
     }
 
     // for deploy manager
@@ -128,7 +135,7 @@ public class SystemInfoService {
     }
 
     private void setBackendOwner(Backend backend, String clusterName) {
-        final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
+        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
         Preconditions.checkState(cluster != null);
         cluster.addBackend(backend.getId());
         backend.setOwnerClusterName(clusterName);
@@ -137,7 +144,7 @@ public class SystemInfoService {
 
     // Final entry of adding backend
     private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster) throws DdlException {
-        Backend newBackend = new Backend(Catalog.getInstance().getNextId(), host, heartbeatPort);
+        Backend newBackend = new Backend(Catalog.getCurrentCatalog().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
         copiedBackends.put(newBackend.getId(), newBackend);
@@ -161,20 +168,11 @@ public class SystemInfoService {
         }
 
         // log
-        Catalog.getInstance().getEditLog().logAddBackend(newBackend);
+        Catalog.getCurrentCatalog().getEditLog().logAddBackend(newBackend);
         LOG.info("finished to add {} ", newBackend);
 
         // backends is changed, regenerated tablet number metrics
-        MetricRepo.generateTabletNumMetrics();
-    }
-
-    public void checkBackendsExist(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            // check if exist
-            if (getBackendWithHeartbeatPort(pair.first, pair.second) == null) {
-                throw new DdlException("Backend does not exist[" + pair.first + ":" + pair.second + "]");
-            }
-        }
+        MetricRepo.generateBackendsTabletMetrics();
     }
 
     public void dropBackends(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
@@ -221,18 +219,18 @@ public class SystemInfoService {
         idToReportVersionRef.set(newIdToReportVersion);
 
         // update cluster
-        final Cluster cluster = Catalog.getInstance().getCluster(droppedBackend.getOwnerClusterName());
+        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(droppedBackend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(droppedBackend.getId());
         } else {
             LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist.");
         }
         // log
-        Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
+        Catalog.getCurrentCatalog().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);
 
         // backends is changed, regenerated tablet number metrics
-        MetricRepo.generateTabletNumMetrics();
+        MetricRepo.generateBackendsTabletMetrics();
     }
 
     // only for test
@@ -408,7 +406,7 @@ public class SystemInfoService {
                 backend.setBackendState(BackendState.free);
                 backend.clearClusterName();
                 if (!isReplay) {
-                    Catalog.getInstance().getEditLog().logBackendStateChange(backend);
+                    Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
                 }
             }
         }
@@ -424,7 +422,7 @@ public class SystemInfoService {
      * @return
      */
     public List<Long> calculateDecommissionBackends(String clusterName, int shrinkNum) {
-        LOG.info("calculate decommission backend in cluster: {}. decommission num:", clusterName, shrinkNum);
+        LOG.info("calculate decommission backend in cluster: {}. decommission num: {}", clusterName, shrinkNum);
 
         final List<Long> decomBackendIds = Lists.newArrayList();
         ImmutableMap<Long, Backend> idToBackends = idToBackendRef.get();
@@ -444,11 +442,7 @@ public class SystemInfoService {
             }
         }
 
-        List<List<Backend>> hostList = Lists.newArrayList();
-        for (List<Backend> list : hostBackendsMapInCluster.values()) {
-            hostList.add(list);
-        }
-
+        List<List<Backend>> hostList = Lists.newArrayList(hostBackendsMapInCluster.values());
         Collections.sort(hostList, hostBackendsListComparator);
 
         // in each cycle, choose one backend from the host which has maximal backends num.
@@ -469,7 +463,7 @@ public class SystemInfoService {
 
         if (decomBackendIds.size() != shrinkNum) {
             LOG.info("failed to get enough backends to shrink in cluster: {}. required: {}, get: {}",
-                     shrinkNum, decomBackendIds.size());
+                    clusterName, shrinkNum, decomBackendIds.size());
             return null;
         }
 
@@ -589,7 +583,7 @@ public class SystemInfoService {
             final Backend backend = idToBackends.get(id);
             backend.setOwnerClusterName(clusterName);
             backend.setBackendState(BackendState.using);
-            Catalog.getInstance().getEditLog().logBackendStateChange(backend);
+            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
         }
         return chosenBackendIds;
     }
@@ -632,10 +626,9 @@ public class SystemInfoService {
 
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
-                if (name.equals(backend.getOwnerClusterName())) {
-                    if (backend != null && backend.isAlive()) {
-                        ret.add(backend);
-                    }
+                if (backend != null && name.equals(backend.getOwnerClusterName())
+                    && backend.isAlive()) {
+                    ret.add(backend);
                 }
             }
         } else {
@@ -687,10 +680,9 @@ public class SystemInfoService {
 
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
-                if (clusterName.equals(backend.getOwnerClusterName())) {
-                    if (backend != null && backend.isAlive()) {
-                        ret.add(backend.getId());
-                    }
+                if (backend != null && clusterName.equals(backend.getOwnerClusterName())
+                    && backend.isAlive()) {
+                    ret.add(backend.getId());
                 }
             }
         } else {
@@ -766,6 +758,7 @@ public class SystemInfoService {
 
         // put backend with same host in same list
         final List<Backend> srcBackends = getClusterBackends(clusterName);
+        // host -> BE list
         Map<String, List<Backend>> backendMaps = Maps.newHashMap();
         for (Backend backend : srcBackends) {
             if (backendMaps.containsKey(backend.getHost())){
@@ -890,7 +883,7 @@ public class SystemInfoService {
     public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId) {
         AtomicLong atomicLong = null;
         if ((atomicLong = idToReportVersionRef.get().get(backendId)) != null) {
-            Database db = Catalog.getInstance().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db != null) {
                 db.readLock();
                 try {
@@ -968,7 +961,7 @@ public class SystemInfoService {
             }
 
             // validate port
-            heartbeatPort = Integer.valueOf(pair[1]);
+            heartbeatPort = Integer.parseInt(pair[1]);
 
             if (heartbeatPort <= 0 || heartbeatPort >= 65536) {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
@@ -1001,7 +994,7 @@ public class SystemInfoService {
 
         // to add be to DEFAULT_CLUSTER
         if (newBackend.getBackendState() == BackendState.using) {
-            final Cluster cluster = Catalog.getInstance().getCluster(DEFAULT_CLUSTER);
+            final Cluster cluster = Catalog.getCurrentCatalog().getCluster(DEFAULT_CLUSTER);
             if (null != cluster) {
                 // replay log
                 cluster.addBackend(newBackend.getId());
@@ -1027,7 +1020,7 @@ public class SystemInfoService {
         idToReportVersionRef.set(newIdToReportVersion);
 
         // update cluster
-        final Cluster cluster = Catalog.getInstance().getCluster(backend.getOwnerClusterName());
+        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(backend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(backend.getId());
         } else {
@@ -1038,6 +1031,13 @@ public class SystemInfoService {
     public void updateBackendState(Backend be) {
         long id = be.getId();
         Backend memoryBe = getBackend(id);
+        if (memoryBe == null) {
+            // backend may already be dropped. this may happen when
+            // 1. SystemHandler drop the decommission backend
+            // 2. at same time, user try to cancel the decommission of that backend.
+            // These two operations do not guarantee the order.
+            return;
+        }
         memoryBe.setBePort(be.getBePort());
         memoryBe.setAlive(be.isAlive());
         memoryBe.setDecommissioned(be.isDecommissioned());
@@ -1105,6 +1105,43 @@ public class SystemInfoService {
             }
         }
         return clusterNames;
+    }
+
+    /*
+     * Check if the specified disks' capacity has reached the limit.
+     * bePathsMap is (BE id -> list of path hash)
+     * If floodStage is true, it will check with the floodStage threshold.
+     * 
+     * return Status.OK if not reach the limit
+     */
+    public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
+        LOG.debug("pathBeMap: {}", bePathsMap);
+        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef.get();
+        for (Long beId : bePathsMap.keySet()) {
+            for (Long pathHash : bePathsMap.get(beId)) {
+                DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
+                if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
+                    return new Status(TStatusCode.CANCELLED,
+                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                }
+            }
+        }
+        return Status.OK;
+    }
+
+    // update the path info when disk report
+    // there is only one thread can update path info, so no need to worry about concurrency control
+    public void updatePathInfo(List<DiskInfo> addedDisks, List<DiskInfo> removedDisks) {
+        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDishInfoRef.get());
+        for (DiskInfo diskInfo : addedDisks) {
+            copiedPathInfos.put(diskInfo.getPathHash(), diskInfo);
+        }
+        for (DiskInfo diskInfo : removedDisks) {
+            copiedPathInfos.remove(diskInfo.getPathHash());
+        }
+        ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
+        pathHashToDishInfoRef.set(newPathInfos);
+        LOG.debug("update path infos: {}", newPathInfos);
     }
 }
 

@@ -18,11 +18,17 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.ImportColumnsStmt;
+import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -31,13 +37,15 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 
+import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.StringReader;
 import java.util.List;
 
+import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
 
 public class StreamLoadPlannerTest {
     @Injectable
@@ -59,14 +67,18 @@ public class StreamLoadPlannerTest {
         columns.add(c1);
         Column c2 = new Column("c2", PrimitiveType.BIGINT, true);
         columns.add(c2);
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 destTable.getBaseSchema();
+                minTimes = 0;
                 result = columns;
                 scanNode.init((Analyzer) any);
+                minTimes = 0;
                 scanNode.getChildren();
+                minTimes = 0;
                 result = Lists.newArrayList();
                 scanNode.getId();
+                minTimes = 0;
                 result = new PlanNodeId(5);
             }
         };
@@ -75,8 +87,21 @@ public class StreamLoadPlannerTest {
         request.setLoadId(new TUniqueId(2, 3));
         request.setFileType(TFileType.FILE_STREAM);
         request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
-        StreamLoadPlanner planner = new StreamLoadPlanner(db, destTable,
-                                                          StreamLoadTask.fromTStreamLoadPutRequest(request));
-        planner.plan();
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, null);
+        StreamLoadPlanner planner = new StreamLoadPlanner(db, destTable, streamLoadTask);
+        planner.plan(streamLoadTask.getId());
+    }
+
+    @Test
+    public void testParseStmt() throws Exception {
+        String sql = new String("COLUMNS (k1, k2, k3=abc(), k4=default_value())");
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(sql)));
+        ImportColumnsStmt columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
+        Assert.assertEquals(4, columnsStmt.getColumns().size());
+
+        sql = new String("WHERE k1 > 2 and k3 < 4");
+        parser = new SqlParser(new SqlScanner(new StringReader(sql)));
+        ImportWhereStmt whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
+        Assert.assertTrue(whereStmt.getExpr() instanceof CompoundPredicate);
     }
 }

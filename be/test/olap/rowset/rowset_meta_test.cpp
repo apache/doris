@@ -72,7 +72,9 @@ private:
 };
 
 void do_check(RowsetMeta rowset_meta) {
-    ASSERT_EQ(540081, rowset_meta.rowset_id());
+    RowsetId rowset_id;
+    rowset_id.init(540081);
+    ASSERT_EQ(rowset_id, rowset_meta.rowset_id());
     ASSERT_EQ(15673, rowset_meta.tablet_id());
     ASSERT_EQ(4042, rowset_meta.txn_id());
     ASSERT_EQ(567997577, rowset_meta.tablet_schema_hash());
@@ -80,7 +82,6 @@ void do_check(RowsetMeta rowset_meta) {
     ASSERT_EQ(VISIBLE, rowset_meta.rowset_state());
     ASSERT_EQ(2, rowset_meta.start_version());
     ASSERT_EQ(2, rowset_meta.end_version());
-    ASSERT_EQ(8391828013814912580, rowset_meta.version_hash());
     ASSERT_EQ(3929, rowset_meta.num_rows());
     ASSERT_EQ(84699, rowset_meta.total_disk_size());
     ASSERT_EQ(84464, rowset_meta.data_disk_size());
@@ -112,7 +113,9 @@ TEST_F(RowsetMetaTest, TestInitWithInvalidData) {
 }
 
 void do_check_for_alpha(AlphaRowsetMeta alpha_rowset_meta) {
-    ASSERT_EQ(540081, alpha_rowset_meta.rowset_id());
+    RowsetId rowset_id;
+    rowset_id.init(540081);
+    ASSERT_EQ(rowset_id, alpha_rowset_meta.rowset_id());
     ASSERT_EQ(15673, alpha_rowset_meta.tablet_id());
     ASSERT_EQ(4042, alpha_rowset_meta.txn_id());
     ASSERT_EQ(567997577, alpha_rowset_meta.tablet_schema_hash());
@@ -120,7 +123,6 @@ void do_check_for_alpha(AlphaRowsetMeta alpha_rowset_meta) {
     ASSERT_EQ(VISIBLE, alpha_rowset_meta.rowset_state());
     ASSERT_EQ(2, alpha_rowset_meta.start_version());
     ASSERT_EQ(2, alpha_rowset_meta.end_version());
-    ASSERT_EQ(8391828013814912580, alpha_rowset_meta.version_hash());
     ASSERT_EQ(3929, alpha_rowset_meta.num_rows());
     ASSERT_EQ(84699, alpha_rowset_meta.total_disk_size());
     ASSERT_EQ(84464, alpha_rowset_meta.data_disk_size());

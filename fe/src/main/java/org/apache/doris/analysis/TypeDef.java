@@ -92,6 +92,7 @@ public class TypeDef implements ParseNode {
         }
         int len = scalarType.getLength();
         // len is decided by child, when it is -1.
+
         if (len <= 0) {
           throw new AnalysisException(name + " size must be > 0: " + len);
         }

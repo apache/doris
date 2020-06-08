@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -40,9 +40,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
-public class PublishVersionDaemon extends Daemon {
+public class PublishVersionDaemon extends MasterDaemon {
     
     private static final Logger LOG = LogManager.getLogger(PublishVersionDaemon.class);
     
@@ -50,7 +49,8 @@ public class PublishVersionDaemon extends Daemon {
         super("PUBLISH_VERSION", Config.publish_version_interval_ms);
     }
     
-    protected void runOneCycle() {
+    @Override
+    protected void runAfterCatalogReady() {
         try {
             publishVersion();
         } catch (Throwable t) {
@@ -64,6 +64,7 @@ public class PublishVersionDaemon extends Daemon {
         if (readyTransactionStates == null || readyTransactionStates.isEmpty()) {
             return;
         }
+
         // TODO yiguolei: could publish transaction state according to multi-tenant cluster info
         // but should do more work. for example, if a table is migrate from one cluster to another cluster
         // should publish to two clusters.
@@ -127,14 +128,9 @@ public class PublishVersionDaemon extends Daemon {
         
         TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
-        long currentTime = System.currentTimeMillis();
         for (TransactionState transactionState : readyTransactionStates) {
-            if (currentTime - transactionState.getPublishVersionTime() < Config.publish_version_interval_ms * 2) {
-                // wait 2 rounds before handling publish result
-                continue;
-            }
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
-            Set<Replica> transErrorReplicas = Sets.newHashSet();
+            Set<Long> publishErrorReplicaIds = Sets.newHashSet();
             List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();
             for (PublishVersionTask publishVersionTask : transTasks.values()) {
                 if (publishVersionTask.isFinished()) {
@@ -153,7 +149,7 @@ public class PublishVersionDaemon extends Daemon {
                             }
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
                             if (replica != null) {
-                                transErrorReplicas.add(replica);
+                                publishErrorReplicaIds.add(replica.getId());
                             } else {
                                 LOG.info("could not find related replica with tabletid={}, backendid={}", 
                                         tabletId, publishVersionTask.getBackendId());
@@ -171,7 +167,7 @@ public class PublishVersionDaemon extends Daemon {
                     // transaction's publish is timeout, but there still has unfinished tasks.
                     // we need to collect all error replicas, and try to finish this txn.
                     for (PublishVersionTask unfinishedTask : unfinishedTasks) {
-                        // set all replica in the backend to error state
+                        // set all replicas in the backend to error state
                         List<TPartitionVersionInfo> versionInfos = unfinishedTask.getPartitionVersionInfos();
                         Set<Long> errorPartitionIds = Sets.newHashSet();
                         for (TPartitionVersionInfo versionInfo : versionInfos) {
@@ -181,6 +177,8 @@ public class PublishVersionDaemon extends Daemon {
                             continue;
                         }
 
+                        // get all tablets of these error partitions, and mark their replicas as error.
+                        // current we don't have partition to tablet map in FE, so here we use an inefficient way.
                         // TODO(cmy): this is inefficient, but just keep it simple. will change it later.
                         List<Long> tabletIds = tabletInvertedIndex.getTabletIdsByBackendId(unfinishedTask.getBackendId());
                         for (long tabletId : tabletIds) {
@@ -189,7 +187,7 @@ public class PublishVersionDaemon extends Daemon {
                                 Replica replica = tabletInvertedIndex.getReplica(tabletId,
                                                                                  unfinishedTask.getBackendId());
                                 if (replica != null) {
-                                    transErrorReplicas.add(replica);
+                                    publishErrorReplicaIds.add(replica.getId());
                                 } else {
                                     LOG.info("could not find related replica with tabletid={}, backendid={}", 
                                             tabletId, unfinishedTask.getBackendId());
@@ -207,14 +205,13 @@ public class PublishVersionDaemon extends Daemon {
             }
             
             if (shouldFinishTxn) {
-                Set<Long> allErrorReplicas = transErrorReplicas.stream().map(v -> v.getId()).collect(Collectors.toSet());
-                globalTransactionMgr.finishTransaction(transactionState.getTransactionId(), allErrorReplicas);
+                globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
                     LOG.debug("publish version for transation {} failed, has {} error replicas during publish", 
-                            transactionState, transErrorReplicas.size());
+                            transactionState, publishErrorReplicaIds.size());
                 }
             }
 

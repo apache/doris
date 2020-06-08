@@ -23,13 +23,23 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Method;
 
+/*
+ * This class is for deep copying a writable instance.
+ */
 public class DeepCopy {
     private static final Logger LOG = LogManager.getLogger(DeepCopy.class);
 
-    public static boolean copy(Writable orig, Writable copied) {
+    public static final String READ_METHOD_NAME = "readFields";
+
+    // deep copy orig to dest.
+    // the param "c" is the implementation class of "dest".
+    // And the "dest" class must has method "readFields(DataInput)"
+    public static boolean copy(Writable orig, Writable dest, Class c) {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeConstants.meta_version);
         metaContext.setThreadLocalInfo();
@@ -42,7 +52,9 @@ public class DeepCopy {
             out.close();
 
             DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
-            copied.readFields(in);
+            
+            Method readMethod = c.getDeclaredMethod(READ_METHOD_NAME, DataInput.class);
+            readMethod.invoke(dest, in);
             in.close();
         } catch (Exception e) {
             e.printStackTrace();

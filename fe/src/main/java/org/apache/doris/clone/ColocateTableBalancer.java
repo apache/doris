@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -31,13 +32,14 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,7 +55,7 @@ import java.util.stream.IntStream;
 /**
  * ColocateTableBalancer is responsible for tablets' repair and balance of colocated tables.
  */
-public class ColocateTableBalancer extends Daemon {
+public class ColocateTableBalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ColocateTableBalancer.class);
 
     private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
@@ -85,7 +87,7 @@ public class ColocateTableBalancer extends Daemon {
      * 3. Balance group:
      *      Try balance group, and skip groups which contains unavailable backends.
      */
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         relocateGroup();
         matchGroup();
         balanceGroup();
@@ -104,7 +106,7 @@ public class ColocateTableBalancer extends Daemon {
      *      and backend 3 is dead, so we will find an available backend(eg. backend 4) to replace backend 3.
      *      [[1, 2, 4], [4, 1, 2], [3, 4, 1], [2, 3, 4], [1, 2, 3]]
      *      
-     *      NOTICE that we only replace the backends in first bucket. that is, we only replace
+     *      NOTICE that in this example, we only replace the #3 backend in first bucket. That is, we only replace
      *      one bucket in one group at each round. because we need to use newly-updated cluster load statistic to
      *      find next available backend. and cluster load statistic is updated every 20 seconds.
      */
@@ -143,8 +145,31 @@ public class ColocateTableBalancer extends Daemon {
             }
 
             if (unavailableBeId == -1) {
-                // all backends in this group are available, check next group
-                continue;
+                // all backends in this group are available.
+                // But in previous version we had a bug that replicas of a tablet may be located on same host.
+                // we have to check it.
+                List<List<Long>> backendsPerBucketsSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+                OUT: for (List<Long> backendIds : backendsPerBucketsSeq) {
+                    Set<String> hosts = Sets.newHashSet();
+                    for (Long beId : backendIds) {
+                        Backend be = infoService.getBackend(beId);
+                        if (be == null) {
+                            // backend can be dropped any time, just skip this bucket
+                            break;
+                        }
+                        if (!hosts.add(be.getHost())) {
+                            // find replicas on same host. simply mark this backend as unavailable,
+                            // so that following step will find another backend
+                            unavailableBeId = beId;
+                            break OUT;
+                        }
+                    }
+                }
+
+                if (unavailableBeId == -1) {
+                    // if everything is ok, continue
+                    continue;
+                }
             }
 
             // find the first bucket which contains the unavailable backend
@@ -184,7 +209,7 @@ public class ColocateTableBalancer extends Daemon {
     private long selectSubstituteBackend(int tabletOrderIdx, GroupId groupId, long unavailableBeId, 
             Set<Long> excludeBeIds, Map<String, ClusterLoadStatistic> statisticMap) {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getInstance().getDb(groupId.dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(groupId.dbId);
         if (db == null) {
             LOG.info("db {} does not exist", groupId.dbId);
             return -1;
@@ -208,7 +233,7 @@ public class ColocateTableBalancer extends Daemon {
                 }
 
                 for (Partition partition : tbl.getPartitions()) {
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         long tabletId = index.getTabletIdsInOrder().get(tabletOrderIdx);
                         Tablet tablet = index.getTablet(tabletId);
                         Replica replica = tablet.getReplicaByBackendId(unavailableBeId);
@@ -229,7 +254,7 @@ public class ColocateTableBalancer extends Daemon {
          * There is an unsolved problem of finding a new backend for data migration:
          *    Different table(partition) in this group may in different storage medium(SSD or HDD). If one backend
          *    is down, the best solution is to find a backend which has both SSD and HDD, and replicas can be
-         *    relocated in corresponding medium.
+         *    relocated in corresponding storage medium.
          *    But in fact, backends can be heterogeneous, which may only has SSD or HDD. If we choose to strictly
          *    find backends with expecting storage medium, this may lead to a consequence that most of replicas
          *    are gathered in a small portion of backends.
@@ -242,10 +267,32 @@ public class ColocateTableBalancer extends Daemon {
             LOG.warn("failed to relocate backend for colocate group: {}, no backends found", groupId);
             return -1;
         }
+
+        // the selected backend should not be on same host of other backends of this bucket.
+        // here we generate a host set for further checking.
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Set<String> excludeHosts = Sets.newHashSet();
+        for (Long excludeBeId : excludeBeIds) {
+            Backend be = infoService.getBackend(excludeBeId);
+            if (be == null) {
+                LOG.info("Backend {} has been dropped when finding backend for colocate group {}", excludeBeId, groupId);
+                continue;
+            }
+            excludeHosts.add(be.getHost());
+        }
+        Preconditions.checkState(excludeBeIds.size() >= excludeHosts.size());
+
         // beStats is ordered by load score, ascend. so finding the available from first to last
         BackendLoadStatistic choosenBe = null;
         for (BackendLoadStatistic beStat : beStats) {
             if (beStat.isAvailable() && beStat.getBeId() != unavailableBeId && !excludeBeIds.contains(beStat.getBeId())) {
+                Backend be = infoService.getBackend(beStat.getBeId());
+                if (be == null) {
+                    continue;
+                }
+                if (excludeHosts.contains(be.getHost())) {
+                    continue;
+                }
                 choosenBe = beStat;
                 break;
             }
@@ -297,7 +344,9 @@ public class ColocateTableBalancer extends Daemon {
                         short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                         long visibleVersion = partition.getVisibleVersion();
                         long visibleVersionHash = partition.getVisibleVersionHash();
-                        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                        // Here we only get VISIBLE indexes. All other indexes are not queryable.
+                        // So it does not matter if tablets of other indexes are not matched.
+                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
                             int idx = 0;

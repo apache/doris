@@ -32,11 +32,6 @@ import com.google.common.base.Strings;
 import java.util.Map;
 import java.util.Optional;
 
-/*
- * Author: Chenmingyu
- * Date: May 29, 2019
- */
-
 public class DropFileStmt extends DdlStmt {
     public static final String PROP_CATALOG = "catalog";
 

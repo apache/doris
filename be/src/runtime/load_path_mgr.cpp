@@ -24,6 +24,7 @@
 
 #include <boost/algorithm/string/join.hpp>
 
+#include "env/env.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "util/file_utils.h"
@@ -168,9 +169,12 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
 }
 
 void LoadPathMgr::clean_one_path(const std::string& path) {
+    Env* env = Env::Default();
+
     std::vector<std::string> dbs;
-    Status status = FileUtils::scan_dir(path, &dbs);
-    if (!status.ok()) {
+    Status status = FileUtils::list_files(env, path, &dbs);
+    // path may not exist
+    if (!status.ok() && !status.is_not_found()) {
         LOG(WARNING) << "scan one path to delete directory failed. path=" << path;
         return;
     }
@@ -179,7 +183,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
     for (auto& db : dbs) {
         std::string db_dir = path + "/" + db;
         std::vector<std::string> sub_dirs;
-        status = FileUtils::scan_dir(db_dir, &sub_dirs);
+        status = FileUtils::list_files(env, db_dir, &sub_dirs);
         if (!status.ok()) {
             LOG(WARNING) << "scan db of trash dir failed, continue. dir=" << db_dir;
             continue;
@@ -192,7 +196,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
                 // sub_dir starts with SHARD_PREFIX
                 // process shard sub dir
                 std::vector<std::string> labels;
-                Status status = FileUtils::scan_dir(sub_path, &labels);
+                Status status = FileUtils::list_files(env, sub_path, &labels);
                 if (!status.ok()) {
                     LOG(WARNING) << "scan one path to delete directory failed. path=" << sub_path;
                     continue;
@@ -217,9 +221,11 @@ void LoadPathMgr::clean() {
 }
 
 void LoadPathMgr::clean_error_log() {
+    Env* env = Env::Default();
+
     time_t now = time(nullptr);
     std::vector<std::string> sub_dirs;
-    Status status = FileUtils::scan_dir(_error_log_dir, &sub_dirs);
+    Status status = FileUtils::list_files(env, _error_log_dir, &sub_dirs);
     if (!status.ok()) {
         LOG(WARNING) << "scan error_log dir failed. dir=" << _error_log_dir;
         return;
@@ -232,7 +238,7 @@ void LoadPathMgr::clean_error_log() {
             // sub_dir starts with SHARD_PREFIX
             // process shard sub dir
             std::vector<std::string> error_log_files;
-            Status status = FileUtils::scan_dir(sub_path, &error_log_files);
+            Status status = FileUtils::list_files(env, sub_path, &error_log_files);
             if (!status.ok()) {
                 LOG(WARNING) << "scan one path to delete directory failed. path=" << sub_path;
                 continue;

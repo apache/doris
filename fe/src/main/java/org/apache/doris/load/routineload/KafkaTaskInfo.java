@@ -19,10 +19,12 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TPlanFragment;
@@ -44,13 +46,14 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     // <partitionId, beginOffsetOfPartitionId>
     private Map<Integer, Long> partitionIdToOffset;
 
-    public KafkaTaskInfo(UUID id, long jobId, String clusterName, Map<Integer, Long> partitionIdToOffset) {
-        super(id, jobId, clusterName);
+    public KafkaTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
+        super(id, jobId, clusterName, timeoutMs);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset) {
-        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(), kafkaTaskInfo.getBeId());
+        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(),
+                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId());
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
@@ -73,7 +76,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             throw new MetaNotFoundException("database " + routineLoadJob.getDbId() + " does not exist");
         }
         tRoutineLoadTask.setDb(database.getFullName());
-        tRoutineLoadTask.setTbl(database.getTable(routineLoadJob.getTableId()).getName());
+        Table tbl = database.getTable(routineLoadJob.getTableId());
+        if (tbl == null) {
+            throw new MetaNotFoundException("table " + routineLoadJob.getTableId() + " does not exist");
+        }
+        tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
@@ -85,10 +92,15 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
         tRoutineLoadTask.setKafka_load_info(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
-        tRoutineLoadTask.setParams(updateTExecPlanFragmentParams(routineLoadJob));
+        tRoutineLoadTask.setParams(rePlan(routineLoadJob));
         tRoutineLoadTask.setMax_interval_s(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMax_batch_rows(routineLoadJob.getMaxBatchRows());
         tRoutineLoadTask.setMax_batch_size(routineLoadJob.getMaxBatchSizeBytes());
+        if (!routineLoadJob.getFormat().isEmpty() && routineLoadJob.getFormat().equalsIgnoreCase("json")) {
+            tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_JSON);
+        } else {
+            tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_CSV_PLAIN);
+        }
         return tRoutineLoadTask;
     }
 
@@ -98,17 +110,12 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return gson.toJson(partitionIdToOffset);
     }
 
-    private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
+    private TExecPlanFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
+        TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
-        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan();
+        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        // we use task id as both query id(TPlanFragmentExecParams) and load id(olap table sink/scan range desc)
-        TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
-        tPlanFragment.getOutput_sink().getOlap_table_sink().setLoad_id(queryId);
-        tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(this.txnId);
-        tExecPlanFragmentParams.getParams().setQuery_id(queryId);
-        tExecPlanFragmentParams.getParams().getPer_node_scan_ranges().values().stream()
-                .forEach(entity -> entity.get(0).getScan_range().getBroker_scan_range().getRanges().get(0).setLoad_id(queryId));
+        tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(txnId);
         return tExecPlanFragmentParams;
     }
 }

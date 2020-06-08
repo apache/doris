@@ -23,12 +23,13 @@ public enum CaseSensibility {
     TABLE(true),
     ROLUP(true),
     PARTITION(true),
-    COLUMN(true),
+    COLUMN(false),
     USER(true),
     ROLE(false),
     HOST(false),
     LABEL(false),
-    VARIABLES(true);
+    VARIABLES(true),
+    RESOURCE(true);
 
     private boolean caseSensitive;
     

@@ -54,7 +54,9 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -62,6 +64,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
@@ -70,6 +73,8 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionCommitFailedException;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -96,7 +101,7 @@ public class StmtExecutor {
 
     private ConnectContext context;
     private MysqlSerializer serializer;
-    private String originStmt;
+    private OriginStatement originStmt;
     private StatementBase parsedStmt;
     private Analyzer analyzer;
     private RuntimeProfile profile;
@@ -109,15 +114,26 @@ public class StmtExecutor {
     private ShowResultSet proxyResultSet = null;
     private PQueryStatistics statisticsForAuditLog;
 
-    public StmtExecutor(ConnectContext context, String stmt, boolean isProxy) {
+    // this constructor is mainly for proxy
+    public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         this.context = context;
-        this.originStmt = stmt;
+        this.originStmt = originStmt;
         this.serializer = context.getSerializer();
         this.isProxy = isProxy;
     }
 
+    // this constructor is only for test now.
     public StmtExecutor(ConnectContext context, String stmt) {
-        this(context, stmt, false);
+        this(context, new OriginStatement(stmt, 0), false);
+    }
+
+    // constructor for receiving parsed stmt from connect processor
+    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt) {
+        this.context = ctx;
+        this.parsedStmt = parsedStmt;
+        this.originStmt = parsedStmt.getOrigStmt();
+        this.serializer = context.getSerializer();
+        this.isProxy = false;
     }
 
     // At the end of query execution, we begin to add up profile
@@ -134,10 +150,10 @@ public class StmtExecutor {
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
-        summaryProfile.addInfoString("Doris Version", Version.PALO_BUILD_VERSION);
+        summaryProfile.addInfoString("Doris Version", Version.DORIS_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt);
+        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         profile.addChild(summaryProfile);
         if (coord != null) {
             coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTimeInNanoSecond));
@@ -152,13 +168,13 @@ public class StmtExecutor {
     }
 
     public boolean isForwardToMaster() {
-        if (Catalog.getInstance().isMaster()) {
+        if (Catalog.getCurrentCatalog().isMaster()) {
             return false;
         }
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
-        if ((parsedStmt instanceof QueryStmt) && !Catalog.getInstance().isMaster()
-                && !Catalog.getInstance().canRead()) {
+        if ((parsedStmt instanceof QueryStmt) && !Catalog.getCurrentCatalog().isMaster()
+                && !Catalog.getCurrentCatalog().canRead()) {
             return true;
         }
 
@@ -204,6 +220,7 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute() throws Exception {
+
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
@@ -213,11 +230,12 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 forwardToMaster();
                 return;
-            }  else {
+            } else {
                 LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
             }
 
             if (parsedStmt instanceof QueryStmt) {
+                context.getState().setIsQuery(true);
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i ++) {
                     try {
@@ -232,7 +250,6 @@ public class StmtExecutor {
                         }
                         if (!context.getMysqlChannel().isSend()) {
                             LOG.warn("retry {} times. stmt: {}", (i + 1), context.getStmtId());
-                            continue;
                         } else {
                             throw e;
                         }
@@ -256,14 +273,7 @@ public class StmtExecutor {
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);
-                    InsertStmt insertStmt = (InsertStmt) parsedStmt;
-                    try {
-                        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                                insertStmt.getTransactionId(), 
-                                t.getMessage() == null ? "unknown reason" : t.getMessage());
-                    } catch (Exception abortTxnException) {
-                        LOG.warn("errors when abort txn", abortTxnException);
-                    }
+                    // the transaction of this insert may already begun, we will abort it at outer finally block.
                     throw t;
                 } finally {
                     QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
@@ -283,13 +293,13 @@ public class StmtExecutor {
             }
         } catch (IOException e) {
             LOG.warn("execute IOException ", e);
-            // the excetion happens when interact with client
+            // the exception happens when interact with client
             // this exception shows the connection is gone
             context.getState().setError(e.getMessage());
             throw e;
-        } catch (AnalysisException e) {
+        } catch (UserException e) {
             // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. ", e);
+            LOG.warn("execute Exception. {}", e.getMessage());
             context.getState().setError(e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
@@ -299,7 +309,24 @@ public class StmtExecutor {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
+        } finally {
+            if (parsedStmt instanceof InsertStmt) {
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
+                // The transaction of a insert operation begin at analyze phase.
+                // So we should abort the transaction at this finally block if it encounter exception.
+                if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
+                    try {
+                        String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
+                        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                                insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
+                                (errMsg == null ? "unknown reason" : errMsg));
+                    } catch (Exception abortTxnException) {
+                        LOG.warn("errors when abort txn", abortTxnException);
+                    }
+                }
+            }
         }
+
     }
 
     private void forwardToMaster() throws Exception {
@@ -310,6 +337,7 @@ public class StmtExecutor {
 
     private void writeProfile(long beginTimeInNanoSecond) {
         initProfile(beginTimeInNanoSecond);
+        profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
         System.out.println(builder.toString());
@@ -339,33 +367,37 @@ public class StmtExecutor {
     // Analyze one statement to structure in memory.
     public void analyze(TQueryOptions tQueryOptions) throws AnalysisException, UserException,
                                                NotImplementedException {
-        LOG.info("begin to analyze stmt: {}", context.getStmtId());
+        LOG.info("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(), context.getForwardedStmtId());
 
-        // Parse statement with parser generated by CUP&FLEX
-        SqlScanner input = new SqlScanner(new StringReader(originStmt));
-        SqlParser parser = new SqlParser(input);
-        try {
-            parsedStmt = (StatementBase) parser.parse().value;
-            redirectStatus = parsedStmt.getRedirectStatus();
-        } catch (Error e) {
-            LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
-            throw new AnalysisException("sql parsing error, please check your sql");
-        } catch (AnalysisException e) {
-            LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
-                     originStmt, context.getStmtId(), parser.getErrorMsg(originStmt), e);
-            String errorMessage = parser.getErrorMsg(originStmt);
-            if (errorMessage == null) {
-                throw  e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
+        // parsedStmt may already by set when constructing this StmtExecutor();
+        if (parsedStmt == null) {
+            // Parse statement with parser generated by CUP&FLEX
+            SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt), context.getSessionVariable().getSqlMode());
+            SqlParser parser = new SqlParser(input);
+            try {
+                parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
+                parsedStmt.setOrigStmt(originStmt);
+            } catch (Error e) {
+                LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
+                throw new AnalysisException("sql parsing error, please check your sql");
+            } catch (AnalysisException e) {
+                String syntaxError = parser.getErrorMsg(originStmt.originStmt);
+                LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
+                        originStmt, context.getStmtId(), syntaxError, e);
+                if (syntaxError == null) {
+                    throw  e;
+                } else {
+                    throw new AnalysisException(syntaxError, e);
+                }
+            } catch (Exception e) {
+                // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
+                // should be removed this try-catch clause future.
+                LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
+                        originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
+                throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
-        } catch (Exception e) {
-            // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
-            // should be removed this try-catch clause future.
-            LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
-                     originStmt, context.getStmtId(), parser.getErrorMsg(originStmt), e);
-            throw new AnalysisException("Unexpected exception: " + e.getMessage());
         }
+        redirectStatus = parsedStmt.getRedirectStatus();
 
         // yiguolei: insertstmt's grammer analysis will write editlog, so that we check if the stmt should be forward to master here
         // if the stmt should be forward to master, then just return here and the master will do analysis again
@@ -413,10 +445,9 @@ public class StmtExecutor {
                     parsedStmt.rewriteExprs(rewriter);
                     reAnalyze = rewriter.changed();
                     if (analyzer.containSubquery()) {
-                        StmtRewriter.rewrite(analyzer, parsedStmt);
+                        parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                         reAnalyze = true;
                     }
-
                     if (reAnalyze) {
                         // The rewrites should have no user-visible effect. Remember the original result
                         // types and column labels to restore them after the rewritten stmt has been
@@ -455,8 +486,6 @@ public class StmtExecutor {
                 }
                 // TODO(zc):
                 // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
-            } catch (AnalysisException e) {
-                throw e;
             } catch (UserException e) {
                 throw e;
             } catch (Exception e) {
@@ -530,7 +559,7 @@ public class StmtExecutor {
         context.getMysqlChannel().reset();
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
 
-        // assign request_id
+        // assign query id before explain query return
         UUID uuid = UUID.randomUUID();
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
@@ -542,20 +571,31 @@ public class StmtExecutor {
         coord = new Coordinator(context, analyzer, planner);
 
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), 
-                       new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
 
         coord.exec();
 
-        // if python's MysqlDb get error after sendfields, it can't catch the excpetion
+        // if python's MysqlDb get error after sendfields, it can't catch the exception
         // so We need to send fields after first batch arrived
 
         // send result
+        // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
+        //    We will not send real query result to client. Instead, we only send OK to client with
+        //    number of rows selected. For example:
+        //          mysql> select * from tbl1 into outfile xxx;
+        //          Query OK, 10 rows affected (0.01 sec)
+        //
+        // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
-        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        boolean isOutfileQuery = queryStmt.hasOutFileClause();
+        if (!isOutfileQuery) {
+            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        }
         while (true) {
             batch = coord.getNext();
-            if (batch.getBatch() != null) {
+            // for outfile query, there will be only one empty batch send back with eos flag
+            if (batch.getBatch() != null && !isOutfileQuery) {
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
                 }            
@@ -567,7 +607,11 @@ public class StmtExecutor {
         }
 
         statisticsForAuditLog = batch.getQueryStatistics();
-        context.getState().setEof();
+        if (!isOutfileQuery) {
+            context.getState().setEof();
+        } else {
+            context.getState().setOk(statisticsForAuditLog.returned_rows, 0, "");
+        }
     }
 
     // Process a select statement.
@@ -583,6 +627,15 @@ public class StmtExecutor {
         } else {
             insertStmt = (InsertStmt) parsedStmt;
         }
+
+        if (insertStmt.getQueryStmt().hasOutFileClause()) {
+            throw new DdlException("Not support OUTFILE clause in INSERT statement");
+        }
+
+        // assign query id before explain query return
+        UUID uuid = insertStmt.getUUID();
+        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
         if (insertStmt.getQueryStmt().isExplain()) {
             String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
             handleExplainStmt(explainString);
@@ -590,12 +643,14 @@ public class StmtExecutor {
         }
 
         long createTime = System.currentTimeMillis();
-        UUID uuid = UUID.randomUUID();
         Throwable throwable = null;
-        try {
-            // assign request_id
-            context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
+        String label = insertStmt.getLabel();
+
+        long loadedRows = 0;
+        int filteredRows = 0;
+        TransactionStatus txnStatus = TransactionStatus.ABORTED;
+        try {
             coord = new Coordinator(context, analyzer, planner);
             coord.setQueryType(TQueryType.LOAD);
 
@@ -612,43 +667,58 @@ public class StmtExecutor {
             if (!coord.getExecStatus().ok()) {
                 String errMsg = coord.getExecStatus().getErrorMsg();
                 LOG.warn("insert failed: {}", errMsg);
-
-                // hide host info
-                int hostIndex = errMsg.indexOf("host");
-                if (hostIndex != -1) {
-                    errMsg = errMsg.substring(0, hostIndex);
-                }
                 ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
 
-            LOG.info("delta files is {}", coord.getDeltaUrls());
+            LOG.debug("delta files is {}", coord.getDeltaUrls());
 
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
+                loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+            }
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
+                filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+            }
+
+            // if in strict mode, insert will fail if there are filtered rows
             if (context.getSessionVariable().getEnableInsertStrict()) {
-                Map<String, String> counters = coord.getLoadCounters();
-                String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
-                if (strValue != null && Long.valueOf(strValue) > 0) {
-                    throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                if (filteredRows > 0) {
+                    context.getState().setError("Insert has filtered data in strict mode, tracking_url="
                             + coord.getTrackingUrl());
+                    return;
                 }
             }
 
             if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
                 // no need to add load job.
                 // MySQL table is already being inserted.
+                context.getState().setOk(loadedRows, filteredRows, null);
+                return;
+            }
+
+            if (loadedRows == 0 && filteredRows == 0) {
+                // if no data, just abort txn and return ok
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
+                        insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                 context.getState().setOk();
                 return;
             }
 
-            Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+            if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    5000);
+                    10000)) {
+                txnStatus = TransactionStatus.VISIBLE;
+                MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
+            } else {
+                txnStatus = TransactionStatus.COMMITTED;
+            }
+
         } catch (Throwable t) {
             // if any throwable being thrown during insert operation, first we should abort this txn
-            LOG.warn("handle insert stmt fail: {}", DebugUtil.printId(uuid), t);
+            LOG.warn("handle insert stmt fail: {}", label, t);
             try {
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                        insertStmt.getTransactionId(),
+                        insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
                         t.getMessage() == null ? "unknown reason" : t.getMessage());
             } catch (Exception abortTxnException) {
                 // just print a log if abort txn failed. This failure do not need to pass to user.
@@ -657,9 +727,13 @@ public class StmtExecutor {
             }
 
             if (!Config.using_old_load_usage_pattern) {
-                // if not using old usage pattern, the exception will be thrown to user directly without
-                // a label
-                throw t;
+                // if not using old load usage pattern, error will be returned directly to user
+                StringBuilder sb = new StringBuilder(t.getMessage());
+                if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
+                    sb.append(". url: " + coord.getTrackingUrl());
+                }
+                context.getState().setError(sb.toString());
+                return;
             }
 
             /*
@@ -670,31 +744,37 @@ public class StmtExecutor {
             throwable = t;
         }
 
-        // record insert info for show load stmt
-        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern) {
-            try {
-                context.getCatalog().getLoadManager().recordFinishedLoadJob(
-                        uuid.toString(),
-                        insertStmt.getDb(),
-                        insertStmt.getTargetTable().getId(),
-                        EtlJobType.INSERT,
-                        createTime,
-                        throwable == null ? "" : throwable.getMessage()
-                );
-            } catch (MetaNotFoundException e) {
-                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
-                context.getState().setError("Failed to record info of insert load job, but insert job is "
-                        + (throwable == null ? "success" : "failed"));
-                return;
-            }
+        // Go here, which means:
+        // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
+        // 2. transaction failed but Config.using_old_load_usage_pattern is true.
+        // we will record the load job info for these 2 cases
 
-            // set to OK, which means the insert load job is successfully submitted.
-            // and user can check the job's status by label.
-            context.getState().setOk("{'label':'" + uuid.toString() + "'}");
-        } else {
-            // just return OK without label, which means this job is successfully done
-            context.getState().setOk();
+        String errMsg = "";
+        try {
+            context.getCatalog().getLoadManager().recordFinishedLoadJob(
+                    label,
+                    insertStmt.getDb(),
+                    insertStmt.getTargetTable().getId(),
+                    EtlJobType.INSERT,
+                    createTime,
+                    throwable == null ? "" : throwable.getMessage(),
+                    coord.getTrackingUrl());
+        } catch (MetaNotFoundException e) {
+            LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+            errMsg = "Record info of insert load with error " + e.getMessage();
         }
+
+        // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
+        // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
+        StringBuilder sb = new StringBuilder();
+        sb.append("{'label':'").append(label).append("', 'status':'").append(txnStatus.name());
+        sb.append("', 'txnId':'").append(insertStmt.getTransactionId()).append("'");
+        if (!Strings.isNullOrEmpty(errMsg)) {
+            sb.append(", 'err':'").append(errMsg).append("'");
+        }
+        sb.append("}");
+
+        context.getState().setOk(loadedRows, filteredRows, sb.toString());
     }
 
     private void handleUnsupportedStmt() {
@@ -809,14 +889,16 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt, originStmt);
+            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
             context.getState().setOk();
+        } catch (QueryStateException e) {
+            context.setState(e.getQueryState());
         } catch (UserException e) {
             // Return message to info client what happened.
             context.getState().setError(e.getMessage());
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("DDL statement(" + originStmt + ") process failed.", e);
+            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
             context.getState().setError("Unexpected exception: " + e.getMessage());
         }
     }
@@ -852,3 +934,4 @@ public class StmtExecutor {
         return statisticsForAuditLog;
     }
 }
+

@@ -30,12 +30,12 @@ class Status;
 class ScrollParser {
 
 public:
-    ScrollParser();
+    ScrollParser(bool doc_value_mode);
     ~ScrollParser();
 
-    Status parse(const std::string& scroll_result);
+    Status parse(const std::string& scroll_result, bool exactly_once = false);
     Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
-                MemPool* mem_pool, bool* line_eof);
+                MemPool* mem_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
     int get_total();
@@ -50,5 +50,11 @@ private:
 
     rapidjson::Document _document_node;
     rapidjson::Value _inner_hits_node;
+    
+    // todo(milimin): ScrollParser should be divided into two classes: SourceParser and DocValueParser, 
+    // including remove some variables in the current implementation, e.g. pure_doc_value. 
+    // All above will be done in the DOE refactoring projects.
+    // Current bug fixes minimize the scope of changes to avoid introducing other new bugs.
+    bool _doc_value_mode;
 };
 }

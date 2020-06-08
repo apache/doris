@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -70,6 +69,12 @@ public class BetweenPredicate extends Predicate {
             throw new AnalysisException("Comparison between subqueries is not " +
                     "supported in a BETWEEN predicate: " + toSql());
         }
+        // if children has subquery, it will be written and reanalyzed in the future.
+        if (children.get(0) instanceof Subquery
+                || children.get(1) instanceof Subquery
+                || children.get(2) instanceof Subquery) {
+            return;
+        }
         analyzer.castAllToCompatibleType(children);
     }
 
@@ -93,4 +98,9 @@ public class BetweenPredicate extends Predicate {
 
     @Override
     public Expr clone(ExprSubstitutionMap sMap) { return new BetweenPredicate(this); }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Boolean.hashCode(isNotBetween);
+    }
 }

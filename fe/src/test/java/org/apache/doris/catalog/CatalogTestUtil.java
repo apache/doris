@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.DdlException;
@@ -27,6 +29,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -47,6 +50,7 @@ public class CatalogTestUtil {
     public static String testPartition1 = "testPartition1";
     public static long testPartitionId1 = 3;
     public static String testIndex1 = "testIndex1";
+    public static String testIndex2 = "testIndex2";
     public static long testIndexId1 = 2; // the base indexid == tableid
     public static int testSchemaHash1 = 93423942;
     public static long testBackendId1 = 5;
@@ -62,6 +66,7 @@ public class CatalogTestUtil {
     public static long testPartitionNextVersionHash = 123123123;
     public static long testRollupIndexId2 = 13;
     public static String testRollupIndex2 = "newRollupIndex";
+    public static String testRollupIndex3 = "newRollupIndex2";
     public static String testTxnLable1 = "testTxnLable1";
     public static String testTxnLable2 = "testTxnLable2";
     public static String testTxnLable3 = "testTxnLable3";
@@ -87,8 +92,11 @@ public class CatalogTestUtil {
         catalog.setEditLog(new EditLog("name"));
         FakeCatalog.setCatalog(catalog);
         Backend backend1 = createBackend(testBackendId1, "host1", 123, 124, 125);
-        Backend backend2 = createBackend(testBackendId2, "host1", 123, 124, 125);
-        Backend backend3 = createBackend(testBackendId3, "host1", 123, 124, 125);
+        Backend backend2 = createBackend(testBackendId2, "host2", 123, 124, 125);
+        Backend backend3 = createBackend(testBackendId3, "host3", 123, 124, 125);
+        backend1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend2.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         Catalog.getCurrentSystemInfo().addBackend(backend1);
         Catalog.getCurrentSystemInfo().addBackend(backend2);
         Catalog.getCurrentSystemInfo().addBackend(backend3);
@@ -122,7 +130,7 @@ public class CatalogTestUtil {
                     || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()) {
                 return false;
             }
-            List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices();
+            List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices(IndexExtState.ALL);
             for (MaterializedIndex masterIndex : allMaterializedIndices) {
                 MaterializedIndex slaveIndex = slavePartition.getIndex(masterIndex.getId());
                 if (slaveIndex == null) {
@@ -206,12 +214,14 @@ public class CatalogTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicationNum(partitionId, (short) 3);
         OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
         table.addPartition(partition);
-        table.setIndexSchemaInfo(indexId, testIndex1, columns, 0, testSchemaHash1, (short) 1);
+        table.setIndexMeta(indexId, testIndex1, columns, 0, testSchemaHash1, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setBaseIndexId(indexId);
         // db
         Database db = new Database(dbId, testDb1);
         db.createTable(table);
@@ -246,7 +256,7 @@ public class CatalogTestUtil {
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
                                                                    new PartitionKeyDesc(Lists
-                                                                           .newArrayList("100")),
+                                                                           .newArrayList(new PartitionValue("100"))),
                                                                    null));
 
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
@@ -278,7 +288,7 @@ public class CatalogTestUtil {
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
                                                                    new PartitionKeyDesc(Lists
-                                                                           .newArrayList("100")),
+                                                                           .newArrayList(new PartitionValue("100"))),
                                                                    null));
 
         SinglePartitionInfo partitionInfo = new SinglePartitionInfo();

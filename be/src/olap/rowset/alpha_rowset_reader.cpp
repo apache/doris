@@ -17,26 +17,28 @@
 
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/alpha_rowset.h"
+#include "olap/row.h"
 
 namespace doris {
 
 AlphaRowsetReader::AlphaRowsetReader(
         int num_rows_per_row_block,
-        RowsetSharedPtr rowset)
+        AlphaRowsetSharedPtr rowset)
       : _num_rows_per_row_block(num_rows_per_row_block),
-        _rowset(rowset),
-        _alpha_rowset_meta(nullptr),
-        _segment_groups(std::dynamic_pointer_cast<AlphaRowset>(rowset)->_segment_groups),
+        _rowset(std::move(rowset)),
+        _alpha_rowset_meta(std::static_pointer_cast<AlphaRowsetMeta>(_rowset->rowset_meta()).get()),
+        _segment_groups(_rowset->_segment_groups),
         _key_range_size(0) {
-    RowsetMetaSharedPtr rowset_meta_ptr = (std::dynamic_pointer_cast<AlphaRowset>(rowset)->_rowset_meta);
-    _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta_ptr.get());
+    _rowset->aquire();
 }
 
 AlphaRowsetReader::~AlphaRowsetReader() {
     delete _dst_cursor;
+    _rowset->release();
 }
 
 OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
+    RETURN_NOT_OK(_rowset->load());
     if (read_context == nullptr) {
         return OLAP_ERR_INIT_FAILED;
     }
@@ -45,42 +47,16 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
         _stats = _current_read_context->stats;
     }
 
-    Version version = _alpha_rowset_meta->version();
-    _is_singleton_rowset = (version.first == version.second);
+    _is_segments_overlapping = _alpha_rowset_meta->is_segments_overlapping();
     _ordinal = 0;
-    bool merge = false;
-    /*
-     * For singleton rowset, there exists three situations.
-     *   1. QUERY task will set preaggregation.
-     *      If preaggregation is set to be true
-     *      there is not necessary to merge row in advance.
-     *   2. QEURY task for DUP_KEYS tablet has no necessities
-     *      to merge row in advance.
-     *   2. COMPACTION/CHECKSUM/ALTER_TABLET task should merge
-     *      row in advance.
-     * For cumulative rowset, there are no necessities to merge row in advance.
-     */
-    RETURN_NOT_OK(_init_merge_ctxs(read_context));
-    if (_is_singleton_rowset && _merge_ctxs.size() > 1) {
-        if (_current_read_context->reader_type == READER_QUERY
-                && _current_read_context->preaggregation) {
-            // 1. QUERY task which set pregaggregation to be true
-            _next_block = &AlphaRowsetReader::_union_block;
-        } else if (_current_read_context->reader_type == READER_QUERY
-                    && _current_read_context->tablet_schema->keys_type() == DUP_KEYS) {
-            // 2. QUERY task for DUP_KEYS tablet
-            _next_block = &AlphaRowsetReader::_union_block;
-        } else {
-            // 3. COMPACTION/CHECKSUM/ALTER_TABLET task
-            _next_block = &AlphaRowsetReader::_merge_block;
-            merge = true;
-        }
-    } else {
-        // query task to scan cumulative rowset
-        _next_block = &AlphaRowsetReader::_union_block;
-    }
 
-    if (merge) {
+    RETURN_NOT_OK(_init_merge_ctxs(read_context));
+
+    // needs to sort merge only when
+    // 1) we are told to return sorted result (need_ordered_result)
+    // 2) we have several segment groups (_is_segments_overlapping && _merge_ctxs.size() > 1)
+    if (_current_read_context->need_ordered_result && _is_segments_overlapping && _merge_ctxs.size() > 1) {
+        _next_block = &AlphaRowsetReader::_merge_block;
         _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema));
         if (_read_block == nullptr) {
             LOG(WARNING) << "new row block failed in reader";
@@ -99,15 +75,22 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
             // Upon rollup/alter table, seek_columns is nullptr.
             // Under this circumstance, init RowCursor with all columns.
             _dst_cursor->init(*(_current_read_context->tablet_schema));
+            for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
+                _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
+                _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema));
+            }
         } else {
             _dst_cursor->init(*(_current_read_context->tablet_schema),
                               *(_current_read_context->seek_columns));
+            for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
+                _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
+                _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
+                                                *(_current_read_context->seek_columns));
+            }
         }
-        for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
-            _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
-            _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
-                                            *(_current_read_context->seek_columns));
-        }
+        RETURN_NOT_OK(_init_merge_heap());
+    } else {
+        _next_block = &AlphaRowsetReader::_union_block;
     }
     return OLAP_SUCCESS;
 }
@@ -126,10 +109,6 @@ Version AlphaRowsetReader::version() {
 
 VersionHash AlphaRowsetReader::version_hash() {
     return _alpha_rowset_meta->version_hash();
-}
-
-void AlphaRowsetReader::close() {
-    _merge_ctxs.clear();
 }
 
 int64_t AlphaRowsetReader::filtered_rows() {
@@ -166,17 +145,32 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
     size_t num_rows_in_block = 0;
     while (_read_block->pos() < _num_rows_per_row_block) {
         RowCursor* row_cursor = nullptr;
-        status = _pull_next_row_for_merge_rowset(&row_cursor);
+        status = _pull_next_row_for_merge_rowset_v2(&row_cursor);
         if (status == OLAP_ERR_DATA_EOF && _read_block->pos() > 0) {
             status = OLAP_SUCCESS;
             break;
         } else if (status != OLAP_SUCCESS) {
             return status;
         }
+
+        VLOG(10) << "get merged row: " << row_cursor->to_string();
+
         _read_block->get_row(_read_block->pos(), _dst_cursor);
-        _dst_cursor->copy(*row_cursor, _read_block->mem_pool());
+        copy_row(_dst_cursor, *row_cursor, _read_block->mem_pool());
         _read_block->pos_inc();
         num_rows_in_block++;
+
+        // MergeHeap should advance one step after row been read.
+        // This function must be called after copy_row
+        // Otherwise, the row has read will be modified instantly before handled.
+        // For example:
+        // If I have (1, 1), (2, 2), (3, 3) three records.
+        // Now I have read (1, 1).
+        // Before copy_row, I rebuild the heap
+        // The returned row will be (2, 2) instead of (1, 1)
+        AlphaMergeContext* merge_ctx = _merge_heap.top();
+        _merge_heap.pop();
+        RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(merge_ctx));
     }
     _read_block->set_pos(0);
     _read_block->set_limit(num_rows_in_block);
@@ -185,13 +179,64 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
     return status;
 }
 
+OLAPStatus AlphaRowsetReader::_init_merge_heap() {
+    if (_merge_heap.empty() && !_merge_ctxs.empty()) {
+        for (auto& merge_ctx : _merge_ctxs) {
+            RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(&merge_ctx));
+        }
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx) {
+    if (merge_ctx->is_eof) {
+        // nothing in this merge ctx, just return
+        return OLAP_SUCCESS;
+    }  
+
+    // get next row block of this merge ctx
+    if (merge_ctx->row_block == nullptr || !merge_ctx->row_block->has_remaining()) {
+        OLAPStatus status = _pull_next_block(merge_ctx);
+        if (status == OLAP_ERR_DATA_EOF) {
+            merge_ctx->is_eof = true;
+            return OLAP_SUCCESS;
+        } else if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "read next row of singleton rowset failed:" << status;
+            return status;
+        }
+    }
+
+    // read the first row, push it into merge heap, and step forward
+    RowCursor* current_row = merge_ctx->row_cursor.get();
+    merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
+    _merge_heap.push(merge_ctx);
+    merge_ctx->row_block->pos_inc();
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset_v2(RowCursor** row) {
+    // if _merge_heap is not empty, return the row at top, and insert a new row
+    // from conresponding merge_ctx
+    if (!_merge_heap.empty()) {
+        AlphaMergeContext* merge_ctx = _merge_heap.top();
+        *row = merge_ctx->row_cursor.get();
+        // Must not rebuild merge_heap in this place.
+        // Because row have not been copied and is a pointer.
+        // If rebuild merge_heap, content in row will be modified.
+        return OLAP_SUCCESS;
+    } else {
+        // all rows are read
+        return OLAP_ERR_DATA_EOF;
+    }
+}
+
 OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
     RowCursor* min_row = nullptr;
     int min_index = -1;
 
     size_t ordinal = 0;
     while (ordinal < _merge_ctxs.size()) {
-        MergeContext* merge_ctx = &(_merge_ctxs[ordinal]);
+        AlphaMergeContext* merge_ctx = &(_merge_ctxs[ordinal]);
         if (merge_ctx->row_block == nullptr || !merge_ctx->row_block->has_remaining()) {
             OLAPStatus status = _pull_next_block(merge_ctx);
             if (status == OLAP_ERR_DATA_EOF) {
@@ -204,7 +249,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
         }
         RowCursor* current_row = merge_ctx->row_cursor.get();
         merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
-        if (min_row == nullptr || min_row->cmp(*current_row) >  0) {
+        if (min_row == nullptr || compare_row(*min_row, *current_row) >  0) {
             min_row = current_row;
             min_index = ordinal;
         }
@@ -218,7 +263,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetReader::_pull_next_block(MergeContext* merge_ctx) {
+OLAPStatus AlphaRowsetReader::_pull_next_block(AlphaMergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
     if (OLAP_UNLIKELY(merge_ctx->first_read_symbol)) {
         if (_key_range_size > 0) {
@@ -244,7 +289,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_block(MergeContext* merge_ctx) {
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::_pull_first_block(MergeContext* merge_ctx) {
+OLAPStatus AlphaRowsetReader::_pull_first_block(AlphaMergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
     merge_ctx->key_range_index++;
     while (merge_ctx->key_range_index < _key_range_size) {
@@ -283,6 +328,9 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         _key_range_size = read_context->lower_bound_keys->size();
     }
 
+    // avoid polluting index stream cache by non-query workload (compaction/alter/checksum)
+    const bool use_index_stream_cache = read_context->reader_type == READER_QUERY;
+
     for (auto& segment_group : _segment_groups) {
         std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
@@ -292,10 +340,9 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         }
         new_column_data->set_delete_handler(read_context->delete_handler);
         new_column_data->set_stats(_stats);
-        new_column_data->set_lru_cache(read_context->lru_cache);
         if (read_context->reader_type == READER_ALTER_TABLE) {
             new_column_data->schema_change_init();
-            new_column_data->set_using_cache(read_context->is_using_cache);
+            new_column_data->set_using_cache(use_index_stream_cache);
             if (new_column_data->empty() && new_column_data->zero_num_rows()) {
                 continue;
             }
@@ -305,7 +352,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
                     *read_context->load_bf_columns,
                     *read_context->conditions,
                     *read_context->predicates,
-                    read_context->is_using_cache,
+                    use_index_stream_cache,
                     read_context->runtime_state);
             // filter
             if (new_column_data->rowset_pruning_filter()) {
@@ -332,12 +379,12 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
                     << new_column_data->version().first << ", " << new_column_data->version().second;
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
-        MergeContext merge_ctx;
+        AlphaMergeContext merge_ctx;
         merge_ctx.column_data = std::move(new_column_data);
         _merge_ctxs.emplace_back(std::move(merge_ctx));
     }
 
-    if (!_is_singleton_rowset && _merge_ctxs.size() > 1) {
+    if (!_is_segments_overlapping && _merge_ctxs.size() > 1) {
         LOG(WARNING) << "invalid column_datas for cumulative rowset. column_datas size:"
                      << _merge_ctxs.size();
         return OLAP_ERR_READER_READING_ERROR;
@@ -346,7 +393,11 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
 }
 
 RowsetSharedPtr AlphaRowsetReader::rowset() {
-    return _rowset;
+    return std::static_pointer_cast<Rowset>(_rowset);
+}
+
+bool AlphaMergeContextComparator::operator() (const AlphaMergeContext* x, const AlphaMergeContext* y) const {
+    return compare_row(*(x->row_cursor.get()), *(y->row_cursor.get())) > 0;
 }
 
 }  // namespace doris

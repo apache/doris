@@ -27,11 +27,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-/*
- * Author: Chenmingyu
- * Date: Feb 14, 2019
- */
-
 public class BackendTabletsInfo implements Writable {
 
     private long backendId;
@@ -93,7 +88,6 @@ public class BackendTabletsInfo implements Writable {
         out.writeBoolean(false);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         backendId = in.readLong();
 

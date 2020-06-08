@@ -50,7 +50,7 @@
 #include "service/backend_options.h"
 #include "util/url_coding.h"
 #include "util/file_utils.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/json_util.h"
 #include "util/time.h"
 #include "util/string_parser.hpp"
@@ -112,6 +112,7 @@ const std::string COLUMNS_KEY = "columns";
 const std::string HLL_KEY = "hll";
 const std::string COLUMN_SEPARATOR_KEY = "column_separator";
 const std::string MAX_FILTER_RATIO_KEY = "max_filter_ratio";
+const std::string STRICT_MODE_KEY = "strict_mode";
 const std::string TIMEOUT_KEY = "timeout";
 const char* k_100_continue = "100-continue";
 
@@ -368,7 +369,7 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
     request.__set_function_name(_streaming_function_name);
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     TFeResult res;
-    Status status = FrontendHelper::rpc(
+    Status status = ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_address.hostname, master_address.port,
             [&request, &res] (FrontendServiceConnection& client) {
             client->isMethodSupported(res, request);
@@ -397,7 +398,7 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
 
 Status MiniLoadAction::_on_header(HttpRequest* req) {
     size_t body_bytes = 0;
-    size_t max_body_bytes = config::mini_load_max_mb * 1024 * 1024;
+    size_t max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
         if (body_bytes > max_body_bytes) {
@@ -524,6 +525,7 @@ void MiniLoadAction::free_handler_ctx(void* param) {
         if (streaming_ctx != nullptr) {
             // sender is going, make receiver know it
             if (streaming_ctx->body_sink != nullptr) {
+                LOG(WARNING) << "cancel stream load " << streaming_ctx->id.to_string() << " because sender failed";
                 streaming_ctx->body_sink->cancel();
             }
             if (streaming_ctx->unref()) {
@@ -647,10 +649,11 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
         request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
     request.__set_create_timestamp(UnixMillis());
+    request.__set_request_id(ctx->id.to_thrift());
     // begin load by master
     const TNetworkAddress& master_addr = _exec_env->master_info()->network_address;
     TMiniLoadBeginResult res;
-    RETURN_IF_ERROR(FrontendHelper::rpc(
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &res] (FrontendServiceConnection& client) {
             client->miniLoadBegin(res, request);
@@ -713,10 +716,21 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
     if (ctx->timeout_second != -1) {
         put_request.__set_timeout(ctx->timeout_second);
     }
+    auto strict_mode_it = params.find(STRICT_MODE_KEY);
+    if (strict_mode_it != params.end()) {
+        std::string strict_mode_value = strict_mode_it->second;
+        if (boost::iequals(strict_mode_value, "false")) {
+            put_request.__set_strictMode(false);
+        } else if (boost::iequals(strict_mode_value, "true")) {
+            put_request.__set_strictMode(true);
+        } else {
+            return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
+        }
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    RETURN_IF_ERROR(FrontendHelper::rpc(master_addr.hostname, master_addr.port,
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(master_addr.hostname, master_addr.port,
                     [&put_request, ctx] (FrontendServiceConnection& client) {
                     client->streamLoadPut(ctx->put_result, put_request);
                     }));
@@ -733,7 +747,7 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
 // new on_header of mini load
 Status MiniLoadAction::_on_new_header(HttpRequest* req) {
     size_t body_bytes = 0;
-    size_t max_body_bytes = config::mini_load_max_mb * 1024 * 1024;
+    size_t max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
         if (body_bytes > max_body_bytes) {
@@ -777,7 +791,11 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
     }
     auto timeout_it = params.find(TIMEOUT_KEY);
     if (timeout_it != params.end()) {
-        ctx->timeout_second = std::stoi(timeout_it->second);
+        try {
+            ctx->timeout_second = std::stoi(timeout_it->second);
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid timeout format");
+        }
     }
     
     LOG(INFO) << "new income mini load request." << ctx->brief()

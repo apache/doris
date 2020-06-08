@@ -61,7 +61,7 @@ LIBEVENT_SOURCE=libevent-master
 LIBEVENT_MD5SUM="e8b9ba50270ba3b520aec8ff1089f9d7"
 
 # openssl
-OPENSSL_DOWNLOAD="https://www.openssl.org/source/openssl-1.0.2k.tar.gz"
+OPENSSL_DOWNLOAD="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2k.tar.gz"
 OPENSSL_NAME=openssl-1.0.2k.tar.gz
 OPENSSL_SOURCE=openssl-1.0.2k
 OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
@@ -139,11 +139,11 @@ LZ4_SOURCE=lz4-1.7.5
 LZ4_MD5SUM="c9610c5ce97eb431dddddf0073d919b9"
 
 # bzip
-# BZIP_DOWNLOAD="http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz"
-BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz"
-BZIP_NAME=bzip2-1.0.6.tar.gz
-BZIP_SOURCE=bzip2-1.0.6
-BZIP_MD5SUM="00b516f4704d4a7cb50a1d97e6e8e15b"
+BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
+BZIP_DOWNLOAD="ftp://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
+BZIP_NAME=bzip2-1.0.8.tar.gz
+BZIP_SOURCE=bzip2-1.0.8
+BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
 LZO2_DOWNLOAD="http://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
@@ -171,6 +171,7 @@ RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
 BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz"
+BOOST_DOWNLOAD="https://sourceforge.mirrorservice.org/b/bo/boost/boost/1.64.0/boost_1_64_0.tar.gz"
 BOOST_NAME=boost_1_64_0.tar.gz
 BOOST_SOURCE=boost_1_64_0
 BOOST_MD5SUM="319c6ffbbeccc366f14bb68767a6db79"
@@ -217,12 +218,6 @@ ZSTD_NAME=zstd-1.3.7.tar.gz
 ZSTD_SOURCE=zstd-1.3.7
 ZSTD_MD5SUM="9b89923a360ac85a3b8076fdf495318d"
 
-# uriparser
-URIPARSER_DOWNLOAD="https://github.com/uriparser/uriparser/archive/uriparser-0.9.2.tar.gz"
-URIPARSER_NAME=uriparser-0.9.2.tar.gz
-URIPARSER_SOURCE=uriparser-0.9.2
-URIPARSER_MD5SUM="3169aa620d63c67580fd1bc0b1f54638"
-
 # double-conversion
 DOUBLE_CONVERSION_DOWNLOAD="https://github.com/google/double-conversion/archive/v3.1.1.tar.gz"
 DOUBLE_CONVERSION_NAME=double-conversion-3.1.1.tar.gz
@@ -230,16 +225,22 @@ DOUBLE_CONVERSION_SOURCE=double-conversion-3.1.1
 DOUBLE_CONVERSION_MD5SUM="befd431c3de3f3ed7926ba2845ee609d"
 
 # brotli
-BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v0.6.0.tar.gz"
-BROTLI_NAME=brotli-0.6.0.tar.gz
-BROTLI_SOURCE=brotli-0.6.0
-BROTLI_MD5SUM="1dcdcda924ab0c232ce54fa9f2b02624"
+BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.7.tar.gz"
+BROTLI_NAME="brotli-1.0.7.tar.gz"
+BROTLI_SOURCE="brotli-1.0.7"
+BROTLI_MD5SUM="7b6edd4f2128f22794d0ca28c53898a5"
+
+# flatbuffers
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v1.10.0.tar.gz"
+FLATBUFFERS_NAME=flatbuffers-v1.10.0.tar.gz
+FLATBUFFERS_SOURCE=flatbuffers-1.10.0
+FLATBUFFERS_MD5SUM="f7d19a3f021d93422b0bc287d7148cd2"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-0.13.0.tar.gz"
-ARROW_NAME=arrow-apache-arrow-0.13.0.tar.gz
-ARROW_SOURCE=arrow-apache-arrow-0.13.0
-ARROW_MD5SUM="de9e00e43df0b5fae2ed92f6491cb10b"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-0.15.1.tar.gz"
+ARROW_NAME="arrow-apache-arrow-0.15.1.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-0.15.1"
+ARROW_MD5SUM="7d822863bbbe409794c6cdec3dcb8e6c"
 
 # S2
 S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
@@ -258,7 +259,24 @@ CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/v0.2.
 CROARINGBITMAP_NAME=CRoaring-0.2.60.tar.gz
 CROARINGBITMAP_SOURCE=CRoaring-0.2.60
 CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
+# ORC
+ORC_DOWNLOAD="https://github.com/apache/orc/archive/rel/release-1.5.8.tar.gz"
+ORC_NAME=orc-1.5.8.tar.gz
+ORC_SOURCE=orc-rel-release-1.5.8
+ORC_MD5SUM="49eb9ce94060b26d4bc3595b2f1efb4c"
+
+# jemalloc
+JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
+JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
+JEMALLOC_SOURCE="jemalloc-5.2.1"
+JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
+
+#CCTZ
+CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
+CCTZ_NAME="cctz-2.3.tar.gz"
+CCTZ_SOURCE="cctz-2.3"
+CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA ARROW BROTLI DOUBLE_CONVERSION URIPARSER ZSTD S2 BITSHUFFLE CROARINGBITMAP"
+export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA FLATBUFFERS ARROW BROTLI DOUBLE_CONVERSION ZSTD S2 BITSHUFFLE CROARINGBITMAP ORC JEMALLOC CCTZ"
 

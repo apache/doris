@@ -28,7 +28,6 @@ boost::scoped_ptr<MetricRegistry> TestEnv::_s_static_metrics;
 TestEnv::TestEnv() {
     if (_s_static_metrics == NULL) {
         _s_static_metrics.reset(new MetricRegistry("test_env"));
-        // DorisMetrics::create_metrics(_s_static_metrics.get());
     }
     _exec_env.reset(new ExecEnv());
     // _exec_env->init_for_tests();
@@ -66,7 +65,7 @@ RuntimeState* TestEnv::create_runtime_state(int64_t query_id) {
     TExecPlanFragmentParams plan_params = TExecPlanFragmentParams();
     plan_params.params.query_id.hi = 0;
     plan_params.params.query_id.lo = query_id;
-    return new RuntimeState(plan_params, TQueryOptions(), "", _exec_env.get());
+    return new RuntimeState(plan_params, TQueryOptions(), TQueryGlobals(), _exec_env.get());
 }
 
 Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_size,

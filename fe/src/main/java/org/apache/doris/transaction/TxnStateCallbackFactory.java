@@ -24,11 +24,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 14, 2019
- */
-
 // saves all TxnStateChangeListeners
 public class TxnStateCallbackFactory {
     private static final Logger LOG = LogManager.getLogger(TxnStateCallbackFactory.class);
@@ -40,13 +35,16 @@ public class TxnStateCallbackFactory {
             return false;
         }
         callbacks.put(callback.getId(), callback);
-        LOG.info("add callback of txn state : {}", callback.getId());
+        LOG.info("add callback of txn state : {}. current callback size: {}",
+                callback.getId(), callbacks.size());
         return true;
     }
 
     public synchronized void removeCallback(long id) {
-        callbacks.remove(id);
-        LOG.info("remove callback of txn state : {}", id);
+        if (callbacks.remove(id) != null) {
+            LOG.info("remove callback of txn state : {}. current callback size: {}",
+                    id, callbacks.size());
+        }
     }
 
     public synchronized TxnStateChangeCallback getCallback(long id) {

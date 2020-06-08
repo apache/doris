@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -68,7 +69,8 @@ public class BDBJEJournal implements Journal {
     
     private BDBEnvironment bdbEnvironment = null;
     private Database currentJournalDB;
-    private AtomicLong journalId = new AtomicLong(1);
+    // the next journal's id. start from 1.
+    private AtomicLong nextJournalId = new AtomicLong(1);
     
     public BDBJEJournal(String nodeName) {
         initBDBEnv(nodeName);
@@ -79,9 +81,9 @@ public class BDBJEJournal implements Journal {
      * node name is ip_port (the port is edit_log_port)
      */
     private void initBDBEnv(String nodeName) {
-        environmentPath = Catalog.BDB_DIR;
+        environmentPath = Catalog.getCurrentCatalog().getBdbDir();
         try {
-            Pair<String, Integer> selfNode = Catalog.getInstance().getSelfNode();
+            Pair<String, Integer> selfNode = Catalog.getCurrentCatalog().getSelfNode();
             if (isPortUsing(selfNode.first, selfNode.second)) {
                 LOG.error("edit_log_port {} is already in use. will exit.", selfNode.second);
                 System.exit(-1);
@@ -95,7 +97,7 @@ public class BDBJEJournal implements Journal {
     }
 
     /*
-     * Database name is determined by its minimum journal id.
+     * Database is named by its minimum journal id.
      * For example:
      * One database contains journal 100 to journal 200, its name is 100.
      * The next database's name is 201
@@ -107,35 +109,32 @@ public class BDBJEJournal implements Journal {
             return;
         }
         
-        long newName = journalId.get();
-        String currentStringName = currentJournalDB.getDatabaseName();
-        long currentName = Long.parseLong(currentStringName);
+        long newName = nextJournalId.get();
+        String currentDbName = currentJournalDB.getDatabaseName();
+        long currentName = Long.parseLong(currentDbName);
         long newNameVerify = currentName + currentJournalDB.count();
         if (newName == newNameVerify) {
             LOG.info("roll edit log. new db name is {}", newName);
             currentJournalDB = bdbEnvironment.openDatabase(Long.toString(newName));
         } else {
-            LOG.error("rollJournal error! journalId and db journal numbers is not match. "
-                    + "journal id:{}, journal numbers:{}.", newName, newNameVerify);
+            String msg = String.format("roll journal error! journalId and db journal numbers is not match. "
+                    + "journal id: %d, current db: %s, expected db count: %d",
+                    newName, currentDbName, newNameVerify);
+            LOG.error(msg);
+            Util.stdoutWithTime(msg);
+            System.exit(-1);
         }
-        return;
     }
 
     @Override
     public synchronized void write(short op, Writable writable) {
-        if (!Catalog.getInstance().canWrite() && op != OperationType.OP_META_VERSION
-                && op != OperationType.OP_ADD_FIRST_FRONTEND) {
-            LOG.error("the canWrite flag has not set to true yet. can not write journal. will exit. op: {}", op);
-            System.exit(-1);
-        }
-        
         JournalEntity entity = new JournalEntity();
         entity.setOpCode(op);
         entity.setData(writable);
         
         // id is the key
-        long id = journalId.getAndIncrement();
-        Long idLong = new Long(id);
+        long id = nextJournalId.getAndIncrement();
+        Long idLong = id;
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> idBinding = TupleBinding.getPrimitiveBinding(Long.class);
         idBinding.objectToEntry(idLong, theKey);
@@ -181,12 +180,14 @@ public class BDBJEJournal implements Journal {
                  * If all the followers exit except master, master should continue provide query service.
                  * To prevent master exit, we should exempt OP_TIMESTAMP write
                  */
-                journalId.set(id);
+                nextJournalId.set(id);
                 LOG.warn("master can not achieve quorum. write timestamp fail. but will not exit.");
                 return;
             }
-            LOG.error("write bdb failed. will exit. journalId:{}, bdb database Name:{}",
-                      id, currentJournalDB.getDatabaseName());
+            String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: " +
+                    currentJournalDB.getDatabaseName();
+            LOG.error(msg);
+            Util.stdoutWithTime(msg);
             System.exit(-1);
         }
     }
@@ -245,8 +246,7 @@ public class BDBJEJournal implements Journal {
 
     @Override
     public JournalCursor read(long fromKey, long toKey) {
-        JournalCursor cursor = BDBJournalCursor.getJournalCursor(bdbEnvironment, fromKey, toKey);
-        return cursor;
+        return BDBJournalCursor.getJournalCursor(bdbEnvironment, fromKey, toKey);
     }
     
     @Override
@@ -302,24 +302,27 @@ public class BDBJEJournal implements Journal {
         bdbEnvironment = null;
     }
 
+    /*
+     * open the bdbje environment, and get the current journal database
+     */
     @Override
     public synchronized void open() {
         if (bdbEnvironment == null) {
             File dbEnv = new File(environmentPath);
             bdbEnvironment = new BDBEnvironment();
-            Pair<String, Integer> helperNode = Catalog.getInstance().getHelperNode();
+            Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
             String helperHostPort = helperNode.first + ":" + helperNode.second;
             try {
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort,
-                                     helperHostPort, Catalog.getInstance().isElectable());
+                                     helperHostPort, Catalog.getCurrentCatalog().isElectable());
             } catch (Exception e) {
                 LOG.error("catch an exception when setup bdb environment. will exit.", e);
                 System.exit(-1);
             }
         }
         
-        // Open a new journal database
-        Pair<String, Integer> helperNode = Catalog.getInstance().getHelperNode();
+        // Open a new journal database or get last existing one as current journal database
+        Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
         List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
@@ -331,18 +334,21 @@ public class BDBJEJournal implements Journal {
                 }
                 if (dbNames.size() == 0) {
                     /*
-                     *  This is the very first time to open. Usually, we will open database named "1".
+                     *  This is the very first time to open. Usually, we will open a new database named "1".
                      *  But when we start cluster with an image file copied from other cluster, 
-                     *  here may open database with name image max journal id + 1.
+                     *  here we should open database with name image max journal id + 1.
+                     *  (default Catalog.getInstance().getReplayedJournalId() is 0)
                      */
-                    String dbName = Long.toString(Catalog.getInstance().getReplayedJournalId() + 1);
+                    String dbName = Long.toString(Catalog.getCurrentCatalog().getReplayedJournalId() + 1);
                     LOG.info("the very first time to open bdb, dbname is {}", dbName);
                     currentJournalDB = bdbEnvironment.openDatabase(dbName);
                 } else {
+                    // get last database as current journal database
                     currentJournalDB = bdbEnvironment.openDatabase(dbNames.get(dbNames.size() - 1).toString());
                 }
                 
-                journalId.set(getMaxJournalId() + 1);
+                // set next journal id
+                nextJournalId.set(getMaxJournalId() + 1);
                 
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
@@ -354,8 +360,7 @@ public class BDBJEJournal implements Journal {
                 restore.execute(insufficientLogEx, config);
                 bdbEnvironment.close();
                 bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort, 
-                                     helperNode.first + ":" + helperNode.second, Catalog.getInstance().isElectable());
-                continue;
+                                     helperNode.first + ":" + helperNode.second, Catalog.getCurrentCatalog().isElectable());
             }
         }
     }

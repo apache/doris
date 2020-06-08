@@ -30,12 +30,10 @@ EngineStorageMigrationTask::EngineStorageMigrationTask(TStorageMediumMigrateReq&
 }
 
 OLAPStatus EngineStorageMigrationTask::execute() {
-    OLAPStatus res = OLAP_SUCCESS;
-    res = _storage_medium_migrate(
+    return _storage_medium_migrate(
         _storage_medium_migrate_req.tablet_id,
         _storage_medium_migrate_req.schema_hash,
         _storage_medium_migrate_req.storage_medium);
-    return res;
 }
 
 OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
@@ -44,7 +42,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     LOG(INFO) << "begin to process storage media migrate. "
               << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
               << ", dest_storage_medium=" << storage_medium;
-    DorisMetrics::storage_migrate_requests_total.increment(1);
+    DorisMetrics::instance()->storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
@@ -110,7 +108,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
         tablet->release_header_lock();
 
-        // generate schema hash path where files will be migrated
+        // get a random store of specified storage medium
         auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
         if (stores.empty()) {
             res = OLAP_ERR_INVALID_ROOT_PATH;
@@ -118,6 +116,14 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             break;
         }
 
+        // check disk capacity
+        int64_t tablet_size = tablet->tablet_footprint();
+        if (stores[0]->reach_capacity_limit(tablet_size)) {
+            res = OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+            break;
+        }
+
+        // get shard
         uint64_t shard = 0;
         res = stores[0]->get_shard(&shard);
         if (res != OLAP_SUCCESS) {
@@ -130,7 +136,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         string schema_hash_path = SnapshotManager::instance()->get_schema_hash_full_path(tablet, root_path_stream.str());
         // if dir already exist then return err, it should not happen
         // should not remove the dir directly
-        if (check_dir_existed(schema_hash_path)) {
+        if (FileUtils::check_exist(schema_hash_path)) {
             LOG(INFO) << "schema hash path already exist, skip this path. "
                       << "schema_hash_path=" << schema_hash_path;
             res = OLAP_ERR_FILE_ALREADY_EXIST;
@@ -146,7 +152,13 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             res = OLAP_ERR_META_ALREADY_EXIST;
             break;
         }
-        create_dirs(schema_hash_path);
+        
+        Status st = FileUtils::create_dir(schema_hash_path);
+        if (!st.ok()) {
+            res = OLAP_ERR_CANNOT_CREATE_DIR;
+            LOG(WARNING) << "fail to create path. path=" << schema_hash_path << ", error:" << st.to_string();
+            break;
+        }
 
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);
@@ -154,16 +166,13 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
             break;
         }
-
-        res = _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to generate new header file from the old. res=" << res;
-            break;
-        }
+        tablet->obtain_header_rdlock();
+        _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
+        tablet->release_header_lock();
         std::string new_meta_file = schema_hash_path + "/" + std::to_string(tablet_id) + ".hdr";
         res = new_tablet_meta->save(new_meta_file);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to save met to path" << new_meta_file;
+            LOG(WARNING) << "failed to save meta to path" << new_meta_file;
             break;
         }
 
@@ -175,7 +184,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 
         // it will change rowset id and its create time
         // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-        res = SnapshotManager::instance()->convert_rowset_ids(*(stores[0]), schema_hash_path, tablet_id, schema_hash, nullptr);
+        res = SnapshotManager::instance()->convert_rowset_ids(schema_hash_path, tablet_id, schema_hash);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert rowset id when do storage migration"
                          << " path = " << schema_hash_path;
@@ -216,48 +225,38 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 }
 
 // TODO(ygl): lost some infomation here, such as cumulative layer point
-OLAPStatus EngineStorageMigrationTask::_generate_new_header(
+void EngineStorageMigrationTask::_generate_new_header(
         DataDir* store, const uint64_t new_shard,
         const TabletSharedPtr& tablet,
         const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta) {
-    if (store == nullptr) {
-        LOG(WARNING) << "fail to generate new header for store is null";
-        return OLAP_ERR_HEADER_INIT_FAILED;
-    }
-    OLAPStatus res = OLAP_SUCCESS;
-    res = TabletMetaManager::get_meta(tablet->data_dir(), tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-    if (res == OLAP_ERR_META_KEY_NOT_FOUND) {
-        LOG(WARNING) << "tablet_meta has already been dropped. "
-                     << "data_dir:" << tablet->data_dir()->path()
-                     << "tablet:" << tablet->full_name();
-        return res;
-    }
+    DCHECK(store != nullptr);
+    tablet->generate_tablet_meta_copy(new_tablet_meta);
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {
         rs_metas.push_back(rs->rowset_meta());
     }
-    new_tablet_meta->revise_rs_metas(rs_metas);
+    new_tablet_meta->revise_rs_metas(std::move(rs_metas));
     new_tablet_meta->set_shard_id(new_shard);
     // should not save new meta here, because new tablet may failed
     // should not remove the old meta here, because the new header maybe not valid
     // remove old meta after the new tablet is loaded successfully
-    return res;
 }
 
 OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
-        std::vector<RowsetSharedPtr>& consistent_rowsets) {
-    std::vector<std::string> success_files;
+        const std::vector<RowsetSharedPtr>& consistent_rowsets) const {
     OLAPStatus status = OLAP_SUCCESS;
-    for (auto& rs : consistent_rowsets) {
-        status = rs->copy_files_to_path(schema_hash_path, &success_files);
+    for (const auto& rs : consistent_rowsets) {
+        status = rs->copy_files_to(schema_hash_path);
         if (status != OLAP_SUCCESS) {
-            if (remove_all_dir(schema_hash_path) != OLAP_SUCCESS) {
+            Status ret = FileUtils::remove_all(schema_hash_path);
+            if (!ret.ok()) {
                 LOG(FATAL) << "remove storage migration path failed. "
-                           << "schema_hash_path:" << schema_hash_path;
+                           << "schema_hash_path:" << schema_hash_path
+                           << " error: " << ret.to_string();
             }
             break;
         }

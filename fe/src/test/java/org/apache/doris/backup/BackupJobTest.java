@@ -17,14 +17,17 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
@@ -58,13 +61,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import mockit.Delegate;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class BackupJobTest {
 
     private BackupJob job;
@@ -84,19 +80,38 @@ public class BackupJobTest {
 
     @Mocked
     private Catalog catalog;
-    @Mocked
-    private BackupHandler backupHandler;
-    @Mocked
-    private RepositoryMgr repoMgr;
+
+    private MockBackupHandler backupHandler;
+
+    private MockRepositoryMgr repoMgr;
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockBackupHandler extends BackupHandler {
+        public MockBackupHandler(Catalog catalog) {
+            super(catalog);
+        }
+        @Override
+        public RepositoryMgr getRepoMgr() {
+            return repoMgr;
+        }
+    }
+
+    // Thread is not mockable in Jmockit, use subclass instead
+    private final class MockRepositoryMgr extends RepositoryMgr {
+        public MockRepositoryMgr() {
+            super();
+        }
+        @Override
+        public Repository getRepo(long repoId) {
+            return repo;
+        }
+    }
+
     @Mocked
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
             new BlobStorage("broker", Maps.newHashMap()));
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @BeforeClass
     public static void start() {
@@ -118,45 +133,38 @@ public class BackupJobTest {
     @Before
     public void setUp() {
 
+        repoMgr = new MockRepositoryMgr();
+        backupHandler = new MockBackupHandler(catalog);
+
+        // Thread is unmockable after Jmockit version 1.48, so use reflection to set field instead.
+        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
+
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
 
-        new NonStrictExpectations() {
+        new Expectations(catalog) {
             {
-                catalog.getBackupHandler();
-                result = backupHandler;
-
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeConstants.meta_version;
 
                 catalog.getNextId();
+                minTimes = 0;
                 result = id.getAndIncrement();
 
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
             }
         };
 
-        new NonStrictExpectations() {
-            {
-                backupHandler.getRepoMgr();
-                result = repoMgr;
-            }
-        };
-
-        new NonStrictExpectations() {
-            {
-                repoMgr.getRepo(anyInt);
-                result = repo;
-                minTimes = 0;
-            }
-        };
-
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 editLog.logBackupJob((BackupJob) any);
+                minTimes = 0;
                 result = new Delegate() {
                     public void logBackupJob(BackupJob job) {
                         System.out.println("log backup job: " + job);
@@ -172,11 +180,16 @@ public class BackupJobTest {
             }
         };
 
-        new NonStrictExpectations(Repository.class) {
-            {
-                repo.upload(anyString, anyString);
-                minTimes = 0;
-                result = Status.OK;
+        new MockUp<Repository>() {
+            @Mock
+            Status upload(String localFilePath, String remoteFilePath) {
+                return Status.OK;
+            }
+
+            @Mock
+            Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
+                brokerAddrs.add(new FsBroker());
+                return Status.OK;
             }
         };
 

@@ -129,7 +129,7 @@ public:
     virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file) = 0;
     virtual OLAPStatus finalize() = 0;
 
-    virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool) = 0;
+    virtual OLAPStatus next(RowCursor* row) = 0;
 
     virtual bool eof() = 0;
 
@@ -166,7 +166,7 @@ public:
     virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
     virtual OLAPStatus finalize();
 
-    virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);
+    virtual OLAPStatus next(RowCursor* row);
 
     virtual bool eof() {
         return _curr >= _content_len;
@@ -187,7 +187,7 @@ public:
     virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
     virtual OLAPStatus finalize();
 
-    virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);
+    virtual OLAPStatus next(RowCursor* row);
 
     virtual bool eof() {
         return _curr >= _content_len && _row_num == 0;

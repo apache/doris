@@ -18,7 +18,8 @@
 package org.apache.doris.master;
 
 import org.apache.doris.alter.AlterJob;
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.AlterJobV2.JobType;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SchemaChangeJob;
@@ -40,18 +41,20 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
-import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.CreateRollupTask;
+import org.apache.doris.load.DeleteJob;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.SchemaChangeTask;
 import org.apache.doris.task.SnapshotTask;
+import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TFetchResourceResult;
@@ -77,13 +80,13 @@ import java.util.List;
 public class MasterImpl {
     private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
 
-    ReportHandler reportHandler = new ReportHandler();
+    private ReportHandler reportHandler = new ReportHandler();
 
     public MasterImpl() {
         reportHandler.start();
     }
     
-    public TMasterResult finishTask(TFinishTaskRequest request) throws TException {
+    public TMasterResult finishTask(TFinishTaskRequest request) {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
@@ -102,7 +105,7 @@ public class MasterImpl {
         Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, bePort);
         if (backend == null) {
             tStatus.setStatus_code(TStatusCode.CANCELLED);
-            List<String> errorMsgs = new ArrayList<String>();
+            List<String> errorMsgs = new ArrayList<>();
             errorMsgs.add("backend not exist.");
             tStatus.setError_msgs(errorMsgs);
             LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request.toString());
@@ -116,7 +119,7 @@ public class MasterImpl {
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
             if (taskType != TTaskType.DROP && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
-                    && taskType != TTaskType.RELEASE_SNAPSHOT) {
+                    && taskType != TTaskType.RELEASE_SNAPSHOT && taskType != TTaskType.CLEAR_TRANSACTION_TASK) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
                         + ", signature: " + signature;
                 LOG.warn(errMsg);
@@ -129,21 +132,25 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatus_code() != TStatusCode.OK) {
                 task.failed();
+                String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatus_code().toString() +
+                        ", backendId: " + backend + ", signature: " + signature;
+                task.setErrorMsg(errMsg);
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
-                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION) {
+                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
+                        && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO) {
                     return result;
                 }
             }
         }
  
         try {
-            List<TTabletInfo> finishTabletInfos = null;
+            List<TTabletInfo> finishTabletInfos;
             switch (taskType) {
                 case CREATE:
                     Preconditions.checkState(request.isSetReport_version());
-                    finishCreateReplica(task, request.getReport_version());
+                    finishCreateReplica(task, request);
                     break;
                 case PUSH:
                     checkHasTabletInfo(request);
@@ -160,9 +167,6 @@ public class MasterImpl {
                     break;
                 case CLEAR_ALTER_TASK:
                     finishClearAlterTask(task, request);
-                    break;
-                case CLEAR_TRANSACTION_TASK:
-                    finishClearTransactionTask(task, request);
                     break;
                 case DROP:
                     finishDropReplica(task);
@@ -199,6 +203,12 @@ public class MasterImpl {
                 case RECOVER_TABLET:
                     finishRecoverTablet(task);
                     break;
+                case ALTER:
+                    finishAlterTask(task);
+                    break;
+                case UPDATE_TABLET_META_INFO:
+                    finishUpdateTabletMeta(task, request);
+                    break;
                 default:
                     break;
             }
@@ -224,21 +234,50 @@ public class MasterImpl {
         }
     }
 
-    private void finishCreateReplica(AgentTask task, long reportVersion) {
+    private void finishCreateReplica(AgentTask task, TFinishTaskRequest request) {
         // if we get here, this task will be removed from AgentTaskQueue for certain.
         // because in this function, the only problem that cause failure is meta missing.
         // and if meta is missing, we no longer need to resend this task
+        try {
+            CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
+            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+                createReplicaTask.countDownToZero(task.getBackendId() + ": " + request.getTask_status().getError_msgs().toString());
+            } else {
+                long tabletId = createReplicaTask.getTabletId();
 
-        CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
-        long tabletId = createReplicaTask.getTabletId();
+                if (request.isSetFinish_tablet_infos()) {
+                        Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
+                                        createReplicaTask.getBackendId());
+                        replica.setPathHash(request.getFinish_tablet_infos().get(0).getPath_hash());
+                }
+                
+                // this should be called before 'countDownLatch()'
+                Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReport_version(), task.getDbId());
+                
+                createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
+                LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                        tabletId, task.getBackendId(), request.getReport_version());
+            }
+        } finally {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
+        }
+    }
 
-        // this should be called before 'countDownLatch()'
-        Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId());
-
-        createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-        LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                tabletId, task.getBackendId(), reportVersion);
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
+    private void finishUpdateTabletMeta(AgentTask task, TFinishTaskRequest request) {
+        // if we get here, this task will be removed from AgentTaskQueue for certain.
+        // because in this function, the only problem that cause failure is meta missing.
+        // and if meta is missing, we no longer need to resend this task
+        try {
+            UpdateTabletMetaInfoTask tabletTask = (UpdateTabletMetaInfoTask) task;
+            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+                tabletTask.countDownToZero(task.getBackendId() + ": " + request.getTask_status().getError_msgs().toString());
+            } else {
+                tabletTask.countDownLatch(task.getBackendId(), tabletTask.getTablets());
+                LOG.debug("finish update tablet meta. tablet id: {}, be: {}", tabletTask.getTablets(), task.getBackendId());
+            }
+        } finally {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPDATE_TABLET_META_INFO, task.getSignature());
+        }
     }
     
     private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) {
@@ -250,7 +289,8 @@ public class MasterImpl {
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
-        Database db = Catalog.getInstance().getDb(dbId);
+        long transactionId = ((PushTask) task).getTransactionId();
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;
@@ -307,19 +347,34 @@ public class MasterImpl {
                                                                        task.getDbId());
             // handle load job
             // TODO yiguolei: why delete should check request version and task version?
-            long loadJobId = pushTask.getLoadJobId();
-            LoadJob job = Catalog.getInstance().getLoadInstance().getLoadJob(loadJobId);
-            if (job == null) {
-                throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
-            }
-            for (TTabletInfo tTabletInfo : finishTabletInfos) {
-                checkReplica(olapTable, partition, backendId, pushIndexId, pushTabletId,
-                        tTabletInfo, pushState);
-                Replica replica = findRelatedReplica(olapTable, partition,
-                                                            backendId, tTabletInfo);
-                // if the replica is under schema change, could not find the replica with aim schema hash
-                if (replica != null) {
-                    job.addFinishedReplica(replica);
+            if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
+                long loadJobId = pushTask.getLoadJobId();
+                LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(loadJobId);
+                if (job == null) {
+                    throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
+                }
+                for (TTabletInfo tTabletInfo : finishTabletInfos) {
+                    checkReplica(olapTable, partition, backendId, pushIndexId, pushTabletId,
+                            tTabletInfo, pushState);
+                    Replica replica = findRelatedReplica(olapTable, partition,
+                            backendId, tTabletInfo);
+                    // if the replica is under schema change, could not find the replica with aim schema hash
+                    if (replica != null) {
+                        job.addFinishedReplica(replica);
+                    }
+                }
+            } else if (pushTask.getPushType() == TPushType.DELETE) {
+                DeleteJob deleteJob = Catalog.getCurrentCatalog().getDeleteHandler().getDeleteJob(transactionId);
+                if (deleteJob == null) {
+                    throw new MetaNotFoundException("cannot find delete job, job[" + transactionId + "]");
+                }
+                for (TTabletInfo tTabletInfo : finishTabletInfos) {
+                    Replica replica = findRelatedReplica(olapTable, partition,
+                            backendId, tTabletInfo);
+                    if (replica != null) {
+                        deleteJob.addFinishedReplica(pushTabletId, replica);
+                        pushTask.countDownLatch(backendId, pushTabletId);
+                    }
                 }
             }
             
@@ -369,10 +424,10 @@ public class MasterImpl {
         MaterializedIndex index = partition.getIndex(indexId);
         if (index == null) { 
             // this means the index is under rollup
-            RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-            AlterJob alterJob = rollupHandler.getAlterJob(olapTable.getId());
+            MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+            AlterJob alterJob = materializedViewHandler.getAlterJob(olapTable.getId());
             if (alterJob == null && olapTable.getState() == OlapTableState.ROLLUP) {
-                // this happends when:
+                // this happens when:
                 // a rollup job is finish and a delete job is the next first job (no load job before)
                 // and delete task is first send to base tablet, so it will return 2 tablets info.
                 // the second tablet is rollup tablet and it is no longer exist in alterJobs queue.
@@ -415,8 +470,7 @@ public class MasterImpl {
         long finishVersion = finishTabletInfos.get(0).getVersion();
         long finishVersionHash = finishTabletInfos.get(0).getVersion_hash();
         long taskVersion = pushTask.getVersion();
-        long taskVersionHash = pushTask.getVersionHash();
-        if (finishVersion != taskVersion || finishVersionHash != taskVersionHash) {
+        if (finishVersion != taskVersion) {
             LOG.debug("finish tablet version is not consistent with task. "
                     + "finish version: {}, finish version hash: {}, task: {}", 
                     finishVersion, finishVersionHash, pushTask);
@@ -426,7 +480,7 @@ public class MasterImpl {
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             AgentTaskQueue.removePushTask(backendId, signature, finishVersion, finishVersionHash, 
                                           pushTask.getPushType(), pushTask.getTaskType());
@@ -492,7 +546,7 @@ public class MasterImpl {
             if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
                 // handle load job
                 long loadJobId = pushTask.getLoadJobId();
-                LoadJob job = Catalog.getInstance().getLoadInstance().getLoadJob(loadJobId);
+                LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(loadJobId);
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
@@ -503,8 +557,7 @@ public class MasterImpl {
                 }
             } else if (pushTask.getPushType() == TPushType.DELETE) {
                 // report delete task must match version and version hash
-                if (pushTask.getVersion() != request.getRequest_version()
-                        || pushTask.getVersionHash() != request.getRequest_version_hash()) {
+                if (pushTask.getVersion() != request.getRequest_version()) {
                     throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
                             + request.getRequest_version() + "]");
                 }
@@ -514,7 +567,7 @@ public class MasterImpl {
                 } else {
                     long asyncDeleteJobId = pushTask.getAsyncDeleteJobId();
                     Preconditions.checkState(asyncDeleteJobId != -1);
-                    AsyncDeleteJob job = Catalog.getInstance().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
+                    AsyncDeleteJob job = Catalog.getCurrentCatalog().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
                     if (job == null) {
                         throw new MetaNotFoundException("cannot find async delete job, job[" + asyncDeleteJobId + "]");
                     }
@@ -540,18 +593,8 @@ public class MasterImpl {
     
     private void finishClearAlterTask(AgentTask task, TFinishTaskRequest request) {
         ClearAlterTask clearAlterTask = (ClearAlterTask) task;
-        clearAlterTask.setFinished();
-        AgentTaskQueue.removeTask(task.getBackendId(), 
-                task.getTaskType(), 
-                task.getSignature());
-    }
-    
-    private void finishClearTransactionTask(AgentTask task, TFinishTaskRequest request) {
-        ClearTransactionTask clearTransactionTask = (ClearTransactionTask) task;
-        clearTransactionTask.setFinished();
-        AgentTaskQueue.removeTask(task.getBackendId(), 
-                task.getTaskType(), 
-                task.getSignature());
+        clearAlterTask.setFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
     }
     
     private void finishPublishVersion(AgentTask task, TFinishTaskRequest request) {
@@ -605,8 +648,8 @@ public class MasterImpl {
                 return null;
             }
 
-            RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-            AlterJob alterJob = rollupHandler.getAlterJob(olapTable.getId());
+            MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+            AlterJob alterJob = materializedViewHandler.getAlterJob(olapTable.getId());
             if (alterJob == null) {
                 // this happends when:
                 // a rollup job is finish and a delete job is the next first job (no load job before)
@@ -628,7 +671,7 @@ public class MasterImpl {
         int currentSchemaHash = olapTable.getSchemaHashByIndexId(pushIndexId);
         if (schemaHash != currentSchemaHash) {
             if (pushState == PartitionState.SCHEMA_CHANGE) {
-                SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+                SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
                 AlterJob alterJob = schemaChangeHandler.getAlterJob(olapTable.getId());
                 if (alterJob != null && schemaHash != ((SchemaChangeJob) alterJob).getSchemaHashByIndexId(pushIndexId)) {
                     // this is a invalid tablet.
@@ -675,7 +718,7 @@ public class MasterImpl {
         Preconditions.checkArgument(finishTabletInfos.size() == 1);
 
         SchemaChangeTask schemaChangeTask = (SchemaChangeTask) task;
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         schemaChangeHandler.handleFinishedReplica(schemaChangeTask, finishTabletInfos.get(0), reportVersion);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.SCHEMA_CHANGE, task.getSignature());
     }
@@ -686,8 +729,8 @@ public class MasterImpl {
         Preconditions.checkArgument(finishTabletInfos.size() == 1);
 
         CreateRollupTask createRollupTask = (CreateRollupTask) task;
-        RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-        rollupHandler.handleFinishedReplica(createRollupTask, finishTabletInfos.get(0), -1L);
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+        materializedViewHandler.handleFinishedReplica(createRollupTask, finishTabletInfos.get(0), -1L);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ROLLUP, task.getSignature());
     }
 
@@ -705,21 +748,20 @@ public class MasterImpl {
     private void finishConsistenctCheck(AgentTask task, TFinishTaskRequest request) {
         CheckConsistencyTask checkConsistencyTask = (CheckConsistencyTask) task;
 
-        if (checkConsistencyTask.getVersion() != request.getRequest_version()
-                || checkConsistencyTask.getVersionHash() != request.getRequest_version_hash()) {
+        if (checkConsistencyTask.getVersion() != request.getRequest_version()) {
             LOG.warn("check consisteny task is not match. [{}-{}]",
                      checkConsistencyTask.getVersion(), request.getRequest_version());
             return;
         }
 
-        Catalog.getInstance().getConsistencyChecker().handleFinishedConsistencyCheck(checkConsistencyTask,
+        Catalog.getCurrentCatalog().getConsistencyChecker().handleFinishedConsistencyCheck(checkConsistencyTask,
                                                                                      request.getTablet_checksum());
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CHECK_CONSISTENCY, task.getSignature());
     }
 
     private void finishMakeSnapshot(AgentTask task, TFinishTaskRequest request) {
         SnapshotTask snapshotTask = (SnapshotTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MAKE_SNAPSHOT, task.getSignature());
         }
 
@@ -727,21 +769,21 @@ public class MasterImpl {
 
     private void finishUpload(AgentTask task, TFinishTaskRequest request) {
         UploadTask uploadTask = (UploadTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleFinishedSnapshotUploadTask(uploadTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleFinishedSnapshotUploadTask(uploadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPLOAD, task.getSignature());
         }
     }
 
     private void finishDownloadTask(AgentTask task, TFinishTaskRequest request) {
         DownloadTask downloadTask = (DownloadTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.DOWNLOAD, task.getSignature());
         }
     }
 
     private void finishMoveDirTask(AgentTask task, TFinishTaskRequest request) {
         DirMoveTask dirMoveTask = (DirMoveTask) task;
-        if (Catalog.getInstance().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
+        if (Catalog.getCurrentCatalog().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MOVE, task.getSignature());
         }
     }
@@ -751,12 +793,25 @@ public class MasterImpl {
     }
 
     public TMasterResult report(TReportRequest request) throws TException {
-        TMasterResult result = reportHandler.handleReport(request);
-        return result;
+        return reportHandler.handleReport(request);
     }
 
     public TFetchResourceResult fetchResource() {
-        return Catalog.getInstance().getAuth().toResourceThrift();
+        return Catalog.getCurrentCatalog().getAuth().toResourceThrift();
     }
 
+    private void finishAlterTask(AgentTask task) {
+        AlterReplicaTask alterTask = (AlterReplicaTask) task;
+        try {
+            if (alterTask.getJobType() == JobType.ROLLUP) {
+                Catalog.getCurrentCatalog().getRollupHandler().handleFinishAlterTask(alterTask);
+            } else if (alterTask.getJobType() == JobType.SCHEMA_CHANGE) {
+                Catalog.getCurrentCatalog().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
+            }
+            alterTask.setFinished(true);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
+        }
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+    }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
@@ -25,18 +26,23 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -45,6 +51,16 @@ import java.util.concurrent.TimeUnit;
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
     
+    // compare the TransactionState by txn id, desc
+    public static class TxnStateComparator implements Comparator<TransactionState> {
+        @Override
+        public int compare(TransactionState t1, TransactionState t2) {
+            return Long.compare(t2.getTransactionId(), t1.getTransactionId());
+        }
+    }
+
+    public static final TxnStateComparator TXN_ID_COMPARATOR = new TxnStateComparator();
+
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
@@ -105,16 +121,59 @@ public class TransactionState implements Writable {
             }
         }
     }
-    
+
+    public enum TxnSourceType {
+        FE(1),
+        BE(2);
+
+        public int value() {
+            return flag;
+        }
+
+        private int flag;
+
+        TxnSourceType(int flag) {
+            this.flag = flag;
+        }
+
+        public static TxnSourceType valueOf(int flag) {
+            switch (flag) {
+                case 1:
+                    return FE;
+                case 2:
+                    return BE;
+                default:
+                    return null;
+            }
+        }
+    }
+
+    public static class TxnCoordinator {
+        public TxnSourceType sourceType;
+        public String ip;
+
+        public TxnCoordinator() {}
+        public TxnCoordinator(TxnSourceType sourceType, String ip) {
+            this.sourceType = sourceType;
+            this.ip = ip;
+        }
+
+        @Override
+        public String toString() {
+            return sourceType.toString() + ": " + ip;
+        }
+    }
+
     private long dbId;
+    private List<Long> tableIdList;
     private long transactionId;
     private String label;
-    // timestamp is used to judge whether a begin request is a internal retry request.
-    // no need to persist it
-    private long timestamp;
+    // requsetId is used to judge whether a begin request is a internal retry request.
+    // no need to persist it.
+    private TUniqueId requsetId;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
-    private String coordinator;
+    private TxnCoordinator txnCoordinator;
     private TransactionStatus transactionStatus;
     private LoadJobSourceType sourceType;
     private long prepareTime;
@@ -128,7 +187,7 @@ public class TransactionState implements Writable {
     // this state need not to be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
-    private long publishVersionTime;
+    private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
     
     private long callbackId = -1;
@@ -140,15 +199,25 @@ public class TransactionState implements Writable {
     // optional
     private TxnCommitAttachment txnCommitAttachment;
     
+    // this map should be set when load execution begin, so that when the txn commit, it will know
+    // which tables and rollups it loaded.
+    // tbl id -> (index ids)
+    private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
+
     private String errorLogUrl = null;
+
+    // record some error msgs during the transaction operation.
+    // this msg will be shown in show proc "/transactions/dbId/";
+    // no need to persist.
+    private String errMsg = "";
 
     public TransactionState() {
         this.dbId = -1;
+        this.tableIdList = Lists.newArrayList();
         this.transactionId = -1;
         this.label = "";
-        this.timestamp = -1;
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.coordinator = "";
+        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
@@ -161,14 +230,15 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
     }
     
-    public TransactionState(long dbId, long transactionId, String label, long timestamp,
-                            LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
+    public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requsetId,
+                            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
+        this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
         this.label = label;
-        this.timestamp = timestamp;
+        this.requsetId = requsetId;
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.coordinator = coordinator;
+        this.txnCoordinator = txnCoordinator;
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = sourceType;
         this.prepareTime = -1;
@@ -188,11 +258,8 @@ public class TransactionState implements Writable {
     }
     
     public boolean isRunning() {
-        if (transactionStatus == TransactionStatus.PREPARE
-                || transactionStatus == TransactionStatus.COMMITTED) {
-            return true;
-        }
-        return false;
+        return transactionStatus == TransactionStatus.PREPARE
+                || transactionStatus == TransactionStatus.COMMITTED;
     }
     
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
@@ -215,9 +282,9 @@ public class TransactionState implements Writable {
     public boolean hasSendTask() {
         return this.hasSendTask;
     }
-    
-    public long getTimestamp() {
-        return timestamp;
+
+    public TUniqueId getRequsetId() {
+        return requsetId;
     }
 
     public long getTransactionId() {
@@ -228,8 +295,8 @@ public class TransactionState implements Writable {
         return this.label;
     }
     
-    public String getCoordinator() {
-        return coordinator;
+    public TxnCoordinator getCoordinator() {
+        return txnCoordinator;
     }
     
     public TransactionStatus getTransactionStatus() {
@@ -313,7 +380,8 @@ public class TransactionState implements Writable {
             switch (transactionStatus) {
                 case COMMITTED:
                     // Maybe listener has been deleted. The txn need to be aborted later.
-                    throw new TransactionException("Failed to commit txn when callback could not be found");
+                    throw new TransactionException(
+                            "Failed to commit txn when callback " + callbackId + "could not be found");
                 default:
                     break;
             }
@@ -387,7 +455,11 @@ public class TransactionState implements Writable {
     public long getDbId() {
         return dbId;
     }
-    
+
+    public List<Long> getTableIdList() {
+        return tableIdList;
+    }
+
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {
         return idToTableCommitInfos;
     }
@@ -408,13 +480,47 @@ public class TransactionState implements Writable {
         this.txnCommitAttachment = txnCommitAttachment;
     }
     
+    // return true if txn is in final status and label is expired
+    public boolean isExpired(long currentMillis) {
+        return transactionStatus.isFinalStatus() && (currentMillis - finishTime) / 1000 > Config.label_keep_max_second;
+    }
+
+    // return true if txn is running but timeout
+    public boolean isTimeout(long currentMillis) {
+        return transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs;
+    }
+
+    /*
+     * Add related table indexes to the transaction.
+     * If function should always be called before adding this transaction state to transaction manager,
+     * No other thread will access this state. So no need to lock
+     */
+    public void addTableIndexes(OlapTable table) {
+        Set<Long> indexIds = loadedTblIndexes.get(table.getId());
+        if (indexIds == null) {
+            indexIds = Sets.newHashSet();
+            loadedTblIndexes.put(table.getId(), indexIds);
+        }
+        // always rewrite the index ids
+        indexIds.clear();
+        for (Long indexId : table.getIndexIdToMeta().keySet()) {
+            indexIds.add(indexId);
+        }
+    }
+
+    public Map<Long, Set<Long>> getLoadedTblIndexes() {
+        return loadedTblIndexes;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("TransactionState. ");
         sb.append("transaction id: ").append(transactionId);
         sb.append(", label: ").append(label);
         sb.append(", db id: ").append(dbId);
-        sb.append(", coordinator: ").append(coordinator);
+        sb.append(", table id list: ").append(StringUtils.join(tableIdList, ","));
+        sb.append(", callback id: ").append(callbackId);
+        sb.append(", coordinator: ").append(txnCoordinator.toString());
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
         sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
@@ -459,7 +565,8 @@ public class TransactionState implements Writable {
         for (TableCommitInfo info : idToTableCommitInfos.values()) {
             info.write(out);
         }
-        Text.writeString(out, coordinator);
+        out.writeInt(txnCoordinator.sourceType.value());
+        Text.writeString(out, txnCoordinator.ip);
         out.writeInt(transactionStatus.value());
         out.writeInt(sourceType.value());
         out.writeLong(prepareTime);
@@ -479,9 +586,12 @@ public class TransactionState implements Writable {
         }
         out.writeLong(callbackId);
         out.writeLong(timeoutMs);
+        out.writeInt(tableIdList.size());
+        for (int i = 0; i < tableIdList.size(); i++) {
+            out.writeLong(tableIdList.get(i));
+        }
     }
     
-    @Override
     public void readFields(DataInput in) throws IOException {
         transactionId = in.readLong();
         label = Text.readString(in);
@@ -492,7 +602,28 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        coordinator = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
+           TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
+           String ip = Text.readString(in);
+           txnCoordinator = new TxnCoordinator(sourceType, ip);
+        } else {
+            // to compatible old version, the old txn coordinator looks like: "BE: 192.186.1.1"
+            String coordStr = Text.readString(in);
+            String[] parts = coordStr.split(":");
+            if (parts.length != 2) {
+                // should not happen, just create a mocked TxnCoordinator
+                txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
+            } else {
+                if (parts[0].trim().equalsIgnoreCase("FE")) {
+                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, parts[1].trim());
+                } else if (parts[0].trim().equalsIgnoreCase("BE")) {
+                    txnCoordinator = new TxnCoordinator(TxnSourceType.BE, parts[1].trim());
+                } else {
+                    // unknown format, should not happen, just create a mocked TxnCoordinator
+                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
+                }
+            }
+        }
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
@@ -511,5 +642,25 @@ public class TransactionState implements Writable {
             callbackId = in.readLong();
             timeoutMs = in.readLong();
         }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
+            tableIdList = Lists.newArrayList();
+            int tableListSize = in.readInt();
+            for (int i = 0; i < tableListSize; i++) {
+                tableIdList.add(in.readLong());
+            }
+        }
+    }
+
+    public void setErrorMsg(String errMsg) {
+        this.errMsg = errMsg;
+    }
+
+    public void clearErrorMsg() {
+        this.errMsg = "";
+    }
+
+    public String getErrMsg() {
+        return this.errMsg;
     }
 }

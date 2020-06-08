@@ -20,9 +20,14 @@
 
 #include <stdint.h>
 
-#include <iostream>
+#include <chrono>
 #include <cstddef>
+#include <iostream>
+#include <re2/re2.h>
 
+#include "cctz/civil_time.h"
+#include "cctz/time_zone.h"
+#include "exprs/timezone_db.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 
@@ -331,10 +336,14 @@ public:
 
     // Add interval 
     bool date_add_interval(const TimeInterval& interval, TimeUnit unit);
-
-    int unix_timestamp() const;
-
-    bool from_unixtime(int64_t);
+    
+    //unix_timestamp is called with a timezone argument,
+    //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
+    bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
+    
+    //construct datetime_value from timestamp and timezone
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
+    bool from_unixtime(int64_t, const std::string& timezone);
 
     bool operator==(const DateTimeValue& other) const {
         // NOTE: This is not same with MySQL.
@@ -435,12 +444,19 @@ public:
     }
 
     int64_t second_diff(const DateTimeValue& rhs) const {
-        return unix_timestamp() - rhs.unix_timestamp();
+        int day_diff = daynr() - rhs.daynr();
+        int time_diff = (hour() * 3600 + minute() * 60 + second())
+            - (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
+        return day_diff * 3600 * 24 + time_diff;
+    }
+
+    int64_t time_part_diff(const DateTimeValue& rhs) const {
+        int time_diff = (hour() * 3600 + minute() * 60 + second())
+            - (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
+        return time_diff;
     }
 
     void set_type(int type);
-
-    static const char* _s_llvm_class_name;
 
 private:
     // Used to make sure sizeof DateTimeValue
@@ -480,6 +496,34 @@ private:
         int64_t ymd = ((_year * 13 + _month) << 5) | _day;
         int64_t tmp = make_packed_time(ymd << 17, 0);
         return _neg ? -tmp : tmp;
+    }
+
+    bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) const {
+        re2::StringPiece value;
+        if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value, 1)) {
+            bool postive = value[0] != '-';
+
+            //Regular expression guarantees hour and minute mush be int 
+            int hour = std::stoi(value.substr(1, 2).as_string());
+            int minute = std::stoi(value.substr(4, 2).as_string());
+
+            // timezone offsets around the world extended from -12:00 to +14:00
+            if (!postive && hour > 12) {
+                return false;
+            } else if (postive && hour > 14) {
+                return false;
+            }
+            int offset = hour * 60 * 60 + minute * 60;
+            offset *= postive ? 1 : -1;
+            ctz = cctz::fixed_time_zone(cctz::seconds(offset));
+            return true;
+        } else if (timezone == "CST"){
+            // Supports offset and region timezone type, "CST" use here is compatibility purposes.
+            ctz = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
+            return true;
+        } else {
+            return cctz::load_time_zone(timezone, &ctz);
+        }
     }
 
     // Check wether value of field is valid.
@@ -536,6 +580,7 @@ private:
 
     static DateTimeValue _s_min_datetime_value;
     static DateTimeValue _s_max_datetime_value;
+    static RE2 time_zone_offset_format_reg;
 };
 
 // only support DATE - DATE (no support DATETIME - DATETIME)

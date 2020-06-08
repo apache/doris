@@ -43,7 +43,8 @@ HttpRequest::HttpRequest(evhttp_request* evhttp_request)
 }
 
 HttpRequest::~HttpRequest() {
-    if (_handler != nullptr && _handler_ctx != nullptr) {
+    if (_handler_ctx != nullptr) {
+        DCHECK(_handler != nullptr);
         _handler->free_handler_ctx(_handler_ctx);
     }
 }

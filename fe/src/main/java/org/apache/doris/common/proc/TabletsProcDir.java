@@ -26,9 +26,11 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.system.Backend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,26 +42,26 @@ import java.util.List;
  */
 public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("ReplicaId").add("BackendId").add("Version")
+            .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
             .add("VersionHash").add("LstSuccessVersion").add("LstSuccessVersionHash")
             .add("LstFailedVersion").add("LstFailedVersionHash").add("LstFailedTime")
             .add("DataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
-            .add("VersionCount").add("PathHash")
+            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
             .build();
 
     private Database db;
     private MaterializedIndex index;
-    
+
     public TabletsProcDir(Database db, MaterializedIndex index) {
         this.db = db;
         this.index = index;
     }
-    
-    @Override
-    public ProcResult fetchResult() {
+
+    public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state) {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(index);
+        ImmutableMap<Long, Backend> backendMap = Catalog.getCurrentSystemInfo().getIdToBackend();
 
         List<List<Comparable>> tabletInfos = new ArrayList<List<Comparable>>();
         db.readLock();
@@ -72,6 +74,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(tabletId);
                     tabletInfo.add(-1); // replica id
                     tabletInfo.add(-1); // backend id
+                    tabletInfo.add(-1); // schema hash
                     tabletInfo.add("N/A"); // host name
                     tabletInfo.add(-1); // version
                     tabletInfo.add(-1); // version hash
@@ -88,16 +91,23 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // check version hash
                     tabletInfo.add(-1); // version count
                     tabletInfo.add(-1); // path hash
+                    tabletInfo.add("N/A"); // meta url
+                    tabletInfo.add("N/A"); // compaction status
 
                     tabletInfos.add(tabletInfo);
                 } else {
                     for (Replica replica : tablet.getReplicas()) {
+                        if ((version > -1 && replica.getVersion() != version)
+                                || (backendId > -1 && replica.getBackendId() != backendId)
+                                || (state != null && replica.getState() != state)) {
+                            continue;
+                        }
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
                         // tabletId -- replicaId -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
-                        long backendId = replica.getBackendId();
                         tabletInfo.add(replica.getBackendId());
+                        tabletInfo.add(replica.getSchemaHash());
                         tabletInfo.add(replica.getVersion());
                         tabletInfo.add(replica.getVersionHash());
                         tabletInfo.add(replica.getLastSuccessVersion());
@@ -114,7 +124,19 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(tablet.getCheckedVersionHash());
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
-
+                        String metaUrl = String.format("http://%s:%d/api/meta/header/%d/%d",
+                                backendMap.get(replica.getBackendId()).getHost(),
+                                backendMap.get(replica.getBackendId()).getHttpPort(),
+                                tabletId,
+                                replica.getSchemaHash());
+                        tabletInfo.add(metaUrl);
+                        String compactionUrl = String.format(
+                                "http://%s:%d/api/compaction/show?tablet_id=%d&schema_hash=%d",
+                                backendMap.get(replica.getBackendId()).getHost(),
+                                backendMap.get(replica.getBackendId()).getHttpPort(),
+                                tabletId,
+                                replica.getSchemaHash());
+                        tabletInfo.add(compactionUrl);
                         tabletInfos.add(tabletInfo);
                     }
                 }
@@ -122,7 +144,16 @@ public class TabletsProcDir implements ProcDirInterface {
         } finally {
             db.readUnlock();
         }
+        return tabletInfos;
+    }
 
+    private List<List<Comparable>> fetchComparableResult() {
+        return fetchComparableResult(-1, -1, null);
+    }
+
+    @Override
+    public ProcResult fetchResult() {
+        List<List<Comparable>> tabletInfos = fetchComparableResult();
         // sort by tabletId, replicaId
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1);
         Collections.sort(tabletInfos, comparator);
@@ -162,6 +193,16 @@ public class TabletsProcDir implements ProcDirInterface {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
         return new ReplicasProcNode(replicas);
+    }
+
+    public static int analyzeColumn(String columnName) throws AnalysisException {
+        for (String title : TITLE_NAMES) {
+            if (title.equalsIgnoreCase(columnName)) {
+                return TITLE_NAMES.indexOf(title);
+            }
+        }
+
+        throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 }
 

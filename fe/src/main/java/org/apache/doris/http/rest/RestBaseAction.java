@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
@@ -37,6 +38,9 @@ import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class RestBaseAction extends BaseAction {
+    protected static final String DB_KEY = "db";
+    protected static final String TABLE_KEY = "table";
+    protected static final String LABEL_KEY = "label";
     private static final Logger LOG = LogManager.getLogger(RestBaseAction.class);
 
     public RestBaseAction(ActionController controller) {
@@ -45,6 +49,7 @@ public class RestBaseAction extends BaseAction {
 
     @Override
     public void handleRequest(BaseRequest request) throws Exception {
+        LOG.info("receive http request. url={}", request.getRequest().uri());
         BaseResponse response = new BaseResponse();
         try {
             execute(request, response);
@@ -62,18 +67,20 @@ public class RestBaseAction extends BaseAction {
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
-        checkPassword(authInfo);
+        UserIdentity currentUser = checkPassword(authInfo);
         ConnectContext ctx = new ConnectContext(null);
+        ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);
+        ctx.setCurrentUserIdentity(currentUser);
         ctx.setCluster(authInfo.cluster);
         ctx.setThreadLocalInfo();
-        executeWithoutPassword(authInfo, request, response);
+        executeWithoutPassword(request, response);
     }
 
     // If user password should be checked, the derived class should implement this method, NOT 'execute()',
     // otherwise, override 'execute()' directly
-    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    protected void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         throw new DdlException("Not implemented");
     }
@@ -109,7 +116,7 @@ public class RestBaseAction extends BaseAction {
     }
 
     public boolean redirectToMaster(BaseRequest request, BaseResponse response) throws DdlException {
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         if (catalog.isMaster()) {
             return false;
         }

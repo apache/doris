@@ -26,11 +26,6 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 /*
- * Author: Chenmingyu
- * Date: Jun 11, 2019
- */
-
-/*
  * show proc "/colocation_group/group_name";
  */
 public class ColocationGroupBackendSeqsProcNode implements ProcNodeInterface {

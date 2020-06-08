@@ -43,8 +43,9 @@ OlapScanner::OlapScanner(
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
-        DorisScanRange* scan_range,
-        const std::vector<OlapScanRange>& key_ranges)
+        bool need_agg_finalize,
+        const TPaloScanRange& scan_range,
+        const std::vector<OlapScanRange*>& key_ranges)
             : _runtime_state(runtime_state),
             _parent(parent),
             _tuple_desc(parent->_tuple_desc),
@@ -52,6 +53,7 @@ OlapScanner::OlapScanner(
             _string_slots(parent->_string_slots),
             _is_open(false),
             _aggregation(aggregation),
+            _need_agg_finalize(need_agg_finalize),
             _tuple_idx(parent->_tuple_idx),
             _direct_conjunct_size(parent->_direct_conjunct_size) {
     _reader.reset(new Reader());
@@ -68,16 +70,14 @@ OlapScanner::~OlapScanner() {
 }
 
 Status OlapScanner::_prepare(
-        DorisScanRange* scan_range, const std::vector<OlapScanRange>& key_ranges,
+        const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls) {
     // Get olap table
-    TTabletId tablet_id = scan_range->scan_range().tablet_id;
+    TTabletId tablet_id = scan_range.tablet_id;
     SchemaHash schema_hash =
-        strtoul(scan_range->scan_range().schema_hash.c_str(), nullptr, 10);
+        strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
     _version =
-        strtoul(scan_range->scan_range().version.c_str(), nullptr, 10);
-    VersionHash version_hash =
-        strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
+        strtoul(scan_range.version.c_str(), nullptr, 10);
     {
         std::string err;
         _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
@@ -99,19 +99,7 @@ Status OlapScanner::_prepare(
                 return Status::InternalError(ss.str());
             }
 
-            if (rowset->end_version() == _version
-                && rowset->version_hash() != version_hash) {
-                LOG(WARNING) << "fail to check latest version hash. "
-                             << " tablet_id=" << tablet_id
-                             << " version_hash=" << rowset->version_hash()
-                             << " request_version_hash=" << version_hash;
-
-                std::stringstream ss;
-                ss << "fail to check version hash of tablet: " << tablet_id;
-                return Status::InternalError(ss.str());
-            }
-
-            // acquire tablet rowset readers at the beginning of the scan node 
+            // acquire tablet rowset readers at the beginning of the scan node
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
@@ -125,7 +113,7 @@ Status OlapScanner::_prepare(
             }
         }
     }
-    
+
     {
         // Initialize _params
         RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
@@ -153,9 +141,9 @@ Status OlapScanner::open() {
     return Status::OK();
 }
 
-// it will be called under tablet read lock because capture rs readers need 
+// it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_params(
-        const std::vector<OlapScanRange>& key_ranges,
+        const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<TCondition>& is_nulls) {
     RETURN_IF_ERROR(_init_return_columns());
@@ -173,17 +161,17 @@ Status OlapScanner::_init_params(
         _params.conditions.push_back(is_null_str);
     }
     // Range
-    for (auto& key_range : key_ranges) {
-        if (key_range.begin_scan_range.size() == 1 &&
-                key_range.begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+    for (auto key_range : key_ranges) {
+        if (key_range->begin_scan_range.size() == 1 &&
+                key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
             continue;
         }
 
-        _params.range = (key_range.begin_include ? "ge" : "gt");
-        _params.end_range = (key_range.end_include ? "le" : "lt");
+        _params.range = (key_range->begin_include ? "ge" : "gt");
+        _params.end_range = (key_range->end_include ? "le" : "lt");
 
-        _params.start_key.push_back(key_range.begin_scan_range);
-        _params.end_key.push_back(key_range.end_scan_range);
+        _params.start_key.push_back(key_range->begin_scan_range);
+        _params.end_key.push_back(key_range->end_scan_range);
     }
 
     // TODO(zc)
@@ -212,8 +200,14 @@ Status OlapScanner::_init_params(
         return Status::InternalError("failed to initialize storage read row cursor");
     }
     _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
-    for (auto cid : _return_columns) {
-        _query_fields.push_back(_read_row_cursor.get_field_by_index(cid));
+
+    // If a agg node is this scan node direct parent
+    // we will not call agg object finalize method in scan node,
+    // to avoid the unnecessary SerDe and improve query performance
+    _params.need_agg_finalize = _need_agg_finalize;
+
+    if (!config::disable_storage_page_cache) {
+        _params.use_page_cache = true;
     }
 
     return Status::OK();
@@ -232,14 +226,6 @@ Status OlapScanner::_init_return_columns() {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        const TabletColumn& column = _tablet->tablet_schema().column(index);
-        if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-                column.type() == OLAP_FIELD_TYPE_HLL) {
-            _request_columns_size.push_back(
-                column.length() - sizeof(StringLengthType));
-        } else {
-            _request_columns_size.push_back(column.length());
-        }
         _query_slots.push_back(slot);
     }
     if (_return_columns.empty()) {
@@ -256,6 +242,9 @@ Status OlapScanner::get_batch(
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
+    std::unique_ptr<MemTracker> tracker(new MemTracker(state->fragment_mem_tracker()->limit()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
         SCOPED_TIMER(_parent->_scan_timer);
@@ -266,13 +255,14 @@ Status OlapScanner::get_batch(
                 break;
             }
             // Read one row from reader
-            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, eof);
+            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(), batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
-                return Status::InternalError("Internal Error: read storage fail.");
+                std::stringstream ss;
+                ss << "Internal Error: read storage fail. res=" << res;
+                return Status::InternalError(ss.str());
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
-                _update_realtime_counter();
                 break;
             }
 
@@ -331,6 +321,11 @@ Status OlapScanner::get_batch(
                         slot->ptr = reinterpret_cast<char*>(v);
                     }
                 }
+
+                // the memory allocate by mem pool has been copied,
+                // so we should release these memory immediately
+                mem_pool->clear();
+
                 if (VLOG_ROW_IS_ON) {
                     VLOG_ROW << "OlapScanner output row: " << Tuple::to_string(tuple, *_tuple_desc);
                 }
@@ -368,17 +363,16 @@ Status OlapScanner::get_batch(
 }
 
 void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
-    char* row = _read_row_cursor.get_buf();
     size_t slots_size = _query_slots.size();
     for (int i = 0; i < slots_size; ++i) {
         SlotDescriptor* slot_desc = _query_slots[i];
-        const Field* field = _query_fields[i];
-        if (field->is_null(row)) {
+        auto cid = _return_columns[i];
+        if (_read_row_cursor.is_null(cid)) {
             tuple->set_null(slot_desc->null_indicator_offset());
             continue;
         }
-        char* ptr = (char*)field->get_ptr(row);
-        size_t len = field->size();
+        char* ptr = (char*)_read_row_cursor.cell_ptr(cid);
+        size_t len = _read_row_cursor.column_size(cid);
         switch (slot_desc->type().type) {
         case TYPE_CHAR: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
@@ -388,6 +382,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         case TYPE_VARCHAR:
+        case TYPE_OBJECT:
         case TYPE_HLL: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
@@ -453,6 +448,7 @@ void OlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_io_timer, _reader->stats().io_ns);
     COUNTER_UPDATE(_parent->_read_compressed_counter, _reader->stats().compressed_bytes_read);
+    _compressed_bytes_read += _reader->stats().compressed_bytes_read;
     COUNTER_UPDATE(_parent->_decompressor_timer, _reader->stats().decompress_ns);
     COUNTER_UPDATE(_parent->_read_uncompressed_counter, _reader->stats().uncompressed_bytes_read);
     COUNTER_UPDATE(_parent->bytes_read_counter(), _reader->stats().bytes_read);
@@ -467,26 +463,36 @@ void OlapScanner::update_counter() {
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += _reader->mutable_stats()->raw_rows_read;
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, _reader->stats().num_rows_filtered);
-
     COUNTER_UPDATE(_parent->_vec_cond_timer, _reader->stats().vec_cond_ns);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, _reader->stats().rows_vec_cond_filtered);
 
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
+    COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
 
-    DorisMetrics::query_scan_bytes.increment(_reader->stats().compressed_bytes_read);
-    DorisMetrics::query_scan_rows.increment(_reader->stats().raw_rows_read);
+    COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
+    COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
+
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().bitmap_index_filter_count);
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
+    COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
+
+    DorisMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
+    DorisMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
 
     _has_update_counter = true;
 }
 
 void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_read_compressed_counter, _reader->stats().compressed_bytes_read);
-    COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
+    _compressed_bytes_read += _reader->stats().compressed_bytes_read;
     _reader->mutable_stats()->compressed_bytes_read = 0;
-    _raw_rows_read += _reader->mutable_stats()->raw_rows_read;
+
+    COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
+    // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
+    _raw_rows_read += _reader->stats().raw_rows_read;
     _reader->mutable_stats()->raw_rows_read = 0;
 }
 
@@ -497,8 +503,8 @@ Status OlapScanner::close(RuntimeState* state) {
     // olap scan node will call scanner.close() when finished
     // will release resources here
     // if not clear rowset readers in read_params here
-    // readers will be release when runtime state deconstructed but 
-    // deconstructor in reader references runtime state 
+    // readers will be release when runtime state deconstructed but
+    // deconstructor in reader references runtime state
     // so that it will core
     _params.rs_readers.clear();
     update_counter();

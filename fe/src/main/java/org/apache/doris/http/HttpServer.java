@@ -17,6 +17,7 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.http.action.BackendAction;
 import org.apache.doris.http.action.HaAction;
 import org.apache.doris.http.action.HelpAction;
@@ -63,13 +64,18 @@ import org.apache.doris.http.rest.ShowMetaInfoAction;
 import org.apache.doris.http.rest.ShowProcAction;
 import org.apache.doris.http.rest.ShowRuntimeInfoAction;
 import org.apache.doris.http.rest.StorageTypeCheckAction;
+import org.apache.doris.http.rest.TableQueryPlanAction;
+import org.apache.doris.http.rest.TableRowCountAction;
+import org.apache.doris.http.rest.TableSchemaAction;
 import org.apache.doris.master.MetaHelper;
-import org.apache.doris.qe.QeService;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -84,15 +90,14 @@ import io.netty.handler.stream.ChunkedWriteHandler;
 
 public class HttpServer {
     private static final Logger LOG = LogManager.getLogger(HttpServer.class);
-    private static final int BACKLOG_NUM = 128;
-    private QeService qeService = null;
     private int port;
     private ActionController controller;
 
     private Thread serverThread;
 
-    public HttpServer(QeService qeService, int port) {
-        this.qeService = qeService;
+    private AtomicBoolean isStarted = new AtomicBoolean(false);
+
+    public HttpServer(int port) {
         this.port = port;
         controller = new ActionController();
     }
@@ -159,6 +164,11 @@ public class HttpServer {
         DumpAction.registerAction(controller, imageDir);
         RoleAction.registerAction(controller, imageDir);
 
+        // external usage
+        TableRowCountAction.registerAction(controller);
+        TableSchemaAction.registerAction(controller);
+        TableQueryPlanAction.registerAction(controller);
+
         BootstrapFinishAction.registerAction(controller);
     }
 
@@ -173,9 +183,11 @@ public class HttpServer {
             ch.pipeline().addLast(new HttpServerCodec());
             ch.pipeline().addLast(new DorisHttpPostObjectAggregator(100 * 65536));
             ch.pipeline().addLast(new ChunkedWriteHandler());
-            ch.pipeline().addLast(new HttpServerHandler(controller, qeService));
+            ch.pipeline().addLast(new HttpServerHandler(controller));
         }
     }
+
+    ServerBootstrap serverBootstrap;
 
     private class HttpServerThread implements Runnable {
         @Override
@@ -184,12 +196,19 @@ public class HttpServer {
             EventLoopGroup bossGroup = new NioEventLoopGroup();
             EventLoopGroup workerGroup = new NioEventLoopGroup();
             try {
-                ServerBootstrap b = new ServerBootstrap();
-                b.option(ChannelOption.SO_BACKLOG, BACKLOG_NUM);
-                b.group(bossGroup, workerGroup)
+                serverBootstrap = new ServerBootstrap();
+                serverBootstrap.option(ChannelOption.SO_BACKLOG, Config.http_backlog_num);
+                // reused address and port to avoid bind already exception
+                serverBootstrap.option(ChannelOption.SO_REUSEADDR, true);
+                serverBootstrap.childOption(ChannelOption.SO_REUSEADDR, true);
+                serverBootstrap.group(bossGroup, workerGroup)
                         .channel(NioServerSocketChannel.class)
                         .childHandler(new PaloHttpServerInitializer());
-                Channel ch = b.bind(port).sync().channel();
+                Channel ch = serverBootstrap.bind(port).sync().channel();
+
+                isStarted.set(true);
+                LOG.info("HttpServer started with port {}", port);
+                // block until server is closed
                 ch.closeFuture().sync();
             } catch (Exception e) {
                 LOG.error("Fail to start FE query http server[port: " + port + "] ", e);
@@ -201,9 +220,27 @@ public class HttpServer {
         }
     }
 
+    // used for test, release bound port
+    public void shutDown() {
+        if (serverBootstrap != null) {
+            Future future = serverBootstrap.config().group().shutdownGracefully(0, 1, TimeUnit.SECONDS).syncUninterruptibly();
+            try {
+                future.get();
+                isStarted.set(false);
+                LOG.info("HttpServer was closed completely");
+            } catch (Throwable e) {
+                LOG.warn("Exception happened when close HttpServer", e);
+            }
+            serverBootstrap = null;
+        }
+    }
+
+    public boolean isStarted() {
+        return isStarted.get();
+    }
+
     public static void main(String[] args) throws Exception {
-        QeService qeService = new QeService(9030);
-        HttpServer httpServer = new HttpServer(qeService, 8080);
+        HttpServer httpServer = new HttpServer(8080);
         httpServer.setup();
         System.out.println("before start http server.");
         httpServer.start();

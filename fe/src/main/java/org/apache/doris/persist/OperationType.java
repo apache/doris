@@ -42,6 +42,8 @@ public class OperationType {
     public static final short OP_BACKUP_JOB = 116;
     public static final short OP_RESTORE_JOB = 117;
     public static final short OP_TRUNCATE_TABLE = 118;
+    public static final short OP_MODIFY_VIEW_DEF = 119;
+    public static final short OP_REPLACE_TEMP_PARTITION = 210;
 
     // 20~29 120~129 220~229 ...
     public static final short OP_START_ROLLUP = 20;
@@ -54,6 +56,11 @@ public class OperationType {
     public static final short OP_CLEAR_ROLLUP_INFO = 28;
     public static final short OP_FINISH_CONSISTENCY_CHECK = 29;
     public static final short OP_RENAME_ROLLUP = 120;
+    public static final short OP_ALTER_JOB_V2 = 121;
+    public static final short OP_MODIFY_DISTRIBUTION_TYPE = 122;
+    public static final short OP_BATCH_ADD_ROLLUP = 123;
+    public static final short OP_BATCH_DROP_ROLLUP = 124;
+    public static final short OP_REMOVE_ALTER_JOB_V2 = 125;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -67,11 +74,13 @@ public class OperationType {
     public static final short OP_EXPORT_UPDATE_STATE = 37;
 
     public static final short OP_FINISH_SYNC_DELETE = 40;
+    public static final short OP_FINISH_DELETE = 41;
     public static final short OP_ADD_REPLICA = 42;
     public static final short OP_DELETE_REPLICA = 43;
     public static final short OP_FINISH_ASYNC_DELETE = 44;
     public static final short OP_UPDATE_REPLICA = 45;
     public static final short OP_BACKEND_TABLETS_INFO = 46;
+    public static final short OP_SET_REPLICA_STATUS = 47;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -146,8 +155,27 @@ public class OperationType {
     public static final short OP_CREATE_LOAD_JOB = 230;
     // this finish op include finished and cancelled
     public static final short OP_END_LOAD_JOB = 231;
+    // update job info, used by spark load
+    //public static final short OP_UPDATE_LOAD_JOB = 232;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
     public static final short OP_DROP_SMALL_FILE = 252;
+
+    // dynamic partition 261~265
+    public static final short OP_DYNAMIC_PARTITION = 261;
+
+    // set table replicatin_num config 266
+    public static final short OP_MODIFY_REPLICATION_NUM = 266;
+    // set table in memory
+    public static final short OP_MODIFY_IN_MEMORY = 267;
+
+    // plugin 270~275
+    public static final short OP_INSTALL_PLUGIN = 270;
+
+    public static final short OP_UNINSTALL_PLUGIN = 271;
+
+    // resource 276~290
+    public static final short OP_CREATE_RESOURCE = 276;
+    public static final short OP_DROP_RESOURCE = 277;
 }

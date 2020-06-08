@@ -18,6 +18,7 @@
 package org.apache.doris.http.action;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -28,12 +29,14 @@ import org.apache.doris.http.BaseAction;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.HttpAuthManager;
+import org.apache.doris.http.HttpAuthManager.SessionValue;
 import org.apache.doris.http.UnauthorizedException;
 import org.apache.doris.http.rest.RestBaseResult;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 
@@ -43,15 +46,13 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.UUID;
 
-import io.netty.handler.codec.http.DefaultCookie;
-import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.cookie.DefaultCookie;
 
 public class WebBaseAction extends BaseAction {
     private static final Logger LOG = LogManager.getLogger(WebBaseAction.class);
-
-    protected static final String LINE_SEP = System.getProperty("line.separator");
 
     protected static final String PALO_SESSION_ID = "PALO_SESSION_ID";
     private static final long PALO_SESSION_EXPIRED_TIME = 3600 * 24; // one day
@@ -59,25 +60,36 @@ public class WebBaseAction extends BaseAction {
     protected static final String PAGE_HEADER = "<!DOCTYPE html>"
             + "<html>"
             + "<head>"
-            + "  <title>Baidu Palo</title>"
+            + "  <title>Apache Doris(Incubating)</title>"
             + "  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" >"
-
-            + "  <link href=\"static/css?res=bootstrap.css\" "
+            + "  <link rel=\"shortcut icon\" href=\"/static/images?res=favicon.ico\">"
+            + "  <link href=\"/static/css?res=bootstrap.css\" "
             + "  rel=\"stylesheet\" media=\"screen\"/>"
-            + "  <link href=\"static/css?res=datatables_bootstrap.css\" "
+            + "  <link href=\"/static/css?res=bootstrap-theme.css\" "
+            + "  rel=\"stylesheet\" media=\"screen\"/>"
+            + "  <link href=\"/static/css?res=datatables_bootstrap.css\" "
             + "    rel=\"stylesheet\" media=\"screen\"/>"
 
-            + "  <script type=\"text/javascript\" src=\"static?res=jquery.js\"></script>"
-            + "  <script type=\"text/javascript\" src=\"static?res=jquery.dataTables.js\"></script>"
-            + "  <script type=\"text/javascript\" src=\"static?res=datatables_bootstrap.js\"></script>" + LINE_SEP
+            + "  <script type=\"text/javascript\" src=\"/static?res=jquery.js\"></script>"
+            + "  <script type=\"text/javascript\" src=\"/static?res=jquery.dataTables.js\"></script>"
+            + "  <script type=\"text/javascript\" src=\"/static?res=datatables_bootstrap.js\"></script>"
 
-            + "  <script type=\"text/javascript\"> " + LINE_SEP
-            + "    $(document).ready(function() { " + LINE_SEP
-            + "      $('#table_id').dataTable({ " + LINE_SEP
-            + "        \"aaSorting\": []," + LINE_SEP
-            +       " });" + LINE_SEP
-            + "    }); " + LINE_SEP
-            + "  </script> " + LINE_SEP
+            + "  <script type=\"text/javascript\"> "
+            + "    $(document).ready(function() { "
+            + "      $('#table_id').dataTable({ "
+            + "        \"aaSorting\": [],"
+            + "        \"lengthMenu\": [[10, 25, 50, 100,-1], [10, 25, 50, 100, \"All\"]],"
+            + "        \"iDisplayLength\": 50,"
+            +       " });"
+            + "    }); "
+            + "    $(document).ready(function () {"
+            + "        var location = window.location.pathname;"
+            + "        var id = location.substring(location.lastIndexOf('/') + 1);"
+            + "        if (id != null || $.trim(id) != \"\") {"
+            + "           $(\"#nav_\" + id).addClass(\"active\");"
+            + "        }"
+            + "    });"
+            + "  </script> "
 
             + "  <style>"
             + "    body {"
@@ -88,10 +100,15 @@ public class WebBaseAction extends BaseAction {
             + "<body>";
     protected static final String PAGE_FOOTER = "</div></body></html>";
     protected static final String NAVIGATION_BAR_PREFIX =
-              "  <nav class=\"navbar navbar-inverse navbar-fixed-top\" role=\"navigation\" style=\"text-align: center;\">"
+              "  <nav class=\"navbar navbar-default navbar-fixed-top\" role=\"navigation\">"
             + "    <div class=\"container-fluid\">"
+            + "    <div class=\"navbar-header\">"
+            + "      <a class=\"navbar-brand\" href=\"/\" style=\"padding: unset;\">"
+            + "        <img alt=\"Doris\" style=\"height: inherit;\" src=\"/static/images?res=doris-logo.png\">"
+            + "      </a>"
+            + "    </div>"
             + "    <div>"
-            + "      <ul class=\"nav nav-pills\" role=\"tablist\" style=\"display: inline-block;float: none; \">";
+            + "      <ul class=\"nav navbar-nav\" role=\"tablist\">";
     protected static final String NAVIGATION_BAR_SUFFIX =
               "      </ul>"
             + "    </div>"
@@ -145,18 +162,22 @@ public class WebBaseAction extends BaseAction {
         ActionAuthorizationInfo authInfo;
         try {
             authInfo = getAuthorizationInfo(request);
-            checkPassword(authInfo);
+            UserIdentity currentUser = checkPassword(authInfo);
             if (needAdmin()) {
-                checkGlobalAuth(authInfo, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                         PaloPrivilege.NODE_PRIV),
-                                                           Operator.OR));
+                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                        PaloPrivilege.NODE_PRIV), Operator.OR));
             }
             request.setAuthorized(true);
-            addSession(request, response, authInfo.fullUserName);
+            SessionValue value = new SessionValue();
+            value.currentUser = currentUser;
+            addSession(request, response, value);
 
             ConnectContext ctx = new ConnectContext(null);
             ctx.setQualifiedUser(authInfo.fullUserName);
             ctx.setRemoteIP(authInfo.remoteIp);
+            ctx.setCurrentUserIdentity(currentUser);
+            ctx.setCatalog(Catalog.getCurrentCatalog());
+            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
 
             return true;
@@ -171,8 +192,11 @@ public class WebBaseAction extends BaseAction {
         String sessionId = request.getCookieValue(PALO_SESSION_ID);
         HttpAuthManager authMgr = HttpAuthManager.getInstance();
         if (!Strings.isNullOrEmpty(sessionId)) {
-            String username = authMgr.getUsername(sessionId);
-            if (Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(request.getHostString(), username,
+            SessionValue sessionValue = authMgr.getSessionValue(sessionId);
+            if (sessionValue == null) {
+                return false;
+            }
+            if (Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(sessionValue.currentUser,
                                                                       PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
                                                                                                      PaloPrivilege.NODE_PRIV),
                                                                                        Operator.OR))) {
@@ -180,8 +204,11 @@ public class WebBaseAction extends BaseAction {
                 request.setAuthorized(true);
 
                 ConnectContext ctx = new ConnectContext(null);
-                ctx.setQualifiedUser(username);
+                ctx.setQualifiedUser(sessionValue.currentUser.getQualifiedUser());
                 ctx.setRemoteIP(request.getHostString());
+                ctx.setCurrentUserIdentity(sessionValue.currentUser);
+                ctx.setCatalog(Catalog.getCurrentCatalog());
+                ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
                 ctx.setThreadLocalInfo();
                 return true;
             }
@@ -202,7 +229,7 @@ public class WebBaseAction extends BaseAction {
     }
 
     protected void writeAuthResponse(BaseRequest request, BaseResponse response) {
-        response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+        response.updateHeader(HttpHeaderNames.WWW_AUTHENTICATE.toString(), "Basic realm=\"\"");
         writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
     }
 
@@ -210,50 +237,46 @@ public class WebBaseAction extends BaseAction {
         writeResponse(request, response, HttpResponseStatus.OK);
     }
 
-    protected void addSession(BaseRequest request, BaseResponse response, String value) {
+    protected void addSession(BaseRequest request, BaseResponse response, SessionValue value) {
         String key = UUID.randomUUID().toString();
         DefaultCookie cookie = new DefaultCookie(PALO_SESSION_ID, key);
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         response.addCookie(cookie);
-        HttpAuthManager.getInstance().addClient(key, value);
+        HttpAuthManager.getInstance().addSessionValue(key, value);
     }
 
     protected void getPageHeader(BaseRequest request, StringBuilder sb) {
         String newPageHeaderString = PAGE_HEADER;
-        newPageHeaderString = newPageHeaderString.replaceAll("<title>Baidu Palo</title>",
+        newPageHeaderString = newPageHeaderString.replaceAll("<title>Apache Doris</title>",
                                                              "<title>" + Config.cluster_name + "</title>");
 
         sb.append(newPageHeaderString);
         sb.append(NAVIGATION_BAR_PREFIX);
 
-        // TODO(lingbin): maybe should change to register the menu item?
-        sb.append("<li class=\"active\"><a href=\"/\">")
-            .append("Doris")
-            .append("</a></li>");
         if (request.isAuthorized()) {
-            sb.append("<li><a href=\"/system\">")
+            sb.append("<li id=\"nav_system\"><a href=\"/system\">")
                     .append("system")
                     .append("</a></li>");
-            sb.append("<li><a href=\"/backend\">")
+            sb.append("<li id=\"nav_backend\"><a href=\"/backend\">")
                     .append("backends")
                     .append("</a></li>");
-            sb.append("<li><a href=\"/log\">")
+            sb.append("<li id=\"nav_log\"><a href=\"/log\">")
                     .append("logs")
                     .append("</a></li>");
-            sb.append("<li><a href=\"/query\">")
+            sb.append("<li id=\"nav_query\"><a href=\"/query\">")
                     .append("queries")
                     .append("</a></li>");
-            sb.append("<li><a href=\"/session\">")
+            sb.append("<li id=\"nav_session\"><a href=\"/session\">")
                     .append("sessions")
                     .append("</a></li>");
-            sb.append("<li><a href=\"/variable\">")
+            sb.append("<li id=\"nav_variable\"><a href=\"/variable\">")
                     .append("variables")
                     .append("</a></li>");
-            sb.append("<li><a href=\"/ha\">")
+            sb.append("<li id=\"nav_ha\"><a href=\"/ha\">")
                     .append("ha")
                     .append("</a></li>");
         }
-        sb.append("<li><a href=\"/help\">")
+        sb.append("<li id=\"nav_help\"><a href=\"/help\">")
                 .append("help")
                 .append("</a></li></tr>");
 

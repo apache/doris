@@ -24,17 +24,19 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.math.LongMath;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -298,8 +300,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * The root node header line will be prefixed by rootPrefix and the remaining plan
      * output will be prefixed by prefix.
      */
-    protected final String getExplainString(String rootPrefix, String prefix,
-      TExplainLevel detailLevel) {
+    protected final String getExplainString(String rootPrefix, String prefix, TExplainLevel detailLevel) {
         StringBuilder expBuilder = new StringBuilder();
         String detailPrefix = prefix;
         boolean traverseChildren = children != null

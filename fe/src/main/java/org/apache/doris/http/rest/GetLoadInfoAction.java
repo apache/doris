@@ -25,6 +25,7 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -32,25 +33,22 @@ import io.netty.handler.codec.http.HttpMethod;
 
 // Get load information of one load job
 public class GetLoadInfoAction extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
-    public GetLoadInfoAction(ActionController controller) {
+    public GetLoadInfoAction(ActionController controller, boolean isStreamLoad) {
         super(controller);
     }
 
     public static void registerAction(ActionController controller)
             throws IllegalArgException {
-        GetLoadInfoAction action = new GetLoadInfoAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/{db}/_load_info", action);
+        GetLoadInfoAction action = new GetLoadInfoAction(controller, false);
+        controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/_load_info", action);
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
                                              request.getSingleParameter(LABEL_KEY),
-                                             authInfo.cluster);
+                                             ConnectContext.get().getClusterName());
         if (Strings.isNullOrEmpty(info.dbName)) {
             throw new DdlException("No database selected");
         }
@@ -64,25 +62,25 @@ public class GetLoadInfoAction extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
+
         try {
             catalog.getLoadInstance().getJobInfo(info);
             if (info.tblNames.isEmpty()) {
-                checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);
+                checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), info.dbName, PrivPredicate.LOAD);
             } else {
                 for (String tblName : info.tblNames) {
-                    checkTblAuth(authInfo, info.dbName, tblName, PrivPredicate.LOAD);
+                    checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), info.dbName, tblName,
+                            PrivPredicate.LOAD);
                 }
             }
         } catch (DdlException | MetaNotFoundException e) {
             catalog.getLoadManager().getLoadJobInfo(info);
         }
-
         sendResult(request, response, new Result(info));
     }
 
     private static class Result extends RestBaseResult {
         private Load.JobInfo jobInfo;
-
         public Result(Load.JobInfo info) {
             jobInfo = info;
         }

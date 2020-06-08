@@ -27,12 +27,10 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.system.HeartbeatFlags;
 
 // change one variable.
 public class SetVar {
-    private static final Logger LOG = LogManager.getLogger(SetVar.class);
 
     private String variable;
     private Expr value;
@@ -97,6 +95,11 @@ public class SetVar {
             return;
         }
 
+        // For the case like "set character_set_client = utf8", we change SlotRef to StringLiteral.
+        if (value instanceof SlotRef) {
+            value = new StringLiteral(((SlotRef) value).getColumnName());
+        }
+
         value.analyze(analyzer);
         if (!value.isConstant()) {
             throw new AnalysisException("Set statement does't support non-constant expr.");
@@ -106,12 +109,21 @@ public class SetVar {
         if (!(literalExpr instanceof LiteralExpr)) {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
- 
+
         result = (LiteralExpr)literalExpr;
+
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
             if (result != null && !UserResource.isValidGroup(result.getStringValue())) {
                 throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
+            }
+        }
+        if (variable.equalsIgnoreCase(SessionVariable.DEFAULT_ROWSET_TYPE)) {
+            if (type != SetType.GLOBAL) {
+                throw new AnalysisException("default_rowset_type must be global. use set global");
+            }
+            if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {
+                throw new AnalysisException("Invalid rowset type, now we support {alpha, beta}.");
             }
         }
     }

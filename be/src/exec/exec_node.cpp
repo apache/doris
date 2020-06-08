@@ -21,35 +21,34 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <unistd.h>
 
-#include "codegen/llvm_codegen.h"
-#include "codegen/codegen_anyval.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "exec/aggregation_node.h"
-#include "exec/partitioned_aggregation_node.h"
-#include "exec/new_partitioned_aggregation_node.h"
-#include "exec/csv_scan_node.h"
-#include "exec/es_scan_node.h"
-#include "exec/es_http_scan_node.h"
-#include "exec/pre_aggregation_node.h"
-#include "exec/hash_join_node.h"
+#include "exec/analytic_eval_node.h"
+#include "exec/assert_num_rows_node.h"
 #include "exec/broker_scan_node.h"
 #include "exec/cross_join_node.h"
+#include "exec/csv_scan_node.h"
 #include "exec/empty_set_node.h"
-#include "exec/mysql_scan_node.h"
-#include "exec/schema_scan_node.h"
+#include "exec/es_http_scan_node.h"
+#include "exec/es_scan_node.h"
+#include "exec/except_node.h"
 #include "exec/exchange_node.h"
+#include "exec/hash_join_node.h"
+#include "exec/intersect_node.h"
 #include "exec/merge_join_node.h"
 #include "exec/merge_node.h"
+#include "exec/mysql_scan_node.h"
 #include "exec/olap_rewrite_node.h"
 #include "exec/olap_scan_node.h"
-#include "exec/topn_node.h"
-#include "exec/sort_node.h"
-#include "exec/spill_sort_node.h"
-#include "exec/analytic_eval_node.h"
+#include "exec/partitioned_aggregation_node.h"
+#include "exec/repeat_node.h"
+#include "exec/schema_scan_node.h"
 #include "exec/select_node.h"
+#include "exec/spill_sort_node.h"
+#include "exec/topn_node.h"
 #include "exec/union_node.h"
+#include "exprs/expr_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/descriptors.h"
 #include "runtime/initial_reservations.h"
@@ -59,13 +58,6 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-
-using llvm::Function;
-using llvm::PointerType;
-using llvm::Type;
-using llvm::Value;
-using llvm::LLVMContext;
-using llvm::BasicBlock;
 
 namespace doris {
 
@@ -179,15 +171,13 @@ Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != NULL);
     _rows_returned_counter =
         ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
-    _memory_used_counter =
-        ADD_COUNTER(_runtime_profile, "MemoryUsed", TUnit::BYTES);
     _rows_returned_rate = runtime_profile()->add_derived_counter(
                               ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
                               boost::bind<int64_t>(&RuntimeProfile::units_per_second,
                                                    _rows_returned_counter,
                                                    runtime_profile()->total_time_counter()),
                               "");
-    _mem_tracker.reset(new MemTracker(-1, _runtime_profile->name(), state->instance_mem_tracker()));
+    _mem_tracker.reset(new MemTracker(_runtime_profile.get(), -1, _runtime_profile->name(), state->instance_mem_tracker()));
     _expr_mem_tracker.reset(new MemTracker(-1, "Exprs", _mem_tracker.get()));
     _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
     // TODO chenhao
@@ -346,7 +336,7 @@ Status ExecNode::create_tree_helper(
     }
 
     if (!node->_children.empty()) {
-        node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), false, NULL);
+        node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), true, NULL);
     }
 
     return Status::OK();
@@ -389,16 +379,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::AGGREGATION_NODE:
         if (config::enable_partitioned_aggregation) {
             *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
-        } else if (config::enable_new_partitioned_aggregation) {
-            *node = pool->add(new NewPartitionedAggregationNode(pool, tnode, descs));
         } else {
             *node = pool->add(new AggregationNode(pool, tnode, descs));
         }
         return Status::OK();
-
-        /*case TPlanNodeType::PRE_AGGREGATION_NODE:
-          *node = pool->add(new PreAggregationNode(pool, tnode, descs));
-          return Status::OK();*/
     case TPlanNodeType::HASH_JOIN_NODE:
         *node = pool->add(new HashJoinNode(pool, tnode, descs));
         return Status::OK();
@@ -447,8 +431,24 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new UnionNode(pool, tnode, descs));
         return Status::OK();
 
+    case TPlanNodeType::INTERSECT_NODE:
+        *node = pool->add(new IntersectNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::EXCEPT_NODE:
+        *node = pool->add(new ExceptNode(pool, tnode, descs));
+        return Status::OK();
+
     case TPlanNodeType::BROKER_SCAN_NODE:
         *node = pool->add(new BrokerScanNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::REPEAT_NODE:
+        *node = pool->add(new RepeatNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
+        *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
         return Status::OK();
 
     default:
@@ -530,6 +530,25 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
 }
 
+void ExecNode::try_do_aggregate_serde_improve() {
+    std::vector<ExecNode*> agg_node;
+    collect_nodes(TPlanNodeType::AGGREGATION_NODE, &agg_node);
+    if (agg_node.size() != 1) {
+        return;
+    }
+
+    if (agg_node[0]->_children.size() != 1) {
+        return;
+    }
+
+    if (agg_node[0]->_children[0]->type() != TPlanNodeType::OLAP_SCAN_NODE) {
+        return;
+    }
+
+    OlapScanNode* scan_node = static_cast<OlapScanNode*>(agg_node[0]->_children[0]);
+    scan_node->set_no_agg_finalize();
+}
+
 void ExecNode::init_runtime_profile(const std::string& name) {
     std::stringstream ss;
     ss << name << " (id=" << _id << ")";
@@ -557,118 +576,6 @@ Status ExecNode::exec_debug_action(TExecNodePhase::type phase) {
     return Status::OK();
 }
 
-// Codegen for EvalConjuncts.  The generated signature is
-// For a node with two conjunct predicates
-// define i1 @EvalConjuncts(%"class.impala::ExprContext"** %ctxs, i32 %num_ctxs,
-//                          %"class.impala::TupleRow"* %row) #20 {
-// entry:
-//   %ctx_ptr = getelementptr %"class.impala::ExprContext"** %ctxs, i32 0
-//   %ctx = load %"class.impala::ExprContext"** %ctx_ptr
-//   %result = call i16 @Eq_StringVal_StringValWrapper3(
-//       %"class.impala::ExprContext"* %ctx, %"class.impala::TupleRow"* %row)
-//   %is_null = trunc i16 %result to i1
-//   %0 = ashr i16 %result, 8
-//   %1 = trunc i16 %0 to i8
-//   %val = trunc i8 %1 to i1
-//   %is_false = xor i1 %val, true
-//   %return_false = or i1 %is_null, %is_false
-//   br i1 %return_false, label %false, label %continue
-//
-// continue:                                         ; preds = %entry
-//   %ctx_ptr2 = getelementptr %"class.impala::ExprContext"** %ctxs, i32 1
-//   %ctx3 = load %"class.impala::ExprContext"** %ctx_ptr2
-//   %result4 = call i16 @Gt_BigIntVal_BigIntValWrapper5(
-//       %"class.impala::ExprContext"* %ctx3, %"class.impala::TupleRow"* %row)
-//   %is_null5 = trunc i16 %result4 to i1
-//   %2 = ashr i16 %result4, 8
-//   %3 = trunc i16 %2 to i8
-//   %val6 = trunc i8 %3 to i1
-//   %is_false7 = xor i1 %val6, true
-//   %return_false8 = or i1 %is_null5, %is_false7
-//   br i1 %return_false8, label %false, label %continue1
-//
-// continue1:                                        ; preds = %continue
-//   ret i1 true
-//
-// false:                                            ; preds = %continue, %entry
-//   ret i1 false
-// }
-Function* ExecNode::codegen_eval_conjuncts(
-        RuntimeState* state, const std::vector<ExprContext*>& conjunct_ctxs, const char* name) {
-    Function* conjunct_fns[conjunct_ctxs.size()];
-    for (int i = 0; i < conjunct_ctxs.size(); ++i) {
-        Status status =
-            conjunct_ctxs[i]->root()->get_codegend_compute_fn(state, &conjunct_fns[i]);
-        if (!status.ok()) {
-            VLOG_QUERY << "Could not codegen EvalConjuncts: " << status.get_error_msg();
-            return NULL;
-        }
-    }
-    LlvmCodeGen* codegen = NULL;
-    if (!state->get_codegen(&codegen).ok()) {
-        return NULL;
-    }
-
-    // Construct function signature to match
-    // bool EvalConjuncts(Expr** exprs, int num_exprs, TupleRow* row)
-    Type* tuple_row_type = codegen->get_type(TupleRow::_s_llvm_class_name);
-    Type* expr_ctx_type = codegen->get_type(ExprContext::_s_llvm_class_name);
-
-    DCHECK(tuple_row_type != NULL);
-    DCHECK(expr_ctx_type != NULL);
-
-    PointerType* tuple_row_ptr_type = PointerType::get(tuple_row_type, 0);
-    PointerType* expr_ctx_ptr_type = PointerType::get(expr_ctx_type, 0);
-
-    LlvmCodeGen::FnPrototype prototype(codegen, name, codegen->get_type(TYPE_BOOLEAN));
-    prototype.add_argument(
-        LlvmCodeGen::NamedVariable("ctxs", PointerType::get(expr_ctx_ptr_type, 0)));
-    prototype.add_argument(
-        LlvmCodeGen::NamedVariable("num_ctxs", codegen->get_type(TYPE_INT)));
-    prototype.add_argument(LlvmCodeGen::NamedVariable("row", tuple_row_ptr_type));
-
-    LlvmCodeGen::LlvmBuilder builder(codegen->context());
-    Value* args[3];
-    Function* fn = prototype.generate_prototype(&builder, args);
-    Value* ctxs_arg = args[0];
-    Value* tuple_row_arg = args[2];
-
-    if (conjunct_ctxs.size() > 0) {
-        LLVMContext& context = codegen->context();
-        BasicBlock* false_block = BasicBlock::Create(context, "false", fn);
-
-        for (int i = 0; i < conjunct_ctxs.size(); ++i) {
-            BasicBlock* true_block = BasicBlock::Create(context, "continue", fn, false_block);
-
-            Value* ctx_arg_ptr = builder.CreateConstGEP1_32(ctxs_arg, i, "ctx_ptr");
-            Value* ctx_arg = builder.CreateLoad(ctx_arg_ptr, "ctx");
-            Value* expr_args[] = { ctx_arg, tuple_row_arg };
-
-            // Call conjunct_fns[i]
-            CodegenAnyVal result = CodegenAnyVal::create_call_wrapped(
-                codegen, &builder, conjunct_ctxs[i]->root()->type(),
-                conjunct_fns[i], expr_args, "result", NULL);
-
-            // Return false if result.is_null || !result
-            Value* is_null = result.get_is_null();
-            Value* is_false = builder.CreateNot(result.get_val(), "is_false");
-            Value* return_false = builder.CreateOr(is_null, is_false, "return_false");
-            builder.CreateCondBr(return_false, false_block, true_block);
-
-            // Set insertion point for continue/end
-            builder.SetInsertPoint(true_block);
-        }
-        builder.CreateRet(codegen->true_value());
-
-        builder.SetInsertPoint(false_block);
-        builder.CreateRet(codegen->false_value());
-    } else {
-        builder.CreateRet(codegen->true_value());
-    }
-
-    return codegen->finalize_function(fn);
-}
-
 Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     DCHECK(!_buffer_pool_client.is_registered());
     BufferPool* buffer_pool = ExecEnv::GetInstance()->buffer_pool();
@@ -686,7 +593,7 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
     RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(),
                                                 state->instance_buffer_reservation(),
-                                                mem_tracker(), _resource_profile.max_reservation, 
+                                                mem_tracker(), buffer_pool->GetSystemBytesLimit(), 
                                                 runtime_profile(),
                                                 &_buffer_pool_client));
     
@@ -724,10 +631,10 @@ Status ExecNode::enable_deny_reservation_debug_action() {
 }
 */
 
-Status ExecNode::QueryMaintenance(RuntimeState* state) {
+Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
   // TODO chenhao , when introduce latest AnalyticEvalNode open it
   // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
-  return state->check_query_state();
+  return state->check_query_state(msg);
 }
 
 }

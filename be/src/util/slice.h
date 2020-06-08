@@ -19,15 +19,17 @@
 #define DORIS_BE_SRC_OLAP_STRING_SLICE_H
 
 #include <assert.h>
+#include <iostream>
 #include <map>
+#include <vector>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <string>
 
-#include "olap/olap_define.h"
-
 namespace doris {
+
+class faststring;
 
 /// @brief A wrapper around externally allocated data.
 ///
@@ -66,6 +68,8 @@ public:
     /// Create a slice that refers to the contents of the given string.
     Slice(const std::string& s) : // NOLINT(runtime/explicit)
         data(const_cast<char*>(s.data())), size(s.size()) { }
+    
+    Slice(const faststring& s);
 
     /// Create a slice that refers to a C-string s[0,strlen(s)-1].
     Slice(const char* s) : // NOLINT(runtime/explicit)
@@ -165,6 +169,8 @@ public:
 
     friend bool operator==(const Slice& x, const Slice& y);
 
+    friend std::ostream& operator<< (std::ostream& os, const Slice& slice);
+
     static bool mem_equal(const void* a, const void* b, size_t n) {
         return memcmp(a, b, n) == 0;
     }
@@ -173,7 +179,28 @@ public:
         return memcmp(a, b, n);
     }
 
+    static size_t compute_total_size(const std::vector<Slice>& slices) {
+        size_t total_size = 0;
+        for (auto& slice : slices) {
+            total_size += slice.size;
+        }
+        return total_size;
+    }
+
+    static std::string to_string(const std::vector<Slice>& slices) {
+        std::string buf;
+        for (auto& slice : slices) {
+            buf.append(slice.data, slice.size);
+        }
+        return buf;
+    }
+
 };
+
+inline std::ostream& operator<< (std::ostream& os, const Slice& slice) {
+    os << slice.to_string();
+    return os;
+}
 
 /// Check whether two slices are identical.
 inline bool operator==(const Slice& x, const Slice& y) {
@@ -215,6 +242,55 @@ template <typename T>
 struct SliceMap {
     /// A handy typedef for the slice map with appropriate comparison operator.
     typedef std::map<Slice, T, Slice::Comparator> type;
+};
+
+// A move-only type which manage the lifecycle of externally allocated data.
+// Unlike std::unique_ptr<uint8_t[]>, OwnedSlice remembers the size of data so that clients can access
+// the underlying buffer as a Slice.
+//
+// Usage example:
+//   OwnedSlice read_page(PagePointer pp);
+//   {
+//     OwnedSlice page_data(new uint8_t[pp.size], pp.size);
+//     Status s = _file.read_at(pp.offset, owned.slice());
+//     if (!s.ok()) {
+//       return s; // `page_data` destructs, deallocate underlying buffer
+//     }
+//     return page_data; // transfer ownership of buffer into the caller
+//   }
+//
+class OwnedSlice {
+public:
+    OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
+
+    OwnedSlice(uint8_t* _data, size_t size) :_slice(_data, size) {}
+
+    OwnedSlice(OwnedSlice&& src) : _slice(src._slice) {
+        src._slice.data = nullptr;
+        src._slice.size = 0;
+    }
+
+    OwnedSlice& operator= (OwnedSlice&& src) {
+        if (this != &src) {
+            std::swap(_slice, src._slice);
+        }
+        return *this;
+    }
+
+    ~OwnedSlice(){
+        delete[] _slice.data;
+    }
+
+    const Slice& slice() const {
+        return _slice;
+    }
+
+private:
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
+
+    Slice _slice;
 };
 
 }  // namespace doris

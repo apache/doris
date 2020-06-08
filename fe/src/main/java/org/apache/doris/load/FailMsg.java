@@ -32,7 +32,8 @@ public class FailMsg implements Writable {
         ETL_QUALITY_UNSATISFIED,
         LOAD_RUN_FAIL,
         TIMEOUT,
-        UNKNOWN
+        UNKNOWN,
+        TXN_UNKNOWN // cancelled because txn status is unknown
     }
     
     private CancelType cancelType;
@@ -76,7 +77,6 @@ public class FailMsg implements Writable {
         Text.writeString(out, cancelType.name());
         Text.writeString(out, msg);
     }
-
     public void readFields(DataInput in) throws IOException {
         cancelType = CancelType.valueOf(Text.readString(in));
         msg = Text.readString(in);

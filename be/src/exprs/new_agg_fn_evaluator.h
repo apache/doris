@@ -200,8 +200,6 @@ class NewAggFnEvaluator {
   std::string DebugString() const;
   static std::string DebugString(const std::vector<NewAggFnEvaluator*>& evals);
 
-  static const char* LLVM_CLASS_NAME;
-
  private:
 
   uint64_t _total_mem_consumption;

@@ -34,6 +34,11 @@ public abstract class AgentTask {
     protected TResourceInfo resourceInfo;
 
     protected int failedTimes;
+    protected String errorMsg;
+    // some of process may use this member to check if the task is finished.
+    // some of are not.
+    // so whether the task is finished depends on caller's logic, not the value of this member.
+    protected boolean isFinished = false;
 
     public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
                      long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature) {
@@ -99,6 +104,22 @@ public abstract class AgentTask {
 
     public int getFailedTimes() {
         return this.failedTimes;
+    }
+
+    public void setErrorMsg(String errorMsg) {
+        this.errorMsg = errorMsg;
+    }
+
+    public String getErrorMsg() {
+        return errorMsg;
+    }
+
+    public void setFinished(boolean isFinished) {
+        this.isFinished = isFinished;
+    }
+
+    public boolean isFinished() {
+        return isFinished;
     }
 
     @Override

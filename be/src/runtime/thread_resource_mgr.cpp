@@ -21,6 +21,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "util/cpu_info.h"
 
@@ -41,6 +42,15 @@ ThreadResourceMgr::ThreadResourceMgr(int threads_quota) {
 ThreadResourceMgr::ThreadResourceMgr() {
     _system_threads_quota = CpuInfo::num_cores() * config::num_threads_per_core;
     _per_pool_quota = 0;
+}
+
+ThreadResourceMgr::~ThreadResourceMgr() {
+    for (auto pool : _free_pool_objs) {
+        delete pool;
+    }
+    for (auto pool : _pools) {
+        delete pool;
+    }
 }
 
 ThreadResourceMgr::ResourcePool::ResourcePool(ThreadResourceMgr* parent)
@@ -83,10 +93,12 @@ ThreadResourceMgr::ResourcePool* ThreadResourceMgr::register_pool() {
 void ThreadResourceMgr::unregister_pool(ResourcePool* pool) {
     DCHECK(pool != NULL);
     boost::unique_lock< boost::mutex> l(_lock);
-    DCHECK(_pools.find(pool) != _pools.end());
-    _pools.erase(pool);
-    _free_pool_objs.push_back(pool);
-    update_pool_quotas();
+    // this may be double unregisted after pr #3326 by LaiYingChun, so check if the pool is already unregisted
+    if (_pools.find(pool) != _pools.end()) {
+        _pools.erase(pool);
+        _free_pool_objs.push_back(pool);
+        update_pool_quotas();
+    }
 }
 
 void ThreadResourceMgr::ResourcePool::set_thread_available_cb(thread_available_cb fn) {

@@ -18,7 +18,10 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
@@ -32,7 +35,6 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // 查询请求的调度器
@@ -45,7 +47,7 @@ public class ConnectScheduler {
     private AtomicInteger nextConnectionId;
     private Map<Long, ConnectContext> connectionMap = Maps.newHashMap();
     private Map<String, AtomicInteger> connByUser = Maps.newHashMap();
-    private ExecutorService executor = Executors.newCachedThreadPool();
+    private ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_connection_scheduler_threads_num, "connect-scheduler-pool");
 
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
@@ -81,6 +83,10 @@ public class ConnectScheduler {
             return false;
         }
         context.setConnectionId(nextConnectionId.getAndAdd(1));
+        // no necessary for nio.
+        if(context instanceof NConnectContext){
+            return true;
+        }
         if (executor.submit(new LoopHandler(context)) == null) {
             LOG.warn("Submit one thread failed.");
             return false;
@@ -171,7 +177,12 @@ public class ConnectScheduler {
                 ConnectProcessor processor = new ConnectProcessor(context);
                 processor.loop();
             } catch (Exception e) {
-                LOG.warn("connect processor exception because ", e);
+                // for unauthrorized access such lvs probe request, may cause exception, just log it in debug level
+                if (context.getCurrentUserIdentity() != null) {
+                    LOG.warn("connect processor exception because ", e);
+                } else {
+                    LOG.debug("connect processor exception because ", e);
+                }
             } finally {
                 unregisterConnection(context);
                 context.cleanup();

@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
 #define DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
 
-#include "olap/wrapper_field.h"
-
 namespace doris {
+
+class WrapperField;
 
 struct ColumnMapping {
     ColumnMapping() : ref_column(-1), default_value(nullptr) {}

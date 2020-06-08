@@ -53,7 +53,7 @@ MemIndex::~MemIndex() {
     }
 }
 
-OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per_row_block) {
+OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per_row_block, bool use_cache) {
     OLAPStatus res = OLAP_SUCCESS;
 
     SegmentMetaInfo meta;
@@ -67,10 +67,18 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     }
 
     FileHandler file_handler;
-    if ((res = file_handler.open_with_cache(file, O_RDONLY)) != OLAP_SUCCESS) {
-        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
-        return res;
+    if (use_cache) {
+        if ((res = file_handler.open_with_cache(file, O_RDONLY)) != OLAP_SUCCESS) {
+            LOG(WARNING) << "open index error. file=" << file << ", res=" << res;
+            return res;
+        }
+    } else {
+        if ((res = file_handler.open(file, O_RDONLY)) != OLAP_SUCCESS) {
+            LOG(WARNING) << "open index error. file=" << file << ", res=" << res;
+            return res;
+        }
     }
+    
 
     if ((res = meta.file_header.unserialize(&file_handler)) != OLAP_SUCCESS) {
         LOG(WARNING) << "load index error. file=" << file << ", res=" << res;

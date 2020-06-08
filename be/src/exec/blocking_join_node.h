@@ -57,8 +57,6 @@ public:
     // BlockingJoinNode::close().
     virtual Status close(RuntimeState* state);
 
-    static const char* LLVM_CLASS_NAME;
-
 private:
     const std::string _node_name;
     TJoinOp::type _join_op;

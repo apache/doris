@@ -17,24 +17,17 @@
 
 package org.apache.doris.task;
 
-import java.util.List;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
 import org.apache.doris.thrift.TTaskType;
 
-public class ClearTransactionTask extends AgentTask {
+import java.util.List;
 
-    private static final Logger LOG = LogManager.getLogger(ClearTransactionTask.class);
+public class ClearTransactionTask extends AgentTask {
 
     private long transactionId;
     private List<Long> partitionIds;
-    private boolean isFinished;
 
-    public ClearTransactionTask(long backendId, long transactionId, 
-            List<Long> partitionIds) {
+    public ClearTransactionTask(long backendId, long transactionId, List<Long> partitionIds) {
         super(null, backendId, TTaskType.CLEAR_TRANSACTION_TASK, -1L, -1L, -1L, -1L, -1L, transactionId);
         this.transactionId = transactionId;
         this.partitionIds = partitionIds;
@@ -42,16 +35,8 @@ public class ClearTransactionTask extends AgentTask {
     }
     
     public TClearTransactionTaskRequest toThrift() {
-        TClearTransactionTaskRequest clearTransactionTaskRequest = new TClearTransactionTaskRequest(transactionId, 
-                partitionIds);
+        TClearTransactionTaskRequest clearTransactionTaskRequest = new TClearTransactionTaskRequest(
+            transactionId, partitionIds);
         return clearTransactionTaskRequest;
-    }
-    
-    public void setFinished() {
-        this.isFinished = true;
-    }
-    
-    public boolean isFinished() {
-        return this.isFinished;
     }
 }

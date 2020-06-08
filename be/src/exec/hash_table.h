@@ -25,17 +25,10 @@
 #include "common/logging.h"
 #include "util/hash_util.hpp"
 
-namespace llvm {
-
-class Function;
-
-}
-
 namespace doris {
 
 class Expr;
 class ExprContext;
-class LlvmCodeGen;
 class RowDescriptor;
 class Tuple;
 class TupleRow;
@@ -98,7 +91,9 @@ public:
     HashTable(
         const std::vector<ExprContext*>& build_exprs,
         const std::vector<ExprContext*>& probe_exprs,
-        int num_build_tuples, bool stores_nulls, int32_t initial_seed,
+        int num_build_tuples, bool stores_nulls, 
+        const std::vector<bool>& finds_nulls,
+        int32_t initial_seed,
         MemTracker* mem_tracker,
         int64_t num_buckets);
 
@@ -118,6 +113,14 @@ public:
         insert_impl(row);
     }
 
+    // Insert row into the hash table. if the row is alread exist will not insert
+    void IR_ALWAYS_INLINE insert_unique(TupleRow* row) {
+        if (find(row, false) == end()) {
+            insert(row);
+        }
+    }
+
+
     // Returns the start iterator for all rows that match 'probe_row'.  'probe_row' is
     // evaluated with _probe_expr_ctxs.  The iterator can be iterated until HashTable::end()
     // to find all the matching rows.
@@ -127,7 +130,7 @@ public:
     // Advancing the returned iterator will go to the next matching row.  The matching
     // rows are evaluated lazily (i.e. computed as the Iterator is moved).
     // Returns HashTable::end() if there is no match.
-    Iterator IR_ALWAYS_INLINE find(TupleRow* probe_row);
+    Iterator IR_ALWAYS_INLINE find(TupleRow* probe_row, bool probe = true);
 
     // Returns number of elements in the hash table
     int64_t size() {
@@ -177,21 +180,6 @@ public:
         return Iterator();
     }
 
-    /// Codegen for evaluating a tuple row.  Codegen'd function matches the signature
-    /// for EvalBuildRow and EvalTupleRow.
-    /// if build_row is true, the codegen uses the build_exprs, otherwise the probe_exprs
-    llvm::Function* codegen_eval_tuple_row(RuntimeState* state, bool build_row);
-
-    /// Codegen for hashing the expr values in '_expr_values_buffer'.  Function
-    /// prototype matches hash_current_row identically.
-    llvm::Function* codegen_hash_current_row(RuntimeState* state);
-
-    /// Codegen for evaluating a TupleRow and comparing equality against
-    /// '_expr_values_buffer'.  Function signature matches HashTable::Equals()
-    llvm::Function* codegen_equals(RuntimeState* state);
-
-    static const char* _s_llvm_class_name;
-
     // Dump out the entire hash table to string.  If skip_empty, empty buckets are
     // skipped.  If build_desc is non-null, the build rows will be output.  Otherwise
     // just the build row addresses.
@@ -215,6 +203,11 @@ public:
                 return NULL;
             }
             return _table->get_node(_node_idx)->data();
+        }
+
+        // Returns Hash
+        uint32_t get_hash() {
+            return _table->get_node(_node_idx)->_hash;
         }
 
         // Returns if the iterator is at the end
@@ -384,7 +377,11 @@ private:
 
     // Number of Tuple* in the build tuple row
     const int _num_build_tuples;
+    // outer join || has null equal join should be true
     const bool _stores_nulls;
+    // true: the null-safe equal '<=>' is true. The row with null shoud be judged.
+    // false: the equal '=' is false. The row with null should be filtered.
+    const std::vector<bool> _finds_nulls;
 
     const int32_t _initial_seed;
 

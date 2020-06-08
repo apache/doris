@@ -25,7 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 import java.util.List;
 import java.util.Map;
@@ -88,7 +88,7 @@ abstract public class ScanNode extends PlanNode {
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(this).add("tid", desc.getId().asInt()).add("tblName",
+        return MoreObjects.toStringHelper(this).add("tid", desc.getId().asInt()).add("tblName",
                 desc.getTable().getName()).add("keyRanges", "").addValue(
                 super.debugString()).toString();
     }

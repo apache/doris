@@ -81,6 +81,40 @@ public:
         }
     }
 
+    bool non_blocking_get(T* out) {
+        MonotonicStopWatch timer;
+        boost::unique_lock<boost::mutex> unique_lock(_lock);
+
+        while (true) {
+            if (!_queue.empty()) {
+                // 定期提高队列中残留的任务优先级
+                // 保证优先级较低的大查询不至于完全饿死
+                if (_upgrade_counter > config::priority_queue_remaining_tasks_increased_frequency) {
+                    std::priority_queue<T> tmp_queue;
+                    while (!_queue.empty()) {
+                        T v = _queue.top();
+                        _queue.pop();
+                        ++v;
+                        tmp_queue.push(v);
+                    }
+                    swap(_queue, tmp_queue);
+                    _upgrade_counter = 0;
+                }
+                *out = _queue.top();
+                _queue.pop();
+                ++_upgrade_counter;
+                _total_get_wait_time += timer.elapsed_time();
+                unique_lock.unlock();
+                _put_cv.notify_one();
+                return true;
+            }
+            if (_shutdown) {
+                return false;
+            }
+            return false;
+        }
+    }
+
     // Puts an element into the queue, waiting indefinitely until there is space.
     // If the queue is shut down, returns false.
     bool blocking_put(const T& val) {

@@ -18,17 +18,20 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.Load;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -36,15 +39,21 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.collect.Maps;
 
 import org.junit.Assert;
+import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Map;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Mocked;
 
 public class LoadJobTest {
+
+    @BeforeClass
+    public static void start() {
+        MetricRepo.init();
+    }
 
     @Test
     public void testGetDbNotExists(@Mocked Catalog catalog) {
@@ -53,6 +62,7 @@ public class LoadJobTest {
         new Expectations() {
             {
                 catalog.getDb(1L);
+                minTimes = 0;
                 result = null;
             }
         };
@@ -100,11 +110,14 @@ public class LoadJobTest {
     @Test
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked MasterTaskExecutor masterTaskExecutor)
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
-                globalTransactionMgr.beginTransaction(anyLong, anyString, anyLong, anyString, (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
+                globalTransactionMgr.beginTransaction(anyLong, Lists.newArrayList(), anyString, (TUniqueId) any,
+                        (TransactionState.TxnCoordinator) any,
+                        (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
+                minTimes = 0;
                 result = 1;
             }
         };
@@ -150,6 +163,7 @@ public class LoadJobTest {
         new Expectations() {
             {
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
             }
         };
@@ -168,9 +182,15 @@ public class LoadJobTest {
 
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
-                                          @Mocked LongCounterMetric longCounterMetric) {
-        metricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
+            @Mocked LongCounterMetric longCounterMetric) {
+        
+        MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
+        
+        // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
+        Catalog catalog = Catalog.getCurrentCatalog();
+        GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
+        Deencapsulation.setField(catalog, "globalTransactionMgr", mgr);
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));

@@ -23,8 +23,6 @@
 
 namespace doris {
 
-const char* DecimalValue::_s_llvm_class_name = "class.doris::DecimalValue";
-
 // set the 1st param if the second param is smaller.
 template<typename T> inline void set_if_smaller(T* num1_ptr, const T num2) {
     if (*num1_ptr > num2) {

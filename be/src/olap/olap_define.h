@@ -36,6 +36,8 @@ static const uint32_t OLAP_DEFAULT_MAX_PACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 20;
 static const uint32_t OLAP_DEFAULT_MAX_UNPACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 100;
 // 列存储文件的块大小,由于可能会被全部载入内存,所以需要严格控制大小, 这里定义为256MB
 static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
+// 列存储文件大小的伸缩性
+static const double OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9;
 // 在列存储文件中, 数据分块压缩, 每个块的默认压缩前的大小
 static const uint32_t OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE = 10 * 1024;
 // 在列存储文件中, 对字符串使用字典编码的字典大小门限
@@ -48,10 +50,8 @@ static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 // 执行be/ce时默认的候选集大小
 static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
-// the max length supported for string type
+// the max length supported for varchar type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
-
-static const int32_t PREFERRED_SNAPSHOT_VERSION = 2;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
@@ -78,9 +78,6 @@ static const std::string INCREMENTAL_DELTA_PREFIX = "/incremental_delta";
 static const std::string CLONE_PREFIX = "/clone";
 
 static const int32_t OLAP_DATA_VERSION_APPLIED = DORIS_V1;
-
-// column文件大小的伸缩性
-static const float OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9f;
 
 static const uint32_t MAX_POSITION_SIZE = 16;
 
@@ -165,6 +162,9 @@ enum OLAPStatus {
     OLAP_ERR_TRANSACTION_ALREADY_VISIBLE = -229,
     OLAP_ERR_VERSION_ALREADY_MERGED = -230,
     OLAP_ERR_LZO_DISABLED = -231,
+    OLAP_ERR_DISK_REACH_CAPACITY_LIMIT = -232,
+    OLAP_ERR_TOO_MANY_TRANSACTIONS = -233,
+    OLAP_ERR_INVALID_SNAPSHOT_VERSION = -234,
 
     // CommandExecutor
     // [-300, -400)
@@ -228,6 +228,7 @@ enum OLAPStatus {
     OLAP_ERR_BE_TRY_BE_LOCK_ERROR = -809,
     OLAP_ERR_BE_INVALID_NEED_MERGED_VERSIONS = -810,
     OLAP_ERR_BE_ERROR_DELETE_ACTION = -811,
+    OLAP_ERR_BE_SEGMENTS_OVERLAPPING = -812,
 
     // PUSH
     // [-900, -1000)
@@ -244,9 +245,9 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
     // only support realtime push api, batch process is deprecated and is removed
-    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912, 
-    OLAP_ERR_PUSH_COMMIT_ROWSET = -913, 
-    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914, 
+    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912,
+    OLAP_ERR_PUSH_COMMIT_ROWSET = -913,
+    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914,
 
     // SegmentGroup
     // [-1000, -1100)
@@ -334,6 +335,7 @@ enum OLAPStatus {
     OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE = -2003,
     OLAP_ERR_CUMULATIVE_INVALID_NEED_MERGED_VERSIONS = -2004,
     OLAP_ERR_CUMULATIVE_ERROR_DELETE_ACTION = -2005,
+    OLAP_ERR_CUMULATIVE_MISS_VERSION = -2006,
 
     // OLAPMeta
     // [-3000, -3100)
@@ -351,12 +353,16 @@ enum OLAPStatus {
     OLAP_ERR_ROWSET_WRITER_INIT = -3100,
     OLAP_ERR_ROWSET_SAVE_FAILED = -3101,
     OLAP_ERR_ROWSET_GENERATE_ID_FAILED = -3102,
-    OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED = -3103,
+    OLAP_ERR_ROWSET_DELETE_FILE_FAILED = -3103,
     OLAP_ERR_ROWSET_BUILDER_INIT = -3104,
     OLAP_ERR_ROWSET_TYPE_NOT_FOUND = -3105,
     OLAP_ERR_ROWSET_ALREADY_EXIST = -3106,
     OLAP_ERR_ROWSET_CREATE_READER = -3107,
-    OLAP_ERR_ROWSET_INVALID = -3108
+    OLAP_ERR_ROWSET_INVALID = -3108,
+    OLAP_ERR_ROWSET_LOAD_FAILED = -3109,
+    OLAP_ERR_ROWSET_READER_INIT = -3110,
+    OLAP_ERR_ROWSET_READ_FAILED = -3111,
+    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112
 };
 
 enum ColumnFamilyIndex {
@@ -380,12 +386,30 @@ const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";
 
+#if defined(__GNUC__)
+#define OLAP_LIKELY(x) __builtin_expect((x), 1)
+#define OLAP_UNLIKELY(x) __builtin_expect((x), 0)
+#else
+#define OLAP_LIKELY(x)
+#define OLAP_UNLIKELY(x)
+#endif
+
 #ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s) do { \
-    OLAPStatus _s = (s);      \
-    if (_s != OLAP_SUCCESS) { \
-        return _s; \
-    } \
+#define RETURN_NOT_OK(s) do {                           \
+    OLAPStatus _s = (s);                                \
+    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
+        return _s;                                      \
+    }                                                   \
+} while (0);
+#endif
+
+#ifndef RETURN_NOT_OK_LOG
+#define RETURN_NOT_OK_LOG(s, msg) do {                  \
+    OLAPStatus _s = (s);                                \
+    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
+        LOG(WARNING) << (msg) << "[res=" << _s <<"]";   \
+        return _s;                                      \
+    }                                                   \
 } while (0);
 #endif
 
@@ -432,9 +456,6 @@ const std::string ROWSET_ID_PREFIX = "s_";
             ptr = NULL; \
         } \
     } while (0)
-
-#define OLAP_LIKELY(x) __builtin_expect((x), 1)
-#define OLAP_UNLIKELY(x) __builtin_expect((x), 0)
 
 #ifndef BUILD_VERSION
 #define BUILD_VERSION "Unknow"

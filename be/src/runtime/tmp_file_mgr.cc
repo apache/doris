@@ -59,7 +59,6 @@ TmpFileMgr::TmpFileMgr(ExecEnv* exec_env) :
         // _num_active_scratch_dirs_metric(NULL), _active_scratch_dirs_metric(NULL) {}
 
 Status TmpFileMgr::init(MetricRegistry* metrics) {
-    std::string tmp_dirs_spec = config::storage_root_path;
     vector<string> all_tmp_dirs;
     for (auto& path : _exec_env->store_paths()) {
         all_tmp_dirs.emplace_back(path.path);
@@ -120,7 +119,7 @@ Status TmpFileMgr::init_custom(
     }
 
     DCHECK(metrics != NULL);
-    _num_active_scratch_dirs_metric.reset(new IntGauge());
+    _num_active_scratch_dirs_metric.reset(new IntGauge(MetricUnit::NUMBER));
     metrics->register_metric("active_scratch_dirs", _num_active_scratch_dirs_metric.get());
     //_active_scratch_dirs_metric = metrics->register_metric(new SetMetric<std::string>(
     //        TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST,

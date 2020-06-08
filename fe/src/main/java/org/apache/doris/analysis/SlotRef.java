@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -24,8 +25,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Preconditions;
 
 import org.apache.logging.log4j.LogManager;
@@ -35,6 +36,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class SlotRef extends Expr {
     private static final Logger LOG = LogManager.getLogger(SlotRef.class);
@@ -44,7 +48,7 @@ public class SlotRef extends Expr {
     private String label;
 
     // results of analysis
-    private SlotDescriptor desc;
+    protected SlotDescriptor desc;
 
     // Only used write
     private SlotRef() {
@@ -68,7 +72,7 @@ public class SlotRef extends Expr {
         this.type = desc.getType();
         // TODO(zc): label is meaningful
         this.label = null;
-        if (this.type == Type.CHAR) {
+        if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
         analysisDone();
@@ -85,10 +89,6 @@ public class SlotRef extends Expr {
     @Override
     public Expr clone() {
         return new SlotRef(this);
-    }
-
-    public boolean isHllType() {
-        return this.type == Type.HLL;
     }
 
     public SlotDescriptor getDesc() {
@@ -124,7 +124,7 @@ public class SlotRef extends Expr {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         desc = analyzer.registerColumnRef(tblName, col);
         type = desc.getType();
-        if (this.type == Type.CHAR) {
+        if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
         if (!type.isSupported()) {
@@ -132,14 +132,14 @@ public class SlotRef extends Expr {
                     "Unsupported type '" + type.toString() + "' in '" + toSql() + "'.");
         }
         numDistinctValues = desc.getStats().getNumDistinctValues();
-        if (type == Type.BOOLEAN) {
+        if (type.equals(Type.BOOLEAN)) {
             selectivity = DEFAULT_SELECTIVITY;
         }
     }
 
     @Override
     public String debugString() {
-        ToStringHelper helper = Objects.toStringHelper(this);
+        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         helper.add("slotDesc", desc != null ? desc.debugString() : "null");
         helper.add("col", col);
         helper.add("label", label);
@@ -162,6 +162,15 @@ public class SlotRef extends Expr {
             return tblName.toSql() + "." + label + sb.toString();
         } else if (label != null) {
             return label + sb.toString();
+        } else if (desc.getSourceExprs() != null) {
+            if (desc.getId().asInt() != 1) {
+                sb.append("<slot " + Integer.toString(desc.getId().asInt()) + ">");
+            }
+            for (Expr expr : desc.getSourceExprs()) {
+                sb.append(" ");
+                sb.append(expr.toSql());
+            }
+            return sb.toString();
         } else {
             return "<slot " + Integer.toString(desc.getId().asInt()) + ">" + sb.toString();
         }
@@ -204,7 +213,7 @@ public class SlotRef extends Expr {
         if (desc != null) {
             return desc.getId().hashCode();
         }
-        return Objects.hashCode((tblName.toSql() + "." + label).toLowerCase());
+        return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
     }
 
     @Override
@@ -253,13 +262,39 @@ public class SlotRef extends Expr {
 
     @Override
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
-        Preconditions.checkState(type != Type.INVALID);
+        Preconditions.checkState(!type.equals(Type.INVALID));
         Preconditions.checkState(desc != null);
         if (slotIds != null) {
             slotIds.add(desc.getId());
         }
         if (tupleIds != null) {
             tupleIds.add(desc.getParent().getId());
+        }
+    }
+
+    @Override
+    public void getTableNameToColumnNames(Map<String, Set<String>> tupleDescToColumnNames) {
+        Preconditions.checkState(desc != null);
+        if (!desc.isMaterialized()) {
+            return;
+        }
+        if (col == null) {
+            for (Expr expr : desc.getSourceExprs()) {
+                expr.getTableNameToColumnNames(tupleDescToColumnNames);
+            }
+        } else {
+            Table table = desc.getParent().getTable();
+            if (table == null) {
+                // Maybe this column comes from inline view.
+                return;
+            }
+            String tableName = table.getName();
+            Set<String> columnNames = tupleDescToColumnNames.get(tableName);
+            if (columnNames == null) {
+                columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                tupleDescToColumnNames.put(tableName, columnNames);
+            }
+            columnNames.add(desc.getColumn().getName());
         }
     }
 
@@ -288,7 +323,6 @@ public class SlotRef extends Expr {
         Text.writeString(out, col);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             tblName = new TableName();

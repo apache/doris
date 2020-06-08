@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -33,8 +34,6 @@ import org.junit.Test;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class GrantStmtTest {
     private Analyzer analyzer;
@@ -46,30 +45,35 @@ public class GrantStmtTest {
     @Mocked
     private Catalog catalog;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         auth = new PaloAuth();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = "root";
 
                 ctx.getRemoteIP();
+                minTimes = 0;
                 result = "192.168.0.1";
 
+                ctx.getCurrentUserIdentity();
+                minTimes = 0;
+                result = UserIdentity.createAnalyzedUserIdentWithIp("root", "%");
+
                 Catalog.getCurrentCatalog();
+                minTimes = 0;
                 result = catalog;
 
                 catalog.getAuth();
+                minTimes = 0;
                 result = auth;
             }
         };
@@ -88,6 +92,24 @@ public class GrantStmtTest {
         privileges = Lists.newArrayList(AccessPrivilege.READ_ONLY, AccessPrivilege.ALL);
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testResourceNormal() throws UserException {
+        // TODO(wyb): spark-load
+        GrantStmt.disableGrantResource = false;
+
+        String resourceName = "spark0";
+        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
+        GrantStmt stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern(resourceName), privileges);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(resourceName, stmt.getResourcePattern().getResourceName());
+        Assert.assertEquals(PaloAuth.PrivLevel.RESOURCE, stmt.getResourcePattern().getPrivLevel());
+
+        stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern("*"), privileges);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(PaloAuth.PrivLevel.GLOBAL, stmt.getResourcePattern().getPrivLevel());
+        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '*' TO 'testCluster:testUser'@'%'", stmt.toSql());
     }
 
     @Test(expected = AnalysisException.class)

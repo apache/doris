@@ -32,7 +32,7 @@ import com.google.common.collect.ImmutableList;
 public class AuthProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("UserIdentity").add("Password").add("GlobalPrivs").add("DatabasePrivs")
-            .add("TablePrivs").build();
+            .add("TablePrivs").add("ResourcePrivs").build();
 
     private PaloAuth auth;
 
@@ -63,7 +63,7 @@ public class AuthProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        result.setRows(Catalog.getCurrentCatalog().getAuth().getAuthInfo(null, true /* is all */));
+        result.setRows(Catalog.getCurrentCatalog().getAuth().getAuthInfo(null /* get all user */));
         return result;
     }
 }

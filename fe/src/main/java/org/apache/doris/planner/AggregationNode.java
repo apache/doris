@@ -22,24 +22,24 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotId;
-//import org.apache.doris.thrift.TAggregateFunctionCall;
-import org.apache.doris.thrift.TExpr;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.common.UserException;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+
+//import org.apache.doris.thrift.TAggregateFunctionCall;
 
 /**
  * Aggregation computation.
@@ -128,11 +128,11 @@ public class AggregationNode extends PlanNode {
             // conjuncts bound by those grouping slots in createEquivConjuncts() (IMPALA-2089).
             // Those conjuncts cannot be redundant because our equivalence classes do not
             // capture dependencies with non-SlotRef exprs.
-            Set<SlotId> groupBySlots = Sets.newHashSet();
-            for (int i = 0; i < aggInfo.getGroupingExprs().size(); ++i) {
-                if (aggInfo.getGroupingExprs().get(i).unwrapSlotRef(true) == null) continue;
-                groupBySlots.add(aggInfo.getOutputTupleDesc().getSlots().get(i).getId());
-            }
+            // Set<SlotId> groupBySlots = Sets.newHashSet();
+            // for (int i = 0; i < aggInfo.getGroupingExprs().size(); ++i) {
+            //    if (aggInfo.getGroupingExprs().get(i).unwrapSlotRef(true) == null) continue;
+            //    groupBySlots.add(aggInfo.getOutputTupleDesc().getSlots().get(i).getId());
+            // }
             // ArrayList<Expr> bindingPredicates =
             //         analyzer.getBoundPredicates(tupleIds.get(0), groupBySlots, true);
             ArrayList<Expr> bindingPredicates = Lists.newArrayList();
@@ -206,19 +206,6 @@ public class AggregationNode extends PlanNode {
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
         sb.append("AGGREGATE");
-    /*
-    if (aggInfo.isMerge() || needsFinalize) {
-      sb.append(" (");
-      if (aggInfo.isMerge() && needsFinalize) {
-        sb.append("merge finalize");
-      } else if (aggInfo.isMerge()) {
-        sb.append("merge");
-      } else {
-        sb.append("finalize");
-      }
-      sb.append(")");
-    }
-    */
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");
@@ -236,7 +223,7 @@ public class AggregationNode extends PlanNode {
 
     @Override
     protected String debugString() {
-        return Objects.toStringHelper(this).add("aggInfo", aggInfo.debugString()).addValue(
+        return MoreObjects.toStringHelper(this).add("aggInfo", aggInfo.debugString()).addValue(
           super.debugString()).toString();
     }
 

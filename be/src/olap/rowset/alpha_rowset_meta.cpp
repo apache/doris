@@ -25,8 +25,8 @@ void AlphaRowsetMeta::get_segment_groups(std::vector<SegmentGroupPB>* segment_gr
     if (!_has_alpha_rowset_extra_meta_pb()) {
         return;
     }
-    const AlphaRowsetExtraMetaPB& alpha_rowset_extra_meta_pb = _alpha_rowset_extra_meta_pb();
-    for (auto& segment_group : alpha_rowset_extra_meta_pb.segment_groups()) {
+    const AlphaRowsetExtraMetaPB& alpha_rowset_extra_meta = alpha_rowset_extra_meta_pb();
+    for (auto& segment_group : alpha_rowset_extra_meta.segment_groups()) {
         segment_groups->push_back(segment_group);
     }
 }

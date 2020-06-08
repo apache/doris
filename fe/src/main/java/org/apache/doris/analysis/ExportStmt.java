@@ -128,7 +128,14 @@ public class ExportStmt extends StatementBase {
         tableRef.analyze(analyzer);
 
         this.tblName = tableRef.getName();
-        this.partitions = tableRef.getPartitions();
+
+        PartitionNames partitionNames = tableRef.getPartitionNames();
+        if (partitionNames != null) {
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Do not support exporting temporary partitions");
+            }
+            partitions = partitionNames.getPartitionNames();
+        }
 
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
@@ -189,7 +196,6 @@ public class ExportStmt extends StatementBase {
                 case OLAP:
                     break;
                 case BROKER:
-                case KUDU:
                 case SCHEMA:
                 case INLINE_VIEW:
                 case VIEW:

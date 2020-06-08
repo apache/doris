@@ -24,7 +24,11 @@
 namespace doris {
 
 enum JsonFunctionType {
-    JSON_FUN_INT = 0, JSON_FUN_DOUBLE, JSON_FUN_STRING
+    JSON_FUN_INT = 0,
+    JSON_FUN_DOUBLE,
+    JSON_FUN_STRING,
+
+    JSON_FUN_UNKOWN //The last
 };
 
 class Expr;
@@ -32,20 +36,20 @@ class OpcodeRegistry;
 class TupleRow;
 
 struct JsonPath {
-	std::string key; // key of a json object
-	int idx;    // array index of a json array, -1 means not set
-	bool is_valid;  // true if the path is successfully parsed
+    std::string key; // key of a json object
+    int idx;    // array index of a json array, -1 means not set
+    bool is_valid;  // true if the path is successfully parsed
 
-	JsonPath(const std::string& key_, int idx_, bool is_valid_):
-		key(key_),
-		idx(idx_),
-		is_valid(is_valid_) {}
+    JsonPath(const std::string& key_, int idx_, bool is_valid_):
+        key(key_),
+        idx(idx_),
+        is_valid(is_valid_) {}
 
-	std::string debug_string() {
-		std::stringstream ss;
-		ss << "key: " << key << ", idx: " << idx << ", valid: " << is_valid;
-		return ss.str();
-	}
+    std::string debug_string() {
+        std::stringstream ss;
+        ss << "key: " << key << ", idx: " << idx << ", valid: " << is_valid;
+        return ss.str();
+    }
 };
 
 class JsonFunctions {
@@ -62,22 +66,33 @@ public:
         const doris_udf::StringVal& path);
 
     static rapidjson::Value* get_json_object(
-			FunctionContext* context,
+            FunctionContext* context,
             const std::string& json_string, const std::string& path_string,
             const JsonFunctionType& fntype, rapidjson::Document* document);
 
-	static void json_path_prepare(
-			doris_udf::FunctionContext*,
-			doris_udf::FunctionContext::FunctionStateScope);
+    /**
+     * The `document` parameter must be has parsed.
+     * return Value Is Array object
+     */
+    static rapidjson::Value* get_json_array_from_parsed_json(
+            const std::string& path_string,
+            rapidjson::Value* document,
+            rapidjson::Document::AllocatorType& mem_allocator);
 
-	static void json_path_close(
-			doris_udf::FunctionContext*,
-			doris_udf::FunctionContext::FunctionStateScope);
+    static void json_path_prepare(
+            doris_udf::FunctionContext*,
+            doris_udf::FunctionContext::FunctionStateScope);
+
+    static void json_path_close(
+            doris_udf::FunctionContext*,
+            doris_udf::FunctionContext::FunctionStateScope);
 private:
-
-	static void get_parsed_paths(
-			const std::vector<std::string>& path_exprs,
-			std::vector<JsonPath>* parsed_paths);
+    static rapidjson::Value* match_value(std::vector<JsonPath>& parsed_paths,
+            rapidjson::Value* document, rapidjson::Document::AllocatorType& mem_allocator,
+            bool is_insert_null = false);
+    static void get_parsed_paths(
+            const std::vector<std::string>& path_exprs,
+            std::vector<JsonPath>* parsed_paths);
 };
 }
 #endif

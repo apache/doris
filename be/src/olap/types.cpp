@@ -19,12 +19,17 @@
 
 namespace doris {
 
+void (*FieldTypeTraits<OLAP_FIELD_TYPE_CHAR>::set_to_max)(void*) = nullptr;
+
 template<typename TypeTraitsClass>
 TypeInfo::TypeInfo(TypeTraitsClass t)
       : _equal(TypeTraitsClass::equal),
         _cmp(TypeTraitsClass::cmp),
-        _copy_with_pool(TypeTraitsClass::copy_with_pool),
-        _copy_without_pool(TypeTraitsClass::copy_without_pool),
+        _shallow_copy(TypeTraitsClass::shallow_copy),
+        _deep_copy(TypeTraitsClass::deep_copy),
+        _copy_object(TypeTraitsClass::copy_object),
+        _direct_copy(TypeTraitsClass::direct_copy),
+        _convert_from(TypeTraitsClass::convert_from),
         _from_string(TypeTraitsClass::from_string),
         _to_string(TypeTraitsClass::to_string),
         _set_to_max(TypeTraitsClass::set_to_max),
@@ -73,6 +78,7 @@ TypeInfoResolver::TypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
     add_mapping<OLAP_FIELD_TYPE_HLL>();
+    add_mapping<OLAP_FIELD_TYPE_OBJECT>();
 }
 
 TypeInfoResolver::~TypeInfoResolver() {}

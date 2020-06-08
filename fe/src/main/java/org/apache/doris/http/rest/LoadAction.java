@@ -25,6 +25,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -42,10 +43,6 @@ import io.netty.handler.codec.http.HttpMethod;
 public class LoadAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(LoadAction.class);
 
-    public static final String CLUSTER_NAME_PARAM = "cluster";
-    public static final String DB_NAME_PARAM = "db";
-    public static final String TABLE_NAME_PARAM = "table";
-    public static final String LABEL_NAME_PARAM = "label";
     public static final String SUB_LABEL_NAME_PARAM = "sub_label";
 
     private ExecuteEnv execEnv;
@@ -65,48 +62,49 @@ public class LoadAction extends RestBaseAction {
         ExecuteEnv execEnv = ExecuteEnv.getInstance();
         LoadAction action = new LoadAction(controller, execEnv);
         controller.registerHandler(HttpMethod.PUT,
-                "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_load", action);
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", action);
 
         controller.registerHandler(HttpMethod.PUT,
-                "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_stream_load",
-                new LoadAction(controller, execEnv, true));
+                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load",
+                                   new LoadAction(controller, execEnv, true));
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo,
-            BaseRequest request, BaseResponse response) throws DdlException {
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
 
         // A 'Load' request must have 100-continue header
         if (!request.getRequest().headers().contains(HttpHeaders.Names.EXPECT)) {
             throw new DdlException("There is no 100-continue header");
         }
 
-        final String clusterName = authInfo.cluster;
+        final String clusterName = ConnectContext.get().getClusterName();
         if (Strings.isNullOrEmpty(clusterName)) {
             throw new DdlException("No cluster selected.");
         }
 
-        String dbName = request.getSingleParameter(DB_NAME_PARAM);
+        String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No database selected.");
         }
 
-        String tableName = request.getSingleParameter(TABLE_NAME_PARAM);
-        if (Strings.isNullOrEmpty(dbName)) {
+        String tableName = request.getSingleParameter(TABLE_KEY);
+        if (Strings.isNullOrEmpty(tableName)) {
             throw new DdlException("No table selected.");
         }
         
-        String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
+        String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
 
-        String label = request.getSingleParameter(LABEL_NAME_PARAM);
+        String label = request.getSingleParameter(LABEL_KEY);
         if (!isStreamLoad) {
             if (Strings.isNullOrEmpty(label)) {
                 throw new DdlException("No label selected.");
             }
+        } else {
+            label = request.getRequest().headers().get(LABEL_KEY);
         }
  
         // check auth
-        checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.LOAD);
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
 
         if (!isStreamLoad && !Strings.isNullOrEmpty(request.getSingleParameter(SUB_LABEL_NAME_PARAM))) {
             // only multi mini load need to redirect to Master, because only Master has the info of table to

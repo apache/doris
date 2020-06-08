@@ -22,7 +22,7 @@
 #include "olap/rowset/segment_writer.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/row_block.h"
-
+#include "olap/row.h"
 
 namespace doris {
 
@@ -40,7 +40,7 @@ ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
       _is_push_write(is_push_write),
       _compress_kind(compress_kind),
       _bloom_filter_fpp(bloom_filter_fpp),
-      _zone_maps(segment_group->get_num_key_columns(), KeyRange(NULL, NULL)),
+      _zone_maps(segment_group->get_num_zone_map_columns(), KeyRange(NULL, NULL)),
       _row_index(0),
       _row_block(NULL),
       _segment_writer(NULL),
@@ -122,9 +122,12 @@ OLAPStatus ColumnDataWriter::_init_segment() {
     return res;
 }
 
-OLAPStatus ColumnDataWriter::write(RowCursor* row_cursor) {
-    _row_block->set_row(_row_index, *row_cursor);
-    next(*row_cursor);
+template<typename RowType>
+OLAPStatus ColumnDataWriter::write(const RowType& row) {
+    // copy input row to row block
+    _row_block->get_row(_row_index, &_cursor);
+    copy_row(&_cursor, row, _row_block->mem_pool());
+    next(row);
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
             LOG(WARNING) << "failed to flush data while attaching row cursor.";
@@ -135,44 +138,18 @@ OLAPStatus ColumnDataWriter::write(RowCursor* row_cursor) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus ColumnDataWriter::write(const char* row, const Schema* schema) {
-    _row_block->set_row(_row_index, row);
-    next(row, schema);
-    if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
-        if (OLAP_SUCCESS != _flush_row_block(false)) {
-            LOG(WARNING) << "failed to flush data while attaching row cursor.";
-            return OLAP_ERR_OTHER_ERROR;
-        }
-        RETURN_NOT_OK(_flush_segment_with_verfication());
-    }
-    return OLAP_SUCCESS;
-}
+template<typename RowType>
+void ColumnDataWriter::next(const RowType& row) {
+    for (size_t cid = 0; cid < _segment_group->get_num_zone_map_columns(); ++cid) {
+        auto field = row.schema()->column(cid);
+        auto cell = row.cell(cid);
 
-
-void ColumnDataWriter::next(const RowCursor& row_cursor) {
-    for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
-        char* right = row_cursor.get_field_by_index(i)->get_field_ptr(row_cursor.get_buf());
-        if (_zone_maps[i].first->cmp(right) > 0) {
-            _zone_maps[i].first->copy(right);
+        if (field->compare_cell(*_zone_maps[cid].first, cell) > 0) {
+            field->direct_copy(_zone_maps[cid].first, cell);
         }
 
-        if (_zone_maps[i].second->cmp(right) < 0) {
-            _zone_maps[i].second->copy(right);
-        }
-    }
-
-    ++_row_index;
-}
-
-void ColumnDataWriter::next(const char* row, const Schema* schema) {
-    for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
-        char* right = const_cast<char*>(row + schema->get_col_offset(i));
-        if (_zone_maps[i].first->cmp(right) > 0) {
-            _zone_maps[i].first->copy(right);
-        }
-
-        if (_zone_maps[i].second->cmp(right) < 0) {
-            _zone_maps[i].second->copy(right);
+        if (field->compare_cell(*_zone_maps[cid].second, cell) < 0) {
+            field->direct_copy(_zone_maps[cid].second, cell);
         }
     }
 
@@ -302,7 +279,7 @@ OLAPStatus ColumnDataWriter::_flush_segment_with_verfication() {
     OLAPStatus res = _finalize_segment();
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to finalize segment. [res=%d]", res);
-        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
+        return res;
     }
 
     _new_segment_created = false;
@@ -314,12 +291,12 @@ OLAPStatus ColumnDataWriter::_finalize_segment() {
     OLAPStatus res = OLAP_SUCCESS;
     uint32_t data_segment_size;
 
-    if (OLAP_SUCCESS != _segment_writer->finalize(&data_segment_size)) {
+    if ((res =  _segment_writer->finalize(&data_segment_size)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to finish segment from olap_data.");
-        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
+        return res;
     }
 
-    if (OLAP_SUCCESS != _segment_group->finalize_segment(data_segment_size, _num_rows)) {
+    if ((res != _segment_group->finalize_segment(data_segment_size, _num_rows)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to finish segment from olap_index.");
         return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
     }
@@ -340,5 +317,11 @@ MemPool* ColumnDataWriter::mem_pool() {
 CompressKind ColumnDataWriter::compress_kind() {
     return _compress_kind;
 }
+
+template OLAPStatus ColumnDataWriter::write<RowCursor>(const RowCursor& row);
+template OLAPStatus ColumnDataWriter::write<ContiguousRow>(const ContiguousRow& row);
+
+template void ColumnDataWriter::next<RowCursor>(const RowCursor& row);
+template void ColumnDataWriter::next<ContiguousRow>(const ContiguousRow& row);
 
 }  // namespace doris

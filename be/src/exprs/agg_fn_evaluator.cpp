@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "codegen/llvm_codegen.h"
 #include "common/logging.h"
 #include "exec/aggregation_node.h"
 #include "exprs/aggregate_functions.h"
@@ -192,9 +191,6 @@ Status AggFnEvaluator::prepare(
     // TODO: this should be made identical for the builtin and UDA case by
     // putting all this logic in an improved opcode registry.
 
-    DCHECK_EQ(_function_type, TFunctionBinaryType::BUILTIN);
-
-
     // Load the function pointers. Merge is not required if this is evaluating an
     // analytic function.
     if (_fn.aggregate_fn.init_fn_symbol.empty() ||
@@ -210,41 +206,41 @@ Status AggFnEvaluator::prepare(
     // Load the function pointers.
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, _fn.aggregate_fn.init_fn_symbol,
-            _hdfs_location, _fn.checksum, &_init_fn, NULL));
+             _fn.hdfs_location, _fn.checksum, &_init_fn, NULL));
 
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, _fn.aggregate_fn.update_fn_symbol,
-            _hdfs_location, _fn.checksum, &_update_fn, NULL));
+            _fn.hdfs_location, _fn.checksum, &_update_fn, NULL));
 
     // Merge() is not loaded if evaluating the agg fn as an analytic function.
     if (!_is_analytic_fn) {
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, _fn.aggregate_fn.merge_fn_symbol,
-            _hdfs_location, _fn.checksum, &_merge_fn, NULL));
+            _fn.hdfs_location, _fn.checksum, &_merge_fn, NULL));
     }
 
     // Serialize and Finalize are optional
     if (!_fn.aggregate_fn.serialize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.serialize_fn_symbol,
-                _hdfs_location, _fn.checksum, &_serialize_fn, NULL));
+                _fn.hdfs_location, _fn.checksum, &_serialize_fn, NULL));
     }
     if (!_fn.aggregate_fn.finalize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.finalize_fn_symbol,
-                _hdfs_location, _fn.checksum, &_finalize_fn, NULL));
+                _fn.hdfs_location, _fn.checksum, &_finalize_fn, NULL));
     }
 
     if (!_fn.aggregate_fn.get_value_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.get_value_fn_symbol,
-                _hdfs_location, _fn.checksum, &_get_value_fn,
+                _fn.hdfs_location, _fn.checksum, &_get_value_fn,
                 NULL));
     }
     if (!_fn.aggregate_fn.remove_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.remove_fn_symbol,
-                _hdfs_location, _fn.checksum, &_remove_fn,
+                _fn.hdfs_location, _fn.checksum, &_remove_fn,
                 NULL));
     }
 
@@ -329,7 +325,8 @@ inline void AggFnEvaluator::set_any_val(
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL: 
+    case TYPE_HLL:
+    case TYPE_OBJECT:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -404,6 +401,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_OBJECT:
         *reinterpret_cast<StringValue*>(slot) =
             StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
         return;
@@ -598,7 +596,8 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
 
         case TYPE_CHAR:
         case TYPE_VARCHAR:
-        case TYPE_HLL:  {
+        case TYPE_HLL:
+        case TYPE_OBJECT: {
             StringVal* value = reinterpret_cast<StringVal*>(_staging_input_vals[i]);
             memcpy(begin, value->ptr, value->len);
             begin += value->len;
@@ -940,7 +939,8 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
 
     case TYPE_CHAR:
     case TYPE_VARCHAR: 
-    case TYPE_HLL :{
+    case TYPE_HLL:
+    case TYPE_OBJECT: {
         typedef StringVal(*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);

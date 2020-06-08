@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.alter.AlterJob;
-import org.apache.doris.alter.RollupHandler;
-import org.apache.doris.alter.RollupJob;
+import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 
@@ -34,26 +34,26 @@ public class RollupProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("TableName").add("CreateTime").add("FinishedTime")
             .add("BaseIndexName").add("RollupIndexName").add("RollupId").add("TransactionId")
-            .add("State").add("Msg") .add("Progress")
+            .add("State").add("Msg").add("Progress").add("Timeout")
             .build();
 
-    private RollupHandler rollupHandler;
+    private MaterializedViewHandler materializedViewHandler;
     private Database db;
 
-    public RollupProcDir(RollupHandler rollupHandler, Database db) {
-        this.rollupHandler = rollupHandler;
+    public RollupProcDir(MaterializedViewHandler materializedViewHandler, Database db) {
+        this.materializedViewHandler = materializedViewHandler;
         this.db = db;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         Preconditions.checkNotNull(db);
-        Preconditions.checkNotNull(rollupHandler);
+        Preconditions.checkNotNull(materializedViewHandler);
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> rollupJobInfos = rollupHandler.getAlterJobInfosByDb(db);
+        List<List<Comparable>> rollupJobInfos = materializedViewHandler.getAlterJobInfosByDb(db);
         for (List<Comparable> infoStr : rollupJobInfos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : infoStr) {
@@ -70,25 +70,25 @@ public class RollupProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String tableIdStr) throws AnalysisException {
-        if (Strings.isNullOrEmpty(tableIdStr)) {
-            throw new AnalysisException("Table id is null");
+    public ProcNodeInterface lookup(String jobIdStr) throws AnalysisException {
+        if (Strings.isNullOrEmpty(jobIdStr)) {
+            throw new AnalysisException("Job id is null");
         }
 
-        long tableId = -1L;
+        long jobId = -1L;
         try {
-            tableId = Long.valueOf(tableIdStr);
+            jobId = Long.valueOf(jobIdStr);
         } catch (Exception e) {
-            throw new AnalysisException("Table id is invalid");
+            throw new AnalysisException("Job id is invalid");
         }
 
-        Preconditions.checkState(tableId != -1L);
-        AlterJob job = rollupHandler.getAlterJob(tableId);
+        Preconditions.checkState(jobId != -1L);
+        AlterJobV2 job = materializedViewHandler.getUnfinishedAlterJobV2ByJobId(jobId);
         if (job == null) {
             return null;
         }
 
-        return new RollupJobProcDir((RollupJob) job);
+        return new RollupJobProcNode((RollupJobV2) job);
     }
 
 }

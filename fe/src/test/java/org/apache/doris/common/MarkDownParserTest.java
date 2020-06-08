@@ -117,16 +117,47 @@ public class MarkDownParserTest {
         Assert.fail("No exception throws.");
     }
 
-    @Test(expected = UserException.class)
-    public void testErrorState() throws UserException {
+//    When encounter a headlevel at 3 or greater, we ignore it rather than throw exception
+//    @Test(expected = UserException.class)
+//    public void testErrorState() throws UserException {
+//        List<String> lines = Lists.newArrayList();
+//        lines.add("# SHOW TABLES");
+//        lines.add("## name");
+//        lines.add("### name");
+//        MarkDownParser parser = new MarkDownParser(lines);
+//        Map<String, Map<String, String>> map = parser.parse();
+//        Assert.fail("No exception throws.");
+//    }
+
+    @Test
+    public void testMultiHeadLevel() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add("# SHOW TABLES");
         lines.add("## name");
-        lines.add("### name");
+        lines.add(" SHOW TABLES");
+        lines.add("## description");
+        lines.add("###Syntax");
+        lines.add("SYNTAX:\n\tSHOW TABLES [FROM] database");
+        lines.add("####Parameter");
+        lines.add(">table_name");
+        lines.add("## example");
+        lines.add("show tables;");
+        lines.add("### Exam1");
+        lines.add("exam1");
+        lines.add("## keyword");
+        lines.add("SHOW, TABLES");
+        lines.add("## url");
+        lines.add("http://www.baidu.com");
         MarkDownParser parser = new MarkDownParser(lines);
         Map<String, Map<String, String>> map = parser.parse();
-        Assert.fail("No exception throws.");
+        Assert.assertNotNull(map.get("SHOW TABLES"));
+        Assert.assertEquals(" SHOW TABLES\n", map.get("SHOW TABLES").get("name"));
+        Assert.assertEquals("Syntax\nSYNTAX:\n\tSHOW TABLES [FROM] database\nParameter\n>table_name\n", map.get("SHOW TABLES").get("description"));
+        Assert.assertEquals("show tables;\n Exam1\nexam1\n", map.get("SHOW TABLES").get("example"));
+        Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keyword"));
+        Assert.assertEquals("http://www.baidu.com\n", map.get("SHOW TABLES").get("url"));
     }
+
 
     @Test
     public void testEmptyTitle() throws UserException {

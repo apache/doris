@@ -25,6 +25,16 @@ public enum KeysType {
     UNIQUE_KEYS,
     AGG_KEYS;
 
+    public boolean isAggregationFamily() {
+        switch (this) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public TKeysType toThrift() {
         switch (this) {
             case PRIMARY_KEYS:
@@ -35,6 +45,21 @@ public enum KeysType {
                 return TKeysType.UNIQUE_KEYS;
             case AGG_KEYS:
                 return TKeysType.AGG_KEYS;
+            default:
+                return null;
+        }
+    }
+
+    public static KeysType fromThrift(TKeysType tKeysType) {
+        switch (tKeysType) {
+            case PRIMARY_KEYS:
+                return KeysType.PRIMARY_KEYS;
+            case DUP_KEYS:
+                return KeysType.DUP_KEYS;
+            case UNIQUE_KEYS:
+                return KeysType.UNIQUE_KEYS;
+            case AGG_KEYS:
+                return KeysType.AGG_KEYS;
             default:
                 return null;
         }

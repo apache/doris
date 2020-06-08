@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -173,7 +173,7 @@ public final class AnalyticInfo extends AggregateInfoBase {
     @Override
     public String debugString() {
         StringBuilder out = new StringBuilder(super.debugString());
-        out.append(Objects.toStringHelper(this)
+        out.append(MoreObjects.toStringHelper(this)
                 .add("analytic_exprs", Expr.debugString(analyticExprs_))
                 .add("smap", analyticTupleSmap_.debugString())
                 .toString());

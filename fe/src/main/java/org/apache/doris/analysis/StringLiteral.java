@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,6 +36,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
@@ -202,6 +204,12 @@ public class StringLiteral extends LiteralExpr {
             } catch (AnalysisException e) {
                 // pass;
             }
+        } else if (targetType.equals(type)) {
+            return this;
+        } else if (targetType.isStringType()) {
+            StringLiteral stringLiteral = new StringLiteral(this);
+            stringLiteral.setType(targetType);
+            return stringLiteral;
         }
         return super.uncheckedCastTo(targetType);
     }
@@ -212,7 +220,6 @@ public class StringLiteral extends LiteralExpr {
         Text.writeString(out, value);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = Text.readString(in);
@@ -222,5 +229,10 @@ public class StringLiteral extends LiteralExpr {
         StringLiteral literal = new StringLiteral();
         literal.readFields(in);
         return literal;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(value);
     }
 }

@@ -63,8 +63,9 @@ struct TColumnDef {
 struct TDescribeTableParams {
   1: optional string db
   2: required string table_name
-  3: optional string user
-  4: optional string user_ip
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 // Results of a call to describeTable()
@@ -279,8 +280,9 @@ struct TExecRequest {
 struct TGetDbsParams {
   // If not set, match every database
   1: optional string pattern
-  2: optional string user
-  3: optional string user_ip
+  2: optional string user   // deprecated
+  3: optional string user_ip    // deprecated
+  4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 // getDbNames returns a list of database names
@@ -296,8 +298,9 @@ struct TGetTablesParams {
 
   // If not set, match every table
   2: optional string pattern 
-  3: optional string user 
-  4: optional string user_ip
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 struct TTableStatus {
@@ -305,6 +308,8 @@ struct TTableStatus {
     2: required string type
     3: required string comment
     4: optional string engine
+    5: optional i64 last_check_time
+    6: optional i64 create_time
 }
 
 struct TListTableStatusResult {
@@ -367,6 +372,10 @@ struct TReportExecStatusParams {
   13: optional list<string> export_files 
 
   14: optional list<Types.TTabletCommitInfo> commitInfos
+
+  15: optional i64 loaded_rows
+
+  16: optional i64 backend_id
 }
 
 struct TFeResult {
@@ -404,9 +413,18 @@ struct TMasterOpRequest {
     3: required string sql 
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
-    6: optional i64 execMemLimit
-    7: optional i32 queryTimeout
+    6: optional i64 execMemLimit // deprecated, move into query_options
+    7: optional i32 queryTimeout // deprecated, move into query_options
     8: optional string user_ip
+    9: optional string time_zone
+    10: optional i64 stmt_id
+    11: optional i64 sqlMode
+    12: optional i64 loadMemLimit // deprecated, move into query_options
+    13: optional bool enableStrictMode
+    // this can replace the "user" field
+    14: optional Types.TUserIdentity current_user_ident
+    15: optional i32 stmtIdx  // the idx of the sql in multi statements
+    16: optional PaloInternalService.TQueryOptions query_options
 }
 
 struct TColumnDefinition {
@@ -455,7 +473,8 @@ struct TMiniLoadBeginRequest {
     9: optional i64 timeout_second
     10: optional double max_filter_ratio 
     11: optional i64 auth_code
-    12: optional i64 create_timestamp;
+    12: optional i64 create_timestamp
+    13: optional Types.TUniqueId request_id
 }
 
 struct TIsMethodSupportedRequest {
@@ -481,15 +500,17 @@ struct TLoadTxnBeginRequest {
     5: required string tbl
     6: optional string user_ip
     7: required string label
-    8: optional i64 timestamp
+    8: optional i64 timestamp   // deprecated, use request_id instead
     9: optional i64 auth_code
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
+    11: optional Types.TUniqueId request_id
 }
 
 struct TLoadTxnBeginResult {
     1: required Status.TStatus status
     2: optional i64 txnId
+    3: optional string job_status // if label already used, set status of existing job
 }
 
 // StreamLoad request, used to load a streaming to engine
@@ -523,6 +544,12 @@ struct TStreamLoadPutRequest {
     16: optional i64 auth_code
     17: optional bool negative
     18: optional i32 timeout
+    19: optional bool strictMode
+    20: optional string timezone
+    21: optional i64 execMemLimit
+    22: optional bool isTempPartition
+    23: optional bool strip_outer_array
+    24: optional string jsonpaths
 }
 
 struct TStreamLoadPutResult {

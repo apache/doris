@@ -19,10 +19,12 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -41,6 +43,7 @@ import org.apache.doris.load.PartitionLoadInfo;
 import org.apache.doris.load.Source;
 import org.apache.doris.load.TableLoadInfo;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -67,7 +70,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
     @Override
     protected void createEtlRequest() throws Exception {
-        // yiguolei: add a db read lock here? because the schema maybe changed during create etl task
         db.readLock();
         try {
             EtlTaskConf taskConf = new EtlTaskConf();
@@ -88,6 +90,19 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
     
             etlTaskConf = taskConf.toDppTaskConf();
             Preconditions.checkNotNull(etlTaskConf);
+
+            // add table indexes to transaction state
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(job.getDbId(), job.getTransactionId());
+            if (txnState == null) {
+                throw new LoadException("txn does not exist: " + job.getTransactionId());
+            }
+            for (long tableId : job.getIdToTableLoadInfo().keySet()) {
+                OlapTable table = (OlapTable) db.getTable(tableId);
+                if (table == null) {
+                    throw new LoadException("table does not exist. id: " + tableId);
+                }
+                txnState.addTableIndexes(table);
+            }
         } finally {
             db.readUnlock();
         }
@@ -166,10 +181,11 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         Map<String, EtlIndex> etlIndices = Maps.newHashMap();
 
         TableLoadInfo tableLoadInfo = job.getTableLoadInfo(table.getId());
-        for (Entry<Long, List<Column>> entry : table.getIndexIdToSchema().entrySet()) {
+        for (Entry<Long, MaterializedIndexMeta> entry : table.getIndexIdToMeta().entrySet()) {
             long indexId = entry.getKey();
+            MaterializedIndexMeta indexMeta = entry.getValue();
 
-            List<Column> indexColumns = entry.getValue();
+            List<Column> indexColumns = indexMeta.getSchema();
 
             Partition partition = table.getPartition(partitionId);
             if (partition == null) {
@@ -182,7 +198,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             etlIndex.setIndexId(indexId);
 
             // schema hash
-            int schemaHash = table.getSchemaHashByIndexId(indexId);
+            int schemaHash = indexMeta.getSchemaHash();
             etlIndex.setSchemaHash(schemaHash);
             tableLoadInfo.addIndexSchemaHash(indexId, schemaHash);
 
@@ -204,7 +220,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                         } else {
                             aggregation = aggregateType.name();
                         }
-                    } else if ("UNIQUE_KEYS" == table.getKeysType().name()) {
+                    } else if (table.getKeysType().name().equalsIgnoreCase("UNIQUE_KEYS")) {
                         aggregation = "REPLACE";
                     }
                     dppColumn.put("aggregation_method", aggregation);
@@ -528,6 +544,9 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                     break;
                 case HLL:
                     columnType = "HLL";
+                    break;
+                case BITMAP:
+                    columnType = "BITMAP";
                     break;
                 case DECIMAL:
                     columnType = "DECIMAL";

@@ -21,17 +21,20 @@
 #include <stdio.h>
 #include <sstream>
 
-#include "common/status.h"
-#include "http/http_client.h"
-#include "runtime/exec_env.h"
-#include "util/file_utils.h"
-#include "util/md5.h"
-
-#include <boost/algorithm/string/split.hpp> // boost::split
 #include <boost/algorithm/string/predicate.hpp> // boost::algorithm::starts_with
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 
+#include "gutil/strings/split.h"
+
+#include "common/status.h"
+#include "env/env.h"
 #include "gen_cpp/HeartbeatService.h"
+#include "http/http_client.h"
+#include "runtime/exec_env.h"
+#include "util/doris_metrics.h"
+#include "util/file_utils.h"
+#include "util/md5.h"
+
 
 namespace doris {
 
@@ -40,6 +43,10 @@ SmallFileMgr::SmallFileMgr(
         const std::string& local_path) :
     _exec_env(env),
     _local_path(local_path) {
+    REGISTER_GAUGE_DORIS_METRIC(small_file_cache_count, [this]() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _file_cache.size();
+    });
 }
 
 SmallFileMgr::~SmallFileMgr() {
@@ -53,15 +60,18 @@ Status SmallFileMgr::init() {
 Status SmallFileMgr::_load_local_files() {
     RETURN_IF_ERROR(FileUtils::create_dir(_local_path));
 
-    auto scan_cb = [this] (const std::string& dir, const std::string& file) {
-        auto st = _load_single_file(dir, file);
+    auto scan_cb = [this] (const char* file) {
+        if (is_dot_or_dotdot(file)) {
+            return true;
+        }
+        auto st = _load_single_file(_local_path, file);
         if (!st.ok()) {
             LOG(WARNING) << "load small file failed: " << st.get_error_msg();
         }
         return true;
     };
 
-    RETURN_IF_ERROR(FileUtils::scan_dir(_local_path, scan_cb));
+    RETURN_IF_ERROR(Env::Default()->iterate_dir(_local_path, scan_cb));
     return Status::OK();
 }
 
@@ -70,14 +80,13 @@ Status SmallFileMgr::_load_single_file(
         const std::string& file_name) {
     // file name format should be like:
     // file_id.md5
-    std::vector<std::string> parts;
-    boost::split(parts, file_name, boost::is_any_of("."));
+    std::vector<std::string> parts = strings::Split(file_name, ".");
     if (parts.size() != 2) {
         return Status::InternalError("Not a valid file name: " + file_name);
     }
     int64_t file_id = std::stol(parts[0]);
     std::string md5 = parts[1];
-    
+
     if (_file_cache.find(file_id) != _file_cache.end()) {
         return Status::InternalError("File with same id is already been loaded: " + file_id);
     }
@@ -91,7 +100,7 @@ Status SmallFileMgr::_load_single_file(
     CacheEntry entry;
     entry.path = path + "/" + file_name;
     entry.md5 = file_md5;
-    
+
     _file_cache.emplace(file_id, entry);
     return Status::OK();
 }
@@ -102,7 +111,7 @@ Status SmallFileMgr::get_file(
         std::string* file_path) {
 
     std::unique_lock<std::mutex> l(_lock);
-    // find in cache 
+    // find in cache
     auto it = _file_cache.find(file_id);
     if (it != _file_cache.end()) {
         // find the cached file, check it
@@ -126,7 +135,7 @@ Status SmallFileMgr::get_file(
     // file not found in cache. download it from FE
     RETURN_IF_ERROR(_download_file(file_id, md5, file_path));
 
-    return Status::OK(); 
+    return Status::OK();
 }
 
 Status SmallFileMgr::_check_file(const CacheEntry& entry, const std::string& md5) {
@@ -162,13 +171,9 @@ Status SmallFileMgr::_download_file(
     HttpClient client;
 
     std::stringstream url_ss;
-#ifndef BE_TEST
     TMasterInfo* master_info = _exec_env->master_info();
     url_ss << master_info->network_address.hostname << ":" << master_info->http_port << "/api/get_small_file?"
         << "file_id=" << file_id << "&token=" << master_info->token;
-#else
-    url_ss << "127.0.0.1:29997/api/get_small_file?file_id=" << file_id;
-#endif
 
     std::string url = url_ss.str();
 
@@ -222,7 +227,7 @@ Status SmallFileMgr::_download_file(
     entry.md5 = md5;
     _file_cache.emplace(file_id, entry);
 
-    *file_path = real_file_path; 
+    *file_path = real_file_path;
 
     LOG(INFO) << "finished to download file: " << file_path;
     return Status::OK();

@@ -27,6 +27,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "runtime/string_value.h"
+#include "util/debug/leakcheck_disabler.h"
 
 namespace doris {
 
@@ -75,7 +76,7 @@ TEST_F(BooleanQueryBuilderTest, range_query) {
     range_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "range query" << actual_json;
-    ASSERT_STREQ("{\"range\":{\"k\":{\"ge\":\"a\"}}}", actual_json.c_str());
+    ASSERT_STREQ("{\"range\":{\"k\":{\"gte\":\"a\"}}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, es_query) {
@@ -178,6 +179,25 @@ TEST_F(BooleanQueryBuilderTest, match_all_query) {
     ASSERT_STREQ("{\"match_all\":{}}", actual_json.c_str());
 }
 
+TEST_F(BooleanQueryBuilderTest, exists_query) {
+    // k1 is not null
+    // {"exists":{"field":"k1"}}
+    std::string exists_field = "k1";
+    int exists_field_length = exists_field.length();
+    TypeDescriptor exists_col_type_desc = TypeDescriptor::create_varchar_type(exists_field_length);
+    ExtIsNullPredicate isNullPredicate(TExprNodeType::IS_NULL_PRED, "k1", exists_col_type_desc, true);
+    ExistsQueryBuilder exists_query(isNullPredicate);
+    rapidjson::Document document;
+    rapidjson::Value exists_query_value(rapidjson::kObjectType);
+    exists_query_value.SetObject();
+    exists_query.to_json(&document, &exists_query_value);
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    exists_query_value.Accept(writer);
+    std::string actual_json = buffer.GetString();
+    ASSERT_STREQ("{\"exists\":{\"field\":\"k1\"}}", actual_json.c_str());
+}
+
 
 TEST_F(BooleanQueryBuilderTest, bool_query) {
     // content like 'a%e%g_'
@@ -229,9 +249,14 @@ TEST_F(BooleanQueryBuilderTest, bool_query) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     bool_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
-    std::string expected_json = "{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"ge\":\"a\"}}},{\"term\":{\"content\":\"wyf\"}}]}}";
+    std::string expected_json = "{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"gte\":\"a\"}}},{\"term\":{\"content\":\"wyf\"}}]}}";
     //LOG(INFO) << "bool query" << actual_json;
     ASSERT_STREQ(expected_json.c_str(), actual_json.c_str());
+
+    delete like_predicate;
+    delete function_predicate;
+    delete range_predicate;
+    delete term_predicate;
 }
 
 TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
@@ -256,6 +281,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     std::vector<ExtLiteral> es_query_values = {es_query_term_literal};
     std::string function_name = "esquery";
     ExtFunction* function_predicate = new ExtFunction(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols, es_query_values);
+
     std::vector<ExtPredicate*> bool_predicates_1 = {like_predicate, function_predicate};
     EsPredicate* bool_predicate_1 = new EsPredicate(bool_predicates_1);
 
@@ -313,10 +339,15 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     compound_bool_value.Accept(writer);
     std::string actual_bool_json = buffer.GetString();
-    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}]}},{\"bool\":{\"should\":[{\"range\":{\"k\":{\"ge\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
+    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}]}},{\"bool\":{\"should\":[{\"range\":{\"k\":{\"gte\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
     //LOG(INFO) << "compound bool query" << actual_bool_json;
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    delete bool_predicate_1;
+    delete bool_predicate_2;
+    delete bool_predicate_3;
+    delete bool_predicate_4;
 }
+
 TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     std::string function_name = "esquery";
     char field[] = "random";
@@ -368,6 +399,8 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
 }
 
 TEST_F(BooleanQueryBuilderTest, validate_partial) {
+    // TODO(yingchun): LSAN will report some errors in this scope, we should improve the code and enable LSAN later.
+    debug::ScopedLeakCheckDisabler disable_lsan;
     char like_value[] = "a%e%g_";
     int like_value_length = (int)strlen(like_value);
     TypeDescriptor like_type_desc = TypeDescriptor::create_varchar_type(like_value_length);
@@ -436,7 +469,7 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<bool> result;
     BooleanQueryBuilder::validate(and_bool_predicates, &result);
     std::vector<bool> expected = {true, true, true};
-    ASSERT_TRUE(result == expected);
+    ASSERT_EQ(result, expected);
     char illegal_query[] = "{\"term\": {\"k1\" : \"2\"},\"match\": {\"k1\": \"3\"}}";
     int illegal_query_length = (int)strlen(illegal_query);
     StringValue illegal_query_value(illegal_query, illegal_query_length);
@@ -449,7 +482,85 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<bool> result1;
     BooleanQueryBuilder::validate(and_bool_predicates_1, &result1);
     std::vector<bool> expected1 = {true, true, false};
+    ASSERT_EQ(result1, expected1);
+}
+
+// ( k >= "a" and (fv not in [8.0, 16.0]) or (content != "wyf") ) or content like "a%e%g_"
+
+TEST_F(BooleanQueryBuilderTest, validate_compound_and) {
+    // TODO(yingchun): LSAN will report some errors in this scope, we should improve the code and enable LSAN later.
+    debug::ScopedLeakCheckDisabler disable_lsan;
+    std::string terms_in_field = "fv"; // fv not in [8.0, 16.0]
+    int terms_in_field_length = terms_in_field.length();
+    TypeDescriptor terms_in_col_type_desc = TypeDescriptor::create_varchar_type(terms_in_field_length);
+
+    char value_1[] = "8.0";
+    int value_1_length = (int)strlen(value_1);
+    StringValue string_value_1(value_1, value_1_length);
+    ExtLiteral term_literal_1(TYPE_VARCHAR, &string_value_1);
+
+    char value_2[] = "16.0";
+    int value_2_length = (int)strlen(value_2);
+    StringValue string_value_2(value_2, value_2_length);
+    ExtLiteral term_literal_2(TYPE_VARCHAR, &string_value_2);
+
+    std::vector<ExtLiteral> terms_values = {term_literal_1, term_literal_2};
+    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, true, terms_in_field, terms_in_col_type_desc, terms_values);
+
+    char term_str[] = "wyf";
+    int term_value_length = (int)strlen(term_str);
+    StringValue term_value(term_str, term_value_length);
+    ExtLiteral term_literal(TYPE_VARCHAR, &term_value);
+    TypeDescriptor term_type_desc = TypeDescriptor::create_varchar_type(term_value_length);
+    std::string term_field_name = "content";
+    ExtBinaryPredicate* term_ne_predicate = new ExtBinaryPredicate(TExprNodeType::BINARY_PRED, term_field_name, term_type_desc, TExprOpcode::NE, term_literal);
+
+    std::vector<ExtPredicate*> innner_or_content = {term_ne_predicate, in_predicate};
+
+    EsPredicate* innner_or_predicate = new EsPredicate(innner_or_content);
+
+    char range_value_str[] = "a"; // k >= "a"
+    int range_value_length = (int)strlen(range_value_str);
+    StringValue range_value(range_value_str, range_value_length);
+    ExtLiteral range_literal(TYPE_VARCHAR, &range_value);
+    TypeDescriptor range_type_desc = TypeDescriptor::create_varchar_type(range_value_length);
+    std::string range_field_name = "k";
+    ExtBinaryPredicate* range_predicate = new ExtBinaryPredicate(TExprNodeType::BINARY_PRED, range_field_name, range_type_desc, TExprOpcode::GE, range_literal);
+    std::vector<ExtPredicate*> range_predicates = {range_predicate};
+    EsPredicate* left_inner_or_predicate = new EsPredicate(range_predicates);
+
+    std::vector<EsPredicate*> ourter_left_predicates_1 = {left_inner_or_predicate, innner_or_predicate};
+
+    ExtCompPredicates* comp_predicate = new ExtCompPredicates(TExprOpcode::COMPOUND_AND, ourter_left_predicates_1);
+
+    char like_value[] = "a%e%g_";
+    int like_value_length = (int)strlen(like_value);
+    TypeDescriptor like_type_desc = TypeDescriptor::create_varchar_type(like_value_length);
+    StringValue like_term_value(like_value, like_value_length);
+    ExtLiteral like_literal(TYPE_VARCHAR, &like_term_value);
+    std::string like_field_name = "content";
+    ExtLikePredicate* like_predicate = new ExtLikePredicate(TExprNodeType::LIKE_PRED, like_field_name, like_type_desc, like_literal);
+
+    
+    std::vector<ExtPredicate*> or_predicate_vector = {comp_predicate, like_predicate};
+    EsPredicate* or_predicate = new EsPredicate(or_predicate_vector);
+
+    std::vector<EsPredicate*> or_predicates = {or_predicate};
+    std::vector<bool> result1;
+    BooleanQueryBuilder::validate(or_predicates, &result1);
+    std::vector<bool> expected1 = {true};
     ASSERT_TRUE(result1 == expected1);
+
+    rapidjson::Document document;
+    rapidjson::Value compound_and_value(rapidjson::kObjectType);
+    compound_and_value.SetObject();
+    BooleanQueryBuilder::to_query(or_predicates, &document, &compound_and_value);
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    compound_and_value.Accept(writer);
+    std::string actual_bool_json = buffer.GetString();
+    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"range\":{\"k\":{\"gte\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}},{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}},{\"wildcard\":{\"content\":\"a*e*g?\"}}]}}]}}";
+    ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
 }
 }
 

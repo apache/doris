@@ -24,19 +24,17 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Expectations;
+import mockit.Injectable;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class LoadStmtTest {
-    private DataDescription desc;
     private List<DataDescription> dataDescriptions;
     private Analyzer analyzer;
 
@@ -44,40 +42,48 @@ public class LoadStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
+    @Mocked
+    DataDescription desc;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         dataDescriptions = Lists.newArrayList();
-        desc = EasyMock.createMock(DataDescription.class);
-        EasyMock.expect(desc.toSql()).andReturn("XXX");
         dataDescriptions.add(desc);
-
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 ConnectContext.get();
+                minTimes = 0;
                 result = ctx;
 
                 ctx.getQualifiedUser();
+                minTimes = 0;
                 result = "default_cluster:user";
+
+                desc.toSql();
+                minTimes = 0;
+                result = "XXX";
             }
         };
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException {
-        desc.analyze(EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(desc);
+    public void testNormal(@Injectable DataDescription desc) throws UserException, AnalysisException {
+        List<DataDescription> dataDescriptionList = Lists.newArrayList();
+        dataDescriptionList.add(desc);
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptions, null, null, null);
+        new Expectations(){
+            {
+                desc.toSql();
+                minTimes = 0;
+                result = "XXX";
+            }
+        };
+
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
-        Assert.assertEquals(dataDescriptions, stmt.getDataDescriptions());
+        Assert.assertEquals(dataDescriptionList, stmt.getDataDescriptions());
         Assert.assertNull(stmt.getProperties());
 
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n"
@@ -86,14 +92,16 @@ public class LoadStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoData() throws UserException, AnalysisException {
-        desc.analyze(EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(desc);
+        new Expectations() {
+            {
+                desc.analyze(anyString);
+                minTimes = 0;
+            }
+        };
 
         LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null);
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
     }
-
 }

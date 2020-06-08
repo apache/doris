@@ -23,14 +23,14 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "olap/field.h"
-#include "olap/olap_cond.h"
 #include "olap/olap_define.h"
-#include "olap/row_cursor.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
 typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> DelPredicateArray;
+class Conditions;
+class RowCursor;
 
 class DeleteConditionHandler {
 public:
@@ -146,6 +146,9 @@ public:
     const std::vector<DeleteConditions>& get_delete_conditions() const {
         return _del_conds;
     }
+
+    void get_delete_conditions_after_version(int32_t version,
+            std::vector<const Conditions*>* delete_conditions) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'

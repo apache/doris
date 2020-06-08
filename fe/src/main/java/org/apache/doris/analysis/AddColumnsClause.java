@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -29,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 // add some columns to one index.
-public class AddColumnsClause extends AlterClause {
+public class AddColumnsClause extends AlterTableClause {
     private List<ColumnDef> columnDefs;
     private String rollupName;
 
@@ -46,6 +47,7 @@ public class AddColumnsClause extends AlterClause {
     }
 
     public AddColumnsClause(List<ColumnDef> columnDefs, String rollupName, Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.columnDefs = columnDefs;
         this.rollupName = rollupName;
         this.properties = properties;

@@ -22,7 +22,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TErrorHubType;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -109,7 +110,7 @@ public abstract class LoadErrorHub {
         }
 
         public String toString() {
-            Objects.ToStringHelper helper = Objects.toStringHelper(this);
+            ToStringHelper helper = MoreObjects.toStringHelper(this);
             helper.add("type", type.toString());
             switch (type) {
                 case MYSQL_TYPE:
@@ -195,7 +196,6 @@ public abstract class LoadErrorHub {
             }
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             type = HubType.valueOf(Text.readString(in));
             switch (type) {

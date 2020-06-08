@@ -26,7 +26,6 @@ namespace doris {
 
 using doris_udf::FunctionContext;
 
-class LlvmCodeGen;
 class MemPool;
 class MemTracker;
 class ObjectPool;
@@ -128,17 +127,6 @@ class AggFn : public Expr {
     return arg_type_descs_;
   }
 
-  /// Generates an IR wrapper function to call update_fn_/merge_fn_ which may either be
-  /// cross-compiled or loaded from an external library. The generated IR function is
-  /// returned in 'uda_fn'. Returns error status on failure.
-  /// TODO: implement codegen path for init, finalize, serialize functions etc.
-  Status CodegenUpdateOrMergeFunction(LlvmCodeGen* codegen, llvm::Function** uda_fn)
-      WARN_UNUSED_RESULT;
-
-  Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-      return Status::OK();
-  }
-
   /// Releases all cache entries to libCache for all nodes in the expr tree.
   virtual void Close();
   static void Close(const std::vector<AggFn*>& exprs);
@@ -150,6 +138,10 @@ class AggFn : public Expr {
   virtual std::string DebugString() const;
   static std::string DebugString(const std::vector<AggFn*>& exprs);
  
+  const int get_vararg_start_idx() const {
+      return _vararg_start_idx;
+  }
+
 private:
   friend class Expr;
   friend class NewAggFnEvaluator;
@@ -178,6 +170,8 @@ private:
   void* serialize_fn_ = nullptr;
   void* get_value_fn_ = nullptr;
   void* finalize_fn_ = nullptr;
+  
+  int _vararg_start_idx;
 
   AggFn(const TExprNode& node, const SlotDescriptor& intermediate_slot_desc,
       const SlotDescriptor& output_slot_desc);

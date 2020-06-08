@@ -46,6 +46,8 @@ public:
     // the current hash/seed value.
     // This should only be called if SSE is supported.
     // This is ~4x faster than Fnv/Boost Hash.
+    // NOTE: DO NOT use this method for checksum! This does not generate the standard CRC32 checksum!
+    //       For checksum, use CRC-32C algorithm from crc32c.h
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
@@ -106,6 +108,59 @@ public:
         return zlib_crc_hash(data, bytes, hash);
     }
 #endif
+
+    // refer to https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
+    static const uint32_t MURMUR3_32_SEED = 104729;
+
+    ALWAYS_INLINE static uint32_t rotl32(uint32_t x, int8_t r) {
+        return (x << r) | (x >> (32 - r));
+    }
+
+    ALWAYS_INLINE static uint32_t fmix32(uint32_t h) {
+        h ^= h >> 16;
+        h *= 0x85ebca6b;
+        h ^= h >> 13;
+        h *= 0xc2b2ae35;
+        h ^= h >> 16;
+        return h;
+    }
+
+    // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
+    static uint32_t murmur_hash3_32(const void* key, int32_t len, uint32_t seed) {
+        const uint8_t* data = (const uint8_t*)key;
+        const int nblocks = len / 4;
+
+        uint32_t h1 = seed;
+
+        const uint32_t c1 = 0xcc9e2d51;
+        const uint32_t c2 = 0x1b873593;
+        const uint32_t * blocks = (const uint32_t *)(data + nblocks * 4);
+
+        for(int i = -nblocks; i; i++) {
+            uint32_t k1 = blocks[i];
+
+            k1 *= c1;
+            k1 = rotl32(k1,15);
+            k1 *= c2;
+
+            h1 ^= k1;
+            h1 = rotl32(h1,13);
+            h1 = h1 * 5 + 0xe6546b64;
+        }
+
+        const uint8_t * tail = (const uint8_t*)(data + nblocks * 4);
+        uint32_t k1 = 0;
+        switch(len & 3) {
+            case 3: k1 ^= tail[2] << 16;
+            case 2: k1 ^= tail[1] << 8;
+            case 1: k1 ^= tail[0];
+                k1 *= c1; k1 = rotl32(k1,15); k1 *= c2; h1 ^= k1;
+        };
+
+        h1 ^= len;
+        h1 = fmix32(h1);
+        return h1;
+    }
 
     static const int MURMUR_R = 47;
 
@@ -270,7 +325,6 @@ public:
 #endif
 
     }
-
 };
 
 }

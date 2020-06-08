@@ -17,15 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Map;
-
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
+import org.apache.commons.lang.NotImplementedException;
+
+import java.util.Map;
+
+@Deprecated
 public class AlterClusterClause extends AlterClause {
     private AlterClusterType type;
     private Map<String, String> properties;
@@ -33,6 +35,7 @@ public class AlterClusterClause extends AlterClause {
     private String password;
 
     public AlterClusterClause(AlterClusterType type, Map<String, String> properties) {
+        super(AlterOpType.ALTER_OTHER);
         this.type = type;
         this.properties = properties;
         instanceNum = 0;
@@ -41,6 +44,9 @@ public class AlterClusterClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (Config.disable_cluster_feature) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ALTER CLUSTER");
+        }
 
         if (properties == null || properties.size() == 0) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
@@ -57,35 +63,14 @@ public class AlterClusterClause extends AlterClause {
     @Override
     public String toSql() {
         // TODO Auto-generated method stub
-        return super.toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // TODO Auto-generated method stub
-        super.write(out);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        // TODO Auto-generated method stub
-        super.readFields(in);
+        throw new NotImplementedException();
     }
 
     public int getInstanceNum() {
         return instanceNum;
     }
 
-    public void setInstanceNum(int instanceNum) {
-        this.instanceNum = instanceNum;
-    }
-
     public String getPassword() {
         return password;
     }
-
-    public void setPassword(String password) {
-        this.password = password;
-    }
-
 }

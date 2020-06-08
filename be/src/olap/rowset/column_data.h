@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
 #include "olap/rowset/segment_group.h"
+#include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "util/runtime_profile.h"
@@ -76,17 +77,12 @@ public:
             RuntimeState* runtime_state);
 
     OLAPStatus get_first_row_block(RowBlock** row_block);
-    OLAPStatus get_next_row_block(RowBlock** row_block);
 
     // Only used to binary search in full-key find row
     const RowCursor* seek_and_get_current_row(const RowBlockPosition& position);
 
     void set_using_cache(bool is_using_cache) {
         _is_using_cache = is_using_cache;
-    }
-
-    void set_lru_cache(Cache* lru_cache) {
-        _lru_cache = lru_cache;
     }
 
     void set_stats(OlapReaderStatistics* stats) {
@@ -117,7 +113,6 @@ public:
     SegmentGroup* segment_group() const { return _segment_group; }
     void set_segment_group(SegmentGroup* segment_group) { _segment_group = segment_group; }
     int64_t num_rows() const { return _segment_group->num_rows(); }
-    Tablet* tablet() const { return _tablet; }
 
     // To compatable with schmea change read, use this function to init column data
     // for schema change read. Only called in get_first_row_block
@@ -169,7 +164,7 @@ private:
     RuntimeState* _runtime_state;
     OlapReaderStatistics* _stats;
 
-    Tablet* _tablet;
+    const TabletSchema& _schema;
     // whether in normal read, use return columns to load block
     bool _is_normal_read = false;
     bool _end_key_is_set = false;
@@ -242,9 +237,9 @@ private:
         }
 
         if (COMPARATOR_LESS == comparator_enum) {
-            return helper_cursor->cmp(key) < 0;
+            return compare_row_key(*helper_cursor, key) < 0;
         } else {
-            return helper_cursor->cmp(key) > 0;
+            return compare_row_key(*helper_cursor, key) > 0;
         }
     }
 

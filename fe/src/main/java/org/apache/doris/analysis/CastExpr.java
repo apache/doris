@@ -103,18 +103,22 @@ public class CastExpr extends Expr {
                 if (fromType.isStringType() && toType.isBoolean()) {
                     continue;
                 }
-                // Disable casting from boolean/timestamp to decimal
-                if ((fromType.isBoolean() || fromType.isDateType()) && 
-                        (toType == Type.DECIMAL || toType == Type.DECIMALV2)) {
+                // Disable casting from boolean to decimal or datetime or date
+                if (fromType.isBoolean() &&
+                        (toType.equals(Type.DECIMAL) || toType.equals(Type.DECIMALV2) ||
+                                toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
                     continue;
                 }
-
                 // Disable no-op casts
                 if (fromType.equals(toType)) {
                     continue;
                 }
                 String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
-                if (toType.isDecimal() || fromType.isDecimal()) beClass = "DecimalOperators";
+                if (toType.isDecimal() || fromType.isDecimal()) {
+                    beClass = "DecimalOperators";
+                } else if (fromType.isTime()) {
+                    beClass = "TimeOperators";
+                }
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
                 if (toType.getPrimitiveType() == PrimitiveType.DATE) {
                     typeName = "date_val";
@@ -172,7 +176,7 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        if (childType.equals(type)) {
+        if (childType.matchesType(type)) {
             noOp = true;
             return;
         }
@@ -181,10 +185,10 @@ public class CastExpr extends Expr {
         FunctionName fnName = new FunctionName(getFnName(type));
         Function searchDesc = new Function(fnName, collectChildReturnTypes(), Type.INVALID, false);
         if (isImplicit) {
-            fn = Catalog.getInstance().getFunction(
+            fn = Catalog.getCurrentCatalog().getFunction(
                     searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
-            fn = Catalog.getInstance().getFunction(
+            fn = Catalog.getCurrentCatalog().getFunction(
                     searchDesc, Function.CompareMode.IS_IDENTICAL);
         }
 
@@ -267,9 +271,9 @@ public class CastExpr extends Expr {
     }
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
-        Preconditions.checkArgument(!(value instanceof NullLiteral)
-            && !type.isNull());
-        if (type.isIntegerType()) {
+        if (value instanceof NullLiteral) {
+            return value;
+        } else if (type.isIntegerType()) {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());

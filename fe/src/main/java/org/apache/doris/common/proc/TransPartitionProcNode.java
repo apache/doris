@@ -26,11 +26,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * author: wuyunfeng
- * date: 18/1/5 10:58
- * project: palo2
- */
 public class TransPartitionProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId")
@@ -38,10 +33,12 @@ public class TransPartitionProcNode implements ProcNodeInterface {
             .add("CommittedVersionHash")
             .build();
 
+    private long dbId;
     private long tid;
     private long tableId;
 
-    public TransPartitionProcNode(long tid, long tableId) {
+    public TransPartitionProcNode(long dbId, long tid, long tableId) {
+        this.dbId = dbId;
         this.tid = tid;
         this.tableId = tableId;
     }
@@ -49,7 +46,7 @@ public class TransPartitionProcNode implements ProcNodeInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> partitionInfos = transactionMgr.getPartitionTransInfo(tid, tableId);
+        List<List<Comparable>> partitionInfos = transactionMgr.getPartitionTransInfo(dbId, tid, tableId);
         // set result
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);

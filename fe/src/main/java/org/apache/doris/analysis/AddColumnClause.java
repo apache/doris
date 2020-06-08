@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -30,7 +31,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 
 // clause which is used to add one column to
-public class AddColumnClause extends AlterClause {
+public class AddColumnClause extends AlterTableClause {
     private static final Logger LOG = LogManager.getLogger(AddColumnClause.class);
     private ColumnDef columnDef;
     // Column position
@@ -54,6 +55,7 @@ public class AddColumnClause extends AlterClause {
 
     public AddColumnClause(ColumnDef columnDef, ColumnPosition colPos, String rollupName,
                            Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
         this.colPos = colPos;
         this.rollupName = rollupName;

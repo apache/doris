@@ -23,11 +23,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 7, 2019
- */
-
 public class ClusterLoadStatByMedium implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add(
             "StorageMedium").build();

@@ -21,9 +21,6 @@ import java.util.List;
 
 import com.google.common.collect.Lists;
 
-/**
- * Created by zhaochun on 14/11/6.
- */
 public class BaseProcResult implements ProcResult {
     protected List<String> names;
     protected List<List<String>> rows;

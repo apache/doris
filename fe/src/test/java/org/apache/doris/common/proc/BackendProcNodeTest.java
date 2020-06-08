@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.proc;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.common.AnalysisException;
@@ -27,48 +29,50 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class BackendProcNodeTest {
     private Backend b1;
+    @Mocked
     private Catalog catalog;
+    @Mocked
     private EditLog editLog;
 
     @Before
     public void setUp() {
-        editLog = EasyMock.createMock(EditLog.class);
-        editLog.logAddBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logDropBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logBackendStateChange(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
+        new Expectations() {
+            {
+                editLog.logAddBackend((Backend) any);
+                minTimes = 0;
 
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getNextId()).andReturn(10000L).anyTimes();
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        catalog.clear();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(catalog);
+                editLog.logDropBackend((Backend) any);
+                minTimes = 0;
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+                editLog.logBackendStateChange((Backend) any);
+                minTimes = 0;
+
+                catalog.getNextId();
+                minTimes = 0;
+                result = 10000L;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
 
         b1 = new Backend(1000, "host1", 10000);
         b1.updateOnce(10001, 10003, 10005);

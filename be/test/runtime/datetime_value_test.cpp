@@ -29,6 +29,7 @@ namespace doris {
 class DateTimeValueTest : public testing::Test {
 public:
     DateTimeValueTest() {
+        TimezoneDatabase::init();
     }
 
 protected:
@@ -294,27 +295,48 @@ TEST_F(DateTimeValueTest, from_unixtime) {
     char str[MAX_DTVALUE_STR_LEN];
     DateTimeValue value;
 
-    value.from_unixtime(570672000);
+    value.from_unixtime(570672000, TimezoneDatabase::default_time_zone);
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 08:00:00", str);
+    
+    value.from_unixtime(253402271999, TimezoneDatabase::default_time_zone);
+    value.to_string(str);
+    ASSERT_STREQ("9999-12-31 23:59:59", str);
+    
+    value.from_unixtime(0, TimezoneDatabase::default_time_zone);
+    value.to_string(str);
+    ASSERT_STREQ("1970-01-01 08:00:00", str);
+
+    ASSERT_FALSE(value.from_unixtime(1586098092, "+20:00"));
+    ASSERT_FALSE(value.from_unixtime(1586098092, "foo"));
 }
 
 // Calculate format
 TEST_F(DateTimeValueTest, unix_timestamp) {
     DateTimeValue value;
-
+    int64_t timestamp;
     value.from_date_int64(19691231);
-    ASSERT_EQ(0, value.unix_timestamp());
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(-115200, timestamp);
     value.from_date_int64(19700101);
-    ASSERT_EQ(0, value.unix_timestamp());
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(0 - 28800, timestamp);
     value.from_date_int64(19700102);
-    ASSERT_EQ(86400 - 28800, value.unix_timestamp());
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(86400 - 28800, timestamp);
     value.from_date_int64(19880201000000);
-    ASSERT_EQ(570672000 - 28800, value.unix_timestamp());
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(570672000 - 28800, timestamp);
     value.from_date_int64(20380119);
-    ASSERT_EQ(2147472000 - 28800, value.unix_timestamp());
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(2147472000 - 28800, timestamp);
     value.from_date_int64(20380120);
-    ASSERT_EQ(0, value.unix_timestamp());
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(2147529600, timestamp);
+	
+    value.from_date_int64(10000101);
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(-30610252800, timestamp);
 }
 
 // Calculate format
@@ -506,6 +528,22 @@ TEST_F(DateTimeValueTest, from_date_format_str) {
             format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 03:04:05", str);
+
+    // escape %
+    format_str = "%Y-%m-%d %H%%3A%i%%3A%s";
+    value_str = "2020-02-26 00%3A00%3A00";
+    ASSERT_TRUE(value.from_date_format_str(
+            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    value.to_string(str);
+    ASSERT_STREQ("2020-02-26 00:00:00", str);
+
+    // escape %
+    format_str = "%Y-%m-%d%%%% %H%%3A%i%%3A%s";
+    value_str = "2020-02-26%% 00%3A00%3A00";
+    ASSERT_TRUE(value.from_date_format_str(
+            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    value.to_string(str);
+    ASSERT_STREQ("2020-02-26 00:00:00", str);
 }
 
 // Calculate format
@@ -532,8 +570,14 @@ TEST_F(DateTimeValueTest, from_date_format_str_invalid) {
     value_str = "2015 1 1";
     ASSERT_FALSE(value.from_date_format_str(
             format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+
     format_str = "%x %V %w";
     value_str = "2015 1 1";
+    ASSERT_FALSE(value.from_date_format_str(
+            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+
+    format_str = "%Y-%m-%d %H%3A%i%3A%s";
+    value_str = "2020-02-26 00%3A00%3A00";
     ASSERT_FALSE(value.from_date_format_str(
             format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
 }

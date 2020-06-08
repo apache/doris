@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 
@@ -25,13 +26,15 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // rename table
-public class RollupRenameClause extends AlterClause {
+public class RollupRenameClause extends AlterTableClause {
     private String rollupName;
     private String newRollupName;
 
     public RollupRenameClause(String rollupName, String newRollupName) {
+        super(AlterOpType.RENAME);
         this.rollupName = rollupName;
         this.newRollupName = newRollupName;
+        this.needTableStable = false;
     }
 
     public String getRollupName() {

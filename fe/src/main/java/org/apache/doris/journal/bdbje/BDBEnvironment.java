@@ -107,6 +107,8 @@ public class BDBEnvironment {
         replicationConfig.setMaxClockDelta(Config.max_bdbje_clock_delta_ms, TimeUnit.MILLISECONDS);
         replicationConfig.setConfigParam(ReplicationConfig.TXN_ROLLBACK_LIMIT,
                 String.valueOf(Config.txn_rollback_limit));
+        replicationConfig.setConfigParam(ReplicationConfig.REPLICA_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
+        replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
 
         if (isElectable) {
             replicationConfig.setReplicaAckTimeout(2, TimeUnit.SECONDS);
@@ -122,6 +124,7 @@ public class BDBEnvironment {
         environmentConfig.setTransactional(true);
         environmentConfig.setAllowCreate(true);
         environmentConfig.setCachePercent(MEMORY_CACHE_PERCENT);
+        environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         if (isElectable) {
             Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy), 
                     getSyncPolicy(Config.replica_sync_policy), getAckPolicy(Config.replica_ack_policy));
@@ -153,7 +156,7 @@ public class BDBEnvironment {
                 adminNodes.add(helper);
                 LOG.info("add helper[{}] as ReplicationGroupAdmin", helperHostPort);
                 // 2. add self if is electable
-                if (!selfNodeHostPort.equals(helperHostPort) && Catalog.getInstance().isElectable()) {
+                if (!selfNodeHostPort.equals(helperHostPort) && Catalog.getCurrentCatalog().isElectable()) {
                     InetSocketAddress self = new InetSocketAddress(selfNodeHostPort.split(":")[0],
                                                                    Integer.parseInt(selfNodeHostPort.split(":")[1]));
                     adminNodes.add(self);
@@ -164,7 +167,7 @@ public class BDBEnvironment {
                 
                 // get a BDBHA object and pass the reference to Catalog
                 HAProtocol protocol = new BDBHA(this, selfNodeName);
-                Catalog.getInstance().setHaProtocol(protocol);
+                Catalog.getCurrentCatalog().setHaProtocol(protocol);
                 
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();
@@ -182,7 +185,6 @@ public class BDBEnvironment {
                 // list as the argument to config.setLogProviders(), if the
                 // default selection of providers is not suitable.
                 restore.execute(insufficientLogEx, config);
-                continue;
             } catch (DatabaseException e) {
                 if (i < RETRY_TIME - 1) {
                     try {
@@ -190,7 +192,6 @@ public class BDBEnvironment {
                     } catch (InterruptedException e1) {
                         e1.printStackTrace();
                     }
-                    continue;
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
                     System.exit(-1);
@@ -330,7 +331,6 @@ public class BDBEnvironment {
                 } catch (InterruptedException e1) {
                     e1.printStackTrace();
                 }
-                continue;
             } catch (DatabaseException e) {
                 LOG.warn("catch an exception when calling getDatabaseNames", e);
                 return null;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.ConnectContext;
 
@@ -36,23 +37,17 @@ public class DbPrivTable extends PrivTable {
      * Return first priv which match the user@host on db.* The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(String host, String db, String user, PrivBitSet savedPrivs) {
+    public void getPrivs(UserIdentity currentUser, String db, PrivBitSet savedPrivs) {
         DbPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
 
-            // check host
-            if (!dbPrivEntry.isAnyHost() && !dbPrivEntry.getHostPattern().match(host)) {
+            if (!dbPrivEntry.match(currentUser, true)) {
                 continue;
             }
 
             // check db
             if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db)) {
-                continue;
-            }
-
-            // check user
-            if (!dbPrivEntry.isAnyUser() && !dbPrivEntry.getUserPattern().match(user)) {
                 continue;
             }
 

@@ -17,16 +17,24 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TOlapTableIndex;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
+import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TStorageFormat;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,16 +61,32 @@ public class CreateReplicaTask extends AgentTask {
     private Set<String> bfColumns;
     private double bfFpp;
 
+    // indexes
+    private List<Index> indexes;
+
+    private boolean isInMemory;
+
+    private TTabletType tabletType;
+
     // used for synchronous process
-    private MarkedCountDownLatch latch;
+    private MarkedCountDownLatch<Long, Long> latch;
 
     private boolean inRestoreMode = false;
+
+    // if base tablet id is set, BE will create the replica on same disk as this base tablet
+    private long baseTabletId = -1;
+    private int baseSchemaHash = -1;
+
+    private TStorageFormat storageFormat = null;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch latch) {
+                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
+                             List<Index> indexes,
+                             boolean isInMemory,
+                             TTabletType tabletType) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -78,9 +102,13 @@ public class CreateReplicaTask extends AgentTask {
         this.columns = columns;
 
         this.bfColumns = bfColumns;
+        this.indexes = indexes;
         this.bfFpp = bfFpp;
 
         this.latch = latch;
+
+        this.isInMemory = isInMemory;
+        this.tabletType = tabletType;
     }
     
     public void countDownLatch(long backendId, long tabletId) {
@@ -92,12 +120,29 @@ public class CreateReplicaTask extends AgentTask {
         }
     }
 
-    public void setLatch(MarkedCountDownLatch latch) {
+    // call this always means one of tasks is failed. count down to zero to finish entire task
+    public void countDownToZero(String errMsg) {
+        if (this.latch != null) {
+            latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
+            LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
+        }
+    }
+
+    public void setLatch(MarkedCountDownLatch<Long, Long> latch) {
         this.latch = latch;
     }
 
     public void setInRestoreMode(boolean inRestoreMode) {
         this.inRestoreMode = inRestoreMode;
+    }
+
+    public void setBaseTablet(long baseTabletId, int baseSchemaHash) {
+        this.baseTabletId = baseTabletId;
+        this.baseSchemaHash = baseSchemaHash;
+    }
+
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
     }
 
     public TCreateTabletReq toThrift() {
@@ -117,13 +162,28 @@ public class CreateReplicaTask extends AgentTask {
             if (bfColumns != null && bfColumns.contains(column.getName())) {
                 tColumn.setIs_bloom_filter_column(true);
             }
+            // when doing schema change, some modified column has a prefix in name.
+            // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
+            if(column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                tColumn.setColumn_name(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
+            }
             tColumns.add(tColumn);
         }
         tSchema.setColumns(tColumns);
 
+        if (CollectionUtils.isNotEmpty(indexes)) {
+            List<TOlapTableIndex> tIndexes = new ArrayList<>();
+            for (Index index : indexes) {
+                tIndexes.add(index.toThrift());
+            }
+            tSchema.setIndexes(tIndexes);
+            storageFormat = TStorageFormat.V2;
+        }
+
         if (bfColumns != null) {
             tSchema.setBloom_filter_fpp(bfFpp);
         }
+        tSchema.setIs_in_memory(isInMemory);
         createTabletReq.setTablet_schema(tSchema);
 
         createTabletReq.setVersion(version);
@@ -136,6 +196,16 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTable_id(tableId);
         createTabletReq.setPartition_id(partitionId);
 
+        if (baseTabletId != -1) {
+            createTabletReq.setBase_tablet_id(baseTabletId);
+            createTabletReq.setBase_schema_hash(baseSchemaHash);
+        }
+
+        if (storageFormat != null) {
+            createTabletReq.setStorage_format(storageFormat);
+        }
+
+        createTabletReq.setTablet_type(tabletType);
         return createTabletReq;
     }
 }

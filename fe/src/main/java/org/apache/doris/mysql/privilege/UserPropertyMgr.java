@@ -17,12 +17,9 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
@@ -77,11 +74,8 @@ public class UserPropertyMgr implements Writable {
         resourceVersion.incrementAndGet();
     }
 
-    /*
-     * Try to grant privs to whitelist of the user. 
-     */
-    public void addOrGrantWhiteList(UserIdentity userIdentity, Map<TablePattern, PrivBitSet> privsMap,
-            byte[] password, boolean errOnExist, boolean errOnNonExist) throws DdlException {
+    public void setPasswordForDomain(UserIdentity userIdentity, byte[] password, boolean errOnExist,
+            boolean errOnNonExist) throws DdlException {
         Preconditions.checkArgument(userIdentity.isDomain());
         UserProperty property = propertyMap.get(userIdentity.getQualifiedUser());
         if (property == null) {
@@ -90,40 +84,25 @@ public class UserPropertyMgr implements Writable {
             }
             property = new UserProperty(userIdentity.getQualifiedUser());
         }
-
-        property.addOrGrantWhiteList(userIdentity.getHost(), privsMap, password, errOnExist);
-        // update propertyMap after addOrGrantWhiteList, cause addOrGrantWhiteList may throw exception
+        property.setPasswordForDomain(userIdentity.getHost(), password, errOnExist);
+        // update propertyMap after setPasswordForDomain, cause setPasswordForDomain may throw exception
         propertyMap.put(userIdentity.getQualifiedUser(), property);
     }
 
-    public void revokePrivsFromWhiteList(UserIdentity userIdentity, Map<TablePattern, PrivBitSet> privsMap,
-            boolean errOnNonExist) throws DdlException {
+    public void removeDomainFromUser(UserIdentity userIdentity) {
         Preconditions.checkArgument(userIdentity.isDomain());
-        UserProperty property = propertyMap.get(userIdentity.getQualifiedUser());
-        if (property == null && errOnNonExist) {
-            throw new DdlException("User " + userIdentity.getQualifiedUser() + " does not exist");
+        UserProperty userProperty = propertyMap.get(userIdentity.getQualifiedUser());
+        if (userProperty == null) {
+            return;
         }
-
-        property.revokePrivsFromWhiteList(userIdentity.getHost(), privsMap, errOnNonExist);
-    }
-
-    public void dropUser(String qualifiedUser) {
-        propertyMap.remove(qualifiedUser);
+        userProperty.removeDomain(userIdentity.getHost());
         resourceVersion.incrementAndGet();
     }
 
-    public void setPassword(UserIdentity userIdent, byte[] password) throws DdlException {
-        Preconditions.checkArgument(userIdent.isDomain());
-        UserProperty property = propertyMap.get(userIdent.getQualifiedUser());
-        if (property == null) {
-            throw new DdlException("user " + userIdent.getQualifiedUser() + " does not exist");
+    public void dropUser(UserIdentity userIdent) {
+        if (propertyMap.remove(userIdent.getQualifiedUser()) != null) {
+            LOG.info("drop user {} from user property manager", userIdent.getQualifiedUser());
         }
-
-        if (property.getWhiteList().containsDomain(userIdent.getHost())) {
-            throw new DdlException("user " + userIdent + " does not exist");
-        }
-
-        property.getWhiteList().setPassword(password);
     }
 
     public void updateUserProperty(String user, List<Pair<String, String>> properties) throws DdlException {
@@ -200,51 +179,40 @@ public class UserPropertyMgr implements Writable {
         return property.fetchProperty();
     }
 
-    public void getCopiedWhiteList(Map<String, Set<String>> userMap) {
+    // return a map from domain name -> set of user names
+    public void getAllDomains(Set<String> allDomains) {
         LOG.debug("get property map: {}", propertyMap);
         for (Map.Entry<String, UserProperty> entry : propertyMap.entrySet()) {
             Set<String> domains = entry.getValue().getWhiteList().getAllDomains();
-            if (domains.isEmpty()) {
-                continue;
-            }
-            userMap.put(entry.getKey(), domains);
+            allDomains.addAll(domains);
         }
     }
 
-    public void updateResolovedIps(String qualifiedUser, String domain, Set<String> resolvedIPs) {
-        if (!propertyMap.containsKey(qualifiedUser)) {
-            return;
+    // check if specified user identity has password
+    public boolean doesUserHasPassword(UserIdentity userIdent) {
+        Preconditions.checkState(userIdent.isDomain());
+        if (!propertyMap.containsKey(userIdent.getQualifiedUser())) {
+            return false;
         }
+        return propertyMap.get(userIdent.getQualifiedUser()).getWhiteList().hasPassword(userIdent.getHost());
+    }
 
-        UserProperty property = propertyMap.get(qualifiedUser);
-        property.getWhiteList().updateResolovedIps(qualifiedUser, domain, resolvedIPs);
+    public boolean doesUserExist(UserIdentity userIdent) {
+        Preconditions.checkState(userIdent.isDomain());
+        if (!propertyMap.containsKey(userIdent.getQualifiedUser())) {
+            return false;
+        }
+        return propertyMap.get(userIdent.getQualifiedUser()).getWhiteList().containsDomain(userIdent.getHost());
+    }
+
+    public void addUserPrivEntriesByResovledIPs(Map<String, Set<String>> resolvedIPsMap) {
+        for (UserProperty userProperty : propertyMap.values()) {
+            userProperty.getWhiteList().addUserPrivEntriesByResovledIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
+        }
     }
 
     public UserProperty getUserProperty(String qualifiedUserName) {
         return propertyMap.get(qualifiedUserName);
-    }
-
-    @Deprecated
-    public void addUserPropertyUnchecked(UserProperty userProperty) {
-        Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43);
-        propertyMap.put(userProperty.getQualifiedUser(), userProperty);
-    }
-    
-    public void transform(PaloAuth auth) {
-        Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43);
-        for (UserProperty userProperty : propertyMap.values()) {
-            auth.transformAndAddOldUserProperty(userProperty);
-        }
-    }
-
-    public void getUserAuthInfo(List<List<String>> userAuthInfos, UserIdentity specifiedUserIdent) {
-        for (UserProperty property : propertyMap.values()) {
-            if (specifiedUserIdent != null
-                    && !property.getQualifiedUser().equals(specifiedUserIdent.getQualifiedUser())) {
-                continue;
-            }
-            property.getAuthInfo(userAuthInfos);
-        }
     }
 
     public static UserPropertyMgr read(DataInput in) throws IOException {
@@ -263,7 +231,6 @@ public class UserPropertyMgr implements Writable {
         out.writeLong(resourceVersion.get());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; ++i) {

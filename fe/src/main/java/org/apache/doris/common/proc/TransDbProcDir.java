@@ -29,11 +29,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * author: wuyunfeng
- * date: 18/1/5 10:43
- * project: palo2
- */
 public class TransDbProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId")

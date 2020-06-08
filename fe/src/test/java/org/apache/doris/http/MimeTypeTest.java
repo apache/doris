@@ -22,11 +22,6 @@ import org.junit.Test;
 
 import javax.activation.MimetypesFileTypeMap;
 
-/*
- * Author: Chenmingyu
- * Date: Jun 14, 2019
- */
-
 public class MimeTypeTest {
 
     @Test

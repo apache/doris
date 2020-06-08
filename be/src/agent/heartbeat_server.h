@@ -52,13 +52,13 @@ public:
     virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
 
 private:
-    Status _heartbeat(
-        const TMasterInfo& master_info);
+    Status _heartbeat(const TMasterInfo& master_info);
 
     StorageEngine* _olap_engine;
 
     // mutex to protect master_info and _epoch
     std::mutex _hb_mtx;
+    // Not owned. Point to the ExecEnv::_master_info
     TMasterInfo* _master_info;
     int64_t _epoch;
 

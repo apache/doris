@@ -22,6 +22,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h"
+#include "olap/field.h"
 
 namespace doris {
 
@@ -42,13 +43,13 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
         typename TypeTraits<field_type>::CppType dst_val;
         MemTracker tracker;
         MemPool pool(&tracker);
-        type->copy_with_pool((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
         typename TypeTraits<field_type>::CppType dst_val;
-        type->copy_without_pool((char*)&dst_val, (char*)&src_val);
+        type->direct_copy((char*)&dst_val, (char*)&src_val);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -70,24 +71,27 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     }
 }
 
-void test_char(FieldType field_type, Slice src_val) {
-    TypeInfo* type = get_type_info(field_type);
+template<FieldType fieldType>
+void test_char(Slice src_val) {
+    Field* field = FieldFactory::create_by_type(fieldType);
+    field->_length = src_val.size;
+    const TypeInfo* type = field->type_info();
 
-    ASSERT_EQ(field_type, type->type());
+    ASSERT_EQ(field->type(), fieldType);
     ASSERT_EQ(sizeof(src_val), type->size());
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
         MemTracker tracker;
         MemPool pool(&tracker);
-        type->copy_with_pool((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        type->copy_without_pool((char*)&dst_val, (char*)&src_val);
+        type->direct_copy((char*)&dst_val, (char*)&src_val);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -95,7 +99,7 @@ void test_char(FieldType field_type, Slice src_val) {
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        type->set_to_min((char*)&dst_val);
+        field->set_to_min((char*)&dst_val);
 
         ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
@@ -104,21 +108,22 @@ void test_char(FieldType field_type, Slice src_val) {
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        type->set_to_max((char*)&dst_val);
+        field->set_to_max((char*)&dst_val);
 
         ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) < 0);
     }
+    delete field;
 }
 
 template<>
 void common_test<OLAP_FIELD_TYPE_CHAR>(Slice src_val) {
-    test_char(OLAP_FIELD_TYPE_CHAR, src_val);
+    test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
 
 template<>
 void common_test<OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
-    test_char(OLAP_FIELD_TYPE_VARCHAR, src_val);
+    test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
 
 TEST(TypesTest, copy_and_equal) {

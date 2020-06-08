@@ -20,6 +20,7 @@ package org.apache.doris.ha;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.journal.bdbje.BDBEnvironment;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
@@ -66,30 +67,26 @@ public class BDBHA implements HAProtocol {
                 long count = epochDb.count();
                 long myEpoch = count + 1;
                 LOG.info("start fencing, epoch number is {}", myEpoch);
-                Long key = new Long(myEpoch);
+                Long key = myEpoch;
                 DatabaseEntry theKey = new DatabaseEntry();
                 TupleBinding<Long> idBinding = TupleBinding.getPrimitiveBinding(Long.class);
                 idBinding.objectToEntry(key, theKey);
                 DatabaseEntry theData = new DatabaseEntry(new byte[1]);
                 OperationStatus status = epochDb.putNoOverwrite(null, theKey, theData);
                 if (status == OperationStatus.SUCCESS) {
-                    Catalog.getInstance().setEpoch(myEpoch);
+                    Catalog.getCurrentCatalog().setEpoch(myEpoch);
                     return true;
                 } else if (status == OperationStatus.KEYEXIST) {
                     return false;
                 } else {
-                    Exception e = new Exception(status.toString());
-                    throw e;
+                    throw new Exception(status.toString());
                 }
             } catch (Exception e) {
                 LOG.error("fencing failed. tried {} times", i, e);
-                if (i < RETRY_TIME) {
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException e1) {
-                        e1.printStackTrace();
-                    }
-                    continue;
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e1) {
+                    e1.printStackTrace();
                 }
             }
         }
@@ -110,7 +107,7 @@ public class BDBHA implements HAProtocol {
             }
         } catch (UnknownMasterException e) {
             LOG.warn("Catch UnknownMasterException when calling getObserverNodes.", e);
-            return null;
+            return Lists.newArrayList();
         }
         return ret;
     }
@@ -135,7 +132,7 @@ public class BDBHA implements HAProtocol {
             }
         } catch (UnknownMasterException e) {
             LOG.warn("Catch UnknownMasterException when calling getElectableNodes.", e);
-            return null;
+            return Lists.newArrayList();
         }
         return ret;
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.ConnectContext;
 
@@ -34,24 +35,17 @@ public class TablePrivTable extends PrivTable {
      * Return first priv which match the user@host on db.tbl The returned priv will
      * be saved in 'savedPrivs'.
      */
-    public void getPrivs(String host, String db, String user, String tbl, PrivBitSet savedPrivs) {
+    public void getPrivs(UserIdentity currentUser, String db, String tbl, PrivBitSet savedPrivs) {
         TablePrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
-
-            // check host
-            if (!tblPrivEntry.isAnyHost() && !tblPrivEntry.getHostPattern().match(host)) {
+            if (!tblPrivEntry.match(currentUser, true)) {
                 continue;
             }
 
             // check db
             Preconditions.checkState(!tblPrivEntry.isAnyDb());
             if (!tblPrivEntry.getDbPattern().match(db)) {
-                continue;
-            }
-
-            // check user
-            if (!tblPrivEntry.isAnyUser() && !tblPrivEntry.getUserPattern().match(user)) {
                 continue;
             }
 
@@ -92,24 +86,17 @@ public class TablePrivTable extends PrivTable {
         return false;
     }
 
-    public boolean hasPrivsOfDb(String host, String db, String user) {
+    public boolean hasPrivsOfDb(UserIdentity currentUser, String db) {
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
 
-            // check host
-            Preconditions.checkState(!tblPrivEntry.isAnyDb());
-            if (!tblPrivEntry.getDbPattern().match(db)) {
+            if (!tblPrivEntry.match(currentUser, true)) {
                 continue;
             }
 
             // check db
             Preconditions.checkState(!tblPrivEntry.isAnyDb());
             if (!tblPrivEntry.getDbPattern().match(db)) {
-                continue;
-            }
-
-            // check user
-            if (!tblPrivEntry.isAnyUser() && !tblPrivEntry.getUserPattern().match(user)) {
                 continue;
             }
 

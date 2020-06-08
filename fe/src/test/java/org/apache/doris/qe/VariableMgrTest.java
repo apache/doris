@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -27,42 +29,41 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.persist.EditLog;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class })
 public class VariableMgrTest {
     private static final Logger LOG = LoggerFactory.getLogger(VariableMgrTest.class);
+    @Mocked
     private Catalog catalog;
+    @Mocked
+    private EditLog editLog;
 
     @Before
     public void setUp() {
-        catalog = EasyMock.createNiceMock(Catalog.class);
-        // mock editLog
-        EditLog editLog = EasyMock.createMock(EditLog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        editLog.logGlobalVariable(EasyMock.anyObject(SessionVariable.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
-        // mock static getInstance
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        new Expectations() {
+            {
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
 
-        EasyMock.replay(catalog);
+                editLog.logGlobalVariable((SessionVariable) any);
+                minTimes = 0;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
     }
 
     @Test
@@ -71,6 +72,7 @@ public class VariableMgrTest {
         Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
         Assert.assertEquals(300, var.getQueryTimeoutS());
         Assert.assertEquals(false, var.isReportSucc());
+        Assert.assertEquals(0L, var.getSqlMode());
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
         Assert.assertTrue(rows.size() > 5);
@@ -99,20 +101,76 @@ public class VariableMgrTest {
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(5L, var.getParallelExecInstanceNum());
 
+        SetVar setVar3 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Asia/Shanghai"));
+        VariableMgr.setVar(var, setVar3);
+        Assert.assertEquals("CST", var.getTimeZone());
+        var = VariableMgr.newSessionVariable();
+        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
+
         // Set session variable
         setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
 
+        setVar3 = new SetVar(SetType.SESSION, "time_zone", new StringLiteral("Asia/Jakarta"));
+        VariableMgr.setVar(var, setVar3);
+        Assert.assertEquals("Asia/Jakarta", var.getTimeZone());
+
         // Get from name
         SysVariableDesc desc = new SysVariableDesc("exec_mem_limit");
         Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
+
+        SetVar setVar4 = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral(
+                SqlModeHelper.encode("PIPES_AS_CONCAT").toString()));
+        VariableMgr.setVar(var, setVar4);
+        Assert.assertEquals(2L, var.getSqlMode());
+
+        // Test checkTimeZoneValidAndStandardize
+        SetVar setVar5 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("+8:00"));
+        VariableMgr.setVar(var, setVar5);
+        Assert.assertEquals("+08:00", VariableMgr.newSessionVariable().getTimeZone());
+
+        SetVar setVar6 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("8:00"));
+        VariableMgr.setVar(var, setVar6);
+        Assert.assertEquals("+08:00", VariableMgr.newSessionVariable().getTimeZone());
+
+        SetVar setVar7 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("-8:00"));
+        VariableMgr.setVar(var, setVar7);
+        Assert.assertEquals("-08:00", VariableMgr.newSessionVariable().getTimeZone());
     }
 
     @Test(expected = DdlException.class)
     public void testInvalidType() throws DdlException {
         // Set global variable
         SetVar setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new StringLiteral("abc"));
+        SessionVariable var = VariableMgr.newSessionVariable();
+        try {
+            VariableMgr.setVar(var, setVar);
+        } catch (DdlException e) {
+            LOG.warn("VariableMgr throws", e);
+            throw e;
+        }
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidTimeZoneRegion() throws DdlException {
+        // Set global variable
+        SetVar setVar = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Hongkong"));
+        SessionVariable var = VariableMgr.newSessionVariable();
+        try {
+            VariableMgr.setVar(var, setVar);
+        } catch (DdlException e) {
+            LOG.warn("VariableMgr throws", e);
+            throw e;
+        }
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidTimeZoneOffset() throws DdlException {
+        // Set global variable
+        SetVar setVar = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("+15:00"));
         SessionVariable var = VariableMgr.newSessionVariable();
         try {
             VariableMgr.setVar(var, setVar);

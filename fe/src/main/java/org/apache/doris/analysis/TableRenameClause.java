@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 
@@ -25,11 +26,13 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // rename table
-public class TableRenameClause extends AlterClause {
+public class TableRenameClause extends AlterTableClause {
     private String newTableName;
 
     public TableRenameClause(String newTableName) {
+        super(AlterOpType.RENAME);
         this.newTableName = newTableName;
+        this.needTableStable = false;
     }
 
     public String getNewTableName() {

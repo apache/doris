@@ -30,8 +30,9 @@ class TabletColumn {
 public:
     TabletColumn();
     TabletColumn(FieldAggregationMethod agg, FieldType type);
-    OLAPStatus init_from_pb(const ColumnPB& column);
-    OLAPStatus to_schema_pb(ColumnPB* column);
+    TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
+    void init_from_pb(const ColumnPB& column);
+    void to_schema_pb(ColumnPB* column);
 
     inline int32_t unique_id() const { return _unique_id; }
     inline std::string name() const { return _col_name; }
@@ -39,6 +40,7 @@ public:
     inline bool is_key() const { return _is_key; }
     inline bool is_nullable() const { return _is_nullable; }
     inline bool is_bf_column() const { return _is_bf_column; }
+    inline bool has_bitmap_index() const {return _has_bitmap_index; }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     bool has_reference_column() const { return _has_referenced_column; }
@@ -49,6 +51,16 @@ public:
     FieldAggregationMethod aggregation() const { return _aggregation; }
     int precision() const { return _precision; }
     int frac() const { return _frac; }
+
+    friend bool operator==(const TabletColumn& a, const TabletColumn& b);
+    friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
+
+    static std::string get_string_by_field_type(FieldType type);
+    static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
+    static FieldType get_field_type_by_string(const std::string& str);
+    static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
+    static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
+
 private:
     int32_t _unique_id;
     std::string _col_name;
@@ -72,13 +84,18 @@ private:
     bool _has_referenced_column;
     int32_t _referenced_column_id;
     std::string _referenced_column;
+
+    bool _has_bitmap_index = false;
 };
+
+bool operator==(const TabletColumn& a, const TabletColumn& b);
+bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
 class TabletSchema {
 public:
-    TabletSchema();
-    OLAPStatus init_from_pb(const TabletSchemaPB& schema);
-    OLAPStatus to_schema_pb(TabletSchemaPB* tablet_meta_pb);
+    TabletSchema() = default;
+    void init_from_pb(const TabletSchemaPB& schema);
+    void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
     size_t row_size() const;
     size_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
@@ -92,20 +109,33 @@ public:
     inline CompressKind compress_kind() const { return _compress_kind; }
     inline size_t next_column_unique_id() const { return _next_column_unique_id; }
     inline double bloom_filter_fpp() const { return _bf_fpp; }
-private:
-    KeysType _keys_type;
-    std::vector<TabletColumn> _cols;
-    size_t _num_columns;
-    size_t _num_key_columns;
-    size_t _num_null_columns;
-    size_t _num_short_key_columns;
-    size_t _num_rows_per_row_block;
-    CompressKind _compress_kind;
-    size_t _next_column_unique_id;
+    inline bool is_in_memory() const {return _is_in_memory; }
+    inline void set_is_in_memory (bool is_in_memory) {
+        _is_in_memory = is_in_memory;
+    }
 
-    bool _has_bf_fpp;
-    double _bf_fpp;
+private:
+    friend bool operator==(const TabletSchema& a, const TabletSchema& b);
+    friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
+
+private:
+    KeysType _keys_type = DUP_KEYS;
+    std::vector<TabletColumn> _cols;
+    size_t _num_columns = 0;
+    size_t _num_key_columns = 0;
+    size_t _num_null_columns = 0;
+    size_t _num_short_key_columns = 0;
+    size_t _num_rows_per_row_block = 0;
+    CompressKind _compress_kind = COMPRESS_NONE;
+    size_t _next_column_unique_id = 0;
+
+    bool _has_bf_fpp = false;
+    double _bf_fpp = 0;
+    bool _is_in_memory = false;
 };
+
+bool operator==(const TabletSchema& a, const TabletSchema& b);
+bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 } // namespace doris
 

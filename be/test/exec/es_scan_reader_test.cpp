@@ -112,7 +112,7 @@ public:
                     end_search_result.AddMember("_scroll_id", scroll_id_value, allocator);
 
                     rapidjson::Value outer_hits(rapidjson::kObjectType);
-                    outer_hits.AddMember("total", 10, allocator);
+                    outer_hits.AddMember("total", 0, allocator);
                     end_search_result.AddMember("hits", outer_hits, allocator);
                     rapidjson::StringBuffer buffer;  
                     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -130,7 +130,7 @@ public:
                     search_result.AddMember("_scroll_id", scroll_id_value, allocator);
 
                     rapidjson::Value outer_hits(rapidjson::kObjectType);
-                    outer_hits.AddMember("total", 10, allocator);
+                    outer_hits.AddMember("total", 1, allocator);
                     rapidjson::Value inner_hits(rapidjson::kArrayType);
                     rapidjson::Value source_docuement(rapidjson::kObjectType);
                     source_docuement.AddMember("id", start, allocator);
@@ -192,6 +192,7 @@ static RestSearchAction rest_search_action = RestSearchAction();
 static RestSearchScrollAction rest_search_scroll_action = RestSearchScrollAction();
 static RestClearScrollAction rest_clear_scroll_action = RestClearScrollAction();
 static EvHttpServer* mock_es_server = nullptr;
+static int real_port = 0;
 
 class MockESServerTest : public testing::Test {
 public:
@@ -199,11 +200,13 @@ public:
     ~MockESServerTest() override { }
 
     static void SetUpTestCase() {
-        mock_es_server = new EvHttpServer(29386);
+        mock_es_server = new EvHttpServer(0);
         mock_es_server->register_handler(POST, "/{index}/{type}/_search", &rest_search_action);        
         mock_es_server->register_handler(POST, "/_search/scroll", &rest_search_scroll_action);
         mock_es_server->register_handler(DELETE, "/_search/scroll", &rest_clear_scroll_action);
         mock_es_server->start();
+        real_port = mock_es_server->get_real_port();
+        ASSERT_NE(0, real_port);
     }
 
     static void TearDownTestCase() {
@@ -212,7 +215,7 @@ public:
 };
 
 TEST_F(MockESServerTest, workflow) {
-    std::string target = "http://127.0.0.1:29386";
+    std::string target = "http://127.0.0.1:" + std::to_string(real_port);
     std::vector<std::string> fields = {"id", "value"};
     std::map<std::string, std::string> props;
     props[ESScanReader::KEY_INDEX] = "tindex";
@@ -222,14 +225,17 @@ TEST_F(MockESServerTest, workflow) {
     props[ESScanReader::KEY_SHARD] = "0";
     props[ESScanReader::KEY_BATCH_SIZE] = "1";
     std::vector<EsPredicate*> predicates;
-    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates);
-    ESScanReader reader(target, props);
+    std::map<std::string, std::string> docvalue_context;
+    bool doc_value_mode = false;
+    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates, docvalue_context, &doc_value_mode);
+    ESScanReader reader(target, props, doc_value_mode);
     auto st = reader.open();
-    // ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok());
     bool eos = false;
     std::unique_ptr<ScrollParser> parser = nullptr;
     while(!eos){
         st = reader.get_next(&eos, parser);
+        ASSERT_TRUE(st.ok());
         if(eos) {
             break;
         }

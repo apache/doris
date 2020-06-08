@@ -30,10 +30,12 @@
 #include "olap/stream_index_common.h"
 #include "olap/field.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
 
 class WrapperField;
+class RowCursorCell;
 
 enum CondOp {
     OP_EQ = 0,      // equal
@@ -71,12 +73,18 @@ public:
 
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
-    bool eval(char* right) const;
+    bool eval(const RowCursorCell& cell) const;
 
     bool eval(const KeyRange& statistic) const;
     int del_eval(const KeyRange& stat) const;
 
     bool eval(const BloomFilter& bf) const;
+
+    bool eval(const segment_v2::BloomFilter* bf) const;
+
+    bool can_do_bloom_filter() const {
+        return op == OP_EQ || op == OP_IN || op == OP_IS;
+    }
 
     CondOp op;
     // valid when op is not OP_IN
@@ -108,6 +116,18 @@ public:
 
     bool eval(const BloomFilter& bf) const;
 
+    bool eval(const segment_v2::BloomFilter* bf) const;
+
+    bool can_do_bloom_filter() const {
+        for (auto& cond : _conds) {
+            if (cond->can_do_bloom_filter()) {
+                // if any cond can do bloom filter
+                return true;
+            }
+        }
+        return false;
+    }
+
     inline bool is_key() const {
         return _is_key;
     }
@@ -130,6 +150,9 @@ public:
     typedef std::map<int32_t, CondColumn*> CondColumns;
 
     Conditions() {}
+    ~Conditions() {
+        finalize();
+    }
 
     void finalize() {
         for (auto& it : _columns) {
@@ -157,6 +180,8 @@ public:
         return _columns;
     }
 
+    CondColumn* get_column(int32_t cid) const;
+
 private:
     int32_t _get_field_index(const std::string& field_name) const {
         for (int i = 0; i < _schema->num_columns(); i++) {
@@ -166,6 +191,10 @@ private:
         }
         LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
         return -1;
+    }
+
+    bool _cond_column_is_key_or_duplicate(const CondColumn* cc) const {
+        return cc->is_key() || _schema->keys_type() == KeysType::DUP_KEYS;
     }
 
 private:

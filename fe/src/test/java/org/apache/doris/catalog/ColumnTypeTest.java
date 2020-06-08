@@ -27,25 +27,16 @@ import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class ColumnTypeTest {
+    private FakeCatalog fakeCatalog;
     @Before
     public void setUp() {
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test
@@ -95,7 +86,7 @@ public class ColumnTypeTest {
 
     @Test(expected = AnalysisException.class)
     public void testCharInvalid() throws AnalysisException {
-        TypeDef type = TypeDef.createVarchar(0);
+        TypeDef type = TypeDef.createVarchar(-1);
         type.analyze(null);
         Assert.fail("No Exception throws");
     }

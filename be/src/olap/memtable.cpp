@@ -17,153 +17,121 @@
 
 #include "olap/memtable.h"
 
-#include "olap/hll.h"
+#include "common/logging.h"
 #include "olap/rowset/column_data_writer.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/row_cursor.h"
-#include "util/runtime_profile.h"
+#include "olap/row.h"
+#include "olap/schema.h"
+#include "runtime/tuple.h"
 #include "util/debug_util.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
-MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
-                   std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
-                   KeysType keys_type)
-    : _schema(schema),
+MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+                   const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
+                   KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker)
+    : _tablet_id(tablet_id),
+      _schema(schema),
       _tablet_schema(tablet_schema),
       _tuple_desc(tuple_desc),
-      _col_ids(col_ids),
+      _slot_descs(slot_descs),
       _keys_type(keys_type),
-      _row_comparator(_schema) {
+      _row_comparator(_schema),
+      _rowset_writer(rowset_writer) {
+
     _schema_size = _schema->schema_size();
-    _tuple_buf = _arena.Allocate(_schema_size);
-    _skip_list = new Table(_row_comparator, &_arena);
+    _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker));
+    _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _table_mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _skip_list = new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
 }
 
 MemTable::~MemTable() {
     delete _skip_list;
 }
 
-MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema)
-    : _schema(schema) {}
+MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
 
-int MemTable::RowCursorComparator::operator()
-    (const char* left, const char* right) const {
-    return _schema->compare(left, right);
+int MemTable::RowCursorComparator::operator()(const char* left, const char* right) const {
+    ContiguousRow lhs_row(_schema, left);
+    ContiguousRow rhs_row(_schema, right);
+    return compare_row(lhs_row, rhs_row);
 }
 
-size_t MemTable::memory_usage() {
-    return _arena.MemoryUsage();
-}
-
-void MemTable::insert(Tuple* tuple) {
-    const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
-    size_t offset = 0;
-    for (size_t i = 0; i < _col_ids->size(); ++i) {
-        const SlotDescriptor* slot = slots[(*_col_ids)[i]];
-        _schema->set_not_null(i, _tuple_buf);
-        if (tuple->is_null(slot->null_indicator_offset())) {
-            _schema->set_null(i, _tuple_buf);
-            offset += _schema->get_col_size(i) + 1;
-            continue;
-        }
-        offset += 1;
-        TypeDescriptor type = slot->type();
-        switch (type.type) {
-            case TYPE_CHAR: {
-                const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(_tuple_buf + offset);
-                dest->size = _tablet_schema->column(i).length();
-                dest->data = _arena.Allocate(dest->size);
-                memcpy(dest->data, src->ptr, src->len);
-                memset(dest->data + src->len, 0, dest->size - src->len);
-                break;
-            }
-            case TYPE_VARCHAR: {
-                const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(_tuple_buf + offset);
-                dest->size = src->len;
-                dest->data = _arena.Allocate(dest->size);
-                memcpy(dest->data, src->ptr, dest->size);
-                break;
-            }
-            case TYPE_HLL: {
-                const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                Slice* dest = (Slice*)(_tuple_buf + offset);
-                dest->size = src->len;
-                bool exist = _skip_list->Contains(_tuple_buf);
-                if (exist) {
-                    dest->data = _arena.Allocate(dest->size);
-                    memcpy(dest->data, src->ptr, dest->size);
-                } else {
-                    dest->data = src->ptr;
-                    char* mem = _arena.Allocate(sizeof(HllContext));
-                    HllContext* context = new (mem) HllContext;
-                    HllSetHelper::init_context(context);
-                    HllSetHelper::fill_set(reinterpret_cast<char*>(dest), context);
-                    context->has_value = true;
-                    char* variable_ptr = _arena.Allocate(sizeof(HllContext*) + HLL_COLUMN_DEFAULT_LEN);
-                    *(size_t*)(variable_ptr) = (size_t)(context);
-                    variable_ptr += sizeof(HllContext*);
-                    dest->data = variable_ptr;
-                    dest->size = HLL_COLUMN_DEFAULT_LEN;
-                }
-                break;
-            }
-            case TYPE_DECIMAL: {
-                DecimalValue* decimal_value = tuple->get_decimal_slot(slot->tuple_offset());
-                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(_tuple_buf + offset);
-                storage_decimal_value->integer = decimal_value->int_value();
-                storage_decimal_value->fraction = decimal_value->frac_value();
-                break;
-            }
-            case TYPE_DECIMALV2: {
-                DecimalV2Value* decimal_value = tuple->get_decimalv2_slot(slot->tuple_offset());
-                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(_tuple_buf + offset);
-                storage_decimal_value->integer = decimal_value->int_value();
-                storage_decimal_value->fraction = decimal_value->frac_value();
-                break;
-            }
-            case TYPE_DATETIME: {
-                DateTimeValue* datetime_value = tuple->get_datetime_slot(slot->tuple_offset());
-                uint64_t* storage_datetime_value = reinterpret_cast<uint64_t*>(_tuple_buf + offset);
-                *storage_datetime_value = datetime_value->to_olap_datetime();
-                break;
-            }
-            case TYPE_DATE: {
-                DateTimeValue* date_value = tuple->get_datetime_slot(slot->tuple_offset());
-                uint24_t* storage_date_value = reinterpret_cast<uint24_t*>(_tuple_buf + offset);
-                *storage_date_value = static_cast<int64_t>(date_value->to_olap_date());
-                break;
-            }
-            default: {
-                memcpy(_tuple_buf + offset, tuple->get_slot(slot->tuple_offset()), _schema->get_col_size(i));
-                break;
-            }
-        }
-        offset = offset + _schema->get_col_size(i);
-    }
-
+void MemTable::insert(const Tuple* tuple) {
     bool overwritten = false;
-    _skip_list->Insert(_tuple_buf, &overwritten, _keys_type);
-    if (!overwritten) {
-        _tuple_buf = _arena.Allocate(_schema_size);
+    uint8_t* _tuple_buf = nullptr;
+    if (_keys_type == KeysType::DUP_KEYS) {
+        // Will insert directly, so use memory from _table_mem_pool
+        _tuple_buf = _table_mem_pool->allocate(_schema_size);
+        ContiguousRow row(_schema, _tuple_buf);
+        _tuple_to_row(tuple, &row, _table_mem_pool.get());
+        _skip_list->Insert((TableKey)_tuple_buf, &overwritten);
+        DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
+        return;
+    }
+
+    // For non-DUP models, for the data rows passed from the upper layer, when copying the data,
+    // we first allocate from _buffer_mem_pool, and then check whether it already exists in
+    // _skiplist.  If it exists, we aggregate the new row into the row in skiplist.
+    // otherwise, we need to copy it into _table_mem_pool before we can insert it.
+    _tuple_buf = _buffer_mem_pool->allocate(_schema_size);
+    ContiguousRow src_row(_schema, _tuple_buf);
+    _tuple_to_row(tuple, &src_row, _buffer_mem_pool.get());
+
+    bool is_exist = _skip_list->Find((TableKey)_tuple_buf, &_hint);
+    if (is_exist) {
+        _aggregate_two_row(src_row, _hint.curr->key);
+    } else {
+        _tuple_buf = _table_mem_pool->allocate(_schema_size);
+        ContiguousRow dst_row(_schema, _tuple_buf);
+        copy_row_in_memtable(&dst_row, src_row, _table_mem_pool.get());
+        _skip_list->InsertWithHint((TableKey)_tuple_buf, is_exist, &_hint);
+    }
+
+    // Make MemPool to be reusable, but does not free its memory
+    _buffer_mem_pool->clear();
+}
+
+void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
+    for (size_t i = 0; i < _slot_descs->size(); ++i) {
+        auto cell = row->cell(i);
+        const SlotDescriptor* slot = (*_slot_descs)[i];
+
+        bool is_null = tuple->is_null(slot->null_indicator_offset());
+        const void* value = tuple->get_slot(slot->tuple_offset());
+        _schema->column(i)->consume(
+                &cell, (const char*)value, is_null, mem_pool, &_agg_object_pool);
     }
 }
 
-OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
-    Table::Iterator it(_skip_list);
-    for (it.SeekToFirst(); it.Valid(); it.Next()) {
-        const char* row = it.key();
-        _schema->finalize(row);
-        RETURN_NOT_OK(rowset_writer->add_row(row, _schema));
+void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
+    ContiguousRow dst_row(_schema, row_in_skiplist);
+    agg_update_row(&dst_row, src_row, _table_mem_pool.get());
+}
+
+OLAPStatus MemTable::flush() {
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        Table::Iterator it(_skip_list);
+        for (it.SeekToFirst(); it.Valid(); it.Next()) {
+            char* row = (char*)it.key();
+            ContiguousRow dst_row(_schema, row);
+            agg_finalize_row(&dst_row, _table_mem_pool.get());
+            RETURN_NOT_OK(_rowset_writer->add_row(dst_row));
+        }
+        RETURN_NOT_OK(_rowset_writer->flush());
     }
-    
-    RETURN_NOT_OK(rowset_writer->flush());
+    DorisMetrics::instance()->memtable_flush_total.increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us.increment(duration_ns / 1000);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(RowsetWriterSharedPtr rowset_writer) {
-    return flush(rowset_writer);
+OLAPStatus MemTable::close() {
+    return flush();
 }
 
 } // namespace doris

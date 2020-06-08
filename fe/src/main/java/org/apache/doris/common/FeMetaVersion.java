@@ -122,4 +122,67 @@ public final class FeMetaVersion {
     public static final int VERSION_55 = 55;
     // persist auth info in load job
     public static final int VERSION_56 = 56;
+    // for base index using different id
+    public static final int VERSION_57 = 57;
+    // broker load support function, persist origin stmt in broker load
+    public static final int VERSION_58 = 58;
+    // support strict mode in routine load and stream load
+    public static final int VERSION_59 = 59;
+    // refactor date literal
+    public static final int VERSION_60 = 60;
+    // for alter job v2
+    public static final int VERSION_61 = 61;
+    // add param: doris_shuffle_partitions
+    public static final int VERSION_62 = 62;
+    // for table comment
+    public static final int VERSION_63 = 63;
+    // for table create time
+    public static final int VERSION_64 = 64;
+
+    // support sql mode, change sql_mode from string to long
+    public static final int VERSION_65 = 65;
+    // routine load/stream load persist session variables
+    public static final int VERSION_66 = 66;
+    // load_mem_limit session variable
+    public static final int VERSION_67 = 67;
+    // for es table context
+    public static final int VERSION_68 = 68;
+    // modify password checking logic
+    public static final int VERSION_69 = 69;
+    // for indexes
+    public static final int VERSION_70 = 70;
+    // dynamic partition
+    public static final int VERSION_71 = 71;
+    // in memory table
+    public static final int VERSION_72 = 72;
+    // broker persist isAlive
+    public static final int VERSION_73 = 73;
+    // temp partitions
+    public static final int VERSION_74 = 74;
+    // support materialized index meta while there is different keys type in different materialized index
+    public static final int VERSION_75 = 75;
+    // multi statement
+    public static final int VERSION_76 = 76;
+    // load to temp partitions
+    public static final int VERSION_77 = 77;
+    // plugin support
+    public static final int VERSION_78 = 78;
+    // for transaction state in table level
+    public static final int VERSION_79 = 79;
+    // optimize alterJobV2 memory consumption
+    public static final int VERSION_80 = 80;
+    // replica quota support
+    public static final int VERSION_81 = 81;
+    // optimize delete job
+    public static final int VERSION_82 = 82;
+    // modify TransactionState Field
+    public static final int VERSION_83 = 83;
+    // add storage format in schema change job
+    public static final int VERSION_84 = 84;
+    // add storage format in rollup job
+    public static final int VERSION_85 = 85;
+    // serialize origStmt in rollupJob and mv meta
+    public static final int VERSION_86 = 86;
+    // note: when increment meta version, should assign the latest version to VERSION_CURRENT
+    public static final int VERSION_CURRENT = VERSION_86;
 }

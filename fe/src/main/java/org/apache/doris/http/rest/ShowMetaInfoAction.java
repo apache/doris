@@ -20,6 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -34,9 +35,8 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.persist.Storage;
-import com.google.gson.Gson;
 
-import io.netty.handler.codec.http.HttpMethod;
+import com.google.gson.Gson;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -48,6 +48,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 public class ShowMetaInfoAction extends RestBaseAction {
     private enum Action {
@@ -96,30 +98,38 @@ public class ShowMetaInfoAction extends RestBaseAction {
     
     public Map<String, String> getHaInfo() {
         HashMap<String, String> feInfo = new HashMap<String, String>();
-        feInfo.put("role", Catalog.getInstance().getFeType().toString());
-        if (Catalog.getInstance().isMaster()) {
+        feInfo.put("role", Catalog.getCurrentCatalog().getFeType().toString());
+        if (Catalog.getCurrentCatalog().isMaster()) {
             feInfo.put("current_journal_id",
-                       String.valueOf(Catalog.getInstance().getEditLog().getMaxJournalId()));
+                       String.valueOf(Catalog.getCurrentCatalog().getEditLog().getMaxJournalId()));
         } else {
             feInfo.put("current_journal_id",
-                       String.valueOf(Catalog.getInstance().getReplayedJournalId()));
+                       String.valueOf(Catalog.getCurrentCatalog().getReplayedJournalId()));
         }
 
-        HAProtocol haProtocol = Catalog.getInstance().getHaProtocol();
+        HAProtocol haProtocol = Catalog.getCurrentCatalog().getHaProtocol();
         if (haProtocol != null) {
-            InetSocketAddress master = haProtocol.getLeader();
+
+            InetSocketAddress master = null;
+            try {
+                master = haProtocol.getLeader();
+            } catch (Exception e) {
+                // this may happen when majority of FOLLOWERS are down and no MASTER right now.
+                LOG.warn("failed to get leader: {}", e.getMessage());
+            }
             if (master != null) {
                 feInfo.put("master", master.getHostString());
+            } else {
+                feInfo.put("master", "unknown");
             }
 
             List<InetSocketAddress> electableNodes = haProtocol.getElectableNodes(false);
             ArrayList<String> electableNodeNames = new ArrayList<String>();
-            if (electableNodes != null) {
+            if (!electableNodes.isEmpty()) {
                 for (InetSocketAddress node : electableNodes) {
                     electableNodeNames.add(node.getHostString());
                 }
-                feInfo.put("electable_nodes",
-                        StringUtils.join(electableNodeNames.toArray(), ","));
+                feInfo.put("electable_nodes", StringUtils.join(electableNodeNames.toArray(), ","));
             }
 
             List<InetSocketAddress> observerNodes = haProtocol.getObserverNodes();
@@ -132,7 +142,8 @@ public class ShowMetaInfoAction extends RestBaseAction {
             }
         }
 
-        feInfo.put("can_read", String.valueOf(Catalog.getInstance().canRead()));
+        feInfo.put("can_read", String.valueOf(Catalog.getCurrentCatalog().canRead()));
+        feInfo.put("is_ready", String.valueOf(Catalog.getCurrentCatalog().isReady()));
         try {
             Storage storage = new Storage(Config.meta_dir + "/image");
             feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));
@@ -146,11 +157,11 @@ public class ShowMetaInfoAction extends RestBaseAction {
 
     public Map<String, Long> getDataSize() {
         Map<String, Long> result = new HashMap<String, Long>();
-        List<String> dbNames = Catalog.getInstance().getDbNames();
+        List<String> dbNames = Catalog.getCurrentCatalog().getDbNames();
 
         for (int i = 0; i < dbNames.size(); i++) {
             String dbName = dbNames.get(i);
-            Database db = Catalog.getInstance().getDb(dbName);
+            Database db = Catalog.getCurrentCatalog().getDb(dbName);
 
             long totalSize = 0;
             List<Table> tables = db.getTables();
@@ -162,9 +173,9 @@ public class ShowMetaInfoAction extends RestBaseAction {
 
                 OlapTable olapTable = (OlapTable) table;
                 long tableSize = 0;
-                for (Partition partition : olapTable.getPartitions()) {
+                for (Partition partition : olapTable.getAllPartitions()) {
                     long partitionSize = 0;
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         long indexSize = 0;
                         for (Tablet tablet : mIndex.getTablets()) {
                             long maxReplicaSize = 0;

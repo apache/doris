@@ -164,7 +164,7 @@ OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) 
     }
 
     _header.block_count = _index_to_write.size();
-    VLOG(3) << "header info. pos: " << _header.position_format
+    VLOG(10) << "header info. pos: " << _header.position_format
             << ", stat:" << _header.statistic_format
             << ", entry_size:" << entry_size;
     memcpy(buffer, reinterpret_cast<char*>(&_header), sizeof(_header));

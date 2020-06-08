@@ -54,7 +54,7 @@ if [[ -z ${DORIS_GCC_HOME} ]]; then
     export DORIS_GCC_HOME=$(dirname `which gcc`)/..
 fi
 
-gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpversion`
+gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpfullversion -dumpversion`
 required_ver="5.3.1"
 if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$required_ver" ]]; then 
     echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"
@@ -80,9 +80,22 @@ if [[ $JAVA_VER -lt 18 ]]; then
 fi
 
 # check maven
-export MVN=mvn
-if ! ${MVN} --version; then
+MVN_CMD=mvn
+if [[ ! -z ${CUSTOM_MVN} ]]; then
+    MVN_CMD=${CUSTOM_MVN}
+fi
+if ! ${MVN_CMD} --version; then
     echo "Error: mvn is not found"
     exit 1
 fi
+export MVN_CMD
 
+CMAKE_CMD=cmake
+if [[ ! -z ${CUSTOM_CMAKE} ]]; then
+    CMAKE_CMD=${CUSTOM_CMAKE}
+fi
+if ! ${CMAKE_CMD} --version; then
+    echo "Error: cmake is not found"
+    exit 1
+fi
+export CMAKE_CMD

@@ -19,16 +19,22 @@
 
 #include <cstddef>
 
-#include "common/logging.h" // for LOG
-#include "env/env.h" // for LOG
-#include "gutil/strings/substitute.h" // for Substitute
-#include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
-#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions
-#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexBuilder
-#include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
-#include "olap/types.h" // for TypeInfo
-#include "util/faststring.h" // for fastring
-#include "util/rle_encoding.h" // for RleEncoder
+#include "common/logging.h"
+#include "env/env.h"
+#include "gutil/strings/substitute.h"
+#include "olap/fs/block_manager.h"
+#include "olap/rowset/segment_v2/bitmap_index_writer.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/ordinal_page_index.h"
+#include "olap/rowset/segment_v2/page_builder.h"
+#include "olap/rowset/segment_v2/page_io.h"
+#include "olap/rowset/segment_v2/zone_map_index.h"
+#include "util/block_compression.h"
+#include "util/faststring.h"
+#include "util/rle_encoding.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -37,45 +43,61 @@ using strings::Substitute;
 
 class NullBitmapBuilder {
 public:
-    NullBitmapBuilder() : _offset(0), _bitmap_buf(512), _rle_encoder(&_bitmap_buf, 1) { }
-    NullBitmapBuilder(size_t reserve_bits)
-        : _offset(0), _bitmap_buf(BitmapSize(reserve_bits)), _rle_encoder(&_bitmap_buf, 1) { }
+    NullBitmapBuilder() : _has_null(false), _bitmap_buf(512), _rle_encoder(&_bitmap_buf, 1) {
+    }
+
+    explicit NullBitmapBuilder(size_t reserve_bits)
+        : _has_null(false), _bitmap_buf(BitmapSize(reserve_bits)), _rle_encoder(&_bitmap_buf, 1) {
+    }
+
     void add_run(bool value, size_t run) {
+        _has_null |= value;
         _rle_encoder.Put(value, run);
-        _offset += run;
     }
-    Slice finish() {
-        auto len = _rle_encoder.Flush();
-        return Slice(_bitmap_buf.data(), len);
+
+    // Returns whether the building nullmap contains NULL
+    bool has_null() const { return _has_null; }
+
+    OwnedSlice finish() {
+        _rle_encoder.Flush();
+        return _bitmap_buf.build();
     }
+
     void reset() {
-        _offset = 0;
+        _has_null = false;
         _rle_encoder.Clear();
     }
-    // slice returned by finish should be deleted by caller
-    void release() {
-        size_t capacity = _bitmap_buf.capacity();
-        _bitmap_buf.release();
-        _bitmap_buf.reserve(capacity);
+
+    uint64_t size() {
+        return _bitmap_buf.size();
     }
 private:
-    size_t _offset;
+    bool _has_null;
     faststring _bitmap_buf;
     RleEncoder<bool> _rle_encoder;
 };
 
 ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
-                           const TypeInfo* typeinfo,
-                           bool is_nullable,
-                           WritableFile* output_file)
-        : _opts(opts),
-        _type_info(typeinfo),
-        _is_nullable(is_nullable),
-        _output_file(output_file) {
+                           std::unique_ptr<Field> field,
+                           fs::WritableBlock* wblock) :
+        _opts(opts),
+        _field(std::move(field)),
+        _wblock(wblock),
+        _is_nullable(_opts.meta->is_nullable()),
+        _data_size(0) {
+    // these opts.meta fields should be set by client
+    DCHECK(opts.meta->has_column_id());
+    DCHECK(opts.meta->has_unique_id());
+    DCHECK(opts.meta->has_type());
+    DCHECK(opts.meta->has_length());
+    DCHECK(opts.meta->has_encoding());
+    DCHECK(opts.meta->has_compression());
+    DCHECK(opts.meta->has_is_nullable());
+    DCHECK(wblock != nullptr);
 }
 
 ColumnWriter::~ColumnWriter() {
-    // delete all page
+    // delete all pages
     Page* page = _pages.head;
     while (page != nullptr) {
         Page* next_page = page->next;
@@ -85,10 +107,13 @@ ColumnWriter::~ColumnWriter() {
 }
 
 Status ColumnWriter::init() {
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info, _opts.encoding_type, &_encoding_info));
-    if (_opts.compression_type != NO_COMPRESSION) {
-        // TODO(zc):
-    }
+    RETURN_IF_ERROR(EncodingInfo::get(_field->type_info(), _opts.meta->encoding(), &_encoding_info));
+    _opts.meta->set_encoding(_encoding_info->encoding());
+    // should store more concrete encoding type instead of DEFAULT_ENCODING
+    // because the default encoding of a data type can be changed in the future
+    DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
+
+    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
 
     // create page builder
     PageBuilder* page_builder = nullptr;
@@ -98,14 +123,24 @@ Status ColumnWriter::init() {
     if (page_builder == nullptr) {
         return Status::NotSupported(
             Substitute("Failed to create page builder for type $0 and encoding $1",
-                       _type_info->type(), _opts.encoding_type));
+                       _field->type(), _opts.meta->encoding()));
     }
     _page_builder.reset(page_builder);
     // create ordinal builder
-    _ordinal_index_builer.reset(new OrdinalPageIndexBuilder());
+    _ordinal_index_builder.reset(new OrdinalIndexWriter());
     // create null bitmap builder
     if (_is_nullable) {
         _null_bitmap_builder.reset(new NullBitmapBuilder());
+    }
+    if (_opts.need_zone_map) {
+        _zone_map_index_builder.reset(new ZoneMapIndexWriter(_field.get()));
+    }
+    if (_opts.need_bitmap_index) {
+        RETURN_IF_ERROR(BitmapIndexWriter::create(_field->type_info(), &_bitmap_index_builder));
+    }
+    if (_opts.need_bloom_filter) {
+        RETURN_IF_ERROR(BloomFilterIndexWriter::create(BloomFilterOptions(),
+                _field->type_info(), &_bloom_filter_index_builder));
     }
     return Status::OK();
 }
@@ -113,6 +148,15 @@ Status ColumnWriter::init() {
 Status ColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
+    if (_opts.need_zone_map) {
+        _zone_map_index_builder->add_nulls(num_rows);
+    }
+    if (_opts.need_bitmap_index) {
+        _bitmap_index_builder->add_nulls(num_rows);
+    }
+    if (_opts.need_bloom_filter) {
+        _bloom_filter_index_builder->add_nulls(num_rows);
+    }
     return Status::OK();
 }
 
@@ -120,26 +164,33 @@ Status ColumnWriter::append(const void* data, size_t num_rows) {
     return _append_data((const uint8_t**)&data, num_rows);
 }
 
-// append data to page builder. this funciton will make sure that
-// num_rows must be written before return. And ptr will be modifed
+// append data to page builder. this function will make sure that
+// num_rows must be written before return. And ptr will be modified
 // to next data should be written
 Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
     while (remaining > 0) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(_page_builder->add(*ptr, &num_written));
+        if (_opts.need_zone_map) {
+            _zone_map_index_builder->add_values(*ptr, num_written);
+        }
+        if (_opts.need_bitmap_index) {
+            _bitmap_index_builder->add_values(*ptr, num_written);
+        }
+        if (_opts.need_bloom_filter) {
+            _bloom_filter_index_builder->add_values(*ptr, num_written);
+        }
 
         bool is_page_full = (num_written < remaining);
         remaining -= num_written;
         _next_rowid += num_written;
-        *ptr += _type_info->size() * num_written;
+        *ptr += _field->size() * num_written;
         // we must write null bits after write data, because we don't
         // know how many rows can be written into current page
         if (_is_nullable) {
             _null_bitmap_builder->add_run(false, num_written);
         }
-
-        // TODO(zc): update statistics for this page
 
         if (is_page_full) {
             RETURN_IF_ERROR(_finish_current_page());
@@ -158,11 +209,39 @@ Status ColumnWriter::append_nullable(
         if (is_null) {
             _null_bitmap_builder->add_run(true, this_run);
             _next_rowid += this_run;
+            if (_opts.need_zone_map) {
+                _zone_map_index_builder->add_nulls(this_run);
+            }
+            if (_opts.need_bitmap_index) {
+                _bitmap_index_builder->add_nulls(this_run);
+            }
+            if (_opts.need_bloom_filter) {
+                _bloom_filter_index_builder->add_nulls(this_run);
+            }
         } else {
             RETURN_IF_ERROR(_append_data(&ptr, this_run));
         }
     }
     return Status::OK();
+}
+
+uint64_t ColumnWriter::estimate_buffer_size() {
+    uint64_t size = _data_size;
+    size += _page_builder->size();
+    if (_is_nullable) {
+        size += _null_bitmap_builder->size();
+    }
+    size += _ordinal_index_builder->size();
+    if (_opts.need_zone_map) {
+        size += _zone_map_index_builder->size();
+    }
+    if (_opts.need_bitmap_index) {
+        size += _bitmap_index_builder->size();
+    }
+    if (_opts.need_bloom_filter) {
+        size += _bloom_filter_index_builder->size();
+    }
+    return size;
 }
 
 Status ColumnWriter::finish() {
@@ -175,118 +254,114 @@ Status ColumnWriter::write_data() {
         RETURN_IF_ERROR(_write_data_page(page));
         page = page->next;
     }
-    // write ordinal index
-    // auto slice = _ordinal_index_builer->finish();
-    // file->append
+    // write column dict
+    if (_encoding_info->encoding() == DICT_ENCODING) {
+        OwnedSlice dict_body;
+        RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
+
+        PageFooterPB footer;
+        footer.set_type(DICTIONARY_PAGE);
+        footer.set_uncompressed_size(dict_body.slice().get_size());
+        footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
+
+        PagePointer dict_pp;
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(
+                _compress_codec, _opts.compression_min_space_saving, _wblock,
+                { dict_body.slice() }, footer, &dict_pp));
+        dict_pp.to_proto(_opts.meta->mutable_dict_page());
+    }
     return Status::OK();
 }
 
 Status ColumnWriter::write_ordinal_index() {
-    Slice data = _ordinal_index_builer->finish();
-    std::vector<Slice> slices{data};
-    return _write_physical_page(&slices, &_ordinal_index_pp);
+    return _ordinal_index_builder->finish(_wblock, _opts.meta->add_indexes());
 }
 
-void ColumnWriter::write_meta(ColumnMetaPB* meta) {
-    meta->set_type(_type_info->type());
-    meta->set_encoding(_opts.encoding_type);
-    meta->set_compression(_opts.compression_type);
-    meta->set_is_nullable(_is_nullable);
-    meta->set_has_checksum(_opts.need_checksum);
-    _ordinal_index_pp.to_proto(meta->mutable_ordinal_index_page());
+Status ColumnWriter::write_zone_map() {
+    if (_opts.need_zone_map) {
+        return _zone_map_index_builder->finish(_wblock, _opts.meta->add_indexes());
+    }
+    return Status::OK();
 }
 
-// write a page into file and update ordinal index
-// this function will call _write_physical_page to write data
+Status ColumnWriter::write_bitmap_index() {
+    if (_opts.need_bitmap_index) {
+        return _bitmap_index_builder->finish(_wblock, _opts.meta->add_indexes());
+    }
+    return Status::OK();
+}
+
+Status ColumnWriter::write_bloom_filter_index() {
+    if (_opts.need_bloom_filter) {
+        return _bloom_filter_index_builder->finish(_wblock, _opts.meta->add_indexes());
+    }
+    return Status::OK();
+}
+
+// write a data page into file and update ordinal index
 Status ColumnWriter::_write_data_page(Page* page) {
-    std::vector<Slice> origin_data;
-    faststring header;
-    // 1. first rowid
-    put_varint32(&header, page->first_rowid);
-    // 2. row count
-    put_varint32(&header, page->num_rows);
-    if (_is_nullable) {
-        put_varint32(&header, page->null_bitmap.size);
-    }
-    origin_data.emplace_back(header.data(), header.size());
-    if (_is_nullable) {
-        origin_data.push_back(page->null_bitmap);
-    }
-    origin_data.push_back(page->data);
-    // TODO(zc): upadte page's statistics
-
     PagePointer pp;
-    RETURN_IF_ERROR(_write_physical_page(&origin_data, &pp));
-
-    _ordinal_index_builer->append_entry(page->first_rowid, pp);
-    return Status::OK();
-}
-
-// write a physical page in to files
-Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp) {
-    std::vector<Slice>* output_data = origin_data;
-    std::vector<Slice> compressed_data;
-    // TODO(zc): support compress
-    // if (_need_compress) {
-    //     output_data = &compressed_data;
-    // }
-
-    // checksum
-    uint8_t checksum_buf[sizeof(uint32_t)];
-    if (_opts.need_checksum) {
-        uint32_t checksum = _compute_checksum(*output_data);
-        encode_fixed32_le(checksum_buf, checksum);
-        output_data->emplace_back(checksum_buf, sizeof(uint32_t));
+    std::vector<Slice> compressed_body;
+    for (auto& data : page->data) {
+        compressed_body.push_back(data.slice());
     }
-
-    // remember the offset
-    pp->offset = _output_file->size();
-    // write content to file
-    size_t bytes_written = 0;
-    RETURN_IF_ERROR(_write_raw_data(*output_data, &bytes_written));
-    pp->size = bytes_written;
-
-    return Status::OK();
-}
-
-uint32_t ColumnWriter::_compute_checksum(const std::vector<Slice>& data) {
-    // TODO(zc): compute checksum
-    return 0;
-}
-
-// write raw data into file, this is the only place to write data
-Status ColumnWriter::_write_raw_data(const std::vector<Slice>& data, size_t* bytes_written) {
-    auto file_size = _output_file->size();
-    auto st = _output_file->appendv(&data[0], data.size());
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to append data to file, st=" << st.to_string();
-        return st;
-    }
-    *bytes_written = _output_file->size() - file_size;
-    _written_size += *bytes_written;
+    RETURN_IF_ERROR(PageIO::write_page(_wblock, compressed_body, page->footer, &pp));
+    _ordinal_index_builder->append_entry(page->footer.data_page_footer().first_ordinal(), pp);
     return Status::OK();
 }
 
 Status ColumnWriter::_finish_current_page() {
-    if (_next_rowid == _last_first_rowid) {
+    if (_next_rowid == _first_rowid) {
         return Status::OK();
     }
-    Page* page = new Page();
-    page->first_rowid = _last_first_rowid;
-    page->num_rows = _next_rowid - _last_first_rowid;
-    page->data = _page_builder->finish();
-    _page_builder->release();
+
+    if (_opts.need_zone_map) {
+        RETURN_IF_ERROR(_zone_map_index_builder->flush());
+    }
+
+    if (_opts.need_bloom_filter) {
+        RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
+    }
+
+    // build data page body : encoded values + [nullmap]
+    vector<Slice> body;
+    OwnedSlice encoded_values = _page_builder->finish();
     _page_builder->reset();
-    if (_is_nullable) {
-        page->null_bitmap = _null_bitmap_builder->finish();
-        _null_bitmap_builder->release();
+    body.push_back(encoded_values.slice());
+
+    OwnedSlice nullmap;
+    if (_is_nullable && _null_bitmap_builder->has_null()) {
+        nullmap = _null_bitmap_builder->finish();
+        body.push_back(nullmap.slice());
+    }
+    if (_null_bitmap_builder != nullptr) {
         _null_bitmap_builder->reset();
     }
-    // update last first rowid
-    _last_first_rowid = _next_rowid;
 
-    _push_back_page(page);
+    // prepare data page footer
+    std::unique_ptr<Page> page(new Page());
+    page->footer.set_type(DATA_PAGE);
+    page->footer.set_uncompressed_size(Slice::compute_total_size(body));
+    auto data_page_footer = page->footer.mutable_data_page_footer();
+    data_page_footer->set_first_ordinal(_first_rowid);
+    data_page_footer->set_num_values(_next_rowid - _first_rowid);
+    data_page_footer->set_nullmap_size(nullmap.slice().size);
 
+    // trying to compress page body
+    OwnedSlice compressed_body;
+    RETURN_IF_ERROR(PageIO::compress_page_body(
+            _compress_codec, _opts.compression_min_space_saving, body, &compressed_body));
+    if (compressed_body.slice().empty()) {
+        // page body is uncompressed
+        page->data.emplace_back(std::move(encoded_values));
+        page->data.emplace_back(std::move(nullmap));
+    } else {
+        // page body is compressed
+        page->data.emplace_back(std::move(compressed_body));
+    }
+
+    _push_back_page(page.release());
+    _first_rowid = _next_rowid;
     return Status::OK();
 }
 

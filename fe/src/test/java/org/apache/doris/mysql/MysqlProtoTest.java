@@ -17,87 +17,101 @@
 
 package org.apache.doris.mysql;
 
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.UserPropertyMgr;
 import org.apache.doris.qe.ConnectContext;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.util.List;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({Catalog.class, ConnectContext.class, MysqlPassword.class, UserPropertyMgr.class})
 public class MysqlProtoTest {
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(MysqlProtoTest.class);
+    @Mocked
     private MysqlChannel channel;
-
+    @Mocked
+    private MysqlPassword password;
+    @Mocked
     private Catalog catalog;
+    @Mocked
+    private PaloAuth auth;
 
     @Before
     public void setUp() throws DdlException {
 
         // mock auth
-        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
-        EasyMock.expect(auth.checkGlobalPriv(EasyMock.anyObject(ConnectContext.class),
-                EasyMock.anyObject(PrivPredicate.class))).andReturn(true).anyTimes();
+        new Expectations() {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
 
-        EasyMock.expect(auth.checkPassword(EasyMock.anyString(), EasyMock.anyString(), (byte[]) EasyMock.anyObject(),
-                (byte[]) EasyMock.anyObject(), (List<UserIdentity>) EasyMock.anyObject())).andDelegateTo(
-                        new WrappedAuth() {
-                            @Override
-                            public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
-                                    byte[] randomString,
-                                    List<UserIdentity> currentUser) {
-                                UserIdentity userIdentity = new UserIdentity("defaut_cluster:user", "192.168.1.1");
-                                currentUser.add(userIdentity);
-                                return true;
-                            }
-                        }).anyTimes();
-        EasyMock.replay(auth);
+                auth.checkPassword(anyString, anyString, (byte[]) any, (byte[]) any, (List<UserIdentity>) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    boolean fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+                                              List<UserIdentity> currentUser) {
+                        UserIdentity userIdentity = new UserIdentity("defaut_cluster:user", "192.168.1.1");
+                        currentUser.add(userIdentity);
+                        return true;
+                    }
+                };
 
-        // Mock catalog
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getDb(EasyMock.isA(String.class))).andReturn(new Database()).anyTimes();
-        EasyMock.expect(catalog.getAuth()).andReturn(auth).anyTimes();
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-        catalog.changeDb(EasyMock.anyObject(ConnectContext.class), EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
+                catalog.getDb(anyString);
+                minTimes = 0;
+                result = new Database();
 
-        EasyMock.replay(catalog);
-        PowerMock.replay(Catalog.class);
+                catalog.getAuth();
+                minTimes = 0;
+                result = auth;
+
+                catalog.changeDb((ConnectContext) any, anyString);
+                minTimes = 0;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
+
     }
 
     private void mockChannel(String user, boolean sendOk) throws Exception {
         // mock channel
-        channel = EasyMock.createMock(MysqlChannel.class);
-        // channel.sendOnePacket(EasyMock.anyObject(ByteBuffer.class));
-        channel.sendAndFlush(EasyMock.anyObject(ByteBuffer.class));
-        if (sendOk) {
-            EasyMock.expectLastCall().anyTimes();
-        } else {
-            EasyMock.expectLastCall().andThrow(new IOException()).anyTimes();
-        }
+        new Expectations() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    void sendAndFlush(ByteBuffer packet) throws IOException {
+                        if (!sendOk) {
+                            throw new IOException();
+                        }
+                    }
+                };
+            }
+        };
 
         // mock auth packet
         MysqlSerializer serializer = MysqlSerializer.newInstance();
@@ -123,25 +137,36 @@ public class MysqlProtoTest {
         serializer.writeNulTerminateString("database");
 
         ByteBuffer buffer = serializer.toByteBuffer();
-        EasyMock.expect(channel.fetchOnePacket()).andReturn(buffer).anyTimes();
-        EasyMock.expect(channel.getRemoteIp()).andReturn("192.168.1.1").anyTimes();
-        EasyMock.replay(channel);
+        new Expectations() {
+            {
+                channel.fetchOnePacket();
+                minTimes = 0;
+                result = buffer;
 
-        PowerMock.expectNew(MysqlChannel.class, EasyMock.anyObject(SocketChannel.class)).andReturn(channel).anyTimes();
-        PowerMock.replay(MysqlChannel.class);
+                channel.getRemoteIp();
+                minTimes = 0;
+                result = "192.168.1.1";
+            }
+        };
     }
 
-    private void mockPassword(boolean result) {
+    private void mockPassword(boolean res) {
         // mock password
-        PowerMock.mockStatic(MysqlPassword.class);
-        EasyMock.expect(MysqlPassword.checkScramble(
-                EasyMock.anyObject(byte[].class), EasyMock.anyObject(byte[].class),
-                EasyMock.anyObject(byte[].class)))
-                .andReturn(result).anyTimes();
-        EasyMock.expect(MysqlPassword.createRandomString(20)).andReturn(new byte[20]).anyTimes();
-        EasyMock.expect(MysqlPassword.getSaltFromPassword(EasyMock.isA(byte[].class)))
-                .andReturn(new byte[20]).anyTimes();
-        PowerMock.replay(MysqlPassword.class);
+        new Expectations(password) {
+            {
+                MysqlPassword.checkScramble((byte[]) any, (byte[]) any, (byte[]) any);
+                minTimes = 0;
+                result = res;
+
+                MysqlPassword.createRandomString(20);
+                minTimes = 0;
+                result = new byte[20];
+
+                MysqlPassword.getSaltFromPassword((byte[]) any);
+                minTimes = 0;
+                result = new byte[20];
+            }
+        };
     }
 
     private void mockAccess() throws Exception {

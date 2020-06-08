@@ -79,11 +79,10 @@ TEST(TestStream, UncompressOutStream2) {
     ASSERT_EQ(out_stream->output_buffers().size(), 2);
 
     std::vector<StorageByteBuffer*> inputs;
-    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
-    for (; it != out_stream->output_buffers().end(); ++it) {
-        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
-        inputs.push_back(tmp_byte_buffer);
+    for (const auto& it : out_stream->output_buffers()) {
+        inputs.push_back(StorageByteBuffer::reference_buffer(it, 0, it->limit()));
     }
+
     std::vector<uint64_t> offsets;
     offsets.push_back(0);
     offsets.push_back(sizeof(StreamHead) + OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
@@ -109,6 +108,9 @@ TEST(TestStream, UncompressOutStream2) {
 
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 TEST(TestStream, UncompressOutStream3) {
@@ -131,10 +133,8 @@ TEST(TestStream, UncompressOutStream3) {
     ASSERT_EQ(out_stream->output_buffers().size(), 2);
 
     std::vector<StorageByteBuffer*> inputs;
-    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
-    for (; it != out_stream->output_buffers().end(); ++it) {
-        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
-        inputs.push_back(tmp_byte_buffer);
+    for (const auto& it : out_stream->output_buffers()) {
+        inputs.push_back(StorageByteBuffer::reference_buffer(it, 0, it->limit()));
     }
 
     std::vector<uint64_t> offsets;
@@ -161,9 +161,12 @@ TEST(TestStream, UncompressOutStream3) {
 
     ASSERT_NE(in_stream->read(&data), OLAP_SUCCESS);
 
+    SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
-
 
 TEST(TestStream, UncompressInStream) {
     // write data
@@ -177,10 +180,9 @@ TEST(TestStream, UncompressInStream) {
 
     // read data
     std::vector<StorageByteBuffer*> inputs;
-    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    const auto& it = out_stream->output_buffers().begin();
     ASSERT_NE(it, out_stream->output_buffers().end());
-    StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
-    inputs.push_back(tmp_byte_buffer);
+    inputs.push_back(StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity()));
 
     std::vector<uint64_t> offsets;
     offsets.assign(inputs.size(), 0);
@@ -198,6 +200,9 @@ TEST(TestStream, UncompressInStream) {
     ASSERT_EQ(data, 0x5a);
 
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 // the length after compress must be smaller than origal stream, then the compressor will be called. 
@@ -244,11 +249,10 @@ TEST(TestStream, CompressOutStream2) {
     out_stream->flush();
 
     std::vector<StorageByteBuffer*> inputs;
-    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
-    for (; it != out_stream->output_buffers().end(); ++it) {
-        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
-        inputs.push_back(tmp_byte_buffer);
+    for (const auto& it : out_stream->output_buffers()) {
+        inputs.push_back(StorageByteBuffer::reference_buffer(it, 0, it->limit()));
     }
+
     std::vector<uint64_t> offsets;
     offsets.push_back(0);
     offsets.push_back(59); // if lzo, this shoudl be 57
@@ -269,7 +273,11 @@ TEST(TestStream, CompressOutStream2) {
 
     ASSERT_NE(in_stream->read(&data), OLAP_SUCCESS);
 
+    SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 
@@ -291,11 +299,10 @@ TEST(TestStream, CompressOutStream3) {
     out_stream->flush();
 
     std::vector<StorageByteBuffer*> inputs;
-    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
-    for (; it != out_stream->output_buffers().end(); ++it) {
-        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
-        inputs.push_back(tmp_byte_buffer);
+    for (const auto& it : out_stream->output_buffers()) {
+        inputs.push_back(StorageByteBuffer::reference_buffer(it, 0, it->limit()));
     }
+
     std::vector<uint64_t> offsets;
     offsets.push_back(0);
     offsets.push_back(57);
@@ -318,7 +325,11 @@ TEST(TestStream, CompressOutStream3) {
 
     ASSERT_NE(in_stream->read(&data), OLAP_SUCCESS);
 
+    SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 //test for _slice() in [while (len > 0 && m_current_range < m_inputs.size())]
@@ -343,11 +354,10 @@ TEST(TestStream, CompressOutStream4) {
     out_stream->flush();
 
     std::vector<StorageByteBuffer*> inputs;
-    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
-    for (; it != out_stream->output_buffers().end(); ++it) {
-        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
-        inputs.push_back(tmp_byte_buffer);
+    for (const auto& it : out_stream->output_buffers()) {
+        inputs.push_back(StorageByteBuffer::reference_buffer(it, 0, it->limit()));
     }
+
     std::vector<uint64_t> offsets;
     offsets.push_back(0);
     offsets.push_back(16);
@@ -377,7 +387,11 @@ TEST(TestStream, CompressOutStream4) {
 
     ASSERT_NE(in_stream->read(&data), OLAP_SUCCESS);
 
+    SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 TEST(TestStream, CompressMassOutStream) {
@@ -399,10 +413,8 @@ TEST(TestStream, CompressMassOutStream) {
     out_stream->flush();
 
     std::vector<StorageByteBuffer*> inputs;
-    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
-    for (; it != out_stream->output_buffers().end(); ++it) {
-        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
-        inputs.push_back(tmp_byte_buffer);
+    for (const auto& it : out_stream->output_buffers()) {
+        inputs.push_back(StorageByteBuffer::reference_buffer(it, 0, it->limit()));
     }
     std::vector<uint64_t> offsets;
     offsets.push_back(0);
@@ -428,6 +440,9 @@ TEST(TestStream, CompressMassOutStream) {
     ASSERT_NE(in_stream->read(&data), OLAP_SUCCESS);
 
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 TEST(TestStream, CompressInStream) {
@@ -470,6 +485,9 @@ TEST(TestStream, CompressInStream) {
     SAFE_DELETE_ARRAY(write_data);
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 TEST(TestStream, SeekUncompress) {
@@ -526,6 +544,9 @@ TEST(TestStream, SeekUncompress) {
     ASSERT_EQ(data, 0x5b);
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 TEST(TestStream, SkipUncompress) {
@@ -564,6 +585,9 @@ TEST(TestStream, SkipUncompress) {
     ASSERT_EQ(data, write_data[sizeof(write_data)-1]);
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 TEST(TestStream, SeekCompress) {
@@ -616,6 +640,9 @@ TEST(TestStream, SeekCompress) {
     ASSERT_EQ(data, 0x5b);
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 TEST(TestStream, SkipCompress) {
@@ -650,10 +677,12 @@ TEST(TestStream, SkipCompress) {
     char data;
     ASSERT_EQ(in_stream->read(&data), OLAP_SUCCESS);
     ASSERT_EQ(data, 0x5e);
-
-    
+ 
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
+    for (auto input : inputs) {
+        delete input;
+    }
 }
 
 class TestRunLengthByte : public testing::Test {

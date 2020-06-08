@@ -73,7 +73,8 @@ public:
         TYPE_HLL,
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
-        TYPE_DECIMALV2
+        TYPE_DECIMALV2,
+        TYPE_OBJECT
     };
 
     struct TypeDesc {
@@ -126,7 +127,12 @@ public:
 
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
+    // Note: when you set error for the UDFs used in Data Load, you should
+    // ensure the function return value is null.
     void set_error(const char* error_msg);
+
+    // when you reused this FunctionContext, you maybe need clear the error status and message.
+    void clear_error_msg();
 
     // Adds a warning that is returned to the user. This can include things like
     // overflow or other recoverable error conditions.
@@ -197,6 +203,9 @@ public:
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
     int get_num_args() const;
+
+    // Returns _constant_args size
+    int get_num_constant_args() const;
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns NULL if arg_idx is invalid.
@@ -591,7 +600,7 @@ struct DateTimeVal : public AnyVal {
 struct StringVal : public AnyVal {
     static const int MAX_LENGTH = (1 << 30);
 
-    int len;
+    int64_t len;
     uint8_t* ptr;
 
     // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
@@ -600,7 +609,7 @@ struct StringVal : public AnyVal {
 
     // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
     // so the buffer must exist as long as this StringVal does.
-    StringVal(uint8_t* ptr, int len) : len(len), ptr(ptr) {}
+    StringVal(uint8_t* ptr, int64_t len) : len(len), ptr(ptr) {}
 
     // Construct a StringVal from NULL-terminated c-string. Note: this does not make a
     // copy of ptr so the underlying string must exist as long as this StringVal does.
@@ -615,12 +624,12 @@ struct StringVal : public AnyVal {
     // Creates a StringVal, allocating a new buffer with 'len'. This should
     // be used to return StringVal objects in UDF/UDAs that need to allocate new
     // string memory.
-    StringVal(FunctionContext* context, int len);
+    StringVal(FunctionContext* context, int64_t len);
 
     // Creates a StringVal, which memory is avaliable when this funciont context is used next time
-    static StringVal create_temp_string_val(FunctionContext* ctx, int len);
+    static StringVal create_temp_string_val(FunctionContext* ctx, int64_t len);
 
-    bool resize(FunctionContext* context, int len);
+    bool resize(FunctionContext* context, int64_t len);
 
     bool operator==(const StringVal& other) const {
         if (is_null != other.is_null) {
@@ -765,12 +774,14 @@ struct LargeIntVal : public AnyVal {
     }
 };
 
+// todo(kks): keep HllVal struct only for backward compatibility, we should remove it
+//            when doris 0.12 release
 struct HllVal : public StringVal {
     HllVal() : StringVal() { }
 
     void init(FunctionContext* ctx);
 
-    void agg_parse_and_cal(const HllVal &other);
+    void agg_parse_and_cal(FunctionContext* ctx, const HllVal& other);
 
     void agg_merge(const HllVal &other);
 };

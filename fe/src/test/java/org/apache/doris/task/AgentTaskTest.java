@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -32,6 +33,7 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Range;
@@ -98,7 +100,7 @@ public class AgentTaskTest {
         columns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1", ""));
 
         PartitionKey pk1 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), false);
-        PartitionKey pk2 = PartitionKey.createPartitionKey(Arrays.asList("10"), Arrays.asList(columns.get(0)));
+        PartitionKey pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("10")), Arrays.asList(columns.get(0)));
         range1 = Range.closedOpen(pk1, pk2);
 
         PartitionKey pk3 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), true);
@@ -111,7 +113,8 @@ public class AgentTaskTest {
                                                   indexId1, tabletId1, shortKeyNum, schemaHash1,
                                                   version, versionHash, KeysType.AGG_KEYS,
                                                   storageType, TStorageMedium.SSD,
-                                                  columns, null, 0, latch);
+                                                  columns, null, 0, latch, null,
+                                                  false, TTabletType.TABLET_TYPE_DISK);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, schemaHash1);
@@ -125,7 +128,7 @@ public class AgentTaskTest {
         // clone
         cloneTask =
                 new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
-                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, -1);
+                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, -1, 3600);
 
         // rollup
         rollupTask =

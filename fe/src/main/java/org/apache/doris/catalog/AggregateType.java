@@ -25,16 +25,15 @@ import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
 
-/**
- * Created by zhaochun on 14-7-30.
- */
 public enum AggregateType {
     SUM("SUM"),
     MIN("MIN"),
     MAX("MAX"),
     REPLACE("REPLACE"),
+    REPLACE_IF_NOT_NULL("REPLACE_IF_NOT_NULL"),
     HLL_UNION("HLL_UNION"),
-    NONE("NONE");
+    NONE("NONE"),
+    BITMAP_UNION("BITMAP_UNION");
 
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
 
@@ -65,6 +64,8 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.CHAR);
+        primitiveTypeList.add(PrimitiveType.VARCHAR);
         compatibilityMap.put(MIN, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
@@ -79,16 +80,28 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.CHAR);
+        primitiveTypeList.add(PrimitiveType.VARCHAR);
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        compatibilityMap.put(REPLACE, EnumSet.allOf(PrimitiveType.class));
-       
+        // all types except bitmap and hll.
+        EnumSet<PrimitiveType> exc_bitmap_hll = EnumSet.allOf(PrimitiveType.class);
+        exc_bitmap_hll.remove(PrimitiveType.BITMAP);
+        exc_bitmap_hll.remove(PrimitiveType.HLL);
+        compatibilityMap.put(REPLACE, EnumSet.copyOf(exc_bitmap_hll));
+
+        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(exc_bitmap_hll));
+
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
         compatibilityMap.put(HLL_UNION, EnumSet.copyOf(primitiveTypeList));
-    
-        compatibilityMap.put(NONE, EnumSet.allOf(PrimitiveType.class));
+
+        primitiveTypeList.clear();
+        primitiveTypeList.add(PrimitiveType.BITMAP);
+        compatibilityMap.put(BITMAP_UNION, EnumSet.copyOf(primitiveTypeList));
+
+        compatibilityMap.put(NONE, EnumSet.copyOf(exc_bitmap_hll));
     }
     private final String sqlName;
 
@@ -113,6 +126,16 @@ public enum AggregateType {
         return checkCompatibility(this, priType);
     }
 
+    public boolean isReplaceFamily() {
+        switch (this) {
+            case REPLACE:
+            case REPLACE_IF_NOT_NULL:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public TAggregationType toThrift() {
         switch (this) {
             case SUM:
@@ -123,10 +146,14 @@ public enum AggregateType {
                 return TAggregationType.MIN;
             case REPLACE:
                 return TAggregationType.REPLACE;
+            case REPLACE_IF_NOT_NULL:
+                return TAggregationType.REPLACE_IF_NOT_NULL;
             case NONE:
                 return TAggregationType.NONE;
             case HLL_UNION:
                 return TAggregationType.HLL_UNION;
+            case BITMAP_UNION:
+                return TAggregationType.BITMAP_UNION;
             default:
                 return null;
         }

@@ -90,7 +90,7 @@ public class RepositoryMgr extends Daemon implements Writable {
     }
 
     public Repository getRepo(String repoName) {
-        return repoNameMap.get(repoName.toLowerCase());
+        return repoNameMap.get(repoName);
     }
 
     public Repository getRepo(long repoId) {
@@ -100,7 +100,7 @@ public class RepositoryMgr extends Daemon implements Writable {
     public Status removeRepo(String repoName, boolean isReplay) {
         lock.lock();
         try {
-            Repository repo = repoNameMap.remove(repoName.toLowerCase());
+            Repository repo = repoNameMap.remove(repoName);
             if (repo != null) {
                 repoIdMap.remove(repo.getId());
 
@@ -139,7 +139,6 @@ public class RepositoryMgr extends Daemon implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

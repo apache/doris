@@ -82,10 +82,7 @@ Status ClientCacheHelper::reopen_client(client_factory factory_method, void** cl
     const std::string ipaddress = info->ipaddress();
     int port = info->port();
 
-    // We don't expect Close() to fail. Even if it fails, we should continue on to delete
-    // the transport and remove it from the map.
-    Status status = info->close();
-    DCHECK(status.ok());
+    info->close();
 
     // TODO: Thrift TBufferedTransport cannot be re-opened after Close() because it does
     // not clean up internal buffers it reopens. To work around this issue, create a new
@@ -219,12 +216,12 @@ void ClientCacheHelper::init_metrics(MetricRegistry* metrics, const std::string&
     // usage, but ensures that _metrics_enabled is published.
     boost::lock_guard<boost::mutex> lock(_lock);
 
-    _used_clients.reset(new IntGauge());
+    _used_clients.reset(new IntGauge(MetricUnit::NUMBER));
     metrics->register_metric("thrift_used_clients",
                              MetricLabels().add("name", key_prefix),
                              _used_clients.get());
 
-    _opened_clients.reset(new IntGauge());
+    _opened_clients.reset(new IntGauge(MetricUnit::NUMBER));
     metrics->register_metric("thrift_opened_clients",
                              MetricLabels().add("name", key_prefix),
                              _opened_clients.get());

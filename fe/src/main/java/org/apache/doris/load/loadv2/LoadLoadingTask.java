@@ -44,6 +44,11 @@ import java.util.UUID;
 public class LoadLoadingTask extends LoadTask {
     private static final Logger LOG = LogManager.getLogger(LoadLoadingTask.class);
 
+    /*
+     * load id is used for plan.
+     * It should be changed each time we retry this load plan
+     */
+    private TUniqueId loadId;
     private final Database db;
     private final OlapTable table;
     private final BrokerDesc brokerDesc;
@@ -52,15 +57,17 @@ public class LoadLoadingTask extends LoadTask {
     private final long execMemLimit;
     private final boolean strictMode;
     private final long txnId;
+    private final String timezone;
+    // timeout of load job, in seconds
+    private final long timeoutS;
 
     private LoadingTaskPlanner planner;
-
-    private String errMsg;
 
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
-                           long txnId, LoadTaskCallback callback) {
+                           long txnId, LoadTaskCallback callback, String timezone,
+                           long timeoutS) {
         super(callback);
         this.db = db;
         this.table = table;
@@ -71,36 +78,50 @@ public class LoadLoadingTask extends LoadTask {
         this.strictMode = strictMode;
         this.txnId = txnId;
         this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
-        this.retryTime = 3;
+        this.retryTime = 2; // 2 times is enough
+        this.timezone = timezone;
+        this.timeoutS = timeoutS;
     }
 
-    public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
-        planner = new LoadingTaskPlanner(txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
-        planner.plan(fileStatusList, fileNum);
+    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
+        this.loadId = loadId;
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode, timezone, this.timeoutS);
+        planner.plan(loadId, fileStatusList, fileNum);
+    }
+
+    public TUniqueId getLoadId() {
+        return loadId;
     }
 
     @Override
     protected void executeTask() throws Exception{
+        LOG.info("begin to execute loading task. load id: {} job: {}. left retry: {}",
+                DebugUtil.printId(loadId), callback.getCallbackId(), retryTime);
         retryTime--;
         executeOnce();
     }
 
     private void executeOnce() throws Exception {
         // New one query id,
-        UUID uuid = UUID.randomUUID();
-        TUniqueId executeId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), executeId, planner.getDescTable(),
-                                                     planner.getFragments(), planner.getScanNodes(), db.getClusterName());
+        Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
+                planner.getFragments(), planner.getScanNodes(), db.getClusterName(), planner.getTimezone());
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
+        /*
+         * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
+         * And the variable 'load_mem_limit' does not make any effect.
+         * However, in order to ensure the consistency of semantics when executing on the BE side, 
+         * and to prevent subsequent modification from incorrectly setting the load_mem_limit, 
+         * here we use exec_mem_limit to directly override the load_mem_limit property.
+         */
+        curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));
 
         try {
-            QeProcessorImpl.INSTANCE
-                    .registerQuery(executeId, curCoordinator);
+            QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);
             actualExecute(curCoordinator);
         } finally {
-            QeProcessorImpl.INSTANCE.unregisterQuery(executeId);
+            QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
         }
     }
 
@@ -135,5 +156,13 @@ public class LoadLoadingTask extends LoadTask {
 
     private long getLeftTimeMs() {
         return jobDeadlineMs - System.currentTimeMillis();
+    }
+
+    @Override
+    public void updateRetryInfo() {
+        super.updateRetryInfo();
+        UUID uuid = UUID.randomUUID();
+        this.loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        planner.updateLoadId(this.loadId);
     }
 }

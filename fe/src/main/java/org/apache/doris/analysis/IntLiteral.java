@@ -296,7 +296,11 @@ public class IntLiteral extends LiteralExpr {
         }
         if (targetType.isFixedPointType()) {
             if (!targetType.isScalarType(PrimitiveType.LARGEINT)) {
-                this.type = targetType;
+                if (!type.equals(targetType)) {
+                    IntLiteral intLiteral = new IntLiteral(this);
+                    intLiteral.setType(targetType);
+                    return intLiteral;
+                }
                 return this;
             } else {
                 //return new LargeIntLiteral(Long.toString(value));
@@ -325,7 +329,6 @@ public class IntLiteral extends LiteralExpr {
         out.writeLong(value);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = in.readLong();
@@ -336,5 +339,9 @@ public class IntLiteral extends LiteralExpr {
         literal.readFields(in);
         return literal;
     }
-}
 
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Long.hashCode(value);
+    }
+}

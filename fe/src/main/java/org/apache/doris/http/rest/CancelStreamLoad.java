@@ -26,15 +26,13 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
 
 public class CancelStreamLoad extends RestBaseAction {
-    private static final String DB_KEY = "db";
-    private static final String LABEL_KEY = "label";
-
     public CancelStreamLoad(ActionController controller) {
         super(controller);
     }
@@ -46,14 +44,13 @@ public class CancelStreamLoad extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
-            throws DdlException {
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
 
         if (redirectToMaster(request, response)) {
             return;
         }
 
-        final String clusterName = authInfo.cluster;
+        final String clusterName = ConnectContext.get().getClusterName();
         if (Strings.isNullOrEmpty(clusterName)) {
             throw new DdlException("No cluster selected.");
         }
@@ -73,7 +70,7 @@ public class CancelStreamLoad extends RestBaseAction {
         // FIXME(cmy)
         // checkWritePriv(authInfo.fullUserName, fullDbName);
 
-        Database db = Catalog.getInstance().getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("unknown database, database=" + dbName);
         }

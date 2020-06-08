@@ -78,7 +78,6 @@ public class AuthorizationInfo implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             dbName = Text.readString(in);

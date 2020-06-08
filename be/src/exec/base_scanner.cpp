@@ -18,6 +18,7 @@
 
 #include "base_scanner.h"
 
+#include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
@@ -144,12 +145,29 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
         ExprContext* ctx = _dest_expr_ctx[dest_index];
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {
-            if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr)
-                && !_src_tuple->is_null(_src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
+            // Only when the expr return value is null, we will check the error message.
+            std::string expr_error = ctx->get_error_msg();
+            if (!expr_error.empty()) {
+                _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())), expr_error);
+                _counter->num_rows_filtered++;
+                // The ctx is reused, so must clear the error state and message.
+                ctx->clear_error_msg();
+                return false;
+            }
+            // If _strict_mode is false, _src_slot_descs_order_by_dest size could be zero
+            if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) &&
+                !_src_tuple->is_null(_src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
+                //Type of the slot is must be Varchar in _src_tuple.
+                StringValue* raw_value = _src_tuple->get_string_slot(_src_slot_descs_order_by_dest[dest_index]->tuple_offset());
+                std::string raw_string;
+                if (raw_value != nullptr) {//is not null then get raw value
+                    raw_string = raw_value->to_string();
+                }
                 std::stringstream error_msg;
                 error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
-                    << "while strict mode is " << std::boolalpha << _strict_mode;
-                _state->append_error_msg_to_file("", error_msg.str());
+                    << "while strict mode is " << std::boolalpha << _strict_mode 
+                    << ", src value is " << raw_string;
+                _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())), error_msg.str());
                 _counter->num_rows_filtered++;
                 return false;
             }
@@ -157,18 +175,34 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
                 std::stringstream error_msg;
                 error_msg << "column(" << slot_desc->col_name() << ") value is null "
                           << "while columns is not nullable";
-                _state->append_error_msg_to_file("", error_msg.str());
+                _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())), error_msg.str());
                 _counter->num_rows_filtered++;
                 return false;
             }
             dest_tuple->set_null(slot_desc->null_indicator_offset());
             continue;
         }
-        dest_tuple->set_not_null(slot_desc->null_indicator_offset());
+        if (slot_desc->is_nullable()) {
+            dest_tuple->set_not_null(slot_desc->null_indicator_offset());
+        }
         void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
         RawValue::write(value, slot, slot_desc->type(), mem_pool);
         continue;
     }
     return true;
 }
+
+void BaseScanner::fill_slots_of_columns_from_path(int start, const std::vector<std::string>& columns_from_path) {
+    // values of columns from path can not be null
+    for (int i = 0; i < columns_from_path.size(); ++i) {
+        auto slot_desc = _src_slot_descs.at(i + start);
+        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string& column_from_path = columns_from_path[i];
+        str_slot->ptr = const_cast<char*>(column_from_path.c_str());
+        str_slot->len = column_from_path.size();
+    }
+}
+
 }

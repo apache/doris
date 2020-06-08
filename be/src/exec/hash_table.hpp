@@ -22,8 +22,8 @@
 
 namespace doris {
 
-inline HashTable::Iterator HashTable::find(TupleRow* probe_row) {
-    bool has_nulls = eval_probe_row(probe_row);
+inline HashTable::Iterator HashTable::find(TupleRow* probe_row, bool probe) {
+    bool has_nulls = probe ? eval_probe_row(probe_row) : eval_build_row(probe_row);
 
     if (!_stores_nulls && has_nulls) {
         return end();

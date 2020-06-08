@@ -29,7 +29,6 @@ using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextB
 
 struct RowsetWriterContext {
     RowsetWriterContext() :
-        rowset_id(0),
         tablet_id(0),
         tablet_schema_hash(0),
         partition_id(0),
@@ -37,16 +36,15 @@ struct RowsetWriterContext {
         rowset_path_prefix(""),
         tablet_schema(nullptr),
         rowset_state(PREPARED),
-        data_dir(nullptr),
         version(Version(0, 0)),
         version_hash(0),
-        txn_id(0) {
+        txn_id(0),
+        tablet_uid(0, 0),
+        segments_overlap(OVERLAP_UNKNOWN) {
         load_id.set_hi(0);
         load_id.set_lo(0);
-        tablet_uid.hi = 0;
-        tablet_uid.lo = 0;
     }
-    int64_t rowset_id;
+    RowsetId rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
     int64_t partition_id;
@@ -56,7 +54,6 @@ struct RowsetWriterContext {
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
-    DataDir* data_dir;
     // properties for non-pending rowset
     Version version;
     VersionHash version_hash;
@@ -65,6 +62,13 @@ struct RowsetWriterContext {
     int64_t txn_id;
     PUniqueId load_id;
     TabletUid tablet_uid;
+    // indicate whether the data among segments is overlapping.
+    // default is OVERLAP_UNKNOWN.
+    SegmentsOverlapPB segments_overlap;
+    // segment file use uint32 to represent row number, therefore the maximum is UINT32_MAX.
+    // the default is set to INT32_MAX to avoid overflow issue when casting from uint32_t to int.
+    // test cases can change this value to control flush timing
+    uint32_t max_rows_per_segment = INT32_MAX;
 };
 
 } // namespace doris

@@ -21,7 +21,7 @@ import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -29,7 +29,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
@@ -43,14 +43,13 @@ import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.MiniLoadEtlTask;
 import org.apache.doris.task.MiniLoadPendingTask;
-import org.apache.doris.task.PullLoadEtlTask;
-import org.apache.doris.task.PullLoadPendingTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -67,7 +66,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class LoadChecker extends Daemon {
+public class LoadChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadChecker.class);
 
     // checkers for running job state
@@ -114,7 +113,7 @@ public class LoadChecker extends Daemon {
     }
     
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         LOG.debug("start check load jobs. job state: {}", jobState.name());
         switch (jobState) {
             case PENDING:
@@ -136,7 +135,7 @@ public class LoadChecker extends Daemon {
     }
 
     private void runPendingJobs() {
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         List<LoadJob> pendingJobs = load.getLoadJobs(JobState.PENDING);
 
         // check to limit running etl job num
@@ -168,9 +167,6 @@ public class LoadChecker extends Daemon {
                     case MINI:
                         task = new MiniLoadPendingTask(job);
                         break;
-                    case BROKER:
-                        task = new PullLoadPendingTask(job);
-                        break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
                         break;
@@ -187,7 +183,7 @@ public class LoadChecker extends Daemon {
     }
 
     private void runEtlJobs() {
-        List<LoadJob> etlJobs = Catalog.getInstance().getLoadInstance().getLoadJobs(JobState.ETL);
+        List<LoadJob> etlJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(JobState.ETL);
         for (LoadJob job : etlJobs) {
             try {
                 MasterTask task = null;
@@ -201,9 +197,6 @@ public class LoadChecker extends Daemon {
                         break;
                     case INSERT:
                         task = new InsertLoadEtlTask(job);
-                        break;
-                    case BROKER:
-                        task = new PullLoadEtlTask(job);
                         break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
@@ -221,7 +214,7 @@ public class LoadChecker extends Daemon {
     }
     
     private void runLoadingJobs() {
-        List<LoadJob> loadingJobs = Catalog.getInstance().getLoadInstance().getLoadJobs(JobState.LOADING);
+        List<LoadJob> loadingJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(JobState.LOADING);
         for (LoadJob job : loadingJobs) {
             try {
                 LOG.info("run loading job. job: {}", job);
@@ -234,10 +227,10 @@ public class LoadChecker extends Daemon {
     
     private void runOneLoadingJob(LoadJob job) {
         // check timeout
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         // get db
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -250,7 +243,7 @@ public class LoadChecker extends Daemon {
         }
         // check if the job is aborted in transaction manager
         TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
-                .getTransactionState(job.getTransactionId());
+                .getTransactionState(job.getDbId(), job.getTransactionId());
         if (state == null) {
             LOG.warn("cancel load job {}  because could not find transaction state", job);
             load.cancelLoadJob(job, CancelType.UNKNOWN, "transaction state lost");
@@ -314,9 +307,9 @@ public class LoadChecker extends Daemon {
     
     private void tryCommitJob(LoadJob job, Database db) {
         // check transaction state
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getTransactionId());
+        TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getDbId(), job.getTransactionId());
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
         // when be finish load task, fe will update job's finish task info, use lock here to prevent
         // concurrent problems
@@ -333,6 +326,8 @@ public class LoadChecker extends Daemon {
                 tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
             globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
+        } catch (TabletQuorumFailedException e) {
+            // wait the upper application retry
         } catch (UserException e) {
             LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}", 
                     transactionState.getTransactionId(), job, e);
@@ -365,7 +360,7 @@ public class LoadChecker extends Daemon {
             }
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
             // check if the job is submit during rollup
-            RollupJob rollupJob = (RollupJob) Catalog.getInstance().getRollupHandler().getAlterJob(tableId);
+            RollupJob rollupJob = (RollupJob) Catalog.getCurrentCatalog().getRollupHandler().getAlterJob(tableId);
             boolean autoLoadToTwoTablet = true;
             if (rollupJob != null && job.getTransactionId() > 0) {
                 long rollupIndexId = rollupJob.getRollupIndexId();
@@ -392,19 +387,25 @@ public class LoadChecker extends Daemon {
                     
                     short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
                     // check all indices (base + roll up (not include ROLLUP state index))
-                    List<MaterializedIndex> indices = partition.getMaterializedIndices();
+                    List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {
                         long indexId = index.getId();
-                        // if index is in rollup, then not load into it, be will automatically convert the data
-                        if (index.getState() == IndexState.ROLLUP) {
-                            LOG.error("skip table under rollup[{}]", indexId);
-                            continue;
-                        }
+                        
                         // 1. the load job's etl is started before rollup finished
                         // 2. rollup job comes into finishing state, add rollup index to catalog
                         // 3. load job's etl finished, begin to load
                         // 4. load will send data to new rollup index, but could not get schema hash, load will failed
+                        /*
+                         * new:
+                         * 1. load job is started before alter table, and etl task does not contains new indexes
+                         * 2. just send push tasks to indexes which it contains, ignore others
+                         */
                         if (!tableLoadInfo.containsIndex(indexId)) {
+                            if (rollupJob == null) {
+                                // new process, just continue
+                                continue;
+                            }
+                            
                             if (rollupJob.getRollupIndexId() == indexId) {
                                 continue;
                             } else {
@@ -448,8 +449,6 @@ public class LoadChecker extends Daemon {
                             TPushType type = TPushType.LOAD;
                             if (job.isSyncDeleteJob()) {
                                 type = TPushType.DELETE;
-                            } else if (job.getDeleteFlag()) {
-                                type = TPushType.LOAD_DELETE;
                             }
                             
                             // add task to batchTask
@@ -513,7 +512,7 @@ public class LoadChecker extends Daemon {
     }
     
     private void runQuorumFinishedJobs() {
-        List<LoadJob> quorumFinishedJobs = Catalog.getInstance().getLoadInstance().getLoadJobs(
+        List<LoadJob> quorumFinishedJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(
                 JobState.QUORUM_FINISHED);
         for (LoadJob job : quorumFinishedJobs) {
             try {
@@ -526,7 +525,7 @@ public class LoadChecker extends Daemon {
 
         // handle async delete job
         List<AsyncDeleteJob> quorumFinishedDeleteJobs =
-                Catalog.getInstance().getLoadInstance().getQuorumFinishedDeleteJobs();
+                Catalog.getCurrentCatalog().getLoadInstance().getQuorumFinishedDeleteJobs();
         for (AsyncDeleteJob job : quorumFinishedDeleteJobs) {
             try {
                 LOG.info("run quorum finished delete job. job: {}", job.getJobId());
@@ -539,9 +538,9 @@ public class LoadChecker extends Daemon {
     
     private void runOneQuorumFinishedJob(LoadJob job) {
         // if db is null, cancel load job
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -554,9 +553,9 @@ public class LoadChecker extends Daemon {
     }
     
     private void runOneQuorumFinishedDeleteJob(AsyncDeleteJob job) {
-        Load load = Catalog.getInstance().getLoadInstance();
+        Load load = Catalog.getCurrentCatalog().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.removeDeleteJobAndSetState(job);
             return;
@@ -567,7 +566,7 @@ public class LoadChecker extends Daemon {
             job.clearTasks();
             job.setState(DeleteState.FINISHED);
             // log
-            Catalog.getInstance().getEditLog().logFinishAsyncDelete(job);
+            Catalog.getCurrentCatalog().getEditLog().logFinishAsyncDelete(job);
             load.removeDeleteJobAndSetState(job);
             LOG.info("delete job {} finished", job.getJobId());
         } finally {

@@ -26,18 +26,20 @@ import org.apache.doris.thrift.TEtlState;
 
 import com.google.common.collect.Maps;
 
-import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
+
 // Used to process pull load etl task
+@Deprecated
 public class PullLoadEtlTask extends LoadEtlTask {
     private static final Logger LOG = LogManager.getLogger(PullLoadEtlTask.class);
     private PullLoadJobMgr mgr;
 
     public PullLoadEtlTask(LoadJob job) {
         super(job);
-        mgr = Catalog.getInstance().getPullLoadJobMgr();
+        mgr = Catalog.getCurrentCatalog().getPullLoadJobMgr();
     }
 
     @Override

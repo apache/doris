@@ -28,7 +28,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class SetPassVarTest {
     private Analyzer analyzer;
@@ -38,10 +37,6 @@ public class SetPassVarTest {
     @Mocked
     private ConnectContext ctx;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
@@ -49,7 +44,7 @@ public class SetPassVarTest {
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
         currentUser.setIsAnalyzed();
-        ctx.setCurrentUserIdentitfy(currentUser);
+        ctx.setCurrentUserIdentity(currentUser);
     }
 
     @Test

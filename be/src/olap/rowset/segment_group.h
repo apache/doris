@@ -28,7 +28,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/column_data_file.pb.h"
-#include "olap/atomic.h"
 #include "olap/field.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
@@ -48,11 +47,11 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
-    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* tablet_schema,
+    SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, Version version,
             VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* tablet_schema,
+    SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, bool delete_flag,
             int32_t segment_group_id, int32_t num_segments, bool is_pending,
             TPartitionId partition_id, TTransactionId transaction_id);
@@ -60,7 +59,7 @@ public:
     virtual ~SegmentGroup();
 
     // Load the index into memory.
-    OLAPStatus load();
+    OLAPStatus load(bool use_cache = true);
     bool index_loaded();
     OLAPStatus load_pb(const char* file, uint32_t seg_id);
 
@@ -240,6 +239,10 @@ public:
 
     int get_num_key_columns();
 
+    // for agg, uniq and replace model  get_num_zone_map_columns() = get_num_key_columns(),
+    // for duplicate mode get_num_zone_map_columns() == num_columns
+    int get_num_zone_map_columns();
+
     int get_num_short_key_columns();
 
     size_t get_num_rows_per_row_block();
@@ -248,7 +251,7 @@ public:
 
     int64_t get_tablet_id();
 
-    int64_t rowset_id() {
+    const RowsetId& rowset_id() {
         return _rowset_id;
     }
 
@@ -260,17 +263,14 @@ public:
 
     OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
 
-    OLAPStatus make_snapshot(const std::string& snapshot_path,
-                             std::vector<std::string>* success_links);
-    OLAPStatus copy_files_to_path(const std::string& dest_path,
-                                  std::vector<std::string>* success_files);
+    OLAPStatus copy_files_to(const std::string& dir);
 
-    OLAPStatus link_segments_to_path(const std::string& dest_path, int64_t rowset_id);
+    OLAPStatus link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id);
 
 private:
     
     std::string _construct_file_name(int32_t segment_id, const std::string& suffix) const;
-    std::string _construct_file_name(int64_t rowset_id, int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_file_name(const RowsetId& rowset_id, int32_t segment_id, const std::string& suffix) const;
 
     std::string _construct_old_pending_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
     
@@ -284,7 +284,7 @@ private:
 
 private:
     int64_t _tablet_id;
-    int64_t _rowset_id;
+    RowsetId _rowset_id;
     const TabletSchema* _schema;
     std::string _rowset_path_prefix;    // path of rowset
     Version _version;                  // version of associated data file
@@ -294,7 +294,7 @@ private:
     PUniqueId _load_id;                // load id for segmentgroup
     int32_t _num_segments;             // number of segments in this segmentgroup
     bool _index_loaded;                // whether the segmentgroup has been read
-    atomic_t _ref_count;               // reference count
+    std::atomic<int64_t> _ref_count;   // reference count
     MemIndex _index;
     bool _is_pending;
     TPartitionId _partition_id;

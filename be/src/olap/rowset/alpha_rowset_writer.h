@@ -39,10 +39,12 @@ public:
 
     OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
 
-    // add a row block to rowset
-    OLAPStatus add_row(RowCursor* row) override;
-
-    OLAPStatus add_row(const char* row, Schema* schema) override;
+    OLAPStatus add_row(const RowCursor& row) override {
+        return _add_row(row);
+    }
+    OLAPStatus add_row(const ContiguousRow& row) override {
+        return _add_row(row);
+    }
 
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
@@ -54,25 +56,22 @@ public:
     // get a rowset
     RowsetSharedPtr build() override;
 
-    MemPool* mem_pool() override;
+    Version version() override { return _rowset_writer_context.version; }
 
-    Version version() override;
+    int64_t num_rows() override { return _num_rows_written; }
 
-    int32_t num_rows() override;
-
-    RowsetId rowset_id() override {
-        return _rowset_writer_context.rowset_id;
-    }
-
-    OLAPStatus garbage_collection() override;
-
-    DataDir* data_dir() override;
+    RowsetId rowset_id() override { return _rowset_writer_context.rowset_id; }
 
 private:
     OLAPStatus _init();
+
+    template<typename RowType>
+    OLAPStatus _add_row(const RowType& row);
     
     // validate rowset build arguments before create rowset to make sure correctness
     bool _validate_rowset();
+
+    OLAPStatus _garbage_collection();
 
 private:
     int32_t _segment_group_id;
@@ -80,7 +79,7 @@ private:
     ColumnDataWriter* _column_data_writer;
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
     bool _is_pending_rowset;
-    int _num_rows_written;
+    int64_t _num_rows_written;
     RowsetWriterContext _rowset_writer_context;
     std::vector<SegmentGroup*> _segment_groups;
     bool _rowset_build;

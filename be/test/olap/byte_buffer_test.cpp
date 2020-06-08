@@ -18,8 +18,10 @@
 #include <gtest/gtest.h>
 #include <sys/mman.h>
 
+#include "boost/filesystem.hpp"
 #include "olap/byte_buffer.h"
 #include "olap/file_helper.h"
+#include "common/configbase.h"
 #include "util/logging.h"
 
 namespace doris {
@@ -31,6 +33,9 @@ public:
     virtual void SetUp() {
     }
     virtual void TearDown() {
+        if (boost::filesystem::exists(".test_byte_buffer")) {
+            ASSERT_TRUE(boost::filesystem::remove_all(".test_byte_buffer"));
+        }
     }
 };
 

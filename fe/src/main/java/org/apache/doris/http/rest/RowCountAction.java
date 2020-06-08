@@ -20,6 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -32,6 +33,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -47,8 +49,6 @@ import io.netty.handler.codec.http.HttpMethod;
  * fe_host:fe_http_port/api/rowcount?db=dbname&table=tablename
  */
 public class RowCountAction extends RestBaseAction {
-    public static final String DB_NAME_PARAM = "db";
-    public static final String TABLE_NAME_PARAM = "table";
 
     public RowCountAction(ActionController controller) {
         super(controller);
@@ -59,22 +59,21 @@ public class RowCountAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
+    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        String dbName = request.getSingleParameter(DB_NAME_PARAM);
+        String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No database selected.");
         }
 
-        String tableName = request.getSingleParameter(TABLE_NAME_PARAM);
+        String tableName = request.getSingleParameter(TABLE_KEY);
         if (Strings.isNullOrEmpty(tableName)) {
             throw new DdlException("No table selected.");
         }
 
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         Database db = catalog.getDb(dbName);
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
@@ -91,15 +90,15 @@ public class RowCountAction extends RestBaseAction {
             }
             
             OlapTable olapTable = (OlapTable) table;
-            for (Partition partition : olapTable.getPartitions()) {
+            for (Partition partition : olapTable.getAllPartitions()) {
                 long version = partition.getVisibleVersion();
                 long versionHash = partition.getVisibleVersionHash();
-                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     long indexRowCount = 0L;
                     for (Tablet tablet : index.getTablets()) {
                         long tabletRowCount = 0L;
                         for (Replica replica : tablet.getReplicas()) {
-                            if (replica.checkVersionCatchUp(version, versionHash)
+                            if (replica.checkVersionCatchUp(version, versionHash, false)
                                     && replica.getRowCount() > tabletRowCount) {
                                 tabletRowCount = replica.getRowCount();
                             }

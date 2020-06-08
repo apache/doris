@@ -18,21 +18,22 @@
 package org.apache.doris.task;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
 
-import org.apache.kudu.client.shaded.com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 
+@Deprecated
 public class PullLoadJobMgr {
     private static final Logger LOG = LogManager.getLogger(PullLoadJobMgr.class);
 
@@ -41,11 +42,12 @@ public class PullLoadJobMgr {
     private final Map<Long, PullLoadJob> idToJobs = Maps.newHashMap();
 
     private final BlockingQueue<PullLoadTask> pendingTasks = Queues.newLinkedBlockingQueue();
-    private ExecutorService executorService = Executors.newCachedThreadPool();
+    private ExecutorService executorService;
 
     private int concurrency = 10;
 
     public PullLoadJobMgr() {
+        executorService = ThreadPoolManager.newDaemonCacheThreadPool(concurrency, "pull-load-job-mgr");
     }
 
     /**

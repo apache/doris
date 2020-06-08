@@ -26,6 +26,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 
 #include "common/logging.h"
+#include "env/env.h"
 #include "exec/broker_reader.h"
 #include "exec/broker_writer.h"
 #include "olap/file_helper.h"
@@ -35,7 +36,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/broker_mgr.h"
 #include "util/file_utils.h"
-#include "util/frontend_helper.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
@@ -222,6 +223,10 @@ Status SnapshotLoader::upload(
                     read_offset += read_len;
                     left_len -= read_len;
                 }
+
+                // close manually, because we need to check its close status
+                RETURN_IF_ERROR(broker_writer->close());
+
                 LOG(INFO) << "finished to write file via broker. file: " <<
                     full_local_file << ", length: " << file_len;
             }
@@ -318,6 +323,15 @@ Status SnapshotLoader::download(
             return Status::InternalError(ss.str());
         }
 
+        TabletSharedPtr tablet = _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id, schema_hash);
+        if (tablet == nullptr) {
+            std::stringstream ss;
+            ss << "failed to get local tablet: " << local_tablet_id;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
+        DataDir* data_dir = tablet->data_dir();
+
         for (auto& iter : remote_files) {
 
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
@@ -367,6 +381,12 @@ Status SnapshotLoader::download(
             LOG(INFO) << "begin to download from " << full_remote_file << " to "
                     << full_local_file;
             size_t file_len = file_stat.size;
+
+            // check disk capacity
+            if (data_dir->reach_capacity_limit(file_len)) {
+                return Status::InternalError("capacity limit reached");
+            }
+
             {
                 // 1. open remote file for read
                 std::unique_ptr<BrokerReader> broker_reader;
@@ -546,8 +566,8 @@ Status SnapshotLoader::move(
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(*store, 
-        snapshot_path, tablet_id, schema_hash, tablet);
+    OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(
+        snapshot_path, tablet_id, schema_hash);
     if (convert_status != OLAP_SUCCESS) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path
@@ -752,7 +772,7 @@ Status SnapshotLoader::_get_existing_files_from_local(
     const std::string& local_path,
     std::vector<std::string>* local_files) {
 
-    Status status = FileUtils::scan_dir(local_path, local_files);
+    Status status = FileUtils::list_files(Env::Default(), local_path, local_files);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to list files in local path: " << local_path << ", msg: "
@@ -902,7 +922,7 @@ Status SnapshotLoader::_report_every(
     request.__set_total_num(total_num);
     TStatus report_st;
 
-    Status rpcStatus = FrontendHelper::rpc(
+    Status rpcStatus = ThriftRpcHelper::rpc<FrontendServiceClient>(
         master_addr.hostname, master_addr.port,
         [&request, &report_st] (FrontendServiceConnection& client) {
             client->snapshotLoaderReport(report_st, request);

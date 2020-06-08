@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -31,31 +32,30 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.UserException;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mocked;
 
 public class OlapTableSinkTest {
     private static final Logger LOG = LogManager.getLogger(OlapTableSinkTest.class);
 
     @Injectable
-    OlapTable dstTable;
+    public OlapTable dstTable;
 
-    @Mocked
-    SystemInfoService systemInfoService;
+    @Before
+    public void setUp() {
+
+    }
 
     private TupleDescriptor getTuple() {
         DescriptorTable descTable = new DescriptorTable();
@@ -95,11 +95,13 @@ public class OlapTableSinkTest {
             dstTable.getId(); result = 1;
             dstTable.getPartitionInfo(); result = partInfo;
             dstTable.getPartitions(); result = Lists.newArrayList(partition);
+                dstTable.getPartition(2L);
+                result = partition;
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple);
-        sink.init(new TUniqueId(1, 2), 3, 4);
-        sink.finalize();
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(2L));
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
+        sink.complete();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
     }
@@ -114,7 +116,7 @@ public class OlapTableSinkTest {
                 2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
 
         Column partKey = new Column("k2", PrimitiveType.VARCHAR);
-        PartitionKey key = PartitionKey.createPartitionKey(Lists.newArrayList("123"), Lists.newArrayList(partKey));
+        PartitionKey key = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("123")), Lists.newArrayList(partKey));
         Partition p1 = new Partition(1, "p1", index, distInfo);
         Partition p2 = new Partition(2, "p2", index, distInfo);
 
@@ -123,20 +125,14 @@ public class OlapTableSinkTest {
             dstTable.getPartitionInfo(); result = partInfo;
             partInfo.getType(); result = PartitionType.RANGE;
             partInfo.getPartitionColumns(); result = Lists.newArrayList(partKey);
-            partInfo.getRange(1); result = Range.lessThan(key);
-            // partInfo.getRange(2); result = Range.atLeast(key);
             dstTable.getPartitions(); result = Lists.newArrayList(p1, p2);
-            dstTable.getPartition("p1"); result = p1;
-
-            index.getTablets(); result = Lists.newArrayList(new Tablet(1));
-            // systemInfoService.getBackendIds(anyBoolean); result = Lists.newArrayList(new Long(1));
-            // systemInfoService.getBackend(new Long(1)); result = new Backend(1, "abc", 1234);
+            dstTable.getPartition(p1.getId()); result = p1;
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         try {
-            sink.finalize();
+            sink.complete();
         } catch (UserException e) {
 
         }
@@ -150,31 +146,14 @@ public class OlapTableSinkTest {
             @Injectable MaterializedIndex index) throws UserException {
         TupleDescriptor tuple = getTuple();
 
+        long unknownPartId = 12345L;
         new Expectations() {{
-            partInfo.getType(); result = PartitionType.RANGE;
-            dstTable.getPartition("p3"); result = null;
+            dstTable.getPartition(unknownPartId); result = null;
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p3");
-        sink.init(new TUniqueId(1, 2), 3, 4);
-        sink.finalize();
-        LOG.info("sink is {}", sink.toThrift());
-        LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
-    }
-
-    @Test(expected = UserException.class)
-    public void testUnpartFail(
-            @Injectable RangePartitionInfo partInfo,
-            @Injectable MaterializedIndex index) throws UserException {
-        TupleDescriptor tuple = getTuple();
-
-        new Expectations() {{
-            partInfo.getType(); result = PartitionType.UNPARTITIONED;
-        }};
-
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
-        sink.init(new TUniqueId(1, 2), 3, 4);
-        sink.finalize();
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId));
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
+        sink.complete();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
     }

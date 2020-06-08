@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -34,7 +35,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
@@ -86,19 +86,19 @@ public class TabletInvertedIndex {
     public TabletInvertedIndex() {
     }
 
-    private final void readLock() {
+    private void readLock() {
         this.lock.readLock().lock();
     }
 
-    private final void readUnlock() {
+    private void readUnlock() {
         this.lock.readLock().unlock();
     }
 
-    private final void writeLock() {
+    private void writeLock() {
         this.lock.writeLock().lock();
     }
 
-    private final void writeUnlock() {
+    private void writeUnlock() {
         this.lock.writeLock().unlock();
     }
 
@@ -112,7 +112,7 @@ public class TabletInvertedIndex {
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
-                             SetMultimap<Long, Integer> tabletWithoutPartitionId) {
+                             Set<Pair<Long, Integer>> tabletWithoutPartitionId) {
         long start = 0L;
         readLock();
         try {
@@ -121,7 +121,7 @@ public class TabletInvertedIndex {
             for (TTablet backendTablet : backendTablets.values()) {
                 for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
                     if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
-                        tabletWithoutPartitionId.put(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash());
+                        tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash()));
                     }
                 }
             }
@@ -187,7 +187,7 @@ public class TabletInvertedIndex {
                                     List<Long> transactionIds = backendTabletInfo.getTransaction_ids();
                                     GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
                                     for (Long transactionId : transactionIds) {
-                                        TransactionState transactionState = transactionMgr.getTransactionState(transactionId);
+                                        TransactionState transactionState = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
                                         if (transactionState == null || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
                                             transactionsToClear.put(transactionId, tabletMeta.getPartitionId());
                                             LOG.debug("transaction id [{}] is not valid any more, " 
@@ -195,15 +195,29 @@ public class TabletInvertedIndex {
                                         } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                                             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
                                             PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(partitionId);
-                                            TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(), 
-                                                    partitionCommitInfo.getVersion(),
-                                                    partitionCommitInfo.getVersionHash());
-                                            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
-                                            if (map == null) {
-                                                map = ArrayListMultimap.create();
-                                                transactionsToPublish.put(transactionState.getDbId(), map);
+                                            if (partitionCommitInfo == null) {
+                                                /*
+                                                 * This may happen as follows:
+                                                 * 1. txn is committed on BE, and report commit info to FE
+                                                 * 2. FE received report and begin to assemble partitionCommitInfos.
+                                                 * 3. At the same time, some of partitions have been dropped, so partitionCommitInfos does not contain these partitions.
+                                                 * 4. So we will not able to get partitionCommitInfo here.
+                                                 * 
+                                                 * Just print a log to observe
+                                                 */
+                                                LOG.info("failed to find partition commit info. table: {}, partition: {}, tablet: {}, txn id: {}",
+                                                        tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
+                                            } else {
+                                                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(), 
+                                                        partitionCommitInfo.getVersion(),
+                                                        partitionCommitInfo.getVersionHash());
+                                                ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
+                                                if (map == null) {
+                                                    map = ArrayListMultimap.create();
+                                                    transactionsToPublish.put(transactionState.getDbId(), map);
+                                                }
+                                                map.put(transactionId, versionInfo);
                                             }
-                                            map.put(transactionId, versionInfo);
                                         }
                                     }
                                 } // end for txn id
@@ -269,8 +283,7 @@ public class TabletInvertedIndex {
             if (tabletId == null) {
                 return null;
             }
-            TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
-            return tabletMeta;
+            return tabletMetaMap.get(tabletId);
         } finally {
             readUnlock();
         }
@@ -279,8 +292,7 @@ public class TabletInvertedIndex {
     public Long getTabletIdByReplica(long replicaId) {
         readLock();
         try {
-            Long tabletId = replicaToTabletMap.get(replicaId);
-            return tabletId;
+            return replicaToTabletMap.get(replicaId);
         } finally {
             readUnlock();
         }
@@ -343,13 +355,24 @@ public class TabletInvertedIndex {
             // it will be handled in needRecovery()
             return false;
         }
+
+        if (replicaInFe.getState() == ReplicaState.ALTER) {
+            // ignore the replica is ALTER state. its version will be taken care by load process and alter table process
+            return false;
+        }
+
         long versionInFe = replicaInFe.getVersion();
         long versionHashInFe = replicaInFe.getVersionHash();
-        if (backendTabletInfo.getVersion() > versionInFe
-                || (versionInFe == backendTabletInfo.getVersion()
-                        && versionHashInFe != backendTabletInfo.getVersion_hash())) {
+        
+        if (backendTabletInfo.getVersion() > versionInFe) {
+            // backend replica's version is larger or newer than replica in FE, sync it.
+            return true;
+        } else if (versionInFe == backendTabletInfo.getVersion() && versionHashInFe == backendTabletInfo.getVersion_hash()
+                && replicaInFe.isBad()) {
+            // backend replica's version is equal to replica in FE, but replica in FE is bad, while backend replica is good, sync it
             return true;
         }
+        
         return false;
     }
     
@@ -394,12 +417,10 @@ public class TabletInvertedIndex {
             return false;
         }
 
-        if (backendTabletInfo.getVersion() < replicaInFe.getVersion()
-                && backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
+        if (backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
             // even if backend version is less than fe's version, but if version_miss is false,
             // which means this may be a stale report.
             // so we only return true if version_miss is true.
-            LOG.info("replicaversion missing");
             return true;
         }
         return false;
@@ -479,7 +500,6 @@ public class TabletInvertedIndex {
         writeLock();
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
-            TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
                 replicaToTabletMap.remove(replica.getId());

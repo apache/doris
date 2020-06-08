@@ -19,19 +19,24 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TResultSinkType;
+
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.Logger;
+
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * PlanFragments form a tree structure via their ExchangeNodes. A tree of fragments
@@ -108,7 +113,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // specification of the number of parallel when fragment is executed
     // default value is 1
-    private int parallel_exec_num = 1;
+    private int parallelExecNum = 1;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -141,7 +146,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      */
     public void setParallelExecNumIfExists() {
         if (ConnectContext.get() != null) {
-            parallel_exec_num = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            parallelExecNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
     }
 
@@ -172,8 +177,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             }
             // add ResultSink
             Preconditions.checkState(sink == null);
-            // we're streaming to an exchange node
-            ResultSink bufferSink = new ResultSink(planRoot.getId());
+            // we're streaming to an result sink
+            ResultSink bufferSink = new ResultSink(planRoot.getId(), TResultSinkType.MYSQL_PROTOCAL);
             sink = bufferSink;
         }
     }
@@ -186,8 +191,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return dataPartition == DataPartition.UNPARTITIONED ? 1 : planRoot.getNumNodes();
     }
 
-    public int getParallel_exec_num() {
-        return parallel_exec_num;
+    public int getParallelExecNum() {
+        return parallelExecNum;
     }
 
     public TPlanFragment toThrift() {
@@ -213,10 +218,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         StringBuilder str = new StringBuilder();
         Preconditions.checkState(dataPartition != null);
         str.append(" OUTPUT EXPRS:");
-        if (outputExprs != null) {
-            for (Expr e : outputExprs) {
-                str.append(e.toSql() + " | ");
-            }
+        if (CollectionUtils.isNotEmpty(outputExprs)) {
+            str.append(outputExprs.stream().map(Expr::toSql)
+                    .collect(Collectors.joining(" | ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");

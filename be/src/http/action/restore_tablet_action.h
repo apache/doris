@@ -51,6 +51,8 @@ private:
     
     void _clear_key(const std::string& key);
 
+    Status _create_hard_link_recursive(const std::string& src, const std::string& dst);
+
 private:
     ExecEnv* _exec_env;
     std::mutex _tablet_restore_lock;

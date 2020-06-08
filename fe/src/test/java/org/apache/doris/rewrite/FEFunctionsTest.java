@@ -25,33 +25,60 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.TimeUtils;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.time.ZoneId;
+import java.util.Locale;
 import java.util.TimeZone;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import static org.junit.Assert.fail;
 
-/*
- * Author: Chenmingyu
- * Date: Mar 13, 2019
- */
-
 public class FEFunctionsTest {
+
+    @Mocked
+    TimeUtils timeUtils;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
 
+    @Before
+    public void setUp() {
+        TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
+        new Expectations(timeUtils) {
+            {
+                TimeUtils.getTimeZone();
+                minTimes = 0;
+                result = tz;
+            }
+        };
+    }
+
     @Test
     public void unixtimestampTest() {
         try {
-            IntLiteral timestamp = FEFunctions.unix_timestamp(new DateLiteral("2018-01-01", Type.DATE));
+            IntLiteral timestamp = FEFunctions.unixTimestamp(new DateLiteral("2018-01-01", Type.DATE));
             Assert.assertEquals(1514736000, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 08:00:00", Type.DATETIME));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1970-01-01 00:00:00", Type.DATETIME));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("1969-01-01 00:00:00", Type.DATETIME));
+            Assert.assertEquals(0, timestamp.getValue());
+            timestamp = FEFunctions.unixTimestamp(new DateLiteral("2038-01-19 03:14:07", Type.DATETIME));
+            // CST time zone
+            Assert.assertEquals(Integer.MAX_VALUE - 8 * 3600, timestamp.getValue());
+
         } catch (AnalysisException e) {
             e.printStackTrace();
+            Assert.fail();
         }
     }
 
@@ -65,48 +92,48 @@ public class FEFunctionsTest {
         expectedResult = new IntLiteral(-30);
         Assert.assertEquals(expectedResult, actualResult);
     }
-
+    
     @Test
     public void dateAddTest() throws AnalysisException {
-        DateLiteral actualResult = FEFunctions.dateAdd(new StringLiteral("2018-08-08"), new IntLiteral(1));
-        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
+        DateLiteral actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
+        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.dateAdd(new StringLiteral("2018-08-08"), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07", Type.DATE);
+        actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
+        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
         Assert.assertEquals(expectedResult, actualResult);
     }
-
+    
     @Test
     public void addDateTest() throws AnalysisException {
-        DateLiteral actualResult = FEFunctions.addDate(new StringLiteral("2018-08-08"), new IntLiteral(1));
-        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
+        DateLiteral actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
+        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.addDate(new StringLiteral("2018-08-08"), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07", Type.DATE);
+        actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
+        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
         Assert.assertEquals(expectedResult, actualResult);
 
     }
-
+    
     @Test
     public void daysAddTest() throws AnalysisException {
-        DateLiteral actualResult = FEFunctions.daysAdd(new StringLiteral("2018-08-08"), new IntLiteral(1));
+        DateLiteral actualResult = FEFunctions.daysAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
         DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.daysAdd(new StringLiteral("2018-08-08"), new IntLiteral(-1));
+        actualResult = FEFunctions.daysAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
         expectedResult = new DateLiteral("2018-08-07", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
     }
-
+    
     @Test
     public void fromUnixTimeTest() throws AnalysisException {
         StringLiteral actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000));
         StringLiteral expectedResult = new StringLiteral("1970-01-02 11:46:40");
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000), new StringLiteral("yyyy-MM-dd"));
+        actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000), new StringLiteral("%Y-%m-%d"));
         expectedResult = new StringLiteral("1970-01-02");
         Assert.assertEquals(expectedResult, actualResult);
 
@@ -125,12 +152,7 @@ public class FEFunctionsTest {
     @Test
     public void dateFormatUtilTest() {
         try {
-            Assert.assertEquals("19670102,196701,196701,0101", FEFunctions.dateFormat(new DateLiteral("1967-01-02 13:04:05", Type.DATETIME), new StringLiteral("%Y%m%d,%X%V,%x%v,%U%u")).getStringValue());
-            Assert.assertEquals("19960105,199553,199601,0001", FEFunctions.dateFormat(new DateLiteral("1996-01-05 13:04:05", Type.DATETIME), new StringLiteral("%Y%m%d,%X%V,%x%v,%U%u")).getStringValue());
-
-            Assert.assertEquals("2017-01-01,01,00", FEFunctions.dateFormat(new DateLiteral("2017-01-01 13:04:05", Type.DATETIME), new StringLiteral("%Y-%m-%d,%U,%u")).getStringValue());
-            Assert.assertEquals("201753,201752,5352", FEFunctions.dateFormat(new DateLiteral("2017-12-31 13:04:05", Type.DATETIME),new StringLiteral("%X%V,%x%v,%U%u")).getStringValue());
-
+            Locale.setDefault(Locale.ENGLISH);
             DateLiteral testDate = new DateLiteral("2001-01-09 13:04:05", Type.DATETIME);
             Assert.assertEquals("Tue", FEFunctions.dateFormat(testDate, new StringLiteral("%a")).getStringValue());
             Assert.assertEquals("Jan", FEFunctions.dateFormat(testDate, new StringLiteral("%b")).getStringValue());
@@ -153,7 +175,6 @@ public class FEFunctionsTest {
             Assert.assertEquals("13:04:05", FEFunctions.dateFormat(testDate, new StringLiteral("%T")).getStringValue());
             Assert.assertEquals("02", FEFunctions.dateFormat(testDate, new StringLiteral("%v")).getStringValue());
             Assert.assertEquals("Tuesday", FEFunctions.dateFormat(testDate, new StringLiteral("%W")).getStringValue());
-            Assert.assertEquals("2", FEFunctions.dateFormat(testDate, new StringLiteral("%w")).getStringValue());
             Assert.assertEquals("2001", FEFunctions.dateFormat(testDate, new StringLiteral("%Y")).getStringValue());
             Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%y")).getStringValue());
             Assert.assertEquals("%", FEFunctions.dateFormat(testDate, new StringLiteral("%%")).getStringValue());
@@ -161,7 +182,6 @@ public class FEFunctionsTest {
             Assert.assertEquals("g", FEFunctions.dateFormat(testDate, new StringLiteral("%g")).getStringValue());
             Assert.assertEquals("4", FEFunctions.dateFormat(testDate, new StringLiteral("%4")).getStringValue());
             Assert.assertEquals("2001 02" ,FEFunctions.dateFormat(testDate, new StringLiteral("%x %v")).getStringValue());
-            Assert.assertEquals("9th" ,FEFunctions.dateFormat(testDate, new StringLiteral("%D")).getStringValue());
         } catch (AnalysisException e) {
             e.printStackTrace();
         }
@@ -169,8 +189,6 @@ public class FEFunctionsTest {
 
     @Test
     public void dateParseTest() {
-        TimeZone tz = TimeZone.getTimeZone("Asia/Shanghai");
-        TimeZone.setDefault(tz);
         try {
             Assert.assertEquals("2013-05-10", FEFunctions.dateParse(new StringLiteral("2013,05,10"), new StringLiteral("%Y,%m,%d")).getStringValue());
             Assert.assertEquals("2013-05-17 00:35:10", FEFunctions.dateParse(new StringLiteral("2013-05-17 12:35:10"), new StringLiteral("%Y-%m-%d %h:%i:%s")).getStringValue());
@@ -193,91 +211,81 @@ public class FEFunctionsTest {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%D"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%D not supported in date format string");
+            Assert.assertEquals(e.getMessage(),
+                    "errCode = 2, detailMessage = %D not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%U"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%U not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %U not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%u"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%u not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %u not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%V"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%V not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %V not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%w"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%w not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %w not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%X"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%X not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %X not supported in date format string");
         }
     }
 
     @Test
     public void dateSubTest() throws AnalysisException {
-        DateLiteral actualResult = FEFunctions.dateSub(new StringLiteral("2018-08-08"), new IntLiteral(1));
+        DateLiteral actualResult = FEFunctions.dateSub(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
         DateLiteral expectedResult = new DateLiteral("2018-08-07", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.dateSub(new StringLiteral("2018-08-08"), new IntLiteral(-1));
+        actualResult = FEFunctions.dateSub(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
         expectedResult = new DateLiteral("2018-08-09", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
     }
 
     @Test
     public void yearTest() throws AnalysisException {
-        IntLiteral actualResult = FEFunctions.year(new StringLiteral("2018-08-08"));
-        IntLiteral expectedResult = new IntLiteral(2018);
+        IntLiteral actualResult = FEFunctions.year(new DateLiteral("2018-08-08", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(2018, Type.INT);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.year(new StringLiteral("1970-01-02 11:46:40"));
-        expectedResult = new IntLiteral(1970);
+        actualResult = FEFunctions.year(new DateLiteral("1970-01-02 11:46:40", Type.DATETIME));
+        expectedResult = new IntLiteral(1970, Type.INT);
         Assert.assertEquals(expectedResult, actualResult);
     }
     @Test
     public void monthTest() throws AnalysisException {
-        IntLiteral actualResult = FEFunctions.month(new StringLiteral("2018-08-08"));
-        IntLiteral expectedResult = new IntLiteral(8);
+        IntLiteral actualResult = FEFunctions.month(new DateLiteral("2018-08-08", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(8, Type.INT);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.month(new StringLiteral("1970-01-02 11:46:40"));
-        expectedResult = new IntLiteral(1);
+        actualResult = FEFunctions.month(new DateLiteral("1970-01-02 11:46:40", Type.DATETIME));
+        expectedResult = new IntLiteral(1, Type.INT);
         Assert.assertEquals(expectedResult, actualResult);
     }
 
     @Test
     public void dayTest() throws AnalysisException {
-        IntLiteral actualResult = FEFunctions.day(new StringLiteral("2018-08-08"));
-        IntLiteral expectedResult = new IntLiteral(8);
+        IntLiteral actualResult = FEFunctions.day(new DateLiteral("2018-08-08", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(8, Type.INT);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.day(new StringLiteral("1970-01-02 11:46:40"));
-        expectedResult = new IntLiteral(2);
-        Assert.assertEquals(expectedResult, actualResult);
-    }
-
-    @Test
-    public void castToIntTest() throws AnalysisException {
-        IntLiteral actualResult =  FEFunctions.castToInt(new StringLiteral("2019"));
-        IntLiteral expectedResult = new IntLiteral(2019);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.castToInt(new StringLiteral("-1970"));
-        expectedResult = new IntLiteral(-1970);
+        actualResult = FEFunctions.day(new DateLiteral("1970-01-02 11:46:40", Type.DATETIME));
+        expectedResult = new IntLiteral(2, Type.INT);
         Assert.assertEquals(expectedResult, actualResult);
     }
 
@@ -510,5 +518,56 @@ public class FEFunctionsTest {
         actualResult = FEFunctions.divideDecimalV2(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
         expectedResult = new DecimalLiteral("0.11");
         Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void timeDiffTest() throws AnalysisException {
+        DateLiteral d1 = new DateLiteral("1019-02-28 00:00:00", Type.DATETIME);
+        DateLiteral d2 = new DateLiteral("2019-02-28 00:00:00", Type.DATETIME);
+        DateLiteral d3 = new DateLiteral("2019-03-28 00:00:00", Type.DATETIME);
+        Assert.assertEquals(31556995543L, FEFunctions.timeDiff(d2, d1).getLongValue());
+        Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
+        Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
+    }
+
+    @Test
+    public void datePlusAndSubTest() throws AnalysisException {
+        DateLiteral dateLiteral = new DateLiteral("2019-11-11 00:00:00", Type.DATETIME);
+
+        Assert.assertEquals(new DateLiteral("2020-11-11 00:00:00", Type.DATETIME),
+                FEFunctions.yearsAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2018-11-11 00:00:00", Type.DATETIME),
+                FEFunctions.yearsSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-12-11 00:00:00", Type.DATETIME),
+                FEFunctions.monthsAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-10-11 00:00:00", Type.DATETIME),
+                FEFunctions.monthsSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-12 00:00:00", Type.DATETIME),
+                FEFunctions.daysAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 00:00:00", Type.DATETIME),
+                FEFunctions.daysSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-11 01:00:00", Type.DATETIME),
+                FEFunctions.hoursAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 23:00:00", Type.DATETIME),
+                FEFunctions.hoursSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-11 00:01:00", Type.DATETIME),
+                FEFunctions.minutesAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 23:59:00", Type.DATETIME),
+                FEFunctions.minutesSub(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-11 00:00:01", Type.DATETIME),
+                FEFunctions.secondsAdd(dateLiteral, new IntLiteral(1)));
+
+        Assert.assertEquals(new DateLiteral("2019-11-10 23:59:59", Type.DATETIME),
+                FEFunctions.secondsSub(dateLiteral, new IntLiteral(1)));
     }
 }

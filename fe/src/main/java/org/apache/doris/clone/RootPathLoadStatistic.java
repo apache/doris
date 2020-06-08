@@ -24,9 +24,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TStorageMedium;
 
 public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> {
-    // Even if for tablet recovery, we can not exceed these 2 limitations.
-    public static final double MAX_USAGE_PERCENT_LIMIT = 0.95;
-    public static final double MIN_LEFT_CAPACITY_BYTES_LIMIT = 100 * 1024 * 1024; // 100MB
 
     private long beId;
     private String path;
@@ -96,8 +93,8 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         }
 
         if (isSupplement) {
-            if ((usedCapacityB + tabletSize) / (double) capacityB > MAX_USAGE_PERCENT_LIMIT
-                    && capacityB - usedCapacityB - tabletSize < MIN_LEFT_CAPACITY_BYTES_LIMIT) {
+            if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_flood_stage_usage_percent / 100.0)
+                    && capacityB - usedCapacityB - tabletSize < Config.storage_flood_stage_left_capacity_bytes) {
                 return new BalanceStatus(ErrCode.COMMON_ERROR,
                         toString() + " does not fit tablet with size: " + tabletSize + ", limitation reached");
             } else {
@@ -105,7 +102,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
             }
         }
 
-        if ((usedCapacityB + tabletSize) / (double) capacityB > Config.storage_high_watermark_usage_percent
+        if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_high_watermark_usage_percent / 100.0)
                 || capacityB - usedCapacityB - tabletSize < Config.storage_min_left_capacity_bytes) {
             return new BalanceStatus(ErrCode.COMMON_ERROR,
                     toString() + " does not fit tablet with size: " + tabletSize);
@@ -118,13 +115,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     public int compareTo(RootPathLoadStatistic o) {
         double myPercent = getUsedPercent();
         double otherPercent = o.getUsedPercent();
-        if (myPercent < otherPercent) {
-            return -1;
-        } else if (myPercent > otherPercent) {
-            return 1;
-        } else {
-            return 0;
-        }
+        return Double.compare(myPercent, otherPercent);
     }
 
     @Override

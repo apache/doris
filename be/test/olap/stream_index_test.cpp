@@ -90,6 +90,7 @@ TEST_F(TestStreamIndex, index_write) {
         ASSERT_EQ(e.positions(1), i * 2);
         ASSERT_EQ(e.positions(2), i * 3);
     }
+    delete[] buffer;
 }
 
 TEST_F(TestStreamIndex, remove_written_position) {
@@ -138,6 +139,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             ASSERT_EQ(e.positions(1), i * 6);
             ASSERT_EQ(e.positions(2), i * 7);
         }
+        delete[] buffer;
     }
     writer.reset();
 
@@ -182,6 +184,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             ASSERT_EQ(e.positions(3), i * 6);
             ASSERT_EQ(e.positions(4), i * 7);
         }
+        delete[] buffer;
     }
     writer.reset();
     // test 3
@@ -225,6 +228,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             ASSERT_EQ(e.positions(3), i * 6);
             ASSERT_EQ(e.positions(4), i * 7);
         }
+        delete[] buffer;
     }
     writer.reset();
     // test 4
@@ -267,6 +271,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             ASSERT_EQ(e.positions(2), i * 3);
             ASSERT_EQ(e.positions(3 ), i * 4);
         }
+        delete[] buffer;
     }
     writer.reset();
 }
@@ -283,25 +288,25 @@ TEST_F(TestStreamIndex, test_statistic) {
 
     // 1 
     field->from_string("3");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "3");
 
     // 2
     field->from_string("5");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "5");
 
     // 3
     field->from_string("899");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "899");
 
     // 4
     field->from_string("-111");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "-111");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "899");
 
@@ -311,9 +316,9 @@ TEST_F(TestStreamIndex, test_statistic) {
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "-2147483648");
 
     field->from_string("3");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     field->from_string("6");
-    stat.add(field->field_ptr());
+    stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "6");
 
@@ -326,6 +331,7 @@ TEST_F(TestStreamIndex, test_statistic) {
 
     ASSERT_STREQ(stat2.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat2.maximum()->to_string().c_str(), "6");
+    delete field;
 }
 
 TEST_F(TestStreamIndex, statistic) {
@@ -348,11 +354,11 @@ TEST_F(TestStreamIndex, statistic) {
 
         snprintf(string_buffer, sizeof(string_buffer), "%d", i * 9);
         field->from_string(string_buffer);
-        stat.add(field->field_ptr());
+        stat.add(*field);
 
         snprintf(string_buffer, sizeof(string_buffer), "%d", i * 2);
         field->from_string(string_buffer);
-        stat.add(field->field_ptr());
+        stat.add(*field);
 
         entry.set_statistic(&stat);
 
@@ -380,6 +386,8 @@ TEST_F(TestStreamIndex, statistic) {
         ASSERT_EQ(e.positions(1), i * 2);
         ASSERT_EQ(e.positions(2), i * 3);
     }
+    delete[] buffer;
+    delete field;
 }
 
 }

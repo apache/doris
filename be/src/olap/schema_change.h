@@ -73,23 +73,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
 };
 
-class RowBlockAllocator;
-class RowBlockSorter {
-public:
-    explicit RowBlockSorter(RowBlockAllocator* allocator);
-    virtual ~RowBlockSorter();
-
-    bool sort(RowBlock** row_block);
-
-private:
-    static bool _row_cursor_comparator(const RowCursor* a, const RowCursor* b) {
-        return a->full_key_cmp(*b) < 0;
-    }
-
-    RowBlockAllocator* _row_block_allocator;
-    RowBlock* _swap_row_block;
-};
-
 class RowBlockAllocator {
 public:
     RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
@@ -106,41 +89,13 @@ private:
     size_t _memory_limitation;
 };
 
-class RowBlockMerger {
-public:
-    explicit RowBlockMerger(TabletSharedPtr tablet);
-    virtual ~RowBlockMerger();
-
-    bool merge(
-            const std::vector<RowBlock*>& row_block_arr,
-            RowsetWriterSharedPtr rowset_writer,
-            uint64_t* merged_rows);
-
-private:
-    struct MergeElement {
-        bool operator<(const MergeElement& other) const {
-            return row_cursor->full_key_cmp(*(other.row_cursor)) > 0;
-        }
-
-        const RowBlock* row_block;
-        RowCursor* row_cursor;
-        uint32_t row_block_index;
-    };
-
-    bool _make_heap(const std::vector<RowBlock*>& row_block_arr);
-    bool _pop_heap();
-
-    TabletSharedPtr _tablet;
-    std::priority_queue<MergeElement> _heap;
-};
-
 class SchemaChange {
 public:
     SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetWriterSharedPtr new_rowset_builder,
+                         RowsetWriter* new_rowset_builder,
                          TabletSharedPtr tablet,
                          TabletSharedPtr base_tablet) = 0;
 
@@ -180,9 +135,9 @@ public:
     ~LinkedSchemaChange() {}
 
     bool process(RowsetReaderSharedPtr rowset_reader,
-                 RowsetWriterSharedPtr new_rowset_writer,
+                 RowsetWriter* new_rowset_writer,
                  TabletSharedPtr new_tablet,
-                 TabletSharedPtr base_tablet);
+                 TabletSharedPtr base_tablet) override;
 private:
     const RowBlockChanger& _row_block_changer;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
@@ -198,17 +153,16 @@ public:
     virtual ~SchemaChangeDirectly();
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetWriterSharedPtr new_rowset_writer,
+                         RowsetWriter* new_rowset_writer,
                          TabletSharedPtr new_tablet,
-                         TabletSharedPtr base_tablet);
+                         TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
     RowBlockAllocator* _row_block_allocator;
-    RowCursor* _src_cursor;
-    RowCursor* _dst_cursor;
+    RowCursor* _cursor;
 
-    bool _write_row_block(RowsetWriterSharedPtr rowset_builder, RowBlock* row_block);
+    bool _write_row_block(RowsetWriter* rowset_builder, RowBlock* row_block);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };
@@ -222,9 +176,9 @@ public:
     virtual ~SchemaChangeWithSorting();
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetWriterSharedPtr new_rowset_builder,
+                         RowsetWriter* new_rowset_builder,
                          TabletSharedPtr new_tablet,
-                         TabletSharedPtr base_tablet);
+                         TabletSharedPtr base_tablet) override;
 
 private:
     bool _internal_sorting(
@@ -232,11 +186,13 @@ private:
             const Version& temp_delta_versions,
             const VersionHash version_hash,
             TabletSharedPtr new_tablet,
+            RowsetTypePB new_rowset_type,
+            SegmentsOverlapPB segments_overlap,
             RowsetSharedPtr* rowset);
 
     bool _external_sorting(
             std::vector<RowsetSharedPtr>& src_rowsets,
-            RowsetWriterSharedPtr rowset_writer,
+            RowsetWriter* rowset_writer,
             TabletSharedPtr new_tablet);
 
     const RowBlockChanger& _row_block_changer;
@@ -259,7 +215,9 @@ public:
                                       TabletSharedPtr new_tablet,
                                       RowsetSharedPtr* base_rowset,
                                       RowsetSharedPtr* new_rowset);
-
+    
+    // schema change v2, it will not set alter task in base tablet
+    OLAPStatus process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
 private:
     // 检查schema_change相关的状态:清理"一对"schema_change table间的信息
@@ -271,7 +229,7 @@ private:
                                                    const TAlterTabletReq& request);
 
     OLAPStatus _get_versions_to_be_changed(TabletSharedPtr base_tablet,
-                                           std::vector<Version>& versions_to_be_changed);
+                                           std::vector<Version>* versions_to_be_changed);
 
     struct SchemaChangeParams {
         AlterTabletType alter_tablet_type;
@@ -290,6 +248,10 @@ private:
     OLAPStatus _save_alter_state(AlterTabletState state,
                                  TabletSharedPtr base_tablet,
                                  TabletSharedPtr new_tablet);
+                                
+    OLAPStatus _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);
+    
+    OLAPStatus _validate_alter_result(TabletSharedPtr new_tablet, const TAlterTabletReqV2& request);
 
     static OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 

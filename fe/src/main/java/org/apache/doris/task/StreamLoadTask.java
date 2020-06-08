@@ -17,24 +17,26 @@
 
 package org.apache.doris.task;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.base.Joiner;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,21 +51,28 @@ public class StreamLoadTask {
     private long txnId;
     private TFileType fileType;
     private TFileFormatType formatType;
+    private boolean stripOuterArray;
+    private String jsonPaths;
 
     // optional
-    private List<ImportColumnDesc> columnExprDesc;
+    private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
     private Expr whereExpr;
     private ColumnSeparator columnSeparator;
-    private String partitions;
+    private PartitionNames partitions;
     private String path;
     private boolean negative;
+    private boolean strictMode = false; // default is false
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int timeout = Config.stream_load_default_timeout_second;
+    private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
         this.txnId = txnId;
         this.fileType = fileType;
         this.formatType = formatType;
+        this.jsonPaths = "";
+        this.stripOuterArray = false;
     }
 
     public TUniqueId getId() {
@@ -82,8 +91,8 @@ public class StreamLoadTask {
         return formatType;
     }
 
-    public List<ImportColumnDesc> getColumnExprDesc() {
-        return columnExprDesc;
+    public List<ImportColumnDesc> getColumnExprDescs() {
+        return columnExprDescs;
     }
 
     public Expr getWhereExpr() {
@@ -94,7 +103,7 @@ public class StreamLoadTask {
         return columnSeparator;
     }
 
-    public String getPartitions() {
+    public PartitionNames getPartitions() {
         return partitions;
     }
 
@@ -106,18 +115,42 @@ public class StreamLoadTask {
         return negative;
     }
 
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
     public int getTimeout() {
         return timeout;
     }
 
-    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public void setStripOuterArray(boolean stripOuterArray) {
+        this.stripOuterArray = stripOuterArray;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
+    }
+
+    public void setJsonPath(String jsonPaths) {
+        this.jsonPaths = jsonPaths;
+    }
+
+    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
-        streamLoadTask.setOptionalFromTSLPutRequest(request);
+        streamLoadTask.setOptionalFromTSLPutRequest(request, db);
         return streamLoadTask;
     }
 
-    private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
+    private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         if (request.isSetColumns()) {
             setColumnToColumnExpr(request.getColumns());
         }
@@ -128,7 +161,12 @@ public class StreamLoadTask {
             setColumnSeparator(request.getColumnSeparator());
         }
         if (request.isSetPartitions()) {
-            partitions = request.getPartitions();
+            String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
+            if (request.isSetIsTempPartition()) {
+                partitions = new PartitionNames(request.isIsTempPartition(), Lists.newArrayList(partNames));
+            } else {
+                partitions = new PartitionNames(false, Lists.newArrayList(partNames));
+            }
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
@@ -143,29 +181,60 @@ public class StreamLoadTask {
         if (request.isSetTimeout()) {
             timeout = request.getTimeout();
         }
+        if (request.isSetStrictMode()) {
+            strictMode = request.isStrictMode();
+        }
+        if (request.isSetTimezone()) {
+            timezone = TimeUtils.checkTimeZoneValidAndStandardize(request.getTimezone());
+        }
+        if (request.isSetExecMemLimit()) {
+            execMemLimit = request.getExecMemLimit();
+        }
+        if (request.getFormatType() == TFileFormatType.FORMAT_JSON) {
+            if (request.getJsonpaths() != null) {
+                jsonPaths = request.getJsonpaths();
+            }
+            stripOuterArray = request.isStrip_outer_array();
+        }
     }
 
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         TUniqueId dummyId = new TUniqueId();
+        TFileFormatType fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+        if (routineLoadJob.getFormat().equals("json")) {
+            fileFormatType = TFileFormatType.FORMAT_JSON;
+        }
         StreamLoadTask streamLoadTask = new StreamLoadTask(dummyId, -1L /* dummy txn id*/,
-                TFileType.FILE_STREAM, TFileFormatType.FORMAT_CSV_PLAIN);
+                TFileType.FILE_STREAM, fileFormatType);
         streamLoadTask.setOptionalFromRoutineLoadJob(routineLoadJob);
         return streamLoadTask;
     }
 
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        columnExprDesc = routineLoadJob.getColumnDescs();
+        // copy the columnExprDescs, cause it may be changed when planning.
+        // so we keep the columnExprDescs in routine load job as origin.
+        if (routineLoadJob.getColumnDescs() != null) {
+            columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
+        }
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
-        partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
+        partitions = routineLoadJob.getPartitions();
+        strictMode = routineLoadJob.isStrictMode();
+        timezone = routineLoadJob.getTimezone();
+        timeout = (int) routineLoadJob.getMaxBatchIntervalS() * 2;
+        if (!routineLoadJob.getJsonPaths().isEmpty()) {
+            jsonPaths = routineLoadJob.getJsonPaths();
+        }
+        stripOuterArray = routineLoadJob.isStripOuterArray();
     }
 
+    // used for stream load
     private void setColumnToColumnExpr(String columns) throws UserException {
         String columnsSQL = new String("COLUMNS (" + columns + ")");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
-            columnsStmt = (ImportColumnsStmt) parser.parse().value;
+            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
@@ -184,7 +253,7 @@ public class StreamLoadTask {
         }
 
         if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            columnExprDesc = columnsStmt.getColumns();
+            columnExprDescs = columnsStmt.getColumns();
         }
     }
 
@@ -193,7 +262,7 @@ public class StreamLoadTask {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)));
         ImportWhereStmt whereStmt;
         try {
-            whereStmt = (ImportWhereStmt) parser.parse().value;
+            whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing where header, sql={}", whereSQL, e);
             throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");
@@ -216,5 +285,9 @@ public class StreamLoadTask {
     private void setColumnSeparator(String oriSeparator) throws AnalysisException {
         columnSeparator = new ColumnSeparator(oriSeparator);
         columnSeparator.analyze();
+    }
+
+    public long getMemLimit() {
+        return execMemLimit;
     }
 }

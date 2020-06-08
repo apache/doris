@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -26,7 +27,7 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // Drop one column
-public class DropColumnClause extends AlterClause {
+public class DropColumnClause extends AlterTableClause {
     private String colName;
     private String rollupName;
 
@@ -41,6 +42,7 @@ public class DropColumnClause extends AlterClause {
     }
 
     public DropColumnClause(String colName, String rollupName, Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.colName = colName;
         this.rollupName = rollupName;
         this.properties = properties;

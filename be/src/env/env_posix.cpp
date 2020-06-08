@@ -15,18 +15,39 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/uio.h>
+#include <memory>
 
 #include "common/logging.h"
 #include "gutil/macros.h"
 #include "gutil/port.h"
+#include "gutil/gscoped_ptr.h"
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
 #include "util/slice.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
 using std::string;
 using strings::Substitute;
+
+// Close file descriptor when object goes out of scope.
+class ScopedFdCloser {
+public:
+    explicit ScopedFdCloser(int fd) : fd_(fd) {}
+
+    ~ScopedFdCloser() {
+        int err;
+        RETRY_ON_EINTR(err, ::close(fd_));
+        if (PREDICT_FALSE(err != 0)) {
+            LOG(WARNING) << "Failed to close fd " << fd_;
+        }
+    }
+
+private:
+    const int fd_;
+};
 
 static Status io_error(const std::string& context, int err_number) {
     switch (err_number) {
@@ -35,35 +56,38 @@ static Status io_error(const std::string& context, int err_number) {
     case ENAMETOOLONG:
     case ENOENT:
     case ENOTDIR:
-        return Status::NotFound(context, 1, errno_to_string(err_number));
+        return Status::NotFound(context, err_number, errno_to_string(err_number));
     case EEXIST:
-        return Status::AlreadyExist(context, 1, errno_to_string(err_number));
+        return Status::AlreadyExist(context, err_number, errno_to_string(err_number));
     case EOPNOTSUPP:
     case EXDEV: // No cross FS links allowed
-        return Status::NotSupported(context, 1, errno_to_string(err_number));
+        return Status::NotSupported(context, err_number, errno_to_string(err_number));
     case EIO:
         LOG(ERROR) << "I/O error, context=" << context;
     }
-    return Status::IOError(context, 1, errno_to_string(err_number));
+    return Status::IOError(context, err_number, errno_to_string(err_number));
 }
 
-Status do_sync(int fd, const string& filename) {
+static Status do_sync(int fd, const string& filename) {
     if (fdatasync(fd) < 0) {
         return io_error(filename, errno);
     }
     return Status::OK();
 }
 
-static Status do_open(const string& filename, Env::CreateMode mode, int* fd) {
+static Status do_open(const string& filename, Env::OpenMode mode, int* fd) {
     int flags = O_RDWR;
     switch (mode) {
-    case Env::CREATE_IF_NON_EXISTING_TRUNCATE:
+    case Env::CREATE_OR_OPEN_WITH_TRUNCATE:
         flags |= O_CREAT | O_TRUNC;
         break;
-    case Env::CREATE_NON_EXISTING:
+    case Env::CREATE_OR_OPEN:
+        flags |= O_CREAT;
+        break;
+    case Env::MUST_CREATE:
         flags |= O_CREAT | O_EXCL;
         break;
-    case Env::OPEN_EXISTING:
+    case Env::MUST_EXIST:
         break;
     default:
         return Status::NotSupported(Substitute("Unknown create mode $0", mode));
@@ -161,6 +185,7 @@ static Status do_writev_at(int fd, const string& filename, uint64_t offset,
 
         if (PREDICT_TRUE(w == rem)) {
             // All requested bytes were read. This is almost always the case.
+            rem = 0;
             break;
         }
         // Adjust iovec vector based on bytes read for the next request.
@@ -477,7 +502,6 @@ private:
 
 class PosixEnv : public Env {
 public:
-    PosixEnv() { }
     ~PosixEnv() override { }
 
     Status new_sequential_file(
@@ -491,6 +515,7 @@ public:
         return Status::OK();
     }
 
+    // get a RandomAccessFile pointer without file cache
     Status new_random_access_file(const std::string& fname,
                                std::unique_ptr<RandomAccessFile>* result) override {
         return new_random_access_file(RandomAccessFileOptions(), fname, result);
@@ -520,7 +545,7 @@ public:
         RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
 
         uint64_t file_size = 0;
-        if (opts.mode == OPEN_EXISTING) {
+        if (opts.mode == MUST_EXIST) {
             RETURN_IF_ERROR(get_file_size(fname, &file_size));
         }
         result->reset(new PosixWritableFile(fname, fd, file_size, opts.sync_on_close));
@@ -541,7 +566,7 @@ public:
         return Status::OK();
     }
 
-    Status file_exists(const std::string& fname) override {
+    Status path_exists(const std::string& fname) override {
         if (access(fname.c_str(), F_OK) != 0) {
             return io_error(fname, errno);
         }
@@ -563,6 +588,23 @@ public:
         return Status::OK();
     }
 
+    Status iterate_dir(const std::string& dir,
+                       const std::function<bool(const char*)>& cb) override {
+        DIR* d = opendir(dir.c_str());
+        if (d == nullptr) {
+            return io_error(dir, errno);
+        }
+        struct dirent* entry;
+        while ((entry = readdir(d)) != nullptr) {
+            // callback returning false means to terminate iteration
+            if (!cb(entry->d_name)) {
+                break;
+            }
+        }
+        closedir(d);
+        return Status::OK();
+    }
+
     Status delete_file(const std::string& fname) override {
         if (unlink(fname.c_str()) != 0) {
             return io_error(fname, errno);
@@ -570,7 +612,6 @@ public:
         return Status::OK();
     }
 
-    // Create the specified directory. Returns error if directory exists.
     Status create_dir(const std::string& name) override {
         if (mkdir(name.c_str(), 0755) != 0) {
             return io_error(name, errno);
@@ -578,19 +619,23 @@ public:
         return Status::OK();
     }
 
-    // Creates directory if missing. Return Ok if it exists, or successful in
-    // Creating.
-    Status create_dir_if_missing(const std::string& name) override {
-        if (mkdir(name.c_str(), 0755) != 0) {
-            if (errno != EEXIST) {
-                return io_error(name, errno);
-            } else if (!dir_exists(name)) { // Check that name is actually a
-                // directory.
-                // Message is taken from mkdir
-                return Status::IOError(name + " exists but is not a directory");
+    Status create_dir_if_missing(const string& dirname, bool* created = nullptr) override {
+        Status s = create_dir(dirname);
+        if (created != nullptr) {
+            *created = s.ok();
+        }
+
+        // Check that dirname is actually a directory.
+        if (s.is_already_exist()) {
+            bool is_dir = false;
+            RETURN_IF_ERROR(is_directory(dirname, &is_dir));
+            if (is_dir) {
+                return Status::OK();
+            } else {
+                return s.clone_and_append("path already exists but not a dir");
             }
         }
-        return Status::OK();
+        return s;
     }
 
     // Delete the specified directory.
@@ -598,6 +643,41 @@ public:
         if (rmdir(dirname.c_str()) != 0) {
             return io_error(dirname, errno);
         }
+        return Status::OK();
+    }
+
+    Status sync_dir(const string& dirname) override {
+        int dir_fd;
+        RETRY_ON_EINTR(dir_fd, open(dirname.c_str(), O_DIRECTORY|O_RDONLY));
+        if (dir_fd < 0) {
+            return io_error(dirname, errno);
+        }
+        ScopedFdCloser fd_closer(dir_fd);
+        if (fsync(dir_fd) != 0) {
+            return io_error(dirname, errno);
+        }
+        return Status::OK();
+    }
+
+    Status is_directory(const std::string& path, bool* is_dir) override {
+        struct stat path_stat;
+        if (stat(path.c_str(), &path_stat) != 0) {
+            return io_error(path, errno);
+        } else {
+            *is_dir = S_ISDIR(path_stat.st_mode);
+        }
+
+        return Status::OK();
+    }
+
+    Status canonicalize(const std::string& path, std::string* result) override {
+        // NOTE: we must use free() to release the buffer retruned by realpath(),
+        // because the buffer is allocated by malloc(), see `man 3 realpath`.
+        std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
+        if (r == nullptr) {
+            return io_error(Substitute("Unable to canonicalize $0", path), errno);
+        }
+        *result = std::string(r.get());
         return Status::OK();
     }
 
@@ -611,8 +691,7 @@ public:
         return Status::OK();
     }
 
-    Status get_file_modification_time(const std::string& fname,
-                                      uint64_t* file_mtime) override {
+    Status get_file_modified_time(const std::string& fname, uint64_t* file_mtime) override {
         struct stat s;
         if (stat(fname.c_str(), &s) !=0) {
             return io_error(fname, errno);
@@ -628,27 +707,18 @@ public:
         return Status::OK();
     }
 
-    Status link_file(const std::string& src, const std::string& target) override {
-        if (link(src.c_str(), target.c_str()) != 0) {
-            return io_error(src, errno);
+    Status link_file(const std::string& old_path, const std::string& new_path) override {
+        if (link(old_path.c_str(), new_path.c_str()) != 0) {
+            return io_error(old_path, errno);
         }
         return Status::OK();
-    }
-
-private:
-    bool dir_exists(const std::string& dname) {
-        struct stat statbuf;
-        if (stat(dname.c_str(), &statbuf) == 0) {
-            return S_ISDIR(statbuf.st_mode);
-        }
-        return false; // stat() failed return false
     }
 };
 
 // Default Posix Env
 Env* Env::Default() {
-  static PosixEnv default_env;
-  return &default_env;
+    static PosixEnv default_env;
+    return &default_env;
 }
 
-}
+} // end namespace doris

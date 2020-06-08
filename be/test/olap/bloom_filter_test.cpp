@@ -20,6 +20,7 @@
 #include <string>
 
 #include "olap/bloom_filter.hpp"
+#include "common/configbase.h"
 #include "util/logging.h"
 
 using std::string;
@@ -73,6 +74,7 @@ TEST_F(TestBloomFilter, init_bloom_filter) {
         ASSERT_EQ(0, bf.bit_num());
         ASSERT_EQ(0, bf.hash_function_num());
         ASSERT_EQ(NULL, bf.bit_set_data());
+        delete[] data;
     }
 }
 
@@ -155,12 +157,6 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
 } // namespace doris
 
 int main(int argc, char **argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

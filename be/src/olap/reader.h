@@ -46,16 +46,24 @@ class RowCursor;
 class RowBlock;
 class CollectIterator;
 class RuntimeState;
-class ColumnData;
 
 // Params for Reader,
 // mainly include tablet, data version and fetch range.
 struct ReaderParams {
     TabletSharedPtr tablet;
-    ReaderType reader_type;
-    bool aggregation;
-    Version version;
+    ReaderType reader_type = READER_QUERY;
+    bool aggregation = false;
+    bool need_agg_finalize = true;
+    // 1. when read column data page:
+    //     for compaction, schema_change, check_sum: we don't use page cache
+    //     for query and config::disable_storage_page_cache is false, we use page cache
+    // 2. when read column index page
+    //     if config::disable_storage_page_cache is false, we use page cache
+    bool use_page_cache = false;
+    Version version = Version(-1, 0);
+    // possible values are "gt", "ge", "eq"
     std::string range;
+    // possible values are "lt", "le"
     std::string end_range;
     std::vector<OlapTuple> start_key;
     std::vector<OlapTuple> end_key;
@@ -63,34 +71,21 @@ struct ReaderParams {
     // The ColumnData will be set when using Merger, eg Cumulative, BE.
     std::vector<RowsetReaderSharedPtr> rs_readers;
     std::vector<uint32_t> return_columns;
-    RuntimeProfile* profile;
-    RuntimeState* runtime_state;
-
-    ReaderParams() :
-            reader_type(READER_QUERY),
-            aggregation(false),
-            version(-1, 0),
-            profile(NULL),
-            runtime_state(NULL) {
-        start_key.clear();
-        end_key.clear();
-        conditions.clear();
-        rs_readers.clear();
-    }
+    RuntimeProfile* profile = nullptr;
+    RuntimeState* runtime_state = nullptr;
 
     void check_validation() const {
-        if (version.first == -1) {
+        if (UNLIKELY(version.first == -1)) {
             LOG(FATAL) << "verison is not set. tablet=" << tablet->full_name();
         }
     }
 
     std::string to_string() {
         std::stringstream ss;
-
         ss << "tablet=" << tablet->full_name()
            << " reader_type=" << reader_type
            << " aggregation=" << aggregation
-           << " version=" << version.first << "-" << version.second
+           << " version=" << version
            << " range=" << range
            << " end_range=" << end_range;
 
@@ -102,10 +97,10 @@ struct ReaderParams {
             ss << " end_keys=" << key;
         }
 
-        for (int i = 0, size = conditions.size(); i < size; ++i) {
-            ss << " conditions=" << apache::thrift::ThriftDebugString(conditions[i]);
+        for (auto& condition : conditions) {
+            ss << " conditions=" << apache::thrift::ThriftDebugString(condition);
         }
-        
+
         return ss.str();
     }
 };
@@ -121,8 +116,11 @@ public:
     void close();
 
     // Reader next row with aggregation.
-    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, bool *eof) {
-        return (this->*_next_row_func)(row_cursor, eof);
+    // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
+    // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
+    // Return others when unexpected error happens.
+    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool *eof) {
+        return (this->*_next_row_func)(row_cursor, mem_pool, agg_pool, eof);
     }
 
     uint64_t merged_rows() const {
@@ -139,12 +137,12 @@ public:
 private:
     struct KeysParam {
         ~KeysParam() {
-            for (int32_t i = 0; i < start_keys.size(); i++) {
-                SAFE_DELETE(start_keys[i]);
+            for (auto start_key : start_keys) {
+                SAFE_DELETE(start_key);
             }
 
-            for (int32_t i = 0; i < end_keys.size(); i++) {
-                SAFE_DELETE(end_keys[i]);
+            for (auto end_key : end_keys) {
+                SAFE_DELETE(end_key);
             }
         }
 
@@ -153,12 +151,12 @@ private:
             ss << "range=" << range
                << " end_range=" << end_range;
 
-            for (int i = 0, size = this->start_keys.size(); i < size; ++i) {
-                ss << " keys=" << start_keys[i]->to_string();
+            for (auto start_key : start_keys) {
+                ss << " keys=" << start_key->to_string();
             }
 
-            for (int i = 0, size = this->end_keys.size(); i < size; ++i) {
-                ss << " end_keys=" << end_keys[i]->to_string();
+            for (auto end_key : end_keys) {
+                ss << " end_keys=" << end_key->to_string();
             }
 
             return ss.str();
@@ -178,7 +176,7 @@ private:
 
     OLAPStatus _init_keys_param(const ReaderParams& read_params);
 
-    OLAPStatus _init_conditions_param(const ReaderParams& read_params);
+    void _init_conditions_param(const ReaderParams& read_params);
 
     ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond);
     ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond);
@@ -192,13 +190,13 @@ private:
     OLAPStatus _init_delete_condition(const ReaderParams& read_params);
 
     OLAPStatus _init_return_columns(const ReaderParams& read_params);
-    OLAPStatus _init_seek_columns();
+    void _init_seek_columns();
 
-    OLAPStatus _init_load_bf_columns(const ReaderParams& read_params);
+    void _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, bool* eof);
-    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, bool* eof);
-    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, bool* eof);
+    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
 
     TabletSharedPtr tablet() { return _tablet; }
 
@@ -209,42 +207,32 @@ private:
     std::vector<uint32_t> _return_columns;
     std::vector<uint32_t> _seek_columns;
 
-    Version _version;
-
     TabletSharedPtr _tablet;
-
-    // _own_rs_readers is data source that reader aquire from tablet, so we need to
-    // release these when reader closing
-    std::vector<RowsetReaderSharedPtr> _own_rs_readers;
     std::vector<RowsetReaderSharedPtr> _rs_readers;
     RowsetReaderContext _reader_context;
-
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
-    int32_t _next_key_index;
-
     Conditions _conditions;
     std::vector<ColumnPredicate*> _col_predicates;
-
     DeleteHandler _delete_handler;
 
-    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, bool* eof) = nullptr;
+    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) = nullptr;
 
-    bool _aggregation;
-    bool _version_locked;
-    ReaderType _reader_type;
-    bool _next_delete_flag;
-    const RowCursor* _next_key;
+    bool _aggregation = false;
+    // for agg query, we don't need to finalize when scan agg object data
+    bool _need_agg_finalize = true;
+    ReaderType _reader_type = READER_QUERY;
+    bool _next_delete_flag = false;
+    const RowCursor* _next_key = nullptr;
     CollectIterator* _collect_iter = nullptr;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 
-    uint64_t _merged_rows;
-
+    uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;
-    DISALLOW_COPY_AND_ASSIGN(Reader);
 
+    DISALLOW_COPY_AND_ASSIGN(Reader);
 };
 
 }  // namespace doris

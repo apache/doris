@@ -19,9 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TPartitionType;
 
-/**
- * Created by zhaochun on 14-8-26.
- */
 public enum PartitionType {
     UNPARTITIONED("UNPARTITIONED"),
     RANGE("RANGE");

@@ -17,19 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TStorageMedium;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -37,9 +33,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class })
 public class TabletTest {
 
     private Tablet tablet;
@@ -49,15 +42,27 @@ public class TabletTest {
 
     private TabletInvertedIndex invertedIndex;
 
+    @Mocked
+    private Catalog catalog;
+
     @Before 
     public void makeTablet() {
         invertedIndex = new TabletInvertedIndex();
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
+                result = FeConstants.meta_version;
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
-        EasyMock.expect(Catalog.isCheckpointThread()).andReturn(false).anyTimes();
-        PowerMock.replay(Catalog.class);
+                Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
+                result = invertedIndex;
+
+                Catalog.isCheckpointThread();
+                minTimes = 0;
+                result = false;
+            }
+        };
 
         tablet = new Tablet(1);
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);

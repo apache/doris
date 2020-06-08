@@ -17,11 +17,13 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -30,8 +32,13 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,8 +46,11 @@ import java.io.IOException;
 import java.util.Set;
 
 public class MiniLoadJob extends LoadJob {
+    private static final Logger LOG = LogManager.getLogger(MiniLoadJob.class);
 
     private String tableName;
+
+    private long tableId;
 
     // only for log replay
     public MiniLoadJob() {
@@ -48,8 +58,9 @@ public class MiniLoadJob extends LoadJob {
         this.jobType = EtlJobType.MINI;
     }
 
-    public MiniLoadJob(long dbId, TMiniLoadBeginRequest request) throws MetaNotFoundException {
+    public MiniLoadJob(long dbId, long tableId, TMiniLoadBeginRequest request) throws MetaNotFoundException {
         super(dbId, request.getLabel());
+        this.tableId = tableId;
         this.jobType = EtlJobType.MINI;
         this.tableName = request.getTbl();
         if (request.isSetTimeout_second()) {
@@ -60,10 +71,10 @@ public class MiniLoadJob extends LoadJob {
         if (request.isSetMax_filter_ratio()) {
             this.maxFilterRatio = request.getMax_filter_ratio();
         }
-        this.isCancellable = false;
         this.createTimestamp = request.getCreate_timestamp();
         this.loadStartTimestamp = createTimestamp;
         this.authorizationInfo = gatherAuthInfo();
+        this.requestId = request.getRequest_id();
     }
 
     @Override
@@ -85,36 +96,29 @@ public class MiniLoadJob extends LoadJob {
     }
 
     @Override
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void beginTxn()
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId,
+                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
                                   timeoutSecond);
     }
 
     @Override
-    protected void executeAfterAborted(TransactionState txnState) {
-        updateLoadingStatue(txnState);
-    }
-
-    @Override
-    protected void executeAfterVisible(TransactionState txnState) {
-        updateLoadingStatue(txnState);
-    }
-
-    @Override
-    protected void executeReplayOnAborted(TransactionState txnState) {
-        updateLoadingStatue(txnState);
-    }
-
-    @Override
-    protected void executeReplayOnVisible(TransactionState txnState) {
+    protected void replayTxnAttachment(TransactionState txnState) {
         updateLoadingStatue(txnState);
     }
 
     private void updateLoadingStatue(TransactionState txnState) {
         MiniLoadTxnCommitAttachment miniLoadTxnCommitAttachment =
                 (MiniLoadTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        if (miniLoadTxnCommitAttachment == null) {
+            // aborted txn may not has attachment
+            LOG.info("no miniLoadTxnCommitAttachment, txn id: {} status: {}", txnState.getTransactionId(),
+                    txnState.getTransactionStatus());
+            return;
+        }
         loadingStatus.replaceCounter(DPP_ABNORMAL_ALL, String.valueOf(miniLoadTxnCommitAttachment.getFilteredRows()));
         loadingStatus.replaceCounter(DPP_NORMAL_ALL, String.valueOf(miniLoadTxnCommitAttachment.getLoadedRows()));
         if (miniLoadTxnCommitAttachment.getErrorLogUrl() != null) {

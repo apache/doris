@@ -47,12 +47,17 @@ Status SchemaSchemataScanner::start(RuntimeState *state) {
     if (NULL != _param->wild) {
         db_params.__set_pattern(*(_param->wild));
     }
-    if (NULL != _param->user) {
-        db_params.__set_user(*(_param->user));
+    if (NULL != _param->current_user_ident) {
+        db_params.__set_current_user_ident(*(_param->current_user_ident));
+    } else {
+        if (NULL != _param->user) {
+            db_params.__set_user(*(_param->user));
+        }
+        if (NULL != _param->user_ip) {
+            db_params.__set_user_ip(*(_param->user_ip));
+        }
     }
-    if (NULL != _param->user_ip) {
-        db_params.__set_user_ip(*(_param->user_ip));
-    }
+
     if (NULL != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result)); 

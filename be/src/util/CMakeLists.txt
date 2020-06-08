@@ -22,16 +22,18 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
 set(UTIL_FILES
-  arena.cpp
+  arrow/row_batch.cpp
+  arrow/row_block.cpp
+  arrow/utils.cpp
   bfd_parser.cpp
   bitmap.cpp
-  codec.cpp
+  block_compression.cpp
   coding.cpp
-  compress.cpp
   cpu_info.cpp
+  crc32c.cpp
+  date_func.cpp
   dynamic_util.cpp
   debug_util.cpp
-  decompress.cpp
   disk_info.cpp
   errno.cpp
   hash_util.hpp
@@ -75,8 +77,24 @@ set(UTIL_FILES
   aes_util.cpp
   string_util.cpp
   md5.cpp
-  frontend_helper.cpp
+  thrift_rpc_helper.cpp
   faststring.cc
+  slice.cpp
+  frame_of_reference_coding.cpp
+  minizip/ioapi.c
+  minizip/unzip.c
+  zip_util.cpp
+  utf8_check.cpp
+  cgroup_util.cpp
+  path_util.cpp
+  file_cache.cpp
+  monotime.cpp
+  mutex.cpp
+  condition_variable.cpp
+  thread.cpp
+  threadpool.cpp
+  trace.cpp
+  trace_metrics.cpp
 )
 
 if (WITH_MYSQL)

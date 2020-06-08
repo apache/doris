@@ -17,21 +17,22 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Map;
@@ -88,12 +89,17 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
 
+    public static final String FORMAT = "format";// the value is csv or json, default is csv
+    public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
+    public static final String JSONPATHS = "jsonpaths";
+
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
     public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
+    public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
@@ -104,6 +110,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(FORMAT)
+            .add(JSONPATHS)
+            .add(STRIP_OUTER_ARRAY)
+            .add(LoadStmt.STRICT_MODE)
+            .add(LoadStmt.TIMEZONE)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -130,12 +141,25 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchIntervalS = -1;
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
+    private boolean strictMode = true;
+    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    /**
+     * RoutineLoad support json data.
+     * Require Params:
+     *   1) dataFormat = "json"
+     *   2) jsonPaths = "$.XXX.xxx"
+     */
+    private String format   = ""; //default is csv.
+    private String jsonPaths     = "";
+    private boolean stripOuterArray = false;
+
 
     // kafka related properties
     private String kafkaBrokerList;
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+
     //custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
@@ -196,6 +220,26 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return maxBatchSizeBytes;
     }
 
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public String getFormat() {
+        return format;
+    }
+
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
+    }
+
     public String getKafkaBrokerList() {
         return kafkaBrokerList;
     }
@@ -220,7 +264,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         // check name
         FeNameFormat.checkCommonName(NAME_TYPE, name);
         // check load properties include column separator etc.
-        checkLoadProperties(analyzer);
+        checkLoadProperties();
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -236,14 +280,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
     }
 
-    public void checkLoadProperties(Analyzer analyzer) throws UserException {
+    public void checkLoadProperties() throws UserException {
         if (loadPropertyList == null) {
             return;
         }
         ColumnSeparator columnSeparator = null;
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt importWhereStmt = null;
-        List<String> partitionNames = null;
+        PartitionNames partitionNames = null;
         for (ParseNode parseNode : loadPropertyList) {
             if (parseNode instanceof ColumnSeparator) {
                 // check column separator
@@ -269,16 +313,15 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 if (partitionNames != null) {
                     throw new AnalysisException("repeat setting of partition names");
                 }
-                PartitionNames partitionNamesNode = (PartitionNames) parseNode;
-                partitionNamesNode.analyze(null);
-                partitionNames = partitionNamesNode.getPartitionNames();
+                partitionNames = (PartitionNames) parseNode;
+                partitionNames.analyze(null);
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
                 partitionNames);
     }
 
-    private void checkJobProperties() throws AnalysisException {
+    private void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
@@ -304,6 +347,30 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
                 MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+
+        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
+                                                      RoutineLoadJob.DEFAULT_STRICT_MODE,
+                                                      LoadStmt.STRICT_MODE + " should be a boolean");
+
+        if (ConnectContext.get() != null) {
+            timezone = ConnectContext.get().getSessionVariable().getTimeZone();
+        }
+        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
+
+        format = jobProperties.get(FORMAT);
+        if (format != null) {
+            if (format.equalsIgnoreCase("csv")) {
+                format = "";// if it's not json, then it's mean csv and set empty
+            } else if (format.equalsIgnoreCase("json")) {
+                format = "json";
+                jsonPaths = jobProperties.get(JSONPATHS);
+                stripOuterArray = Boolean.valueOf(jobProperties.get(STRIP_OUTER_ARRAY));
+            } else {
+                throw new UserException("Format type is invalid. format=`" + format + "`");
+            }
+        } else {
+            format = "csv"; // default csv
+        }
     }
 
     private void checkDataSourceProperties() throws AnalysisException {
@@ -401,7 +468,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
-
         // check custom kafka property
         for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
             if (dataSourceProperty.getKey().startsWith("property.")) {

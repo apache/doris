@@ -99,6 +99,10 @@ enum THdfsCompression {
   SNAPPY_BLOCKED // Used by sequence and rc files but not stored in the metadata.
 }
 
+enum TIndexType {
+  BITMAP
+}
+
 // Mapping from names defined by Avro to the enum.
 // We permit gzip and bzip2 in addition.
 const map<string, THdfsCompression> COMPRESSION_MAP = {
@@ -118,6 +122,7 @@ struct TOlapTableIndexTablets {
 // its a closed-open range
 struct TOlapTablePartition {
     1: required i64 id
+    // deprecated, use 'start_keys' and 'end_keys' instead
     2: optional Exprs.TExprNode start_key
     3: optional Exprs.TExprNode end_key
 
@@ -125,6 +130,9 @@ struct TOlapTablePartition {
     4: required i32 num_buckets
 
     5: required list<TOlapTableIndexTablets> indexes
+
+    6: optional list<Exprs.TExprNode> start_keys
+    7: optional list<Exprs.TExprNode> end_keys
 }
 
 struct TOlapTablePartitionParam {
@@ -133,6 +141,7 @@ struct TOlapTablePartitionParam {
     3: required i64 version
 
     // used to split a logical table to multiple paritions
+    // deprecated, use 'partition_columns' instead
     4: optional string partition_column
 
     // used to split a partition to multiple tablets
@@ -140,6 +149,8 @@ struct TOlapTablePartitionParam {
 
     // partitions
     6: required list<TOlapTablePartition> partitions
+
+    7: optional list<string> partition_columns
 }
 
 struct TOlapTableIndexSchema {
@@ -157,6 +168,13 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
+}
+
+struct TOlapTableIndex {
+  1: optional string index_name
+  2: optional list<string> columns
+  3: optional TIndexType index_type
+  4: optional string comment
 }
 
 struct TTabletLocation {
@@ -197,45 +215,6 @@ struct TMySQLTable {
   6: required string table
 }
 
-// Parameters needed for hash partitioning
-struct TKuduPartitionByHashParam {
-  1: required list<string> columns
-  2: required i32 num_partitions
-}
-
-struct TKuduRangePartition {
-  1: optional list<Exprs.TExpr> lower_bound_values
-  2: optional bool is_lower_bound_inclusive
-  3: optional list<Exprs.TExpr> upper_bound_values
-  4: optional bool is_upper_bound_inclusive
-}
-
-// A range partitioning is identified by a list of columns and a list of range partitions.
-struct TKuduPartitionByRangeParam {
-  1: required list<string> columns
-  2: optional list<TKuduRangePartition> range_partitions
-}
-
-// Parameters for the PARTITION BY clause.
-struct TKuduPartitionParam {
-  1: optional TKuduPartitionByHashParam by_hash_param;
-  2: optional TKuduPartitionByRangeParam by_range_param;
-}
-
-// Represents a Kudu table
-struct TKuduTable {
-  1: required string table_name
-
-  // Network address of a master host in the form of 0.0.0.0:port
-  2: required list<string> master_addresses
-
-  // Name of the key columns
-  3: required list<string> key_columns
-
-  // Partitioning
-  4: required list<TKuduPartitionParam> partition_by
-}
-
 struct TEsTable {
 }
 
@@ -261,7 +240,6 @@ struct TTableDescriptor {
   10: optional TMySQLTable mysqlTable
   11: optional TOlapTable olapTable
   12: optional TSchemaTable schemaTable
-  13: optional TKuduTable kuduTable
   14: optional TBrokerTable BrokerTable
   15: optional TEsTable esTable
 }

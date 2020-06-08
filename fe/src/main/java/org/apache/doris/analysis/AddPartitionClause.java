@@ -17,28 +17,19 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 
-import com.google.common.collect.Maps;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
 // clause which is used to add partition
-public class AddPartitionClause extends AlterClause {
+public class AddPartitionClause extends AlterTableClause {
 
     private SingleRangePartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
     private Map<String, String> properties;
-
-    public AddPartitionClause() {
-        // for persist
-        partitionDesc = new SingleRangePartitionDesc();
-        properties = Maps.newHashMap();
-    }
+    // true if this is to add a temporary partition
+    private boolean isTempPartition;
 
     public SingleRangePartitionDesc getSingeRangePartitionDesc() {
         return partitionDesc;
@@ -48,17 +39,25 @@ public class AddPartitionClause extends AlterClause {
         return distributionDesc;
     }
 
+    public boolean isTempPartition() {
+        return isTempPartition;
+    }
+
     public AddPartitionClause(SingleRangePartitionDesc partitionDesc,
                               DistributionDesc distributionDesc,
-                              Map<String, String> properties) {
+                              Map<String, String> properties,
+                              boolean isTempPartition) {
+        super(AlterOpType.ADD_PARTITION);
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        this.isTempPartition = isTempPartition;
+
+        this.needTableStable = false;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-
     }
 
     @Override
@@ -80,49 +79,5 @@ public class AddPartitionClause extends AlterClause {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String className = AddPartitionClause.class.getCanonicalName();
-        Text.writeString(out, className);
-
-        partitionDesc.write(out);
-        if (distributionDesc == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            distributionDesc.write(out);
-        }
-
-        if (properties == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            int count = properties.size();
-            out.writeInt(count);
-            for (Map.Entry<String, String> prop : properties.entrySet()) {
-                Text.writeString(out, prop.getKey());
-                Text.writeString(out, prop.getValue());
-            }
-        }
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        partitionDesc.readFields(in);
-        boolean has = in.readBoolean();
-        if (has) {
-            distributionDesc = DistributionDesc.read(in);
-        }
-        
-        if (in.readBoolean()) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                properties.put(key, value);
-            }
-        }
     }
 }

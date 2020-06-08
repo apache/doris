@@ -17,15 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
+
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * &&, ||, ! predicates.
@@ -93,7 +97,7 @@ public class CompoundPredicate extends Predicate {
 
         // Check that children are predicates.
         for (Expr e : children) {
-            if (e.getType() != Type.BOOLEAN && !e.getType().isNull()) {
+            if (!e.getType().equals(Type.BOOLEAN) && !e.getType().isNull()) {
                 throw new AnalysisException(String.format(
                   "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but " +
                     "returns type '%s'.",
@@ -218,5 +222,10 @@ public class CompoundPredicate extends Predicate {
             }
         }
         return new BoolLiteral(compoundResult);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }

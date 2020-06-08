@@ -70,6 +70,7 @@ public class BaseTableRef extends TableRef {
         isAnalyzed = true;  // true that we have assigned desc
         analyzeJoin(analyzer);
         analyzeSortHints();
+        analyzeHints();
     }
 }
 

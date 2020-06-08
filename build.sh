@@ -148,19 +148,22 @@ cd ${DORIS_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
 fi
+# DO NOT using parallel make(-j) for gensrc
 make
 cd ${DORIS_HOME}
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
-    echo "Build Backend"
+    CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
+    echo "Build Backend: ${CMAKE_BUILD_TYPE}"
+    CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
-        rm ${DORIS_HOME}/be/build/ -rf
-        rm ${DORIS_HOME}/be/output/ -rf
+        rm -rf $CMAKE_BUILD_DIR
+        rm -rf ${DORIS_HOME}/be/output/
     fi
-    mkdir -p ${DORIS_HOME}/be/build/
-    cd ${DORIS_HOME}/be/build/
-    cmake -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
+    mkdir -p ${CMAKE_BUILD_DIR}
+    cd ${CMAKE_BUILD_DIR}
+    ${CMAKE_CMD} -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
     make -j${PARALLEL}
     make install
     cd ${DORIS_HOME}
@@ -169,7 +172,7 @@ fi
 # Build docs, should be built before Frontend
 echo "Build docs"
 cd ${DORIS_HOME}/docs
-make clean && make
+./build_help_zip.sh
 cd ${DORIS_HOME}
 
 # Clean and build Frontend
@@ -177,9 +180,9 @@ if [ ${BUILD_FE} -eq 1 ] ; then
     echo "Build Frontend"
     cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
-        ${MVN} clean
+        ${MVN_CMD} clean
     fi
-    ${MVN} package -DskipTests
+    ${MVN_CMD} package -DskipTests
     cd ${DORIS_HOME}
 fi
 
@@ -194,6 +197,7 @@ if [ ${BUILD_FE} -eq 1 ]; then
 
     cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
     cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
+    rm -rf ${DORIS_OUTPUT}/fe/lib/*
     cp -r -p ${DORIS_HOME}/fe/target/lib/* ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/fe/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/

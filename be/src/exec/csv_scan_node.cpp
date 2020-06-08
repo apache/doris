@@ -20,10 +20,6 @@
 #include <string>
 #include <vector>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
-#include <boost/foreach.hpp>
-
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exec/text_converter.hpp"
@@ -61,7 +57,6 @@ public:
     }
 
     char const* c_str() const {
-
         return _begin;
     }
     char const* begin() const {
@@ -345,10 +340,6 @@ Status CsvScanNode::close(RuntimeState* state) {
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (memory_used_counter() != nullptr &&  _tuple_pool.get() != nullptr) {
-        COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
-    }
-
     RETURN_IF_ERROR(ExecNode::close(state));
 
     if (state->num_rows_load_success() == 0) {
@@ -559,7 +550,6 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
     std::vector<StringRef> fields;
     {
         SCOPED_TIMER(_split_line_timer);
-        // boost::split(fields, line, boost::is_any_of(_column_separator));
         split_line(line, _column_separator[0], fields);
     }
 
@@ -672,14 +662,14 @@ void CsvScanNode::hll_hash(const char* src, int len, std::string* result) {
     std::string str(src, len);
     if (str != "\\N") {
         uint64_t hash = HashUtil::murmur_hash64A(src, len, HashUtil::MURMUR_SEED);
-        char buf[HllHashFunctions::HLL_INIT_EXPLICT_SET_SIZE];
+        char buf[10];
         // expliclit set
         buf[0] = HLL_DATA_EXPLICIT;
         buf[1] = 1;
         *((uint64_t*)(buf + 2)) = hash;
         *result = std::string(buf, sizeof(buf));
     } else {
-        char buf[HllHashFunctions::HLL_EMPTY_SET_SIZE];
+        char buf[1];
         // empty set
         buf[0] = HLL_DATA_EMPTY;
         *result = std::string(buf, sizeof(buf));

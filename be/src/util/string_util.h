@@ -60,7 +60,7 @@ public:
     }
 };
 
-std::size_t hash_of_path(const std::string& identifier, const std::string& path);
+size_t hash_of_path(const std::string& identifier, const std::string& path);
 
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;

@@ -17,7 +17,9 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
@@ -85,7 +87,7 @@ public class RoleManager implements Writable {
         PrivBitSet existingPriv = map.get(tblPattern);
         if (existingPriv == null) {
             if (errOnNonExist) {
-                throw new DdlException(tblPattern + " does not eixst in role " + role);
+                throw new DdlException(tblPattern + " does not exist in role " + role);
             }
             return null;
         }
@@ -94,9 +96,32 @@ public class RoleManager implements Writable {
         return existingRole;
     }
 
-    public void dropUser(String qualifiedUser) {
+    public PaloRole revokePrivs(String role, ResourcePattern resourcePattern, PrivBitSet privs, boolean errOnNonExist)
+            throws DdlException {
+        PaloRole existingRole = roles.get(role);
+        if (existingRole == null) {
+            if (errOnNonExist) {
+                throw new DdlException("Role " + role + " does not exist");
+            }
+            return null;
+        }
+
+        Map<ResourcePattern, PrivBitSet> map = existingRole.getResourcePatternToPrivs();
+        PrivBitSet existingPriv = map.get(resourcePattern);
+        if (existingPriv == null) {
+            if (errOnNonExist) {
+                throw new DdlException(resourcePattern + " does not exist in role " + role);
+            }
+            return null;
+        }
+
+        existingPriv.remove(privs);
+        return existingRole;
+    }
+
+    public void dropUser(UserIdentity userIdentity) {
         for (PaloRole role : roles.values()) {
-            role.dropUser(qualifiedUser);
+            role.dropUser(userIdentity);
         }
     }
 
@@ -147,6 +172,19 @@ public class RoleManager implements Writable {
                 info.add(Joiner.on("; ").join(tmp));
             }
 
+            // resource
+            tmp.clear();
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
+                if (entry.getKey().getPrivLevel() == PrivLevel.RESOURCE) {
+                    tmp.add(entry.getKey().toString() + ": " + entry.getValue().toString());
+                }
+            }
+            if (tmp.isEmpty()) {
+                info.add("N/A");
+            } else {
+                info.add(Joiner.on("; ").join(tmp));
+            }
+
             results.add(info);
         }
     }
@@ -169,7 +207,6 @@ public class RoleManager implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

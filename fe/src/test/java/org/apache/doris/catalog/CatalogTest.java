@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.SchemaChangeJob;
@@ -30,10 +31,6 @@ import org.apache.doris.meta.MetaContext;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -49,14 +46,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class CatalogTest {
 
     @Before
     public void setUp() {
-
+        MetaContext metaContext = new MetaContext();
+        new Expectations(metaContext) {
+            {
+                MetaContext.get();
+                minTimes = 0;
+                result = metaContext;
+            }
+        };
     }
 
     public void mkdir(String dirString) {
@@ -133,7 +134,7 @@ public class CatalogTest {
         File file = new File(dir, "image");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
@@ -145,7 +146,7 @@ public class CatalogTest {
         dos.close();
         
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        catalog = Catalog.getInstance();
+        catalog = Catalog.getCurrentCatalog();
         long checksum2 = catalog.loadHeader(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
         dis.close();
@@ -161,7 +162,7 @@ public class CatalogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
@@ -174,7 +175,7 @@ public class CatalogTest {
         catalog = null;
         dos.close();
         
-        catalog = Catalog.getInstance();
+        catalog = Catalog.getCurrentCatalog();
 
         Field field2 = catalog.getClass().getDeclaredField("load");
         field2.setAccessible(true);
@@ -196,7 +197,7 @@ public class CatalogTest {
         File file = new File(dir, "image");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
@@ -224,7 +225,7 @@ public class CatalogTest {
         dos.close();
         
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        catalog = Catalog.getInstance();
+        catalog = Catalog.getCurrentCatalog();
         long checksum2 = catalog.loadAlterJob(dis, 0, JobType.SCHEMA_CHANGE);
         Assert.assertEquals(checksum1, checksum2);
         Map<Long, AlterJob> map = catalog.getSchemaChangeHandler().unprotectedGetAlterJobs();

@@ -17,7 +17,8 @@
 
 package org.apache.doris.mysql;
 
-// MySQL server status flag, doesn't used now.
+// MySQL server status flag.
+// Only SERVER_MORE_RESULTS_EXISTS is used now.
 public class MysqlServerStatusFlag {
     public static final int SERVER_STATUS_IN_TRANS = 0x0001;
     public static final int SERVER_STATUS_AUTOCOMMIT = 0x0002;

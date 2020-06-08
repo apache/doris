@@ -111,9 +111,14 @@ public:
     // if batch is nullptr, send the eof packet
     Status send_batch(PRowBatch* batch, bool eos = false);
 
-    // Flush buffered rows and close channel.
-    // Returns error status if any of the preceding rpcs failed, OK otherwise.
+    // Flush buffered rows and close channel. This function don't wait the response
+    // of close operation, client should call close_wait() to finish channel's close.
+    // We split one close operation into two phases in order to make multiple channels
+    // can run parallel.
     void close(RuntimeState* state);
+
+    // Get close wait's response, to finish channel close operation.
+    void close_wait(RuntimeState* state);
 
     int64_t num_data_bytes_sent() const {
         return _num_data_bytes_sent;
@@ -283,13 +288,19 @@ Status DataStreamSender::Channel::close_internal() {
     } else {
         RETURN_IF_ERROR(send_batch(nullptr, true));
     }
-    RETURN_IF_ERROR(_wait_last_brpc());
-    _need_close = false;
+    // Don't wait for the last packet to finish, left it to close_wait.
     return Status::OK();
 }
 
 void DataStreamSender::Channel::close(RuntimeState* state) {
     state->log_error(close_internal().get_error_msg());
+}
+
+void DataStreamSender::Channel::close_wait(RuntimeState* state) {
+    if (_need_close) {
+        state->log_error(_wait_last_brpc().get_error_msg());
+        _need_close = false;
+    }
     _batch.reset();
 }
 
@@ -308,7 +319,6 @@ DataStreamSender::DataStreamSender(
         _current_pb_batch(&_pb_batch1),
         _profile(NULL),
         _serialize_batch_timer(NULL),
-        _thrift_transmit_timer(NULL),
         _bytes_sent_counter(NULL),
         _dest_node_id(sink.dest_node_id) {
     DCHECK_GT(destinations.size(), 0);
@@ -374,7 +384,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _profile = _pool->add(new RuntimeProfile(_pool, title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker.reset(
-            new MemTracker(-1, "DataStreamSender", state->instance_mem_tracker()));
+            new MemTracker(_profile, -1, "DataStreamSender", state->instance_mem_tracker()));
 
     if (_part_type == TPartitionType::UNPARTITIONED 
             || _part_type == TPartitionType::RANDOM) {
@@ -400,11 +410,6 @@ Status DataStreamSender::prepare(RuntimeState* state) {
         ADD_COUNTER(profile(), "IgnoreRows", TUnit::UNIT);
     _serialize_batch_timer =
         ADD_TIMER(profile(), "SerializeBatchTime");
-    _thrift_transmit_timer = ADD_TIMER(profile(), "ThriftTransmitTime(*)");
-    _network_throughput =
-        profile()->add_derived_counter("NetworkThroughput(*)", TUnit::BYTES_PER_SECOND,
-                boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
-                _thrift_transmit_timer), "");
     _overall_throughput =
         profile()->add_derived_counter("OverallThroughput", TUnit::BYTES_PER_SECOND,
         boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -591,8 +596,13 @@ Status DataStreamSender::compute_range_part_code(
 
 Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     // TODO: only close channels that didn't have any errors
+    // make all channels close parallel
     for (int i = 0; i < _channels.size(); ++i) {
         _channels[i]->close(state);
+    }
+    // wait all channels to finish
+    for (int i = 0; i < _channels.size(); ++i) {
+        _channels[i]->close_wait(state);
     }
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->close(state));

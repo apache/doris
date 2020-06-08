@@ -29,23 +29,27 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
-import org.apache.doris.thrift.TFetchAllPullLoadTaskInfosResult;
 import org.apache.doris.thrift.TFetchDataParams;
 import org.apache.doris.thrift.TFetchDataResult;
-import org.apache.doris.thrift.TFetchPullLoadTaskInfoResult;
 import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPullLoadSubTaskInfo;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TRoutineLoadTask;
+import org.apache.doris.thrift.TScanBatchResult;
+import org.apache.doris.thrift.TScanCloseParams;
+import org.apache.doris.thrift.TScanCloseResult;
+import org.apache.doris.thrift.TScanNextBatchParams;
+import org.apache.doris.thrift.TScanOpenParams;
+import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.thrift.TException;
@@ -64,7 +68,11 @@ public class GenericPoolTest {
     static GenericPool<BackendService.Client> backendService;
     static ThriftServer service;
     static String ip = "127.0.0.1";
-    static int port = 39401;
+    static int port;
+
+    static {
+        port = UtFrameUtils.findValidPort();
+    }
 
     static void close() {
         if (service != null) {
@@ -89,6 +97,7 @@ public class GenericPoolTest {
                     new InternalProcessor());
             service = new ThriftServer(port, tprocessor);
             service.start();
+            Thread.sleep(5000);
         } catch (Exception e) {
             e.printStackTrace();
             close();
@@ -166,36 +175,6 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TStatus register_pull_load_task(TUniqueId id, int num_senders) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus deregister_pull_load_task(TUniqueId id) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus report_pull_load_sub_task_info(TPullLoadSubTaskInfo task_info) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TFetchPullLoadTaskInfoResult fetch_pull_load_task_info(TUniqueId id) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TFetchAllPullLoadTaskInfosResult fetch_all_pull_load_task_infos() throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
         public TStatus submit_export_task(TExportTaskRequest request) throws TException {
             // TODO Auto-generated method stub
             return null;
@@ -222,6 +201,21 @@ public class GenericPoolTest {
         @Override
         public TStatus submit_routine_load_task(List<TRoutineLoadTask> tasks) throws TException {
             // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TScanOpenResult open_scanner(TScanOpenParams params) throws TException {
+            return null;
+        }
+
+        @Override
+        public TScanBatchResult get_next(TScanNextBatchParams params) throws TException {
+            return null;
+        }
+
+        @Override
+        public TScanCloseResult close_scanner(TScanCloseParams params) throws TException {
             return null;
         }
     }

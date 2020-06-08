@@ -17,19 +17,12 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -41,9 +34,7 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -51,6 +42,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.Load;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerRangeDesc;
@@ -66,6 +58,12 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -75,10 +73,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.stream.Collectors;
 
 // Broker scan node
-public class BrokerScanNode extends ScanNode {
+public class BrokerScanNode extends LoadScanNode {
     private static final Logger LOG = LogManager.getLogger(BrokerScanNode.class);
     private static final TBrokerFileStatusComparator T_BROKER_FILE_STATUS_COMPARATOR
             = new TBrokerFileStatusComparator();
@@ -106,10 +103,12 @@ public class BrokerScanNode extends ScanNode {
     private long bytesPerInstance;
 
     // Parameters need to process
+    private long loadJobId = -1; // -1 means this scan node is not for a load job
+    private long txnId = -1;
     private Table targetTable;
     private BrokerDesc brokerDesc;
     private List<BrokerFileGroup> fileGroups;
-    private boolean strictMode;
+    private boolean strictMode = true;
 
     private List<List<TBrokerFileStatus>> fileStatusesList;
     // file num
@@ -121,21 +120,19 @@ public class BrokerScanNode extends ScanNode {
 
     private Analyzer analyzer;
 
-    private List<DataSplitSink.EtlRangePartitionInfo> partitionInfos;
-    private List<Expr> partitionExprs;
-
     private static class ParamCreateContext {
         public BrokerFileGroup fileGroup;
         public TBrokerScanRangeParams params;
         public TupleDescriptor tupleDescriptor;
         public Map<String, Expr> exprMap;
         public Map<String, SlotDescriptor> slotDescByName;
+        public String timezone;
     }
 
     private List<ParamCreateContext> paramCreateContexts;
 
     public BrokerScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, desc, planNodeName);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
@@ -165,11 +162,8 @@ public class BrokerScanNode extends ScanNode {
         for (BrokerFileGroup fileGroup : fileGroups) {
             ParamCreateContext context = new ParamCreateContext();
             context.fileGroup = fileGroup;
-            try {
-                initParams(context);
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
+            context.timezone = analyzer.getTimezone();
+            initParams(context);
             paramCreateContexts.add(context);
         }
     }
@@ -187,136 +181,23 @@ public class BrokerScanNode extends ScanNode {
         this.fileGroups = fileGroups;
     }
 
-    public void setLoadInfo(Table targetTable,
+    public void setLoadInfo(long loadJobId,
+                            long txnId,
+                            Table targetTable,
                             BrokerDesc brokerDesc,
                             List<BrokerFileGroup> fileGroups,
                             boolean strictMode) {
+        this.loadJobId = loadJobId;
+        this.txnId = txnId;
         this.targetTable = targetTable;
         this.brokerDesc = brokerDesc;
         this.fileGroups = fileGroups;
         this.strictMode = strictMode;
     }
 
-    private void createPartitionInfos() throws AnalysisException {
-        if (partitionInfos != null) {
-            return;
-        }
-
-        Map<String, Expr> exprByName = Maps.newHashMap();
-
-        for (SlotDescriptor slotDesc : desc.getSlots()) {
-            exprByName.put(slotDesc.getColumn().getName(), new SlotRef(slotDesc));
-        }
-
-        partitionExprs = Lists.newArrayList();
-        partitionInfos = DataSplitSink.EtlRangePartitionInfo.createParts(
-                (OlapTable) targetTable, exprByName, null, partitionExprs);
-    }
-
-    private void parseExprMap(Map<String, Expr> exprMap) throws UserException {
-        if (exprMap == null) {
-            return;
-        }
-        for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
-            String colName = entry.getKey();
-            Expr originExpr = entry.getValue();
-
-            Column column = targetTable.getColumn(colName);
-            if (column == null) {
-                throw new UserException("Unknown column(" + colName + ")");
-            }
-
-            // To compatible with older load version
-            if (originExpr instanceof FunctionCallExpr) {
-                FunctionCallExpr funcExpr = (FunctionCallExpr) originExpr;
-                String funcName = funcExpr.getFnName().getFunction();
-
-                if (funcName.equalsIgnoreCase("replace_value")) {
-                    List<Expr> exprs = Lists.newArrayList();
-                    SlotRef slotRef = new SlotRef(null, entry.getKey());
-                    // We will convert this to IF(`col` != child0, `col`, child1),
-                    // because we need the if return type equal to `col`, we use NE
-                    //
-                    exprs.add(new BinaryPredicate(BinaryPredicate.Operator.NE, slotRef, funcExpr.getChild(0)));
-                    exprs.add(slotRef);
-                    if (funcExpr.hasChild(1)) {
-                        exprs.add(funcExpr.getChild(1));
-                    } else {
-                        if (column.getDefaultValue() != null) {
-                            exprs.add(new StringLiteral(column.getDefaultValue()));
-                        } else {
-                            if (column.isAllowNull()) {
-                                exprs.add(NullLiteral.create(Type.VARCHAR));
-                            } else {
-                                throw new UserException("Column(" + colName + ") has no default value.");
-                            }
-                        }
-                    }
-                    FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
-                    entry.setValue(newFn);
-                } else if (funcName.equalsIgnoreCase("strftime")) {
-                    FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
-                    List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
-                    FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
-                            fromUnixName, new FunctionParams(false, fromUnixArgs));
-
-                    entry.setValue(fromUnixFunc);
-                } else if (funcName.equalsIgnoreCase("time_format")) {
-                    FunctionName strToDateName = new FunctionName("STR_TO_DATE");
-                    List<Expr> strToDateExprs = Lists.newArrayList(funcExpr.getChild(2), funcExpr.getChild(1));
-                    FunctionCallExpr strToDateFuncExpr = new FunctionCallExpr(
-                            strToDateName, new FunctionParams(false, strToDateExprs));
-
-                    FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
-                    List<Expr> dateFormatArgs = Lists.newArrayList(strToDateFuncExpr, funcExpr.getChild(0));
-                    FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
-                            dateFormatName, new FunctionParams(false, dateFormatArgs));
-
-                    entry.setValue(dateFormatFunc);
-                } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
-                    FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
-                    List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
-                    FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
-                            fromUnixName, new FunctionParams(false, fromUnixArgs));
-
-                    StringLiteral precision = (StringLiteral) funcExpr.getChild(0);
-                    StringLiteral format;
-                    if (precision.getStringValue().equalsIgnoreCase("year")) {
-                        format = new StringLiteral("%Y-01-01 00:00:00");
-                    } else if (precision.getStringValue().equalsIgnoreCase("month")) {
-                        format = new StringLiteral("%Y-%m-01 00:00:00");
-                    } else if (precision.getStringValue().equalsIgnoreCase("day")) {
-                        format = new StringLiteral("%Y-%m-%d 00:00:00");
-                    } else if (precision.getStringValue().equalsIgnoreCase("hour")) {
-                        format = new StringLiteral("%Y-%m-%d %H:00:00");
-                    } else {
-                        throw new UserException("Unknown precision(" + precision.getStringValue() + ")");
-                    }
-                    FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
-                    List<Expr> dateFormatArgs = Lists.newArrayList(fromUnixFunc, format);
-                    FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
-                            dateFormatName, new FunctionParams(false, dateFormatArgs));
-
-                    FunctionName unixTimeName = new FunctionName("UNIX_TIMESTAMP");
-                    List<Expr> unixTimeArgs = Lists.newArrayList();
-                    unixTimeArgs.add(dateFormatFunc);
-                    FunctionCallExpr unixTimeFunc = new FunctionCallExpr(
-                            unixTimeName, new FunctionParams(false, unixTimeArgs));
-
-                    entry.setValue(unixTimeFunc);
-                } else if (funcName.equalsIgnoreCase("default_value")) {
-                    entry.setValue(funcExpr.getChild(0));
-                } else if (funcName.equalsIgnoreCase("now")) {
-                    FunctionName nowFunctionName = new FunctionName("NOW");
-                    FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
-                    entry.setValue(newFunc);
-                }
-            }
-        }
-    }
-
     // Called from init, construct source tuple information
-    private void initParams(ParamCreateContext context) throws AnalysisException, UserException {
+    private void initParams(ParamCreateContext context)
+            throws UserException {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
         context.params = params;
 
@@ -324,84 +205,41 @@ public class BrokerScanNode extends ScanNode {
         params.setColumn_separator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
         params.setLine_delimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
         params.setStrict_mode(strictMode);
-
-        // Parse partition information
-        List<Long> partitionIds = fileGroup.getPartitionIds();
-        if (partitionIds != null && partitionIds.size() > 0) {
-            params.setPartition_ids(partitionIds);
-            createPartitionInfos();
-        }
-
         params.setProperties(brokerDesc.getProperties());
+        initColumns(context);
+        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
+    }
 
-        // We must create a new map here, because we will change this map later.
-        // But fileGroup will be persisted later, so we keep it unchanged.
-        if (fileGroup.getExprColumnMap() != null) {
-            context.exprMap = Maps.newHashMap(fileGroup.getExprColumnMap());
-        } else {
-            context.exprMap = null;
+    /**
+     * This method is used to calculate the slotDescByName and exprMap.
+     * The expr in exprMap is analyzed in this function.
+     * The smap of slot which belongs to expr will be analyzed by src desc.
+     * slotDescByName: the single slot from columns in load stmt
+     * exprMap: the expr from column mapping in load stmt.
+     * @param context
+     * @throws UserException
+     */
+    private void initColumns(ParamCreateContext context) throws UserException {
+        context.tupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
+        context.slotDescByName = Maps.newHashMap();
+        context.exprMap = Maps.newHashMap();
+
+        // for load job, column exprs is got from file group
+        // for query, there is no column exprs, they will be got from table's schema in "Load.initColumns"
+        List<ImportColumnDesc> columnExprs = Lists.newArrayList();
+        if (isLoad()) {
+            columnExprs = context.fileGroup.getColumnExprList();
         }
-        parseExprMap(context.exprMap);
 
-        // Generate expr
-        List<String> fileFieldNames = fileGroup.getFileFieldNames();
-        if (fileFieldNames == null) {
-            fileFieldNames = Lists.newArrayList();
-            for (Column column : targetTable.getBaseSchema()) {
-                fileFieldNames.add(column.getName());
-            }
-        } else {
-            // change fileFiledName to real column name(case match)
-            fileFieldNames = fileFieldNames.stream().map(
-                    f -> targetTable.getColumn(f) == null ? f : targetTable.getColumn(f).getName()).collect(
-                            Collectors.toList());
-        }
-
-        // This tuple descriptor is used for file of
-        TupleDescriptor srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
-        context.tupleDescriptor = srcTupleDesc;
-
-        Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
-        context.slotDescByName = slotDescByName;
-        for (String fieldName : fileFieldNames) {
-            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-            slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setIsNullable(false);
-            slotDesc.setColumn(new Column(fieldName, PrimitiveType.VARCHAR));
-            slotDescByName.put(fieldName, slotDesc);
-
-            params.addToSrc_slot_ids(slotDesc.getId().asInt());
-        }
-        params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
+        Load.initColumns(targetTable, columnExprs,
+                context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
+                context.tupleDescriptor, context.slotDescByName, context.params);
     }
 
     private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
         Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
-        // Analyze expr map
-        if (exprMap != null) {
-            for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
-                ExprSubstitutionMap smap = new ExprSubstitutionMap();
-
-                List<SlotRef> slots = Lists.newArrayList();
-                entry.getValue().collect(SlotRef.class, slots);
-
-                for (SlotRef slot : slots) {
-                    SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
-                    if (slotDesc == null) {
-                        throw new UserException("Unknown slot");
-                    }
-                    smap.getLhs().add(slot);
-                    smap.getRhs().add(new SlotRef(slotDesc));
-                }
-
-                Expr expr = entry.getValue().clone(smap);
-                expr.analyze(analyzer);
-                exprMap.put(entry.getKey(), expr);
-            }
-        }
 
         boolean isNegative = context.fileGroup.isNegative();
         for (SlotDescriptor destSlotDesc : desc.getSlots()) {
@@ -430,12 +268,29 @@ public class BrokerScanNode extends ScanNode {
                             expr = NullLiteral.create(column.getType());
                         } else {
                             throw new UserException("Unknown slot ref("
-                                                            + destSlotDesc.getColumn().getName() + ") in source file");
+                                    + destSlotDesc.getColumn().getName() + ") in source file");
                         }
                     }
                 }
             }
 
+            // check hll_hash
+            if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
+                if (!(expr instanceof FunctionCallExpr)) {
+                    throw new AnalysisException("HLL column must use hll_hash function, like "
+                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                }
+                FunctionCallExpr fn = (FunctionCallExpr) expr;
+                if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash") && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
+                    throw new AnalysisException("HLL column must use hll_hash function, like "
+                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx) or " + destSlotDesc.getColumn().getName() + "=hll_empty()");
+                }
+                expr.setType(Type.HLL);
+            }
+
+            checkBitmapCompatibility(analyzer, destSlotDesc, expr);
+
+            // analyze negative
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
                 expr.analyze(analyzer);
@@ -444,6 +299,7 @@ public class BrokerScanNode extends ScanNode {
             context.params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
         context.params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
+        context.params.setSrc_tuple_id(context.tupleDescriptor.getId().asInt());
         context.params.setDest_tuple_id(desc.getId().asInt());
         context.params.setStrict_mode(strictMode);
         // Need re compute memory layout after set some slot descriptor to nullable
@@ -452,32 +308,20 @@ public class BrokerScanNode extends ScanNode {
 
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params, String brokerName)
             throws UserException {
-        List<Backend> candidateBes = Lists.newArrayList();
-        // Get backend
-        int numBe = Math.min(3, backends.size());
-        for (int i = 0; i < numBe; ++i) {
-            candidateBes.add(backends.get(nextBe++));
-            nextBe = nextBe % backends.size();
-        }
-        // we shuffle it because if we only has 3 backends
-        // we will always choose the same backends without shuffle
-        Collections.shuffle(candidateBes);
+        Backend selectedBackend = backends.get(nextBe++);
+        nextBe = nextBe % backends.size();
 
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
         brokerScanRange.setParams(params);
-        // TODO(zc):
-        int numBroker = Math.min(3, numBe);
-        for (int i = 0; i < numBroker; ++i) {
-            FsBroker broker = null;
-            try {
-                broker = Catalog.getInstance().getBrokerMgr().getBroker(
-                        brokerName, candidateBes.get(i).getHost());
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
-            brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
+
+        FsBroker broker = null;
+        try {
+            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
         }
+        brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
 
         // Scan range
         TScanRange scanRange = new TScanRange();
@@ -486,12 +330,11 @@ public class BrokerScanNode extends ScanNode {
         // Locations
         TScanRangeLocations locations = new TScanRangeLocations();
         locations.setScan_range(scanRange);
-        for (Backend be : candidateBes) {
-            TScanRangeLocation location = new TScanRangeLocation();
-            location.setBackend_id(be.getId());
-            location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
-            locations.addToLocations(location);
-        }
+
+        TScanRangeLocation location = new TScanRangeLocation();
+        location.setBackend_id(selectedBackend.getId());
+        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+        locations.addToLocations(location);
 
         return locations;
     }
@@ -550,22 +393,29 @@ public class BrokerScanNode extends ScanNode {
     private void assignBackends() throws UserException {
         backends = Lists.newArrayList();
         for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
+            if (be.isAvailable()) {
                 backends.add(be);
             }
         }
         if (backends.isEmpty()) {
-            throw new UserException("No Alive backends");
+            throw new UserException("No available backends");
         }
         Collections.shuffle(backends, random);
     }
 
     private TFileFormatType formatType(String fileFormat, String path) {
-        if (fileFormat != null && fileFormat.toLowerCase().equals("parquet")) {
-            return TFileFormatType.FORMAT_PARQUET;
+        if (fileFormat != null) {
+            if (fileFormat.toLowerCase().equals("parquet")) {
+                return TFileFormatType.FORMAT_PARQUET;
+            } else if (fileFormat.toLowerCase().equals("orc")) {
+                return TFileFormatType.FORMAT_ORC;
+            }
         }
+
         String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.endsWith(".gz")) {
+        if (lowerCasePath.endsWith(".parquet") || lowerCasePath.endsWith(".parq")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerCasePath.endsWith(".gz")) {
             return TFileFormatType.FORMAT_CSV_GZ;
         } else if (lowerCasePath.endsWith(".bz2")) {
             return TFileFormatType.FORMAT_CSV_BZ2;
@@ -573,6 +423,8 @@ public class BrokerScanNode extends ScanNode {
             return TFileFormatType.FORMAT_CSV_LZ4FRAME;
         } else if (lowerCasePath.endsWith(".lzo")) {
             return TFileFormatType.FORMAT_CSV_LZOP;
+        } else if (lowerCasePath.endsWith(".deflate")) {
+            return TFileFormatType.FORMAT_CSV_DEFLATE;
         } else {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         }
@@ -580,66 +432,49 @@ public class BrokerScanNode extends ScanNode {
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
-            String fileFormat,
-            TBrokerScanRangeParams params,
+            ParamCreateContext context,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         if (fileStatuses == null || fileStatuses.isEmpty()) {
             return;
         }
 
-        TScanRangeLocations curLocations = newLocations(params, brokerDesc.getName());
+        TScanRangeLocations curLocations = newLocations(context.params, brokerDesc.getName());
         long curInstanceBytes = 0;
         long curFileOffset = 0;
         for (int i = 0; i < fileStatuses.size(); ) {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
-            TFileFormatType formatType = formatType(fileFormat, fileStatus.path);
+            TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+            List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
+                    context.fileGroup.getColumnsFromPath());
+            int numberOfColumnsFromFile = context.slotDescByName.size() - columnsFromPath.size();
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
-
-                    TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                    rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                    rangeDesc.setFormat_type(formatType);
-                    rangeDesc.setPath(fileStatus.path);
-                    rangeDesc.setSplittable(fileStatus.isSplitable);
-                    rangeDesc.setStart_offset(curFileOffset);
-                    rangeDesc.setSize(rangeBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
+                            rangeBytes, columnsFromPath, numberOfColumnsFromFile);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                     curFileOffset += rangeBytes;
                 } else {
-                    TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                    rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                    rangeDesc.setFormat_type(formatType);
-                    rangeDesc.setPath(fileStatus.path);
-                    rangeDesc.setSplittable(fileStatus.isSplitable);
-                    rangeDesc.setStart_offset(curFileOffset);
-                    rangeDesc.setSize(leftBytes);
+                    TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
+                            leftBytes, columnsFromPath, numberOfColumnsFromFile);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                     curFileOffset = 0;
                     i++;
                 }
 
                 // New one scan
                 locationsList.add(curLocations);
-                curLocations = newLocations(params, brokerDesc.getName());
+                curLocations = newLocations(context.params, brokerDesc.getName());
                 curInstanceBytes = 0;
 
             } else {
-                TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-                rangeDesc.setFile_type(TFileType.FILE_BROKER);
-                rangeDesc.setFormat_type(formatType);
-                rangeDesc.setPath(fileStatus.path);
-                rangeDesc.setSplittable(fileStatus.isSplitable);
-                rangeDesc.setStart_offset(curFileOffset);
-                rangeDesc.setSize(leftBytes);
+                TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
+                        leftBytes, columnsFromPath, numberOfColumnsFromFile);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
-
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
                 i++;
@@ -650,6 +485,22 @@ public class BrokerScanNode extends ScanNode {
         if (brokerScanRange(curLocations).isSetRanges()) {
             locationsList.add(curLocations);
         }
+    }
+
+    private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
+                                                   TFileFormatType formatType, long rangeBytes,
+                                                   List<String> columnsFromPath, int numberOfColumnsFromFile) {
+        TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
+        rangeDesc.setFile_type(TFileType.FILE_BROKER);
+        rangeDesc.setFormat_type(formatType);
+        rangeDesc.setPath(fileStatus.path);
+        rangeDesc.setSplittable(fileStatus.isSplitable);
+        rangeDesc.setStart_offset(curFileOffset);
+        rangeDesc.setSize(rangeBytes);
+        rangeDesc.setFile_size(fileStatus.size);
+        rangeDesc.setNum_of_columns_from_file(numberOfColumnsFromFile);
+        rangeDesc.setColumns_from_path(columnsFromPath);
+        return rangeDesc;
     }
 
     @Override
@@ -667,12 +518,18 @@ public class BrokerScanNode extends ScanNode {
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            processFileGroup(context.fileGroup.getFileFormat(), context.params, fileStatuses);
+            processFileGroup(context, fileStatuses);
         }
         if (LOG.isDebugEnabled()) {
             for (TScanRangeLocations locations : locationsList) {
                 LOG.debug("Scan range is {}", locations);
             }
+        }
+
+        if (loadJobId != -1) {
+            LOG.info("broker load job {} with txn {} has {} scan range: {}",
+                    loadJobId, txnId, locationsList.size(),
+                    locationsList.stream().map(loc -> loc.locations.get(0).backend_id).toArray());
         }
     }
 
@@ -680,10 +537,6 @@ public class BrokerScanNode extends ScanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.BROKER_SCAN_NODE;
         TBrokerScanNode brokerScanNode = new TBrokerScanNode(desc.getId().asInt());
-        if (partitionInfos != null) {
-            brokerScanNode.setPartition_exprs(Expr.treesToThrift(partitionExprs));
-            brokerScanNode.setPartition_infos(DataSplitSink.EtlRangePartitionInfo.listToNonDistThrift(partitionInfos));
-        }
         msg.setBroker_scan_node(brokerScanNode);
     }
 
@@ -711,4 +564,7 @@ public class BrokerScanNode extends ScanNode {
         }
         return output.toString();
     }
+
 }
+
+

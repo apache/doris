@@ -32,6 +32,7 @@
 #include "olap/push_handler.h"
 #include "olap/utils.h"
 #include "olap/options.h"
+#include "util/file_utils.h"
 #include "util/logging.h"
 
 using namespace std;
@@ -48,23 +49,28 @@ void set_up() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
-    create_dir(config::storage_root_path);
+    FileUtils::remove_all(config::storage_root_path);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
+    config::min_file_descriptor_number = 1000;
+    config::tablet_map_shard_size = 1;
+    config::txn_map_shard_size = 1;
+    config::txn_shard_size = 1;
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::StorageEngine::open(options, &k_engine);
+    Status s = doris::StorageEngine::open(options, &k_engine);
+    ASSERT_TRUE(s.ok()) << s.to_string();
 }
 
 void tear_down() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(config::storage_root_path);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -148,6 +154,87 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_schema.columns.push_back(v);
 }
 
+void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
+    request->tablet_id = 10009;
+    request->__set_version(1);
+    request->__set_version_hash(0);
+    request->tablet_schema.schema_hash = 270068376;
+    request->tablet_schema.short_key_column_count = 2;
+    request->tablet_schema.keys_type = TKeysType::DUP_KEYS;
+    request->tablet_schema.storage_type = TStorageType::COLUMN;
+
+    TColumn k1;
+    k1.column_name = "k1";
+    k1.__set_is_key(true);
+    k1.column_type.type = TPrimitiveType::TINYINT;
+    request->tablet_schema.columns.push_back(k1);
+
+    TColumn k2;
+    k2.column_name = "k2";
+    k2.__set_is_key(true);
+    k2.column_type.type = TPrimitiveType::SMALLINT;
+    request->tablet_schema.columns.push_back(k2);
+
+    TColumn k3;
+    k3.column_name = "k3";
+    k3.__set_is_key(true);
+    k3.column_type.type = TPrimitiveType::INT;
+    request->tablet_schema.columns.push_back(k3);
+
+    TColumn k4;
+    k4.column_name = "k4";
+    k4.__set_is_key(true);
+    k4.column_type.type = TPrimitiveType::BIGINT;
+    request->tablet_schema.columns.push_back(k4);
+
+    TColumn k5;
+    k5.column_name = "k5";
+    k5.__set_is_key(true);
+    k5.column_type.type = TPrimitiveType::LARGEINT;
+    request->tablet_schema.columns.push_back(k5);
+
+    TColumn k9;
+    k9.column_name = "k9";
+    k9.__set_is_key(true);
+    k9.column_type.type = TPrimitiveType::DECIMAL;
+    k9.column_type.__set_precision(6);
+    k9.column_type.__set_scale(3);
+    request->tablet_schema.columns.push_back(k9);
+
+    TColumn k10;
+    k10.column_name = "k10";
+    k10.__set_is_key(true);
+    k10.column_type.type = TPrimitiveType::DATE;
+    request->tablet_schema.columns.push_back(k10);
+
+    TColumn k11;
+    k11.column_name = "k11";
+    k11.__set_is_key(true);
+    k11.column_type.type = TPrimitiveType::DATETIME;
+    request->tablet_schema.columns.push_back(k11);
+
+    TColumn k12;
+    k12.column_name = "k12";
+    k12.__set_is_key(true);
+    k12.column_type.__set_len(64);
+    k12.column_type.type = TPrimitiveType::CHAR;
+    request->tablet_schema.columns.push_back(k12);
+
+    TColumn k13;
+    k13.column_name = "k13";
+    k13.__set_is_key(true);
+    k13.column_type.__set_len(64);
+    k13.column_type.type = TPrimitiveType::VARCHAR;
+    request->tablet_schema.columns.push_back(k13);
+
+    TColumn v;
+    v.column_name = "v";
+    v.__set_is_key(false);
+    v.column_type.type = TPrimitiveType::BIGINT;
+    request->tablet_schema.columns.push_back(v);
+}
+
+
 void set_default_push_request(TPushReq* request) {
     request->tablet_id = 10003;
     request->schema_hash = 270068375;
@@ -162,8 +249,8 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -175,22 +262,31 @@ protected:
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
+
+        set_create_duplicate_tablet_request(&_create_dup_tablet);
+        res = k_engine->create_tablet(_create_dup_tablet);
+        ASSERT_EQ(OLAP_SUCCESS, res);
+        dup_tablet = k_engine->tablet_manager()->get_tablet(
+                _create_dup_tablet.tablet_id, _create_dup_tablet.tablet_schema.schema_hash);
+        ASSERT_TRUE(dup_tablet.get() != NULL);
+        _dup_tablet_path = tablet->tablet_path();
     }
 
     void TearDown() {
         // Remove all dir.
         tablet.reset();
+        dup_tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
+    std::string _dup_tablet_path;
     TabletSharedPtr tablet;
+    TabletSharedPtr dup_tablet;
     TCreateTabletReq _create_tablet;
+    TCreateTabletReq _create_dup_tablet;
     DeleteConditionHandler _delete_condition_handler;
 };
 
@@ -261,6 +357,17 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
 
     failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);;
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, failed_res);
+
+    // value column in duplicate model can be deleted;
+    conditions.clear();
+    condition.column_name = "v";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("5");
+    conditions.push_back(condition);
+
+    OLAPStatus success_res = _delete_condition_handler.generate_delete_predicate(dup_tablet->tablet_schema(), conditions, &del_pred);;
+    ASSERT_EQ(OLAP_SUCCESS, success_res);
 }
 
 // 测试删除条件值不符合类型要求
@@ -271,8 +378,8 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -291,10 +398,7 @@ protected:
         tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -608,8 +712,8 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -632,10 +736,7 @@ protected:
         _delete_handler.finalize();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -674,8 +775,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 1);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred, 1);
 
     conditions.clear();
     condition.column_name = "k1";
@@ -687,8 +787,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred_2;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_2, 2);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred_2, 2);
 
     conditions.clear();
     condition.column_name = "k2";
@@ -700,8 +799,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred_3;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_3, 3);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred_3, 3);
 
     conditions.clear();
     condition.column_name = "k2";
@@ -713,8 +811,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred_4;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_4);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_4, 4);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred_4, 4);
 
     // 从header文件中取出版本号小于等于7的过滤条件
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
@@ -756,7 +853,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 1);
+    tablet->add_delete_predicate(del_pred, 1);
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
@@ -817,7 +914,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 1);
+    tablet->add_delete_predicate(del_pred, 1);
 
     // 过滤条件2
     conditions.clear();
@@ -830,7 +927,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     DeletePredicatePB del_pred_2;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_2, 2);
+    tablet->add_delete_predicate(del_pred_2, 2);
 
     // 过滤条件3
     conditions.clear();
@@ -843,7 +940,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     DeletePredicatePB del_pred_3;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_3, 3);
+    tablet->add_delete_predicate(del_pred_3, 3);
 
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
@@ -895,7 +992,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 3);
+    tablet->add_delete_predicate(del_pred, 3);
 
     // 过滤条件2
     conditions.clear();
@@ -908,7 +1005,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     DeletePredicatePB del_pred_2;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_2, 4);
+    tablet->add_delete_predicate(del_pred_2, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);

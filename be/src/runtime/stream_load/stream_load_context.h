@@ -81,6 +81,7 @@ class MessageBodySink;
 class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) :
+        id(UniqueId::gen_uid()),
         _exec_env(exec_env),
         _refs(0) {
         start_nanos = MonotonicNanos();
@@ -93,11 +94,6 @@ public:
         }
 
         _exec_env->load_stream_mgr()->remove(id);
-
-        if (kafka_info != nullptr) {
-            delete kafka_info;
-            kafka_info = nullptr;
-        }
     }
 
     std::string to_json() const;
@@ -141,6 +137,11 @@ public:
     int64_t max_batch_rows = 100000;
     int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
 
+    // for parse json-data
+    std::string data_format = "";
+    std::string jsonpath_file = "";
+    std::string jsonpath = "";
+
     // only used to check if we receive whole body
     size_t body_bytes = 0;
     size_t receive_bytes = 0;
@@ -170,10 +171,20 @@ public:
     int64_t number_unselected_rows = 0;
     int64_t loaded_bytes = 0;
     int64_t start_nanos = 0;
+    int64_t start_write_data_nanos = 0;
     int64_t load_cost_nanos = 0;
-    std::string error_url = "";
+    int64_t begin_txn_cost_nanos = 0;
+    int64_t stream_load_put_cost_nanos = 0;
+    int64_t commit_and_publish_txn_cost_nanos = 0;
+    int64_t read_data_cost_nanos = 0;
+    int64_t write_data_cost_nanos = 0;
 
-    KafkaLoadInfo* kafka_info = nullptr;
+    std::string error_url = "";
+    // if label already be used, set existing job's status here
+    // should be RUNNING or FINISHED
+    std::string existing_job_status = "";
+
+    std::unique_ptr<KafkaLoadInfo> kafka_info;
 
     // consumer_id is used for data consumer cache key.
     // to identified a specified data consumer.

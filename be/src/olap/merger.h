@@ -24,33 +24,23 @@
 
 namespace doris {
 
-class SegmentGroup;
-class ColumnData;
-
 class Merger {
 public:
-    // parameter index is created by caller, and it is empty.
-    Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType type);
+    struct Statistics {
+        // number of rows written to the destination rowset after merge
+        int64_t output_rows = 0;
+        int64_t merged_rows = 0;
+        int64_t filtered_rows = 0;
+    };
 
-    virtual ~Merger() {};
-
-    // @brief read from multiple OLAPData and SegmentGroup, then write into single OLAPData and SegmentGroup
-    // @return  OLAPStatus: OLAP_SUCCESS or FAIL
-    // @note it will take long time to finish.
-    OLAPStatus merge(const std::vector<RowsetReaderSharedPtr>& rs_readers, 
-                     uint64_t* merged_rows, uint64_t* filted_rows);
-
-    // 获取在做merge过程中累积的行数
-    uint64_t row_count() {
-        return _row_count;
-    }
-private:
-    TabletSharedPtr _tablet;
-    RowsetWriterSharedPtr _rs_writer;
-    ReaderType _reader_type;
-    uint64_t _row_count;
-
-    DISALLOW_COPY_AND_ASSIGN(Merger);
+    // merge rows from `src_rowset_readers` and write into `dst_rowset_writer`.
+    // return OLAP_SUCCESS and set statistics into `*stats_output`.
+    // return others on error
+    static OLAPStatus merge_rowsets(TabletSharedPtr tablet,
+                                    ReaderType reader_type,
+                                    const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                    RowsetWriter* dst_rowset_writer,
+                                    Statistics* stats_output);
 };
 
 }  // namespace doris

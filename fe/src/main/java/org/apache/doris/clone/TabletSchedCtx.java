@@ -341,6 +341,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.tablet = tablet;
     }
     
+    public Tablet getTablet() {
+        return tablet;
+    }
+
     // database lock should be held.
     public List<Replica> getReplicas() {
         return tablet.getReplicas();
@@ -411,9 +415,23 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return max;
     }
     
-    // database lock should be held.
+    /*
+     * check if existing replicas are on same BE.
+     * database lock should be held.
+     */
     public boolean containsBE(long beId) {
+        String host = infoService.getBackend(beId).getHost();
         for (Replica replica : tablet.getReplicas()) {
+            Backend be = infoService.getBackend(replica.getBackendId());
+            if (be == null) {
+                // BE has been dropped, skip it
+                continue;
+            }
+            if (host.equals(be.getHost())) {
+                return true;
+            }
+            // actually there is no need to check BE id anymore, because if hosts are not same, BE ids are
+            // not same either. But for psychological comfort, leave this check here.
             if (replica.getBackendId() == beId) {
                 return true;
             }
@@ -460,7 +478,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
             
-            if (!replica.checkVersionCatchUp(visibleVersion, visibleVersionHash)) {
+            if (!replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)) {
                 continue;
             }
             
@@ -468,7 +486,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
         
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "unable to find source replica");
+            throw new SchedException(Status.UNRECOVERABLE, "unable to find source replica");
         }
         
         // choose a replica which slot is available from candidates.
@@ -506,6 +524,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      * 1. replica's last failed version > 0
      * 2. better to choose a replica which has a lower last failed version
      * 3. best to choose a replica if its last success version > last failed version
+     * 4. if these is replica which need further repair, choose that replica.
      * 
      * database lock should be held.
      */
@@ -522,10 +541,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            if (replica.getLastFailedVersion() <= 0 && ((replica.getVersion() == visibleVersion
-                    && replica.getVersionHash() == visibleVersionHash) || replica.getVersion() > visibleVersion)) {
+            if (replica.getLastFailedVersion() <= 0
+                    && ((replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash)
+                            || replica.getVersion() > visibleVersion)) {
                 // skip healthy replica
                 continue;
+            }
+
+            if (replica.needFurtherRepair()) {
+                chosenReplica = replica;
+                break;
             }
             
             if (chosenReplica == null) {
@@ -588,7 +613,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
 
             // clear all CLONE replicas
-            Database db = Catalog.getInstance().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db != null) {
                 db.writeLock();
                 try {
@@ -644,6 +669,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 "dest backend " + srcReplica.getBackendId() + " does not exist");
         }
         
+        taskTimeoutMs = getApproximateTimeoutMs();
+
         // create the clone task and clone replica.
         // we use visible version in clone task, but set the clone replica's last failed version to
         // committed version.
@@ -657,7 +684,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
         cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
                 tabletId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, visibleVersionHash);
+                visibleVersion, visibleVersionHash, (int) (taskTimeoutMs / 1000));
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
         // if this is a balance task, or this is a repair task with REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
@@ -688,8 +715,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         + "current: " + replica.getPathHash() + ", scheduled: " + destPathHash);
             }
         }
-        
-        taskTimeoutMs = getApproximateTimeoutMs();
         
         this.state = State.RUNNING;
         return cloneTask;
@@ -790,9 +815,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // (which is 'visibleVersion[Hash]' saved)
             // We should discard the clone replica with stale version.
             TTabletInfo reportedTablet = request.getFinish_tablet_infos().get(0);
-            if (reportedTablet.getVersion() < visibleVersion
-                    || (reportedTablet.getVersion() == visibleVersion
-                    && reportedTablet.getVersion_hash() != visibleVersionHash)) {
+            if (reportedTablet.getVersion() < visibleVersion) {
                 String msg = String.format("the clone replica's version is stale. %d-%d, task visible version: %d-%d",
                         reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                         visibleVersion, visibleVersionHash);
@@ -806,54 +829,23 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         "replica does not exist. backend id: " + destBackendId);
             }
             
-            /*
-             * we set visible version as clone task version, and committed version as clone replica's
-             * last failed version.
-             * If at that moment, the visible version == committed version, then the report tablet's version(hash)
-             * should be equal to the clone replica's last failed version(hash).
-             * We check it here.
-             */
-            if (replica.getLastFailedVersion() == reportedTablet.getVersion()
-                    && replica.getLastFailedVersionHash() != reportedTablet.getVersion_hash()) {
-
-                if (replica.getLastFailedVersion() == 2 && replica.getLastFailedVersionHash() == 0
-                        && visibleVersion == 1 && visibleVersionHash == 0) {
-                    // this is a very tricky case.
-                    // the partitions's visible version is (1-0), and once there is a load job success in BE
-                    // but failed in FE. so in BE, the replica's version is (2-xx), and the clone task will
-                    // report (2-xx), which is not equal to what we set (2-0)
-                    // the version (2-xx) is delta version which need to be reverted. but because no more load
-                    // job being submitted, this delta version become a residual version.
-                    // we just let this pass
-                    LOG.warn("replica's last failed version equals to report version: "
-                            + replica.getLastFailedVersion() + " but hash is different: "
-                            + replica.getLastFailedVersionHash() + " vs. "
-                            + reportedTablet.getVersion_hash() + ", but we let it pass."
-                            + " tablet: {}, backend: {}", tabletId, replica.getBackendId());
-                } else if (replica.getVersion() == replica.getLastSuccessVersion()
-                        && replica.getVersionHash() == replica.getLastSuccessVersionHash()
-                        && replica.getVersion() == replica.getLastFailedVersion()) {
-                    // see replica.updateVersionInfo()'s case 5
-                    LOG.warn("replica's version(hash) and last success version(hash) are equal to "
-                            + "last failed version: {}, but last failed version hash is invalid: {}."
-                            + " we let it pass. tablet: {}, backend: {}",
-                            replica.getVersion(), replica.getLastFailedVersionHash(), tabletId, replica.getBackendId());
-                    
-                } else {
-                    // do not throw exception, cause we want this clone task retry again.
-                    throw new SchedException(Status.RUNNING_FAILED,
-                            "replica's last failed version equals to report version: "
-                                    + replica.getLastFailedVersion() + " but hash is different: "
-                                    + replica.getLastFailedVersionHash() + " vs. "
-                                    + reportedTablet.getVersion_hash());
-                }
-            }
-            
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                     reportedTablet.getData_size(), reportedTablet.getRow_count());
+            if (reportedTablet.isSetPath_hash()) {
+                replica.setPathHash(reportedTablet.getPath_hash());
+            }
             
-            state = State.FINISHED;
-            
+            if (this.type == Type.BALANCE) {
+                long partitionVisibleVersion = partition.getVisibleVersion();
+                if (replica.getVersion() < partitionVisibleVersion) {
+                    // see comment 'needFurtherRepair' of Replica for explanation.
+                    // no need to persist this info. If FE restart, just do it again.
+                    replica.setNeedFurtherRepair(true);
+                }
+            } else {
+                replica.setNeedFurtherRepair(false);
+            }
+
             ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tblId, partitionId, indexId,
                     tabletId, destBackendId, replica.getId(),
                     reportedTablet.getVersion(),
@@ -868,13 +860,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             if (replica.getState() == ReplicaState.CLONE) {
                 replica.setState(ReplicaState.NORMAL);
-                Catalog.getInstance().getEditLog().logAddReplica(info);
+                Catalog.getCurrentCatalog().getEditLog().logAddReplica(info);
             } else {
                 // if in VERSION_INCOMPLETE, replica is not newly created, thus the state is not CLONE
                 // so we keep it state unchanged, and log update replica
-                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+                Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
 
+            state = State.FINISHED;
             LOG.info("clone finished: {}", this);
         } catch (SchedException e) {
             // if failed to too many times, remove this task

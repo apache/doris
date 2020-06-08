@@ -18,39 +18,18 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
 // Alter table statement.
-public class AlterTableStmt extends DdlStmt implements Writable {
+public class AlterTableStmt extends DdlStmt {
     private TableName tbl;
     private List<AlterClause> ops;
-
-    public AlterTableStmt() {
-        // for persist
-        tbl = new TableName();
-        ops = Lists.newArrayList();
-    }
-
-    public TableName getTbl() {
-        return tbl;
-    }
-
-    public List<AlterClause> getOps() {
-        return ops;
-    }
 
     public AlterTableStmt(TableName tbl, List<AlterClause> ops) {
         this.tbl = tbl;
@@ -61,30 +40,39 @@ public class AlterTableStmt extends DdlStmt implements Writable {
         tbl = new TableName(tbl.getDb(), newTableName);
     }
 
+    public TableName getTbl() {
+        return tbl;
+    }
+
+    public List<AlterClause> getOps() {
+        return ops;
+    }
+
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (tbl == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+                PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    tbl.getTbl());
+        }
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
         for (AlterClause op : ops) {
             op.analyze(analyzer);
         }
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                                                                PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tbl.getTbl());
-        }
     }
 
     @Override
+
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ").append(tbl.toSql()).append(" ");
@@ -93,7 +81,19 @@ public class AlterTableStmt extends DdlStmt implements Writable {
             if (idx != 0) {
                 sb.append(", \n");
             }
-            sb.append(op.toSql());
+            if (op instanceof AddRollupClause) {
+                if (idx == 0) {
+                    sb.append("ADD ROLLUP");
+                }
+                sb.append(op.toSql().replace("ADD ROLLUP", ""));
+            } else if (op instanceof DropRollupClause) {
+                if (idx == 0) {
+                    sb.append("DROP ROLLUP ");
+                }
+                sb.append(((AddRollupClause) op).getRollupName());
+            } else {
+                sb.append(op.toSql());
+            }
             idx++;
         }
         return sb.toString();
@@ -102,25 +102,5 @@ public class AlterTableStmt extends DdlStmt implements Writable {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        tbl.write(out);
-        int count = ops.size();
-        out.writeInt(count);
-        for (AlterClause alterClause : ops) {
-            alterClause.write(out);
-        }
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        tbl.readFields(in);
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            AlterClause alterClause = AlterClause.read(in);
-            ops.add(alterClause);
-        }
     }
 }

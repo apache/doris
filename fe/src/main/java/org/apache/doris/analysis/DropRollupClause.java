@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
@@ -24,13 +25,15 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // Delete one rollup from table
-public class DropRollupClause extends AlterClause {
+public class DropRollupClause extends AlterTableClause {
     private final String rollupName;
     private Map<String, String> properties;
 
     public DropRollupClause(String rollupName, Map<String, String> properties) {
+        super(AlterOpType.DROP_ROLLUP);
         this.rollupName = rollupName;
         this.properties = properties;
+        this.needTableStable = false;
     }
 
     @Override

@@ -18,6 +18,7 @@
 #include "olap/task/engine_checksum_task.h"
 
 #include "olap/reader.h"
+#include "olap/row.h"
 
 namespace doris {
 
@@ -71,13 +72,6 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 
-        if (message->end_version() == _version
-                && message->version_hash() != _version_hash) {
-            OLAP_LOG_WARNING("fail to check latest version hash. "
-                             "[res=%d tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
-                             res, _tablet_id, message->version_hash(), _version_hash);
-            return OLAP_ERR_CE_CMD_PARAMS_ERROR;
-        }
         OLAPStatus acquire_reader_st = tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
         if (acquire_reader_st != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name()
@@ -103,6 +97,9 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     RowCursor row;
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     res = row.init(tablet->tablet_schema(), reader_params.return_columns);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to init row cursor. [res=%d]", res);
@@ -113,7 +110,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     bool eof = false;
     uint32_t row_checksum = 0;
     while (true) {
-        OLAPStatus res = reader.next_row_with_aggregation(&row, &eof);
+        OLAPStatus res = reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
         if (res == OLAP_SUCCESS && eof) {
             VLOG(3) << "reader reads to the end.";
             break;
@@ -122,7 +119,11 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
             return res;
         }
 
-        row_checksum = row.hash_code(row_checksum);
+        row_checksum = hash_row(row, row_checksum);
+        // the memory allocate by mem pool has been copied,
+        // so we should release memory immediately
+        mem_pool->clear();
+        agg_object_pool.reset(new ObjectPool());
     }
 
     LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;

@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Log4jConfig;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.http.HttpServer;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
@@ -48,31 +50,46 @@ import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 
-/**
- * Created by zhaochun on 14-9-22.
- */
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
 
-    // entrance for palo frontend
+    public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
+    public static final String PID_DIR = System.getenv("PID_DIR");
+
     public static void main(String[] args) {
+        start(DORIS_HOME_DIR, PID_DIR, args);
+    }
+
+    // entrance for doris frontend
+    public static void start(String dorisHomeDir, String pidDir, String[] args) {
+        if (Strings.isNullOrEmpty(dorisHomeDir)) {
+            System.err.println("env DORIS_HOME is not set.");
+            return;
+        }
+
+        if (Strings.isNullOrEmpty(pidDir)) {
+            System.err.println("env PID_DIR is not set.");
+            return;
+        }
+
+
         CommandLineOptions cmdLineOpts = parseArgs(args);
         System.out.println(cmdLineOpts.toString());
 
         try {
-            final String paloHome = System.getenv("DORIS_HOME");
-            if (Strings.isNullOrEmpty(paloHome)) {
-                System.out.println("env DORIS_HOME is not set.");
-                return;
-            }
-
             // pid file
-            if (!createAndLockPidFile(System.getenv("PID_DIR") + "/fe.pid")) {
+            if (!createAndLockPidFile(pidDir + "/fe.pid")) {
                 throw new IOException("pid file is already locked.");
             }
 
             // init config
-            new Config().init(paloHome + "/conf/fe.conf");
+            new Config().init(dorisHomeDir + "/conf/fe.conf");
+
+            // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
+            if (!JdkUtils.checkJavaVersion()) {
+                throw new IllegalArgumentException("Java version doesn't match");
+            }
+
             Log4jConfig.initLogging();
 
             // set dns cache ttl
@@ -85,34 +102,34 @@ public class PaloFe {
 
             FrontendOptions.init();
             ExecuteEnv.setup();
-            ExecuteEnv env = ExecuteEnv.getInstance();
 
-            // setup qe server
-            QeService qeService = new QeService(Config.query_port, env.getScheduler());
+            // init catalog and wait it be ready
+            Catalog.getCurrentCatalog().initialize(args);
+            Catalog.getCurrentCatalog().waitForReady();
 
-            // start query http server
-            HttpServer httpServer = new HttpServer(qeService, Config.http_port);
-            httpServer.setup();
-            httpServer.start();
-
-            // setup fe server
-            // Http server must be started before setup and start feServer
-            // Because the frontend need to download image file using http server from other frontends.
+            // init and start:
+            // 1. QeService for MySQL Server
+            // 2. FeServer for Thrift Server
+            // 3. HttpServer for HTTP Server
+            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-            feServer.setup(args);
+            HttpServer httpServer = new HttpServer(Config.http_port);
+            httpServer.setup();
 
-            // start qe server and fe server
-            qeService.start();
             feServer.start();
+            httpServer.start();
+            qeService.start();
+
+            ThreadPoolManager.registerAllThreadPoolMetric();
 
             while (true) {
                 Thread.sleep(2000);
             }
-        } catch (Throwable exception) {
-            exception.printStackTrace();
-            System.exit(-1);
+        } catch (Throwable e) {
+            e.printStackTrace();
+            return;
         }
-    } // end PaloFe main()
+    }
 
     /*
      * -v --version
@@ -227,13 +244,14 @@ public class PaloFe {
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
-            System.out.println("Build version: " + Version.PALO_BUILD_VERSION);
-            System.out.println("Build time: " + Version.PALO_BUILD_TIME);
-            System.out.println("Build info: " + Version.PALO_BUILD_INFO);
-            System.out.println("Build hash: " + Version.PALO_BUILD_HASH);
+            System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
+            System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
+            System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
+            System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
+            System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
-            BDBTool bdbTool = new BDBTool(Catalog.BDB_DIR, cmdLineOpts.getBdbToolOpts());
+            BDBTool bdbTool = new BDBTool(Catalog.getCurrentCatalog().getBdbDir(), cmdLineOpts.getBdbToolOpts());
             if (bdbTool.run()) {
                 System.exit(0);
             } else {
@@ -269,3 +287,4 @@ public class PaloFe {
         }
     }
 }
+

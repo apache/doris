@@ -47,15 +47,15 @@ public:
     // convert olap header to tablet meta pb, convert delta to rowsetmetapb
     // pending delta is not in tablet meta any more, so that convert pending delta to rowset and add it to pending rowsets
     // as a return value
-    OLAPStatus to_tablet_meta_pb(const OLAPHeaderMessage& olap_header, TabletMetaPB* tablet_meta_pb, 
+    OLAPStatus to_tablet_meta_pb(const OLAPHeaderMessage& olap_header, TabletMetaPB* tablet_meta_pb,
                                  vector<RowsetMetaPB>* pending_rowsets);
 
     OLAPStatus convert_to_pdelta(const RowsetMetaPB& rowset_meta_pb, PDelta* delta);
 
-    OLAPStatus convert_to_rowset_meta(const PDelta& delta, int64_t rowset_id, int64_t tablet_id, 
+    OLAPStatus convert_to_rowset_meta(const PDelta& delta, const RowsetId& rowset_id, int64_t tablet_id, 
         int32_t schema_hash, RowsetMetaPB* rowset_meta_pb);
 
-    OLAPStatus convert_to_rowset_meta(const PPendingDelta& pending_delta, int64_t rowset_id, 
+    OLAPStatus convert_to_rowset_meta(const PPendingDelta& pending_delta, const RowsetId& rowset_id, 
         int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb);
 
     OLAPStatus to_column_pb(const ColumnMessage& column_msg, ColumnPB* column_pb);
@@ -67,12 +67,12 @@ public:
     OLAPStatus to_alter_tablet_pb(const SchemaChangeStatusMessage& schema_change_msg, AlterTabletPB* alter_tablet_pb);
 
     // from olap header to tablet meta
-    OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
-        const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, 
+    OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix,
+        const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb, 
         vector<RowsetMetaPB>* pending_rowsets, bool is_startup);
 
     // from tablet meta to olap header
-    OLAPStatus to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix, 
+    OLAPStatus to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix,
         string& old_data_path_prefix, OLAPHeaderMessage* olap_header);
     
     OLAPStatus save(const string& file_path, const OLAPHeaderMessage& olap_header);

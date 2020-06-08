@@ -28,11 +28,11 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/column_data_file.pb.h"
-#include "olap/atomic.h"
 #include "olap/field.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/row.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
 
@@ -176,7 +176,7 @@ public:
                     size_t short_key_num, std::vector<TabletColumn>* short_key_columns);
 
     // 加载一个segment到内存
-    OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
+    OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block, bool use_cache = true);
 
     // Return the IndexOffset of the first element, physically, it's (0, 0)
     const OLAPIndexOffset begin() const {
@@ -374,9 +374,9 @@ private:
         _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
-            return _helper_cursor->index_cmp(key) < 0;
+            return index_compare_row(*_helper_cursor, key) < 0;
         } else {
-            return _helper_cursor->index_cmp(key) > 0;
+            return index_compare_row(*_helper_cursor, key) > 0;
         }
     }
 
@@ -415,9 +415,9 @@ private:
         _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
-            return _helper_cursor->index_cmp(key) < 0;
+            return index_compare_row(*_helper_cursor, key) < 0;
         } else {
-            return _helper_cursor->index_cmp(key) > 0;
+            return index_compare_row(*_helper_cursor, key) > 0;
         }
     }
 

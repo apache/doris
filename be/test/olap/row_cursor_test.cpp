@@ -17,8 +17,10 @@
 
 #include <gtest/gtest.h>
 
+#include "common/object_pool.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet_schema.h"
+#include "olap/row.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/logging.h"
@@ -268,7 +270,7 @@ TEST_F(TestRowCursor, InitRowCursor) {
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 126);
-    ASSERT_EQ(row.get_variable_len(), 16413);
+    ASSERT_EQ(row.get_variable_len(), 20);
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
@@ -339,28 +341,25 @@ TEST_F(TestRowCursor, EqualAndCompare) {
 
     // right row only has k2 in int type
     std::vector<uint32_t> col_ids;
-    col_ids.push_back(1);
+    col_ids.push_back(0);
 
     RowCursor right_eq;
     res = right_eq.init(tablet_schema, col_ids);
-    int32_t r_int_eq = 10;
-    right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
-    ASSERT_TRUE(left.equal(right_eq));
-    ASSERT_EQ(left.cmp(right_eq), 0);
+    Slice r_char_eq = ("well");
+    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
+    ASSERT_EQ(compare_row_key(left, right_eq), 0);
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema, col_ids);
-    int32_t r_int_lt = 11;
-    right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    ASSERT_FALSE(left.equal(right_lt));
-    ASSERT_LT(left.cmp(right_lt), 0);
+    Slice r_char_lt = ("welm");
+    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
+    ASSERT_LT(compare_row_key(left, right_lt), 0);
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema, col_ids);
-    int32_t r_int_gt = 9;
-    right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    ASSERT_FALSE(left.equal(right_gt));
-    ASSERT_GT(left.cmp(right_gt), 0);
+    Slice r_char_gt = ("welk");
+    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
+    ASSERT_GT(compare_row_key(left, right_gt), 0);
 }
 
 TEST_F(TestRowCursor, IndexCmp) {
@@ -368,10 +367,10 @@ TEST_F(TestRowCursor, IndexCmp) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
-    OLAPStatus res = left.init(tablet_schema);
+    OLAPStatus res = left.init(tablet_schema, 2);
     ASSERT_EQ(res, OLAP_SUCCESS);
-    ASSERT_EQ(left.get_fixed_len(), 78);
-    ASSERT_EQ(left.get_variable_len(), 20);
+    ASSERT_EQ(left.get_fixed_len(), 22);
+    ASSERT_EQ(left.get_variable_len(), 4);
 
     Slice l_char("well");
     int32_t l_int = 10;
@@ -379,29 +378,29 @@ TEST_F(TestRowCursor, IndexCmp) {
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
 
     RowCursor right_eq;
-    res = right_eq.init(tablet_schema);
+    res = right_eq.init(tablet_schema, 2);
     Slice r_char_eq("well");
     int32_t r_int_eq = 10;
     right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
     right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
 
-    ASSERT_EQ(left.index_cmp(right_eq), 0);
+    ASSERT_EQ(index_compare_row(left, right_eq), 0);
 
     RowCursor right_lt;
-    res = right_lt.init(tablet_schema);
+    res = right_lt.init(tablet_schema, 2);
     Slice r_char_lt("well");
     int32_t r_int_lt = 11;
     right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
     right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    ASSERT_LT(left.index_cmp(right_lt), 0);
+    ASSERT_LT(index_compare_row(left, right_lt), 0);
 
     RowCursor right_gt;
-    res = right_gt.init(tablet_schema);
+    res = right_gt.init(tablet_schema, 2);
     Slice r_char_gt("good");
     int32_t r_int_gt = 10;
     right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
     right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    ASSERT_GT(left.index_cmp(right_gt), 0);
+    ASSERT_GT(index_compare_row(left, right_gt), 0);
 }
 
 TEST_F(TestRowCursor, FullKeyCmp) {
@@ -425,7 +424,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     int32_t r_int_eq = 10;
     right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
     right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
-    ASSERT_EQ(left.full_key_cmp(right_eq), 0);
+    ASSERT_EQ(compare_row(left, right_eq), 0);
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema);
@@ -433,7 +432,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     int32_t r_int_lt = 11;
     right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
     right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    ASSERT_LT(left.full_key_cmp(right_lt), 0);
+    ASSERT_LT(compare_row(left, right_lt), 0);
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema);
@@ -441,7 +440,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     int32_t r_int_gt = 10;
     right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
     right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    ASSERT_GT(left.full_key_cmp(right_gt), 0);
+    ASSERT_GT(compare_row(left, right_gt), 0);
 }
 
 TEST_F(TestRowCursor, AggregateWithoutNull) {
@@ -449,6 +448,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor row;
+
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 78);
@@ -471,8 +471,10 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     left.set_field_content(4, reinterpret_cast<char*>(&l_decimal), _mem_pool.get());
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    res = row.agg_init(left);
-    ASSERT_EQ(res, OLAP_SUCCESS);
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    ObjectPool agg_object_pool;
+    init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
 
     RowCursor right;
     res = right.init(tablet_schema);
@@ -489,18 +491,18 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     right.set_field_content(4, reinterpret_cast<char*>(&r_decimal), _mem_pool.get());
     right.set_field_content(5, reinterpret_cast<char*>(&r_varchar), _mem_pool.get());
 
-    row.aggregate(right);
+    agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = *reinterpret_cast<int128_t*>(row.get_field_content_ptr(2));
+    int128_t agg_value = *reinterpret_cast<int128_t*>(row.cell_ptr(2));
     ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
 
-    double agg_double = *reinterpret_cast<double*>(row.get_field_content_ptr(3));
+    double agg_double = *reinterpret_cast<double*>(row.cell_ptr(3));
     ASSERT_TRUE(agg_double == r_double);
 
-    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.get_field_content_ptr(4));
+    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.cell_ptr(4));
     ASSERT_TRUE(agg_decimal == r_decimal);
 
-    Slice* agg_varchar = reinterpret_cast<Slice*>(row.get_field_content_ptr(5));
+    Slice* agg_varchar = reinterpret_cast<Slice*>(row.cell_ptr(5));
     ASSERT_EQ(agg_varchar->compare(r_varchar), 0);
 }
 
@@ -509,6 +511,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor row;
+
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 78);
@@ -529,8 +532,10 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     left.set_null(4);
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    res = row.agg_init(left);
-    ASSERT_EQ(res, OLAP_SUCCESS);
+    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    ObjectPool agg_object_pool;
+    init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
 
     RowCursor right;
     res = right.init(tablet_schema);
@@ -546,15 +551,15 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     right.set_field_content(4, reinterpret_cast<char*>(&r_decimal), _mem_pool.get());
     right.set_null(5);
 
-    row.aggregate(right);
+    agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = *reinterpret_cast<int128_t*>(row.get_field_content_ptr(2));
+    int128_t agg_value = *reinterpret_cast<int128_t*>(row.cell_ptr(2));
     ASSERT_TRUE(agg_value == ((int128_t)(1) << 101));
 
     bool is_null_double = left.is_null(3);
     ASSERT_TRUE(is_null_double);
 
-    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.get_field_content_ptr(4));
+    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.cell_ptr(4));
     ASSERT_TRUE(agg_decimal == r_decimal);
 
     bool is_null_varchar = row.is_null(5);
@@ -564,14 +569,6 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
-    ret = RUN_ALL_TESTS();
-    return ret;
+    return RUN_ALL_TESTS();
 }

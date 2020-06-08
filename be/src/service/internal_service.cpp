@@ -18,11 +18,11 @@
 #include "service/internal_service.h"
 
 #include "common/config.h"
-#include "runtime/tablet_writer_mgr.h"
 #include "gen_cpp/BackendService.h"
 #include "runtime/exec_env.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/load_channel_mgr.h"
 #include "service/brpc.h"
 #include "util/uid_util.h"
 #include "util/thrift_util.h"
@@ -63,9 +63,9 @@ void PInternalServiceImpl<T>::tablet_writer_open(google::protobuf::RpcController
     VLOG_RPC << "tablet writer open, id=" << request->id()
         << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
     brpc::ClosureGuard closure_guard(done);
-    auto st = _exec_env->tablet_writer_mgr()->open(*request);
+    auto st = _exec_env->load_channel_mgr()->open(*request);
     if (!st.ok()) {
-        LOG(WARNING) << "tablet writer open failed, message=" << st.get_error_msg()
+        LOG(WARNING) << "load channel open failed, message=" << st.get_error_msg()
             << ", id=" << request->id()
             << ", index_id=" << request->index_id()
             << ", txn_id=" << request->txn_id();
@@ -90,26 +90,34 @@ void PInternalServiceImpl<T>::exec_plan_fragment(
 
 template<typename T>
 void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* controller,
-                                                   const PTabletWriterAddBatchRequest* request,
-                                                   PTabletWriterAddBatchResult* response,
-                                                   google::protobuf::Closure* done) {
+                                                      const PTabletWriterAddBatchRequest* request,
+                                                      PTabletWriterAddBatchResult* response,
+                                                      google::protobuf::Closure* done) {
     VLOG_RPC << "tablet writer add batch, id=" << request->id()
         << ", index_id=" << request->index_id()
         << ", sender_id=" << request->sender_id();
     // add batch maybe cost a lot of time, and this callback thread will be held.
-    // this will influence query execute, because of no bthread. So, we put this to 
-    // a local thread pool to process
+    // this will influence query execution, because the pthreads under bthread may be
+    // exhausted, so we put this to a local thread pool to process
     _tablet_worker_pool.offer(
         [request, response, done, this] () {
             brpc::ClosureGuard closure_guard(done);
-            auto st = _exec_env->tablet_writer_mgr()->add_batch(*request, response->mutable_tablet_vec());
-            if (!st.ok()) {
-                LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
-                    << ", id=" << request->id()
-                    << ", index_id=" << request->index_id()
-                    << ", sender_id=" << request->sender_id();
+            int64_t execution_time_ns = 0;
+            int64_t wait_lock_time_ns = 0;
+            {
+                SCOPED_RAW_TIMER(&execution_time_ns);
+                auto st = _exec_env->load_channel_mgr()->add_batch(
+                        *request, response->mutable_tablet_vec(), &wait_lock_time_ns);
+                if (!st.ok()) {
+                    LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
+                        << ", id=" << request->id()
+                        << ", index_id=" << request->index_id()
+                        << ", sender_id=" << request->sender_id();
+                }
+                st.to_protobuf(response->mutable_status());
             }
-            st.to_protobuf(response->mutable_status());
+            response->set_execution_time_us(execution_time_ns / 1000);
+            response->set_wait_lock_time_us(wait_lock_time_ns / 1000);
         });
 }
 
@@ -122,7 +130,7 @@ void PInternalServiceImpl<T>::tablet_writer_cancel(google::protobuf::RpcControll
         << ", index_id=" << request->index_id()
         << ", sender_id=" << request->sender_id();
     brpc::ClosureGuard closure_guard(done);
-    auto st = _exec_env->tablet_writer_mgr()->cancel(*request);
+    auto st = _exec_env->load_channel_mgr()->cancel(*request);
     if (!st.ok()) {
         LOG(WARNING) << "tablet writer cancel failed, id=" << request->id()
         << ", index_id=" << request->index_id()
@@ -206,7 +214,7 @@ void PInternalServiceImpl<T>::get_info(
             PKafkaMetaProxyResult* kafka_result = response->mutable_kafka_meta_result();
             for (int32_t id : partition_ids) {
                 kafka_result->add_partition_ids(id);
-            } 
+            }
         }
         st.to_protobuf(response->mutable_status());
         return;

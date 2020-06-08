@@ -17,14 +17,19 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,18 +43,32 @@ import java.io.IOException;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "type")
     private Type type;
+    // column is key: aggregate type is null
+    // column is not key and has no aggregate type: aggregate type is none
+    // column is not key and has aggregate type: aggregate type is name of aggregate function.
+    @SerializedName(value = "aggregationType")
     private AggregateType aggregationType;
 
     // if isAggregationTypeImplicit is true, the actual aggregation type will not be shown in show create table
+    // the key type of table is duplicate or unique: the isAggregationTypeImplicit of value columns are true
+    // other cases: the isAggregationTypeImplicit is false
+    @SerializedName(value = "isAggregationTypeImplicit")
     private boolean isAggregationTypeImplicit;
+    @SerializedName(value = "isKey")
     private boolean isKey;
+    @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    @SerializedName(value = "defaultValue")
     private String defaultValue;
+    @SerializedName(value = "comment")
     private String comment;
-
+    @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    private Expr defineExpr; // use to define column in materialize view
 
     public Column() {
         this.name = "";
@@ -118,6 +137,17 @@ public class Column implements Writable {
         return this.name;
     }
 
+    public String getNameWithoutPrefix(String prefix) {
+        if (isNameWithPrefix(prefix)) {
+            return name.substring(prefix.length());
+        }
+        return name;
+    }
+
+    public boolean isNameWithPrefix(String prefix) {
+        return this.name.startsWith(prefix);
+    }
+
     public void setIsKey(boolean isKey) {
         this.isKey = isKey;
     }
@@ -130,6 +160,10 @@ public class Column implements Writable {
 
     public Type getType() { return ScalarType.createType(type.getPrimitiveType()); }
 
+    public void setType(Type type) {
+        this.type = type;
+    }
+
     public Type getOriginType() { return type; }
 
     public int getStrLen() { return ((ScalarType) type).getLength(); }
@@ -138,6 +172,10 @@ public class Column implements Writable {
 
     public AggregateType getAggregationType() {
         return this.aggregationType;
+    }
+
+    public boolean isAggregated() {
+        return aggregationType != null && aggregationType != AggregateType.NONE;
     }
 
     public boolean isAggregationTypeImplicit() {
@@ -173,6 +211,10 @@ public class Column implements Writable {
         return this.stats;
     }
 
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
     public String getComment() {
         return comment;
     }
@@ -205,6 +247,9 @@ public class Column implements Writable {
         tColumn.setIs_key(this.isKey);
         tColumn.setIs_allow_null(this.isAllowNull);
         tColumn.setDefault_value(this.defaultValue);
+        if (this.defineExpr != null) {
+            tColumn.setDefine_expr(this.defineExpr.treeToThrift());
+        }
         return tColumn;
     }
 
@@ -214,31 +259,31 @@ public class Column implements Writable {
         }
 
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
-            throw new DdlException("Cannot change " + getDataType() + " to " + other.getDataType());
+            throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
         if (this.aggregationType != other.aggregationType) {
-            throw new DdlException("Cannot change aggregation type");
+            throw new DdlException("Can not change aggregation type");
         }
 
         if (this.isAllowNull && !other.isAllowNull) {
-            throw new DdlException("Cannot change from null to not null");
+            throw new DdlException("Can not change from nullable to non-nullable");
         }
 
         if (this.getDefaultValue() == null) {
             if (other.getDefaultValue() != null) {
-                throw new DdlException("Cannot change default value");
+                throw new DdlException("Can not change default value");
             }
         } else {
             if (!this.getDefaultValue().equals(other.getDefaultValue())) {
-                throw new DdlException("Cannot change default value");
+                throw new DdlException("Can not change default value");
             }
         }
 
         if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR)
                 || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR)
                 || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
-            if (getStrLen() >= other.getStrLen()) {
+            if (getStrLen() > other.getStrLen()) {
                 throw new DdlException("Cannot shorten string length");
             }
         }
@@ -250,6 +295,37 @@ public class Column implements Writable {
         if (this.getScale() != other.getScale()) {
             throw new DdlException("Cannot change scale");
         }
+    }
+
+    public boolean nameEquals(String otherColName, boolean ignorePrefix) {
+        if (CaseSensibility.COLUMN.getCaseSensibility()) {
+            if (!ignorePrefix) {
+                return name.equals(otherColName);
+            } else {
+                return removeNamePrefix(name).equals(removeNamePrefix(otherColName));
+            }
+        } else {
+            if (!ignorePrefix) {
+                return name.equalsIgnoreCase(otherColName);
+            } else {
+                return removeNamePrefix(name).equalsIgnoreCase(removeNamePrefix(otherColName));
+            }
+        }
+    }
+
+    public static String removeNamePrefix(String colName) {
+        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
+        }
+        return colName;
+    }
+
+    public Expr getDefineExpr() {
+        return defineExpr;
+    }
+
+    public void setDefineExpr(Expr expr) {
+        defineExpr = expr;
     }
 
     public String toSql() {
@@ -336,32 +412,11 @@ public class Column implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
-        ColumnType.write(out, type);
-        if (null == aggregationType) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, aggregationType.name());
-            out.writeBoolean(isAggregationTypeImplicit);
-        }
-
-        out.writeBoolean(isKey);
-        out.writeBoolean(isAllowNull);
-
-        if (defaultValue == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, defaultValue);
-        }
-        stats.write(out);
-
-        Text.writeString(out, comment);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);
         boolean notNull = in.readBoolean();
@@ -401,8 +456,13 @@ public class Column implements Writable {
     }
 
     public static Column read(DataInput in) throws IOException {
-        Column column = new Column();
-        column.readFields(in);
-        return column;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
+            Column column = new Column();
+            column.readFields(in);
+            return column;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Column.class);
+        }
     }
 }

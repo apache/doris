@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_reader.h"
 #include "olap/olap_cond.h"
 #include "olap/row_block.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
@@ -35,8 +36,16 @@ ColumnData::ColumnData(SegmentGroup* segment_group)
         _col_predicates(nullptr),
         _delete_status(DEL_NOT_SATISFIED),
         _runtime_state(nullptr),
+        _schema(segment_group->get_tablet_schema()),
         _is_using_cache(false),
-        _segment_reader(nullptr) {
+        _segment_reader(nullptr),
+        _lru_cache(nullptr) {
+    if (StorageEngine::instance() != nullptr) {
+        _lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+    } else {
+        // for independent usage, eg: unit test/segment tool
+        _lru_cache = FileHandler::get_fd_cache();
+    }
     _num_rows_per_block = _segment_group->get_num_rows_per_row_block();
 }
 
@@ -309,13 +318,13 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
         // row_cursor >= key
         // 此处比较2个block的行数，是存在一种极限情况：若未找到满足的block，
         // Index模块会返回倒数第二个block，此时key可能是最后一个block的最后一行
-        while (res == OLAP_SUCCESS && row_cursor->cmp(key) < 0) {
+        while (res == OLAP_SUCCESS && compare_row_key(*row_cursor, key) < 0) {
             res = _next_row(&row_cursor, without_filter);
         }
     } else {
         // 找last key。返回大于这个key的第一个。也就是
         // row_cursor > key
-        while (res == OLAP_SUCCESS && row_cursor->cmp(key) <= 0) {
+        while (res == OLAP_SUCCESS && compare_row_key(*row_cursor,key) <= 0) {
             res = _next_row(&row_cursor, without_filter);
         }
     }
@@ -365,7 +374,7 @@ OLAPStatus ColumnData::prepare_block_read(
     }
     set_eof(false);
     if (start_key != nullptr) {
-        auto res = _seek_to_row(*start_key, find_start_key, false);
+        auto res = _seek_to_row(*start_key, !find_start_key, false);
         if (res == OLAP_SUCCESS) {
             *first_block = _read_block.get();
         } else if (res == OLAP_ERR_DATA_EOF) {
@@ -470,22 +479,9 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
     res = _get_block(false);
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("fail to load data to row block. [res=%d]", res);
-        }
-        *row_block = nullptr;
-        return res;
-    }
-
-    *row_block = _read_block.get();
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus ColumnData::get_next_row_block(RowBlock** row_block) {
-    _is_normal_read = true;
-    OLAPStatus res = _get_block(false);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("fail to load data to row block. [res=%d]", res);
+            LOG(WARNING) << "fail to load data to row block. res=" << res
+                         << ", version=" << version().first
+                         << "-" << version().second;
         }
         *row_block = nullptr;
         return res;
@@ -514,7 +510,10 @@ int ColumnData::delete_pruning_filter() {
         return DEL_NOT_SATISFIED;
     }
 
-    if (false == _segment_group->has_zone_maps()) {
+    int num_zone_maps = _schema.keys_type() == KeysType::DUP_KEYS ? _schema.num_columns() : _schema.num_key_columns();
+    // _segment_group->get_zone_maps().size() < num_zone_maps for a table is schema changed from older version that not support
+    // generate zone map for duplicated mode value column, using DEL_PARTIAL_SATISFIED
+    if (!_segment_group->has_zone_maps() || _segment_group->get_zone_maps().size() < num_zone_maps)  {
         /*
          * if segment_group has no column statistics, we cannot judge whether the data can be filtered or not
          */
@@ -547,9 +546,9 @@ int ColumnData::delete_pruning_filter() {
         }
     }
 
-    if (true == del_stastified) {
+    if (del_stastified) {
         ret = DEL_SATISFIED;
-    } else if (true == del_partial_stastified) {
+    } else if (del_partial_stastified) {
         ret = DEL_PARTIAL_SATISFIED;
     } else {
         ret = DEL_NOT_SATISFIED;

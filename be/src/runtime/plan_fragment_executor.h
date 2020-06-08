@@ -194,11 +194,13 @@ private:
     // 2. _status_lock
     boost::mutex _status_lock;
 
+    // note that RuntimeState should be constructed before and destructed after `_sink' and `_row_batch',
+    // therefore we declare it before `_sink' and `_row_batch'
+    boost::scoped_ptr<RuntimeState> _runtime_state;
     // Output sink for rows sent to this fragment. May not be set, in which case rows are
     // returned via get_next's row batch
     // Created in prepare (if required), owned by this object.
     boost::scoped_ptr<DataSink> _sink;
-    boost::scoped_ptr<RuntimeState> _runtime_state;
     boost::scoped_ptr<RowBatch> _row_batch;
 
     // Number of rows returned by this fragment
@@ -240,14 +242,6 @@ private:
     // If we're transitioning to an error status, stops report thread and
     // sends a final report.
     void update_status(const Status& status);
-
-    /// Optimizes the code-generated functions in runtime_state_->llvm_codegen().
-    /// Must be called between plan_->Prepare() and plan_->Open().
-    /// This is somewhat time consuming so we don't want it to do it in
-    /// PlanFragmentExecutor()::Prepare() to allow starting plan fragments more
-    /// quickly and in parallel (in a deep plan tree, the fragments are started
-    /// in level order).
-    void optimize_llvm_module();
 
     // Executes open() logic and returns resulting status. Does not set _status.
     // If this plan fragment has no sink, open_internal() does nothing.

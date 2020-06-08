@@ -17,6 +17,8 @@
 
 package org.apache.doris.task;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -36,23 +38,16 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
-import org.easymock.EasyMock;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PrepareForTest({ HadoopLoadPendingTask.class, Catalog.class })
-@PowerMockIgnore("javax.management.*")
 public class LoadPendingTaskTest {
     private long dbId;
     private long tableId;
@@ -62,9 +57,15 @@ public class LoadPendingTaskTest {
     private long backendId;
 
     private String label;
-    
+    @Mocked
     private Catalog catalog;
+    @Mocked
+    private EditLog editLog;
+    @Mocked
     private Load load;
+    @Mocked
+    private DppScheduler dppScheduler;
+
     private Database db;
 
     @Before
@@ -84,16 +85,35 @@ public class LoadPendingTaskTest {
     public void testRunPendingTask() throws Exception {
         // mock catalog
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
-        catalog = EasyMock.createNiceMock(Catalog.class);
-        EasyMock.expect(catalog.getDb(dbId)).andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getDb(db.getFullName())).andReturn(db).anyTimes();
-        // mock editLog
-        EditLog editLog = EasyMock.createMock(EditLog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        // mock static getInstance
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+
+        GlobalTransactionMgr globalTransactionMgr = new GlobalTransactionMgr(catalog);
+        globalTransactionMgr.setEditLog(editLog);
+        globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
+
+        // mock catalog
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbId);
+                minTimes = 0;
+                result = db;
+
+                catalog.getDb(db.getFullName());
+                minTimes = 0;
+                result = db;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentGlobalTransactionMgr();
+                minTimes = 0;
+                result = globalTransactionMgr;
+            }
+        };
         
         // create job
         LoadJob job = new LoadJob(label);
@@ -103,6 +123,7 @@ public class LoadPendingTaskTest {
         job.setClusterInfo(cluster, Load.clusterToDppConfig.get(cluster));
         // set partition load infos
         OlapTable table = (OlapTable) db.getTable(tableId);
+        table.setBaseIndexId(0L);
         Partition partition = table.getPartition(partitionId);
         Source source = new Source(new ArrayList<String>());
         List<Source> sources = new ArrayList<Source>();
@@ -115,22 +136,36 @@ public class LoadPendingTaskTest {
         Map<Long, TableLoadInfo> idToTableLoadInfo = new HashMap<Long, TableLoadInfo>();
         idToTableLoadInfo.put(tableId, tableLoadInfo);
         job.setIdToTableLoadInfo(idToTableLoadInfo);
+        job.setTimeoutSecond(10);
 
-        // mock load
-        load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.updateLoadJobState(job, JobState.ETL)).andReturn(true).times(1);
-        EasyMock.expect(load.getLoadErrorHubInfo()).andReturn(null).times(1);
-        EasyMock.replay(load);
-        EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(1);
-        EasyMock.replay(catalog);
-        
-        // mock dppscheduler
-        DppScheduler dppScheduler = EasyMock.createMock(DppScheduler.class);
-        EasyMock.expect(dppScheduler.submitEtlJob(EasyMock.anyLong(), EasyMock.anyString(), EasyMock.anyString(),
-                                                  EasyMock.anyString(), EasyMock.isA(Map.class), EasyMock.anyInt()))
-                .andReturn(new EtlSubmitResult(new TStatus(TStatusCode.OK), "job_123456")).times(1);
-        EasyMock.replay(dppScheduler);
-        PowerMock.expectNew(DppScheduler.class, EasyMock.anyObject(DppConfig.class)).andReturn(dppScheduler).times(1);
-        PowerMock.replay(DppScheduler.class);
+        // mock
+        new Expectations() {
+            {
+                load.updateLoadJobState(job, JobState.ETL);
+                times = 1;
+                result = true;
+
+                load.getLoadErrorHubInfo();
+                times = 1;
+                result = null;
+
+                catalog.getLoadInstance();
+                times = 1;
+                result = load;
+
+                dppScheduler.submitEtlJob(anyLong, anyString, anyString, anyString, (Map) any, anyInt);
+                times = 1;
+                result = new EtlSubmitResult(new TStatus(TStatusCode.OK), "job_123456");
+
+                editLog.logSaveTransactionId(anyLong);
+                minTimes = 0;
+            }
+        };
+
+        HadoopLoadPendingTask loadPendingTask = new HadoopLoadPendingTask(job);
+        loadPendingTask.exec();
+
+        Assert.assertEquals(job.getId(), loadPendingTask.getSignature());
+        Assert.assertEquals(JobState.PENDING, job.getState());
     }
 }

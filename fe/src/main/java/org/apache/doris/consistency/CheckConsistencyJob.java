@@ -23,11 +23,11 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -115,7 +115,7 @@ public class CheckConsistencyJob {
             return false;
         }
 
-        Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
@@ -148,7 +148,7 @@ public class CheckConsistencyJob {
             // check partition's replication num. if 1 replication. skip
             short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
             if (replicationNum == (short) 1) {
-                LOG.debug("partition[{}]'s replication num is 1.");
+                LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
                 return false;
             }
 
@@ -172,7 +172,8 @@ public class CheckConsistencyJob {
             long maxDataSize = 0;
             for (Replica replica : tablet.getReplicas()) {
                 // 1. if state is CLONE, do not send task at this time
-                if (replica.getState() == ReplicaState.CLONE) {
+                if (replica.getState() == ReplicaState.CLONE
+                        || replica.getState() == ReplicaState.DECOMMISSION) {
                     continue;
                 }
 
@@ -203,8 +204,7 @@ public class CheckConsistencyJob {
                 if (maxDataSize > 0) {
                     timeoutMs = maxDataSize / 1000 / 1000 / 1000 * CHECK_CONSISTENCT_TIME_COST_PER_GIGABYTE_MS;
                 }
-                timeoutMs = timeoutMs < Config.check_consistency_default_timeout_second * 1000L
-                        ? Config.check_consistency_default_timeout_second * 1000L : timeoutMs;
+                timeoutMs = Math.max(timeoutMs, Config.check_consistency_default_timeout_second * 1000L);
                 state = JobState.RUNNING;
             }
 
@@ -252,7 +252,7 @@ public class CheckConsistencyJob {
             return -1;
         }
 
-        Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;
@@ -288,8 +288,8 @@ public class CheckConsistencyJob {
 
             // check if schema has changed
             if (checkedSchemaHash != olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId())) {
-                LOG.info("index[{}]'s schema hash has been changed. [{} -> {}]. retry", checkedSchemaHash,
-                         olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId()));
+                LOG.info("index[{}]'s schema hash has been changed. [{} -> {}]. retry", tabletMeta.getIndexId(),
+                        checkedSchemaHash, olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId()));
                 return -1;
             }
 
@@ -364,7 +364,7 @@ public class CheckConsistencyJob {
             ConsistencyCheckInfo info = new ConsistencyCheckInfo(db.getId(), table.getId(), partition.getId(),
                                                                  index.getId(), tabletId, lastCheckTime,
                                                                  checkedVersion, checkedVersionHash, isConsistent);
-            Catalog.getInstance().getEditLog().logFinishConsistencyCheck(info);
+            Catalog.getCurrentCatalog().getEditLog().logFinishConsistencyCheck(info);
             return 1;
 
         } finally {

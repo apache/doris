@@ -24,22 +24,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.ScalarType;
-import org.easymock.EasyMock;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -49,21 +45,23 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.thrift.TStorageType;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 public class CreateTableInfoTest {
     private Catalog catalog;
 
+    private FakeCatalog fakeCatalog;
+
     @Before
     public void setUp() {
-        catalog = EasyMock.createMock(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        catalog = Deencapsulation.newInstance(Catalog.class);
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        FakeCatalog.setCatalog(catalog);
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test
@@ -74,9 +72,10 @@ public class CreateTableInfoTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         
         List<Column> columns = new ArrayList<Column>();
-        columns.add(new Column("column2", 
-                        ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
-        columns.add(new Column("column3", 
+        Column column2 = new Column("column2",
+                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+        columns.add(column2);
+        columns.add(new Column("column3",
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4", 
                         ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
@@ -96,6 +95,14 @@ public class CreateTableInfoTest {
         Partition partition = new Partition(20000L, "table", index, distributionInfo);
         OlapTable table = new OlapTable(1000L, "table", columns, KeysType.AGG_KEYS, 
                                         new SinglePartitionInfo(), distributionInfo);
+        short shortKeyColumnCount = 1;
+        table.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+
+        List<Column> column = Lists.newArrayList();
+        column.add(column2);
+        table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+        Deencapsulation.setField(table, "baseIndexId", 1000);
         table.addPartition(partition);
         CreateTableInfo info = new CreateTableInfo("db1", table);
         info.write(dos);

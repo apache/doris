@@ -24,6 +24,7 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import org.codehaus.jackson.map.ObjectMapper;
 
@@ -47,11 +48,10 @@ public class MetaReplayerCheckAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
+    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        Map<String, String> resultMap = Catalog.getInstance().getMetaReplayState().getInfo();
+        Map<String, String> resultMap = Catalog.getCurrentCatalog().getMetaReplayState().getInfo();
 
         // to json response
         String result = "";

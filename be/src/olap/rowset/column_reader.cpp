@@ -24,7 +24,7 @@
 #include "olap/olap_define.h"
 
 namespace doris {
-IntegerColumnReader::IntegerColumnReader(uint32_t column_unique_id): 
+IntegerColumnReader::IntegerColumnReader(uint32_t column_unique_id):
         _eof(false),
         _column_unique_id(column_unique_id),
         _data_reader(NULL) {
@@ -76,7 +76,7 @@ OLAPStatus IntegerColumnReader::next(int64_t* value) {
 
 StringColumnDirectReader::StringColumnDirectReader(
         uint32_t column_unique_id,
-        uint32_t dictionary_size) : 
+        uint32_t dictionary_size) :
         _eof(false),
         _column_unique_id(column_unique_id),
         _values(NULL),
@@ -189,7 +189,7 @@ OLAPStatus StringColumnDirectReader::next_vector(
      * 1. MemPool is created by VectorizedRowBatch,
      *    and reset when load row batch
      * 2. MemPool in init function is created by SegmentReader,
-     *    and free by SegmentReader deconstructor. 
+     *    and free by SegmentReader deconstructor.
      */
     OLAPStatus res = OLAP_SUCCESS;
     int64_t length = 0;
@@ -485,7 +485,7 @@ OLAPStatus StringColumnDictionaryReader::next_vector(
     return res;
 }
 
-ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         _value_present(false),
         _is_null(NULL),
         _column_id(column_id),
@@ -530,7 +530,6 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
                         column.default_value(), column.type(), column.length());
             }
         } else if (column.is_nullable()) {
-            LOG(WARNING) << "create NullValueReader: " << column.name();
             return new(std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
             OLAP_LOG_WARNING("not null field has no default value");
@@ -548,6 +547,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     }
 
     switch (column.type()) {
+    case OLAP_FIELD_TYPE_BOOL:
     case OLAP_FIELD_TYPE_TINYINT:
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: {
         reader = new(std::nothrow) TinyColumnReader(column_id, column_unique_id);
@@ -644,6 +644,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     }
 
     case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_OBJECT:
     case OLAP_FIELD_TYPE_HLL: {
         if (ColumnEncodingMessage::DIRECT == encode_kind) {
             reader = new(std::nothrow) VarStringColumnReader<StringColumnDirectReader>(
@@ -700,7 +701,7 @@ OLAPStatus ColumnReader::init(
         _present_reader = NULL;
         _value_present = false;
     } else {
-        VLOG(3) << "create null present_stream for column_id:" << _column_unique_id;
+        VLOG(10) << "create null present_stream for column_id:" << _column_unique_id;
         _present_reader = new(std::nothrow) BitFieldReader(present_stream);
 
         if (NULL == _present_reader) {
@@ -776,7 +777,7 @@ uint64_t ColumnReader::_count_none_nulls(uint64_t rows) {
     }
 }
 
-TinyColumnReader::TinyColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+TinyColumnReader::TinyColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         ColumnReader(column_id, column_unique_id),
         _eof(false),
         _values(NULL),
@@ -835,7 +836,7 @@ OLAPStatus TinyColumnReader::seek(PositionProvider* positions) {
         }
     }
 
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus TinyColumnReader::skip(uint64_t row_count) {
@@ -883,7 +884,7 @@ OLAPStatus TinyColumnReader::next_vector(
     return res;
 }
 
-DecimalColumnReader::DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+DecimalColumnReader::DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         ColumnReader(column_id, column_unique_id),
         _eof(false),
         _values(NULL),
@@ -1058,7 +1059,7 @@ OLAPStatus DecimalColumnReader::next_vector(
     return res;
 }
 
-LargeIntColumnReader::LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
+LargeIntColumnReader::LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         ColumnReader(column_id, column_unique_id),
         _eof(false),
         _values(NULL),

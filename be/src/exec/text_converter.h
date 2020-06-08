@@ -51,7 +51,7 @@ public:
     // Removes escape characters from len characters of the null-terminated string src,
     // and copies the unescaped string into dest, changing *len to the unescaped length.
     // No null-terminator is added to dest.
-    void unescape_string(const char* src, char* dest, int* len);
+    void unescape_string(const char* src, char* dest, size_t* len);
 
     // Removes escape characters from 'str', allocating a new string from pool.
     // 'str' is updated with the new ptr and length.

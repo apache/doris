@@ -150,7 +150,6 @@ OlapTablePartitionParam::OlapTablePartitionParam(
         std::shared_ptr<OlapTableSchemaParam> schema,
         const TOlapTablePartitionParam& t_param)
             : _schema(schema), _t_param(t_param),
-            _partition_slot_desc(nullptr),
             _mem_tracker(new MemTracker()),
             _mem_pool(new MemPool(_mem_tracker.get())) {
 }
@@ -170,11 +169,22 @@ Status OlapTablePartitionParam::init() {
             ss << "partition column not found, column=" << _t_param.partition_column;
             return Status::InternalError(ss.str());
         }
-        _partition_slot_desc = it->second;
+        _partition_slot_descs.push_back(it->second);
+    } else if (_t_param.__isset.partition_columns) {
+        for (auto& part_col : _t_param.partition_columns) {
+            auto it = slots_map.find(part_col);
+            if (it == std::end(slots_map)) {
+                std::stringstream ss;
+                ss << "partition column not found, column=" << part_col;
+                return Status::InternalError(ss.str());
+            }
+            _partition_slot_descs.push_back(it->second);
+        }
     }
+
     _partitions_map.reset(
         new std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>(
-            OlapTablePartKeyComparator(_partition_slot_desc)));
+            OlapTablePartKeyComparator(_partition_slot_descs)));
     if (_t_param.__isset.distributed_columns) {
         for (auto& col : _t_param.distributed_columns) {
             auto it = slots_map.find(col);
@@ -191,12 +201,22 @@ Status OlapTablePartitionParam::init() {
         const TOlapTablePartition& t_part = _t_param.partitions[i];
         OlapTablePartition* part = _obj_pool.add(new OlapTablePartition());
         part->id = t_part.id;
+
         if (t_part.__isset.start_key) {
-            RETURN_IF_ERROR(_create_partition_key(t_part.start_key, &part->start_key));
+            // deprecated, use start_keys instead
+            std::vector<TExprNode> exprs = { t_part.start_key };
+            RETURN_IF_ERROR(_create_partition_keys(exprs, &part->start_key));
+        } else if (t_part.__isset.start_keys) {
+            RETURN_IF_ERROR(_create_partition_keys(t_part.start_keys, &part->start_key));
         }
         if (t_part.__isset.end_key) {
-            RETURN_IF_ERROR(_create_partition_key(t_part.end_key, &part->end_key));
+            // deprecated, use end_keys instead
+            std::vector<TExprNode> exprs = { t_part.end_key };
+            RETURN_IF_ERROR(_create_partition_keys(exprs, &part->end_key));
+        } else if (t_part.__isset.end_keys) {
+            RETURN_IF_ERROR(_create_partition_keys(t_part.end_keys, &part->end_key));
         }
+
         part->num_buckets = t_part.num_buckets;
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
@@ -242,10 +262,19 @@ bool OlapTablePartitionParam::find_tablet(Tuple* tuple,
     return false;
 }
 
-Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, Tuple** part_key) {
+Status OlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs, Tuple** part_key) {
     Tuple* tuple = (Tuple*)_mem_pool->allocate(_schema->tuple_desc()->byte_size());
-    void* slot = tuple->get_slot(_partition_slot_desc->tuple_offset());
-    tuple->set_not_null(_partition_slot_desc->null_indicator_offset());
+    for (int i = 0; i < t_exprs.size(); i++) {
+        const TExprNode& t_expr = t_exprs[i];
+        RETURN_IF_ERROR(_create_partition_key(t_expr, tuple, _partition_slot_descs[i]));
+    }
+    *part_key = tuple;
+    return Status::OK();
+}
+
+Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, Tuple* tuple, SlotDescriptor* slot_desc) {
+    void* slot = tuple->get_slot(slot_desc->tuple_offset());
+    tuple->set_not_null(slot_desc->null_indicator_offset());
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         if (!reinterpret_cast<DateTimeValue*>(slot)->from_date_str(
@@ -293,7 +322,6 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
         return Status::InternalError(ss.str());
     }
     }
-    *part_key = tuple;
     return Status::OK();
 }
 

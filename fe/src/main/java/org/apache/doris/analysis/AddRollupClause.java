@@ -17,19 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.io.Text;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,17 +34,13 @@ import java.util.Set;
 // syntax:
 //      ALTER TABLE table_name
 //          ADD ROLLUP rollup_name (column, ..) FROM base_rollup
-public class AddRollupClause extends AlterClause {
+public class AddRollupClause extends AlterTableClause {
     private String rollupName;
     private List<String> columnNames;
     private String baseRollupName;
     private List<String> dupKeys;
-    private Map<String, String> properties;
 
-    public AddRollupClause() {
-        columnNames = Lists.newArrayList();
-        properties = Maps.newHashMap();
-    }
+    private Map<String, String> properties;
 
     public String getRollupName() {
         return rollupName;
@@ -69,6 +61,7 @@ public class AddRollupClause extends AlterClause {
     public AddRollupClause(String rollupName, List<String> columnNames,
                            List<String> dupKeys, String baseRollupName,
                            Map<String, String> properties) {
+        super(AlterOpType.ADD_ROLLUP);
         this.rollupName = rollupName;
         this.columnNames = columnNames;
         this.dupKeys = dupKeys;
@@ -122,60 +115,5 @@ public class AddRollupClause extends AlterClause {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String className = AddRollupClause.class.getCanonicalName();
-        Text.writeString(out, className);
-
-        Text.writeString(out, rollupName);
-
-        int count = columnNames.size();
-        out.writeInt(count);
-        for (String colName : columnNames) {
-            Text.writeString(out, colName);
-        }
-
-        if (baseRollupName == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, baseRollupName);
-        }
-
-        if (properties == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            count = properties.size();
-            out.writeInt(count);
-            for (Map.Entry<String, String> prop : properties.entrySet()) {
-                Text.writeString(out, prop.getKey());
-                Text.writeString(out, prop.getValue());
-            }
-        }
-    }
-
-    public void readFields(java.io.DataInput in) throws IOException {
-        rollupName = Text.readString(in);
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            String colName = Text.readString(in);
-            columnNames.add(colName);
-        }
-
-        if (in.readBoolean()) {
-            baseRollupName = Text.readString(in);
-        }
-
-        if (in.readBoolean()) {
-            count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                properties.put(key, value);
-            }
-        }
     }
 }

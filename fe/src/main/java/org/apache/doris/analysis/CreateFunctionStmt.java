@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSortedMap;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
@@ -27,9 +24,15 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSortedMap;
+
+import org.apache.commons.codec.binary.Hex;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,6 +46,8 @@ import java.util.Map;
 public class CreateFunctionStmt extends DdlStmt {
     public static final String OBJECT_FILE_KEY = "object_file";
     public static final String SYMBOL_KEY = "symbol";
+    public static final String PREPARE_SYMBOL_KEY = "prepare_fn";
+    public static final String CLOSE_SYMBOL_KEY = "close_fn";
     public static final String MD5_CHECKSUM = "md5";
     public static final String INIT_KEY = "init_fn";
     public static final String UPDATE_KEY = "update_fn";
@@ -129,6 +134,11 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void computeObjectChecksum() throws IOException, NoSuchAlgorithmException {
+        if (FeConstants.runningUnitTest) {
+            // skip checking checksum when running ut
+            checksum = "";
+            return;
+        }
         URL url = new URL(objectFile);
         URLConnection urlConnection = url.openConnection();
         InputStream inputStream = urlConnection.getInputStream();
@@ -150,8 +160,8 @@ public class CreateFunctionStmt extends DdlStmt {
     private void analyzeUda() throws AnalysisException {
         AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
-        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType())
-                .intermediateType(intermediateType.getType()).objectFile(objectFile);
+        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
+                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).objectFile(objectFile);
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null) {
             throw new AnalysisException("No 'init_fn' in properties");
@@ -177,10 +187,12 @@ public class CreateFunctionStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");
         }
+        String prepareFnSymbol = properties.get(PREPARE_SYMBOL_KEY);
+        String closeFnSymbol = properties.get(CLOSE_SYMBOL_KEY);
         function = ScalarFunction.createUdf(
                 functionName, argsDef.getArgTypes(),
                 returnType.getType(), argsDef.isVariadic(),
-                objectFile, symbol);
+                objectFile, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
     }
 

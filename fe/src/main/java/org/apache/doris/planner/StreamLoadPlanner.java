@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
@@ -26,7 +27,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.task.StreamLoadTask;
@@ -52,7 +56,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 // Used to generate a plan fragment for a streaming load.
 // we only support OlapTable now.
@@ -74,18 +77,29 @@ public class StreamLoadPlanner {
         this.db = db;
         this.destTable = destTable;
         this.streamLoadTask = streamLoadTask;
-        analyzer = new Analyzer(Catalog.getInstance(), null);
+    }
+
+    private void resetAnalyzer() {
+        analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
         // TODO(cmy): currently we do not support UDF in stream load command.
         // Because there is no way to check the privilege of accessing UDF..
         analyzer.setUDFAllowed(false);
         descTable = analyzer.getDescTbl();
     }
 
-    public TExecPlanFragmentParams plan() throws UserException {
+    // can only be called after "plan()", or it will return null
+    public OlapTable getDestTable() {
+        return destTable;
+    }
+
+    // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
+    public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+        resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = streamLoadTask.getNegative();
-        for (Column col : destTable.getBaseSchema()) {
+        // here we should be full schema to fill the descriptor table
+        for (Column col : destTable.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
@@ -96,15 +110,16 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
         scanNode.init(analyzer);
         descTable.computeMemLayout();
         scanNode.finalize(analyzer);
 
         // create dest sink
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
-        olapTableSink.init(streamLoadTask.getId(), streamLoadTask.getTxnId(), db.getId());
-        olapTableSink.finalize();
+        List<Long> partitionIds = getAllPartitionIds();
+        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
+        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId(), streamLoadTask.getTimeout());
+        olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
@@ -120,11 +135,9 @@ public class StreamLoadPlanner {
         params.setDesc_tbl(analyzer.getDescTbl().toThrift());
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
-        // Only use fragment id
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        execParams.setQuery_id(queryId);
-        execParams.setFragment_instance_id(new TUniqueId(queryId.hi, queryId.lo + 1));
+        // user load id (streamLoadTask.id) as query id
+        execParams.setQuery_id(loadId);
+        execParams.setFragment_instance_id(new TUniqueId(loadId.hi, loadId.lo + 1));
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
@@ -141,9 +154,14 @@ public class StreamLoadPlanner {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQuery_type(TQueryType.LOAD);
         queryOptions.setQuery_timeout(streamLoadTask.getTimeout());
+        queryOptions.setMem_limit(streamLoadTask.getMemLimit());
+        // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
+        queryOptions.setLoad_mem_limit(streamLoadTask.getMemLimit());
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
+        queryGlobals.setTimestamp_ms(new Date().getTime());
+        queryGlobals.setTime_zone(streamLoadTask.getTimezone());
         params.setQuery_globals(queryGlobals);
 
         // set load error hub if exist
@@ -157,5 +175,27 @@ public class StreamLoadPlanner {
 
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
+    }
+
+    // get all specified partition ids.
+    // if no partition specified, return all partitions
+    private List<Long> getAllPartitionIds() throws DdlException {
+        List<Long> partitionIds = Lists.newArrayList();
+
+        PartitionNames partitionNames = streamLoadTask.getPartitions();
+        if (partitionNames != null) {
+            for (String partName : partitionNames.getPartitionNames()) {
+                Partition part = destTable.getPartition(partName, partitionNames.isTemp());
+                if (part == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
+                }
+                partitionIds.add(part.getId());
+            }
+        } else {
+            for (Partition partition : destTable.getPartitions()) {
+                partitionIds.add(partition.getId());
+            }
+        }
+        return partitionIds;
     }
 }

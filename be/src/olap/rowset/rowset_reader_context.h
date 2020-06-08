@@ -18,59 +18,43 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
-#include "olap/schema.h"
+#include "olap/olap_common.h"
 #include "olap/column_predicate.h"
-#include "olap/row_cursor.h"
-#include "olap/row_block.h"
-#include "olap/lru_cache.h"
-#include "olap/olap_cond.h"
-#include "olap/delete_handler.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 
-struct RowsetReaderContext {
-    RowsetReaderContext() : reader_type(READER_QUERY),
-        tablet_schema(nullptr),
-        preaggregation(false),
-        return_columns(nullptr),
-        seek_columns(nullptr),
-        load_bf_columns(nullptr),
-        conditions(nullptr),
-        predicates(nullptr),
-        lower_bound_keys(nullptr),
-        is_lower_keys_included(nullptr),
-        upper_bound_keys(nullptr),
-        is_upper_keys_included(nullptr),
-        delete_handler(nullptr),
-        stats(nullptr),
-        is_using_cache(false),
-        lru_cache(nullptr),
-        runtime_state(nullptr) { }
+class RowCursor;
+class Conditions;
+class DeleteHandler;
+class TabletSchema;
 
-    ReaderType reader_type;
-    const TabletSchema* tablet_schema;
-    bool preaggregation;
-    // projection columns
-    const std::vector<uint32_t>* return_columns;
-    const std::vector<uint32_t>* seek_columns;
+struct RowsetReaderContext {
+    ReaderType reader_type = READER_QUERY;
+    const TabletSchema* tablet_schema = nullptr;
+    // whether rowset should return ordered rows.
+    bool need_ordered_result = true;
+    // projection columns: the set of columns rowset reader should return
+    const std::vector<uint32_t>* return_columns = nullptr;
+    // set of columns used to prune rows that doesn't satisfy key ranges and `conditions`.
+    // currently it contains all columns from `return_columns`, `conditions`, `lower_bound_keys`, and `upper_bound_keys`
+    const std::vector<uint32_t>* seek_columns = nullptr;
     // columns to load bloom filter index
     // including columns in "=" or "in" conditions
-    const std::set<uint32_t>* load_bf_columns;
+    const std::set<uint32_t>* load_bf_columns = nullptr;
     // column filter conditions by delete sql
-    const Conditions* conditions;
+    const Conditions* conditions = nullptr;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
-    const std::vector<ColumnPredicate*>* predicates;
-    const std::vector<RowCursor*>* lower_bound_keys;
-    const std::vector<bool>* is_lower_keys_included;
-    const std::vector<RowCursor*>* upper_bound_keys;
-    const std::vector<bool>* is_upper_keys_included;
-    const DeleteHandler* delete_handler;
-    OlapReaderStatistics* stats;
-    bool is_using_cache;
-    Cache* lru_cache;
-    RuntimeState* runtime_state;
+    const std::vector<ColumnPredicate*>* predicates = nullptr;
+    const std::vector<RowCursor*>* lower_bound_keys = nullptr;
+    const std::vector<bool>* is_lower_keys_included = nullptr;
+    const std::vector<RowCursor*>* upper_bound_keys = nullptr;
+    const std::vector<bool>* is_upper_keys_included = nullptr;
+    const DeleteHandler* delete_handler = nullptr;
+    OlapReaderStatistics* stats = nullptr;
+    RuntimeState* runtime_state = nullptr;
+    bool use_page_cache = false;
 };
 
 } // namespace doris

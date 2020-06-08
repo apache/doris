@@ -36,7 +36,7 @@ public abstract class LoadTask extends MasterTask {
     protected FailMsg failMsg = new FailMsg();
     protected int retryTime = 1;
 
-    public LoadTask(LoadTaskCallback callback){
+    public LoadTask(LoadTaskCallback callback) {
         this.signature = Catalog.getCurrentCatalog().getNextId();
         this.callback = callback;
     }
@@ -50,10 +50,14 @@ public abstract class LoadTask extends MasterTask {
             // callback on pending task finished
             callback.onTaskFinished(attachment);
             isFinished = true;
+        } catch (UserException e) {
+            failMsg.setMsg(e.getMessage() == null ? "" : e.getMessage());
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                    .add("error_msg", "Failed to execute load task").build());
         } catch (Exception e) {
             failMsg.setMsg(e.getMessage() == null ? "" : e.getMessage());
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                             .add("error_msg", "Failed to execute load task").build(), e);
+                    .add("error_msg", "Unexpected failed to execute load task").build(), e);
         } finally {
             if (!isFinished) {
                 // callback on pending task failed
@@ -73,6 +77,7 @@ public abstract class LoadTask extends MasterTask {
         return retryTime;
     }
 
+    // Derived class may need to override this.
     public void updateRetryInfo() {
         this.retryTime--;
         this.signature = Catalog.getCurrentCatalog().getNextId();

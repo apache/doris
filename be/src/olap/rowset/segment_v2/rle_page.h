@@ -17,18 +17,18 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
-#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
-#include "util/rle_encoding.h" // for RleEncoder/RleDecoder
 #include "util/coding.h" // for encode_fixed32_le/decode_fixed32_le
+#include "util/rle_encoding.h" // for RleEncoder/RleDecoder
+#include "util/slice.h" // for OwnedSlice
 
 namespace doris {
 namespace segment_v2 {
 
 enum {
-    RLE_BLOCK_HEADER_SIZE = 4
+    RLE_PAGE_HEADER_SIZE = 4
 };
 
 // RLE builder for generic integer and bool types. What is missing is some way
@@ -85,44 +85,63 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
-        DCHECK_EQ(reinterpret_cast<uintptr_t>(vals) & (alignof(CppType) - 1), 0)
-                << "Pointer passed to Add() must be naturally-aligned";
-
-        const CppType* new_vals = reinterpret_cast<const CppType*>(vals);
+        auto new_vals = reinterpret_cast<const CppType*>(vals);
         for (int i = 0; i < *count; ++i) {
-            _rle_encoder->Put(new_vals[i]);
+            // note: vals is not guaranteed to be aligned for now, thus memcpy here
+            CppType value;
+            memcpy(&value, &new_vals[i], SIZE_OF_TYPE);
+            _rle_encoder->Put(value);
         }
-        
+
+        if (_count == 0) {
+            memcpy(&_first_value, new_vals, SIZE_OF_TYPE);
+        }
+        memcpy(&_last_value, &new_vals[*count - 1], SIZE_OF_TYPE);
+
         _count += *count;
         return Status::OK();
     }
 
-    Slice finish() override {
+    OwnedSlice finish() override {
+        DCHECK(!_finished);
         _finished = true;
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
         encode_fixed32_le(&_buf[0], _count);
-        return Slice(_buf.data(), _buf.size());
+        return _buf.build();
     }
 
     void reset() override {
         _count = 0;
         _rle_encoder->Clear();
-        _rle_encoder->Reserve(RLE_BLOCK_HEADER_SIZE, 0);
+        _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
     }
 
     size_t count() const override {
         return _count;
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buf.release();
-        (void)ret;
+    uint64_t size() const override {
+        return _rle_encoder->len();
+    }
+
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_value, SIZE_OF_TYPE);
+        return Status::OK();
     }
 
 private:
@@ -137,6 +156,8 @@ private:
     int _bit_width;
     RleEncoder<CppType>* _rle_encoder;
     faststring _buf;
+    CppType _first_value;
+    CppType _last_value;
 };
 
 template<FieldType Type>
@@ -153,7 +174,7 @@ public:
     Status init() override {
         CHECK(!_parsed);
 
-        if (_data.size < RLE_BLOCK_HEADER_SIZE) {
+        if (_data.size < RLE_PAGE_HEADER_SIZE) {
             return Status::Corruption(
                 "not enough bytes for header in RleBitMapBlockDecoder");
         }
@@ -172,8 +193,8 @@ public:
             }
         }
 
-        _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_BLOCK_HEADER_SIZE,
-                 _data.size - RLE_BLOCK_HEADER_SIZE, _bit_width);
+        _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                 _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
 
         seek_to_position_in_page(0);
         return Status::OK();
@@ -194,8 +215,8 @@ public:
             uint nskip = pos - _cur_index;
             _rle_decoder.Skip(nskip);
         } else {
-            _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_BLOCK_HEADER_SIZE,
-                    _data.size - RLE_BLOCK_HEADER_SIZE, _bit_width);
+            _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                    _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
             _rle_decoder.Skip(pos);
         }
         _cur_index = pos;

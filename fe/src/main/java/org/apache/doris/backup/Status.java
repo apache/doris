@@ -27,7 +27,8 @@ public class Status {
         IS_FILE,
         TIMEOUT,
         BAD_CONNECTION,
-        COMMON_ERROR
+        COMMON_ERROR,
+        OLAP_VERSION_ALREADY_MERGED
     }
 
     private ErrCode errCode;

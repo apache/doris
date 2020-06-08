@@ -17,25 +17,30 @@
 
 package org.apache.doris.load;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.gson.Gson;
-import org.apache.commons.lang.StringUtils;
+import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Predicate;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AggregateType;
@@ -44,6 +49,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -51,6 +57,7 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -67,12 +74,11 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
@@ -82,22 +88,32 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
-import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
-import org.apache.doris.task.AgentTask;
-import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
+import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
-import org.apache.doris.thrift.TPushType;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
+import org.apache.doris.transaction.TransactionNotFoundException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import com.google.gson.Gson;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -113,7 +129,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Load {
@@ -235,7 +250,8 @@ public class Load {
 
     // return true if we truly add the load job
     // return false otherwise (eg: a retry request)
-    public boolean addLoadJob(TMiniLoadRequest request) throws DdlException {
+    @Deprecated
+    public boolean addMiniLoadJob(TMiniLoadRequest request) throws DdlException {
         // get params
         String fullDbName = request.getDb();
         String tableName = request.getTbl();
@@ -297,8 +313,8 @@ public class Load {
             formatType = params.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
         }
 
-        DataDescription dataDescription = new DataDescription(tableName, partitionNames, filePaths, columnNames,
-                                                    columnSeparator, formatType, false, null);
+        DataDescription dataDescription = new DataDescription(tableName, new PartitionNames(false, partitionNames),
+                filePaths, columnNames, columnSeparator, formatType, false, null);
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
         // parse hll param pair
@@ -351,63 +367,13 @@ public class Load {
     public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
         // get db
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
 
         // create job
         LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
-        addLoadJob(job, db);
-    }
-
-    // for insert select from or create as stmt
-    public void addLoadJob(String label, String dbName,
-                           long tableId, Map<Long, Integer> indexIdToSchemaHash,
-                           long transactionId,
-                           List<String> fileList, long timestamp) throws DdlException {
-        // get db and table
-        Database db = Catalog.getInstance().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
-
-        OlapTable table = null;
-        db.readLock();
-        try {
-            table = (OlapTable) db.getTable(tableId);
-        } finally {
-            db.readUnlock();
-        }
-        if (table == null) {
-            throw new DdlException("Table[" + tableId + "] does not exist");
-        }
-
-        // create job
-        DataDescription desc = new DataDescription(table.getName(), null, Lists.newArrayList(""),
-                                                   null, null, false, null);
-        LoadStmt stmt = new LoadStmt(new LabelName(dbName, label), Lists.newArrayList(desc), null, null, null);
-        LoadJob job = createLoadJob(stmt, EtlJobType.INSERT, db, timestamp);
-
-        // add schema hash
-        for (Map.Entry<Long, Integer> entry : indexIdToSchemaHash.entrySet()) {
-            job.getTableLoadInfo(tableId).addIndexSchemaHash(entry.getKey(), entry.getValue());
-        }
-
-        // file size use -1 temporarily
-        Map<String, Long> fileMap = Maps.newHashMap();
-        for (String filePath : fileList) {
-            fileMap.put(filePath, -1L);
-        }
-
-        // update job info to etl finish
-        EtlStatus status = job.getEtlJobStatus();
-        status.setState(TEtlState.FINISHED);
-        status.setFileMap(fileMap);
-        job.setState(JobState.ETL);
-        job.setTransactionId(transactionId);
-
-        // add load job
         addLoadJob(job, db);
     }
 
@@ -418,7 +384,7 @@ public class Load {
         // for original job, check quota
         // for delete job, not check
         if (!job.isSyncDeleteJob()) {
-            db.checkQuota();
+            db.checkDataSizeQuota();
         }
 
         // check if table is in restore process
@@ -440,7 +406,7 @@ public class Load {
         try {
             unprotectAddLoadJob(job, false /* not replay */);
             MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-            Catalog.getInstance().getEditLog().logLoadStart(job);
+            Catalog.getCurrentCatalog().getEditLog().logLoadStart(job);
         } finally {
             writeUnlock();
         }
@@ -496,12 +462,7 @@ public class Load {
             }
 
             if (properties.containsKey(LoadStmt.LOAD_DELETE_FLAG_PROPERTY)) {
-                String flag = properties.get(LoadStmt.LOAD_DELETE_FLAG_PROPERTY);
-                if (flag.equalsIgnoreCase("true") || flag.equalsIgnoreCase("false")) {
-                    job.setDeleteFlag(Boolean.parseBoolean(flag));
-                } else {
-                    throw new DdlException("Value of delete flag is invalid");
-                }
+                throw new DdlException("Do not support load_delete_flag");
             }
 
             if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
@@ -519,7 +480,7 @@ public class Load {
         Map<Long, Map<Long, List<Source>>> tableToPartitionSources = Maps.newHashMap();
         for (DataDescription dataDescription : dataDescriptions) {
             // create source
-            checkAndCreateSource(db, dataDescription, tableToPartitionSources, job.getDeleteFlag());
+            checkAndCreateSource(db, dataDescription, tableToPartitionSources, etlJobType);
             job.addTableName(dataDescription.getTableName());
         }
         for (Entry<Long, Map<Long, List<Source>>> tableEntry : tableToPartitionSources.entrySet()) {
@@ -536,14 +497,14 @@ public class Load {
         job.setIdToTableLoadInfo(idToTableLoadInfo);
 
         if (etlJobType == EtlJobType.BROKER) {
-            PullLoadSourceInfo sourceInfo = new PullLoadSourceInfo();
+            BrokerFileGroupAggInfo sourceInfo = new BrokerFileGroupAggInfo();
             for (DataDescription dataDescription : dataDescriptions) {
                 BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-                fileGroup.parse(db);
+                fileGroup.parse(db, dataDescription);
                 sourceInfo.addFileGroup(fileGroup);
             }
             job.setPullLoadSourceInfo(sourceInfo);
-            LOG.info("Source info is {}", sourceInfo);
+            LOG.info("source info is {}", sourceInfo);
         }
 
         if (etlJobType == EtlJobType.MINI) {
@@ -630,7 +591,7 @@ public class Load {
         } else if (etlJobType == EtlJobType.BROKER) {
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
-                job.setTimeoutSecond(Config.pull_load_task_default_timeout_second);
+                job.setTimeoutSecond(Config.broker_load_default_timeout_second);
             }
         } else if (etlJobType == EtlJobType.INSERT) {
             job.setPrority(TPriority.HIGH);
@@ -641,15 +602,16 @@ public class Load {
         }
 
         // job id
-        job.setId(Catalog.getInstance().getNextId());
+        job.setId(Catalog.getCurrentCatalog().getNextId());
 
         return job;
     }
 
+    /*
+     * This is only used for hadoop load
+     */
     public static void checkAndCreateSource(Database db, DataDescription dataDescription,
-                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
-                                            boolean deleteFlag)
-            throws DdlException {
+            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
         Source source = new Source(dataDescription.getFilePaths());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -668,9 +630,13 @@ public class Load {
                 throw new DdlException("Table [" + tableName + "] is not olap table");
             }
 
+            if (((OlapTable) table).getPartitionInfo().isMultiColumnPartition() && jobType == EtlJobType.HADOOP) {
+                throw new DdlException("Load by hadoop cluster does not support table with multi partition columns."
+                        + " Table: " + table.getName() + ". Try using broker load. See 'help broker load;'");
+            }
+
             // check partition
             if (dataDescription.getPartitionNames() != null &&
-                    !dataDescription.getPartitionNames().isEmpty() &&
                     ((OlapTable) table).getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
@@ -683,30 +649,30 @@ public class Load {
                 throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
             }
 
-            if (((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS && deleteFlag) {
-                throw new DdlException("Delete flag can only be used for UNIQUE_KEYS table");
-            }
-
             // get table schema
-            List<Column> tableSchema = table.getBaseSchema();
-            Map<String, Column> nameToTableColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (Column column : tableSchema) {
-                nameToTableColumn.put(column.getName(), column);
-            }
+            List<Column> baseSchema = table.getBaseSchema();
+            // fill the column info if user does not specify them
+            dataDescription.fillColumnInfoIfNotSpecified(baseSchema);
 
             // source columns
             List<String> columnNames = Lists.newArrayList();
-            List<String> assignColumnNames = dataDescription.getColumnNames();
-            if (assignColumnNames == null) {
+            List<String> assignColumnNames = Lists.newArrayList();
+            if (dataDescription.getFileFieldNames() != null) {
+                assignColumnNames.addAll(dataDescription.getFileFieldNames());
+                if (dataDescription.getColumnsFromPath() != null) {
+                    assignColumnNames.addAll(dataDescription.getColumnsFromPath());
+                }
+            }
+            if (assignColumnNames.isEmpty()) {
                 // use table columns
-                for (Column column : tableSchema) {
+                for (Column column : baseSchema) {
                     columnNames.add(column.getName());
                 }
             } else {
                 // convert column to schema format
                 for (String assignCol : assignColumnNames) {
-                    if (nameToTableColumn.containsKey(assignCol)) {
-                        columnNames.add(nameToTableColumn.get(assignCol).getName());
+                    if (table.getColumn(assignCol) != null) {
+                        columnNames.add(table.getColumn(assignCol).getName());
                     } else {
                         columnNames.add(assignCol);
                     }
@@ -715,14 +681,19 @@ public class Load {
             source.setColumnNames(columnNames);
 
             // check default value
-            Map<String, Pair<String, List<String>>> assignColumnToFunction = dataDescription.getColumnMapping();
-            for (Column column : tableSchema) {
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+            List<ImportColumnDesc> parsedColumnExprList = dataDescription.getParsedColumnExprList();
+            Map<String, Expr> parsedColumnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+                parsedColumnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
+            }
+            for (Column column : baseSchema) {
                 String columnName = column.getName();
                 if (columnNames.contains(columnName)) {
                     continue;
                 }
 
-                if (assignColumnToFunction != null && assignColumnToFunction.containsKey(columnName)) {
+                if (parsedColumnExprMap.containsKey(columnName)) {
                     continue;
                 }
 
@@ -730,20 +701,12 @@ public class Load {
                     continue;
                 }
 
-                if (deleteFlag && !column.isKey()) {
-                    List<String> args = Lists.newArrayList();
-                    args.add("0");
-                    Pair<String, List<String>> functionPair = new Pair<String, List<String>>("default_value", args);
-                    assignColumnToFunction.put(columnName, functionPair);
-                    continue;
-                }
-
                 throw new DdlException("Column has no default value. column: " + columnName);
             }
 
-            // check negative for sum aggreate type
+            // check negative for sum aggregate type
             if (dataDescription.isNegative()) {
-                for (Column column : tableSchema) {
+                for (Column column : baseSchema) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
                         throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
                     }
@@ -751,33 +714,87 @@ public class Load {
             }
 
             // check hll
-            for (Column column : tableSchema) {
+            for (Column column : baseSchema) {
                 if (column.getDataType() == PrimitiveType.HLL) {
-                    if (assignColumnToFunction != null && !assignColumnToFunction.containsKey(column.getName())) {
+                    if (columnToHadoopFunction != null && !columnToHadoopFunction.containsKey(column.getName())) {
                         throw new DdlException("Hll column is not assigned. column:" + column.getName());
                     }
                 }
             }
+
             // check mapping column exist in table
             // check function
             // convert mapping column and func arg columns to schema format
+            
+            // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
+            // their names. These columns are invisible to user, but we need to generate data for these columns.
+            // So we add column mappings for these column.
+            // eg1:
+            // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
+            // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
+            for (Column column : table.getFullSchema()) {
+                if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                    String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+                    if (parsedColumnExprMap.containsKey(originCol)) {
+                        Expr mappingExpr = parsedColumnExprMap.get(originCol);
+                        if (mappingExpr != null) {
+                            /*
+                             * eg:
+                             * (A, C) SET (B = func(xx)) 
+                             * ->
+                             * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
+                             */
+                            if (columnToHadoopFunction.containsKey(originCol)) {
+                                columnToHadoopFunction.put(column.getName(), columnToHadoopFunction.get(originCol));
+                            }
+                            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
+                            parsedColumnExprList.add(importColumnDesc);
+                        } else {
+                            /*
+                             * eg:
+                             * (A, B, C)
+                             * ->
+                             * (A, B, C) SET (__doris_shadow_B = substitute(B))
+                             */
+                            columnToHadoopFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
+                            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
+                            parsedColumnExprList.add(importColumnDesc);
+                        }
+                    } else {
+                        /*
+                         * There is a case that if user does not specify the related origin column, eg:
+                         * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
+                         * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
+                         * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
+                         */
+                        // do nothing
+                    }
+                    
+                }
+            }
+            
+            LOG.debug("after add shadow column. parsedColumnExprList: {}, columnToHadoopFunction: {}",
+                    parsedColumnExprList, columnToHadoopFunction);
+
             Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (String columnName : columnNames) {
                 columnNameMap.put(columnName, columnName);
             }
-            if (assignColumnToFunction != null) {
+
+            // validate hadoop functions
+            if (columnToHadoopFunction != null) {
                 columnToFunction = Maps.newHashMap();
-                for (Entry<String, Pair<String, List<String>>> entry : assignColumnToFunction.entrySet()) {
+                for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                     String mappingColumnName = entry.getKey();
-                    if (!nameToTableColumn.containsKey(mappingColumnName)) {
+                    Column mappingColumn = table.getColumn(mappingColumnName);
+                    if (mappingColumn == null) {
                         throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
                     }
 
-                    Column mappingColumn = nameToTableColumn.get(mappingColumnName);
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                                                                mappingColumn, dataDescription.isPullLoad());
+                                                                mappingColumn, dataDescription.isHadoopLoad());
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -788,19 +805,19 @@ public class Load {
 
             // partitions of this source
             OlapTable olapTable = (OlapTable) table;
-            List<String> partitionNames = dataDescription.getPartitionNames();
-            if (partitionNames == null || partitionNames.isEmpty()) {
-                partitionNames = new ArrayList<String>();
+            PartitionNames partitionNames = dataDescription.getPartitionNames();
+            if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
-                    partitionNames.add(partition.getName());
+                    sourcePartitionIds.add(partition.getId());
                 }
-            }
-            for (String partitionName : partitionNames) {
-                Partition partition = olapTable.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition [" + partitionName + "] does not exist");
+            } else {
+                for (String partitionName : partitionNames.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partitionName, partitionNames.isTemp());
+                    if (partition == null) {
+                        throw new DdlException("Partition [" + partitionName + "] does not exist");
+                    }
+                    sourcePartitionIds.add(partition.getId());
                 }
-                sourcePartitionIds.add(partition.getId());
             }
         } finally {
             db.readUnlock();
@@ -844,6 +861,344 @@ public class Load {
             }
             sources.add(source);
         }
+    }
+
+    /*
+     * This function will do followings:
+     * 1. fill the column exprs if user does not specify any column or column mapping.
+     * 2. For not specified columns, check if they have default value.
+     * 3. Add any shadow columns if have.
+     * 4. validate hadoop functions
+     * 5. init slot descs and expr map for load plan
+     * 
+     * This function should be used for broker load v2 and stream load.
+     * And it must be called in same db lock when planing.
+     */
+    public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+            Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
+            Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+        // check mapping column exist in schema
+        // !! all column mappings are in columnExprs !!
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            if (importColumnDesc.isColumn()) {
+                continue;
+            }
+
+            String mappingColumnName = importColumnDesc.getColumnName();
+            if (tbl.getColumn(mappingColumnName) == null) {
+                throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
+            }
+        }
+
+        // We make a copy of the columnExprs so that our subsequent changes
+        // to the columnExprs will not affect the original columnExprs.
+        List<ImportColumnDesc> copiedColumnExprs = Lists.newArrayList(columnExprs);
+
+        // If user does not specify the file field names, generate it by using base schema of table.
+        // So that the following process can be unified
+        boolean specifyFileFieldNames = copiedColumnExprs.stream().anyMatch(p -> p.isColumn());
+        if (!specifyFileFieldNames) {
+            List<Column> columns = tbl.getBaseSchema();
+            for (Column column : columns) {
+                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                LOG.debug("add base column {} to stream load task", column.getName());
+                copiedColumnExprs.add(columnDesc);
+            }
+        }
+        // generate a map for checking easily
+        Map<String, Expr> columnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
+            columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
+        }
+
+        // check default value
+        for (Column column : tbl.getBaseSchema()) {
+            String columnName = column.getName();
+            if (columnExprMap.containsKey(columnName)) {
+                continue;
+            }
+            if (column.getDefaultValue() != null || column.isAllowNull()) {
+                continue;
+            }
+            throw new DdlException("Column has no default value. column: " + columnName);
+        }
+
+        // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
+        // their names. These columns are invisible to user, but we need to generate data for these columns.
+        // So we add column mappings for these column.
+        // eg1:
+        // base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
+        // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
+        for (Column column : tbl.getFullSchema()) {
+            if (!column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+                continue;
+            }
+
+            String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+            if (columnExprMap.containsKey(originCol)) {
+                Expr mappingExpr = columnExprMap.get(originCol);
+                if (mappingExpr != null) {
+                    /*
+                     * eg:
+                     * (A, C) SET (B = func(xx)) 
+                     * ->
+                     * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
+                     */
+                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
+                    copiedColumnExprs.add(importColumnDesc);
+                } else {
+                    /*
+                     * eg:
+                     * (A, B, C)
+                     * ->
+                     * (A, B, C) SET (__doris_shadow_B = B)
+                     */
+                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
+                            new SlotRef(null, originCol));
+                    copiedColumnExprs.add(importColumnDesc);
+                }
+            } else {
+                /*
+                 * There is a case that if user does not specify the related origin column, eg:
+                 * COLUMNS (A, C), and B is not specified, but B is being modified so there is a shadow column '__doris_shadow_B'.
+                 * We can not just add a mapping function "__doris_shadow_B = substitute(B)", because Doris can not find column B.
+                 * In this case, __doris_shadow_B can use its default value, so no need to add it to column mapping
+                 */
+                // do nothing
+            }
+        }
+
+        // validate hadoop functions
+        if (columnToHadoopFunction != null) {
+            Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
+                if (importColumnDesc.isColumn()) {
+                    columnNameMap.put(importColumnDesc.getColumnName(), importColumnDesc.getColumnName());
+                }
+            }
+            for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
+                String mappingColumnName = entry.getKey();
+                Column mappingColumn = tbl.getColumn(mappingColumnName);
+                Pair<String, List<String>> function = entry.getValue();
+                try {
+                    DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
+                            mappingColumn, false);
+                } catch (AnalysisException e) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+        }
+
+        // init slot desc add expr map, also transform hadoop functions
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
+            // make column name case match with real column name
+            String columnName = importColumnDesc.getColumnName();
+            String realColName = tbl.getColumn(columnName) == null ? columnName
+                    : tbl.getColumn(columnName).getName();
+            if (importColumnDesc.getExpr() != null) {
+                Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
+                exprsByName.put(realColName, expr);
+            } else {
+                SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                slotDesc.setIsMaterialized(true);
+                // ISSUE A: src slot should be nullable even if the column is not nullable.
+                // because src slot is what we read from file, not represent to real column value.
+                // If column is not nullable, error will be thrown when filling the dest slot,
+                // which is not nullable.
+                slotDesc.setIsNullable(true);
+                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                params.addToSrc_slot_ids(slotDesc.getId().asInt());
+                slotDescByName.put(realColName, slotDesc);
+            }
+        }
+        LOG.debug("slotDescByName: {}, exprsByName: {}", slotDescByName, exprsByName);
+
+        // analyze all exprs
+        for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
+            ExprSubstitutionMap smap = new ExprSubstitutionMap();
+            List<SlotRef> slots = Lists.newArrayList();
+            entry.getValue().collect(SlotRef.class, slots);
+            for (SlotRef slot : slots) {
+                SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
+                if (slotDesc == null) {
+                    throw new UserException("unknown reference column, column=" + entry.getKey()
+                            + ", reference=" + slot.getColumnName());
+                }
+                smap.getLhs().add(slot);
+                smap.getRhs().add(new SlotRef(slotDesc));
+            }
+            Expr expr = entry.getValue().clone(smap);
+            expr.analyze(analyzer);
+
+            // check if contain aggregation
+            List<FunctionCallExpr> funcs = Lists.newArrayList();
+            expr.collect(FunctionCallExpr.class, funcs);
+            for (FunctionCallExpr fn : funcs) {
+                if (fn.isAggregateFunction()) {
+                    throw new AnalysisException("Don't support aggregation function in load expression");
+                }
+            }
+            exprsByName.put(entry.getKey(), expr);
+        }
+        LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    /**
+     * This method is used to transform hadoop function.
+     * The hadoop function includes: replace_value, strftime, time_format, alignment_timestamp, default_value, now.
+     * It rewrites those function with real function name and param.
+     * For the other function, the expr only go through this function and the origin expr is returned.
+     * 
+     * @param columnName
+     * @param originExpr
+     * @return
+     * @throws UserException
+     */
+    private static Expr transformHadoopFunctionExpr(Table tbl, String columnName, Expr originExpr)
+            throws UserException {
+        Column column = tbl.getColumn(columnName);
+        if (column == null) {
+            // the unknown column will be checked later.
+            return originExpr;
+        }
+
+        // To compatible with older load version
+        if (originExpr instanceof FunctionCallExpr) {
+            FunctionCallExpr funcExpr = (FunctionCallExpr) originExpr;
+            String funcName = funcExpr.getFnName().getFunction();
+
+            if (funcName.equalsIgnoreCase("replace_value")) {
+                List<Expr> exprs = Lists.newArrayList();
+                SlotRef slotRef = new SlotRef(null, columnName);
+                // We will convert this to IF(`col` != child0, `col`, child1),
+                // because we need the if return type equal to `col`, we use NE
+
+                /*
+                 * We will convert this based on different cases:
+                 * case 1: k1 = replace_value(null, anyval);
+                 *     to: k1 = if (k1 is not null, k1, anyval);
+                 * 
+                 * case 2: k1 = replace_value(anyval1, anyval2);
+                 *     to: k1 = if (k1 is not null, if(k1 != anyval1, k1, anyval2), null);
+                 */
+                if (funcExpr.getChild(0) instanceof NullLiteral) {
+                    // case 1
+                    exprs.add(new IsNullPredicate(slotRef, true));
+                    exprs.add(slotRef);
+                    if (funcExpr.hasChild(1)) {
+                        exprs.add(funcExpr.getChild(1));
+                    } else {
+                        if (column.getDefaultValue() != null) {
+                            exprs.add(new StringLiteral(column.getDefaultValue()));
+                        } else {
+                            if (column.isAllowNull()) {
+                                exprs.add(NullLiteral.create(Type.VARCHAR));
+                            } else {
+                                throw new UserException("Column(" + columnName + ") has no default value.");
+                            }
+                        }
+                    }
+                } else {
+                    // case 2
+                    exprs.add(new IsNullPredicate(slotRef, true));
+                    List<Expr> innerIfExprs = Lists.newArrayList();
+                    innerIfExprs.add(new BinaryPredicate(BinaryPredicate.Operator.NE, slotRef, funcExpr.getChild(0)));
+                    innerIfExprs.add(slotRef);
+                    if (funcExpr.hasChild(1)) {
+                        innerIfExprs.add(funcExpr.getChild(1));
+                    } else {
+                        if (column.getDefaultValue() != null) {
+                            innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
+                        } else {
+                            if (column.isAllowNull()) {
+                                innerIfExprs.add(NullLiteral.create(Type.VARCHAR));
+                            } else {
+                                throw new UserException("Column(" + columnName + ") has no default value.");
+                            }
+                        }
+                    }
+                    FunctionCallExpr innerIfFn = new FunctionCallExpr("if", innerIfExprs);
+                    exprs.add(innerIfFn);
+                    exprs.add(NullLiteral.create(Type.VARCHAR));
+                }
+
+                LOG.debug("replace_value expr: {}", exprs);
+                FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
+                return newFn;
+            } else if (funcName.equalsIgnoreCase("strftime")) {
+                // FROM_UNIXTIME(val)
+                FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
+                List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
+                FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
+                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+
+                return fromUnixFunc;
+            } else if (funcName.equalsIgnoreCase("time_format")) {
+                // DATE_FORMAT(STR_TO_DATE(dt_str, dt_fmt))
+                FunctionName strToDateName = new FunctionName("STR_TO_DATE");
+                List<Expr> strToDateExprs = Lists.newArrayList(funcExpr.getChild(2), funcExpr.getChild(1));
+                FunctionCallExpr strToDateFuncExpr = new FunctionCallExpr(
+                        strToDateName, new FunctionParams(false, strToDateExprs));
+
+                FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
+                List<Expr> dateFormatArgs = Lists.newArrayList(strToDateFuncExpr, funcExpr.getChild(0));
+                FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
+                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+
+                return dateFormatFunc;
+            } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
+                /*
+                 * change to:
+                 * UNIX_TIMESTAMP(DATE_FORMAT(FROM_UNIXTIME(ts), "%Y-01-01 00:00:00"));
+                 * 
+                 */
+
+                // FROM_UNIXTIME
+                FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
+                List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
+                FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
+                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+
+                // DATE_FORMAT
+                StringLiteral precision = (StringLiteral) funcExpr.getChild(0);
+                StringLiteral format;
+                if (precision.getStringValue().equalsIgnoreCase("year")) {
+                    format = new StringLiteral("%Y-01-01 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("month")) {
+                    format = new StringLiteral("%Y-%m-01 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("day")) {
+                    format = new StringLiteral("%Y-%m-%d 00:00:00");
+                } else if (precision.getStringValue().equalsIgnoreCase("hour")) {
+                    format = new StringLiteral("%Y-%m-%d %H:00:00");
+                } else {
+                    throw new UserException("Unknown precision(" + precision.getStringValue() + ")");
+                }
+                FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
+                List<Expr> dateFormatArgs = Lists.newArrayList(fromUnixFunc, format);
+                FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
+                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+
+                // UNIX_TIMESTAMP
+                FunctionName unixTimeName = new FunctionName("UNIX_TIMESTAMP");
+                List<Expr> unixTimeArgs = Lists.newArrayList();
+                unixTimeArgs.add(dateFormatFunc);
+                FunctionCallExpr unixTimeFunc = new FunctionCallExpr(
+                        unixTimeName, new FunctionParams(false, unixTimeArgs));
+
+                return unixTimeFunc;
+            } else if (funcName.equalsIgnoreCase("default_value")) {
+                return funcExpr.getChild(0);
+            } else if (funcName.equalsIgnoreCase("now")) {
+                FunctionName nowFunctionName = new FunctionName("NOW");
+                FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
+                return newFunc;
+            } else if (funcName.equalsIgnoreCase("substitute")) {
+                return funcExpr.getChild(0);
+            }
+        }
+        return originExpr;
     }
 
     public void unprotectAddLoadJob(LoadJob job, boolean isReplay) throws DdlException {
@@ -986,7 +1341,7 @@ public class Load {
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getInstance().getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
         }
@@ -1016,7 +1371,7 @@ public class Load {
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
-        Database db = Catalog.getInstance().getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
         }
@@ -1113,7 +1468,7 @@ public class Load {
 
     public boolean isLabelExist(String dbName, String label) throws DdlException {
         // get load job and check state
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -1142,7 +1497,7 @@ public class Load {
         String label = stmt.getLabel();
 
         // get load job and check state
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -1219,7 +1574,7 @@ public class Load {
         if (job.getBrokerDesc() != null) {
             if (srcState == JobState.ETL) {
                 // Cancel job id
-                Catalog.getInstance().getPullLoadJobMgr().cancelJob(job.getId());
+                Catalog.getCurrentCatalog().getPullLoadJobMgr().cancelJob(job.getId());
             }
         }
         LOG.info("cancel load job success. job: {}", job);
@@ -1388,7 +1743,7 @@ public class Load {
         return jobs;
     }
 
-    public int getLoadJobNum(JobState jobState, long dbId) {
+    public long getLoadJobNum(JobState jobState, long dbId) {
         readLock();
         try {
             List<LoadJob> loadJobs = this.dbToLoadJobs.get(dbId);
@@ -1475,14 +1830,14 @@ public class Load {
                 if (tableNames.isEmpty()) {
                     // forward compatibility
                     if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                                           PrivPredicate.SHOW)) {
+                                                                           PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
                         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                                                                                tblName, PrivPredicate.SHOW)) {
+                                                                                tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
                         }
@@ -1633,7 +1988,7 @@ public class Load {
         }
 
         long dbId = loadJob.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             return infos;
         }
@@ -1679,7 +2034,7 @@ public class Load {
                     long versionHash = partitionLoadInfo.getVersionHash();
 
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, versionHash)) {
+                        if (replica.checkVersionCatchUp(version, versionHash, false)) {
                             continue;
                         }
 
@@ -1783,7 +2138,7 @@ public class Load {
             loadErrorHubParam = LoadErrorHub.Param.createNullParam();
         }
 
-        Catalog.getInstance().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
+        Catalog.getCurrentCatalog().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
 
         LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
@@ -1809,7 +2164,7 @@ public class Load {
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
-        Database db = Catalog.getInstance().getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
             throw new MetaNotFoundException("Unknown database(" + info.dbName + ")");
         }
@@ -1901,8 +2256,8 @@ public class Load {
                                                partitionLoadInfo.getVersionHash(), jobId);
 
                         // update table row count
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
-                            long tableRowCount = 0L;
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                            long indexRowCount = 0L;
                             for (Tablet tablet : materializedIndex.getTablets()) {
                                 long tabletRowCount = 0L;
                                 for (Replica replica : tablet.getReplicas()) {
@@ -1911,9 +2266,9 @@ public class Load {
                                         tabletRowCount = replicaRowCount;
                                     }
                                 }
-                                tableRowCount += tabletRowCount;
+                                indexRowCount += tabletRowCount;
                             }
-                            materializedIndex.setRowCount(tableRowCount);
+                            materializedIndex.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions
                 } // end for tables
@@ -2233,7 +2588,7 @@ public class Load {
                     }
 
                     long dbId = job.getDbId();
-                    Database db = Catalog.getInstance().getDb(dbId);
+                    Database db = Catalog.getCurrentCatalog().getDb(dbId);
                     if (db == null) {
                         LOG.warn("db does not exist. id: {}", dbId);
                         break;
@@ -2266,7 +2621,7 @@ public class Load {
 
         long jobId = job.getId();
         long dbId = job.getDbId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled
@@ -2305,7 +2660,7 @@ public class Load {
                             job.setProgress(0);
                             job.setEtlStartTimeMs(System.currentTimeMillis());
                             job.setState(destState);
-                            Catalog.getInstance().getEditLog().logLoadEtl(job);
+                            Catalog.getCurrentCatalog().getEditLog().logLoadEtl(job);
                             break;
                         case LOADING:
                             idToEtlLoadJob.remove(jobId);
@@ -2313,12 +2668,12 @@ public class Load {
                             job.setProgress(0);
                             job.setLoadStartTimeMs(System.currentTimeMillis());
                             job.setState(destState);
-                            Catalog.getInstance().getEditLog().logLoadLoading(job);
+                            Catalog.getCurrentCatalog().getEditLog().logLoadLoading(job);
                             break;
                         case QUORUM_FINISHED:
                             if (processQuorumFinished(job, db)) {
                                 // Write edit log
-                                Catalog.getInstance().getEditLog().logLoadQuorum(job);
+                                Catalog.getCurrentCatalog().getEditLog().logLoadQuorum(job);
                             } else {
                                 errMsg = "process loading finished fail";
                                 processCancelled(job, cancelType, errMsg, failedMsg);
@@ -2333,7 +2688,7 @@ public class Load {
                                 // if this is a sync delete job, then update affected version and version hash
                                 if (job.isSyncDeleteJob()) {
                                     TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr()
-                                            .getTransactionState(job.getTransactionId());
+                                            .getTransactionState(job.getDbId(), job.getTransactionId());
                                     DeleteInfo deleteInfo = job.getDeleteInfo();
                                     TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(deleteInfo.getTableId());
                                     PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(deleteInfo.getPartitionId());
@@ -2359,7 +2714,7 @@ public class Load {
                                 job.clearRedundantInfoForHistoryJob();
                             }
                             // Write edit log
-                            Catalog.getInstance().getEditLog().logLoadDone(job);
+                            Catalog.getCurrentCatalog().getEditLog().logLoadDone(job);
                             break;
                         case CANCELLED:
                             processCancelled(job, cancelType, errMsg, failedMsg);
@@ -2431,7 +2786,7 @@ public class Load {
                 updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
                                        partitionLoadInfo.getVersionHash(), jobId);
 
-                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long tableRowCount = 0L;
                     for (Tablet tablet : materializedIndex.getTablets()) {
                         long tabletRowCount = 0L;
@@ -2474,8 +2829,13 @@ public class Load {
         // then there will be rubbish transactions in transaction manager
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                    job.getDbId(),
                     job.getTransactionId(),
                     job.getFailMsg().toString());
+        } catch (TransactionNotFoundException e) {
+            // the transaction may already be aborted due to timeout by transaction manager.
+            // just print a log and continue to cancel the job.
+            LOG.info("transaction not found when try to abort it: {}", e.getTransactionId());
         } catch (Exception e) {
             LOG.info("errors while abort transaction", e);
             if (failedMsg != null) {
@@ -2528,7 +2888,7 @@ public class Load {
 
         // Clear the Map and Set in this job, reduce the memory cost of canceled load job.
         job.clearRedundantInfoForHistoryJob();
-        Catalog.getInstance().getEditLog().logLoadCancel(job);
+        Catalog.getCurrentCatalog().getEditLog().logLoadCancel(job);
 
         return true;
     }
@@ -2743,7 +3103,7 @@ public class Load {
         PartitionState state = partition.getState();
         if (state != PartitionState.NORMAL) {
             // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
+            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORMAL: " + state.name());
         }
         // do not need check whether partition has loading job
 
@@ -2790,11 +3150,11 @@ public class Load {
             slotRef.setCol(column.getName());
         }
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
-        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             // check table has condition column
-            Map<String, Column> indexNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            Map<String, Column> indexColNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (Column column : indexIdToSchema.get(index.getId())) {
-                indexNameToColumn.put(column.getName(), column);
+                indexColNameToColumn.put(column.getName(), column);
             }
             String indexName = table.getIndexNameById(index.getId());
             for (Predicate condition : conditions) {
@@ -2806,7 +3166,7 @@ public class Load {
                     IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
                     columnName = ((SlotRef) isNullPredicate.getChild(0)).getColumnName();
                 }
-                Column column = indexNameToColumn.get(columnName);
+                Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
                 }
@@ -2818,221 +3178,6 @@ public class Load {
 
             // do not need to check replica version and backend alive
 
-        } // end for indices
-
-        if (deleteConditions == null) {
-            return;
-        }
-
-        // save delete conditions
-        for (Predicate condition : conditions) {
-            if (condition instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                SlotRef slotRef = (SlotRef) binaryPredicate.getChild(0);
-                String columnName = slotRef.getColumnName();
-                StringBuilder sb = new StringBuilder();
-                sb.append(columnName).append(" ").append(binaryPredicate.getOp().name()).append(" \"")
-                        .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
-                deleteConditions.add(sb.toString());
-            } else if (condition instanceof IsNullPredicate) {
-                IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                SlotRef slotRef = (SlotRef) isNullPredicate.getChild(0);
-                String columnName = slotRef.getColumnName();
-                StringBuilder sb = new StringBuilder();
-                sb.append(columnName);
-                if (isNullPredicate.isNotNull()) {
-                    sb.append(" IS NOT NULL");
-                } else {
-                    sb.append(" IS NULL");
-                }
-                deleteConditions.add(sb.toString());
-            }
-        }
-    }
-
-    private void checkDelete(OlapTable table, Partition partition, List<Predicate> conditions,
-                             long checkVersion, long checkVersionHash, List<String> deleteConditions,
-                             Map<Long, Set<Long>> asyncTabletIdToBackends, boolean preCheck)
-            throws DdlException {
-        // check partition state
-        PartitionState state = partition.getState();
-        if (state != PartitionState.NORMAL) {
-            // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
-        }
-
-        // check running load job
-        List<LoadJob> quorumFinishedLoadJobs = Lists.newArrayList();
-        if (!checkPartitionLoadFinished(partition.getId(), quorumFinishedLoadJobs)) {
-            // ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_HAS_LOADING_JOBS, partition.getName());
-            throw new DdlException("Partition[" + partition.getName() + "] has unfinished load jobs");
-        }
-
-        // get running async delete job
-        List<AsyncDeleteJob> asyncDeleteJobs = getCopiedAsyncDeleteJobs();
-
-        // check condition column is key column and condition value
-        Map<String, Column> nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (Column column : table.getBaseSchema()) {
-            nameToColumn.put(column.getName(), column);
-        }
-        for (Predicate condition : conditions) {
-            SlotRef slotRef = null;
-            if (condition instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                slotRef = (SlotRef) binaryPredicate.getChild(0);
-            } else if (condition instanceof IsNullPredicate) {
-                IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                slotRef = (SlotRef) isNullPredicate.getChild(0);
-            }
-            String columnName = slotRef.getColumnName();
-            if (!nameToColumn.containsKey(columnName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
-            }
-
-            Column column = nameToColumn.get(columnName);
-            if (!column.isKey()) {
-                // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column");
-            }
-
-            if (condition instanceof BinaryPredicate) {
-                String value = null;
-                try {
-                    BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                    value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
-                    LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
-                } catch (AnalysisException e) {
-                    // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
-                    throw new DdlException("Invalid column value[" + value + "]");
-                }
-            }
-
-            // set schema column name
-            slotRef.setCol(column.getName());
-        }
-
-        long tableId = table.getId();
-        long partitionId = partition.getId();
-        Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
-        for (MaterializedIndex index : partition.getMaterializedIndices()) {
-            // check table has condition column
-            Map<String, Column> indexNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (Column column : indexIdToSchema.get(index.getId())) {
-                indexNameToColumn.put(column.getName(), column);
-            }
-            String indexName = table.getIndexNameById(index.getId());
-            for (Predicate condition : conditions) {
-                String columnName = null;
-                if (condition instanceof BinaryPredicate) {
-                    BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                    columnName = ((SlotRef) binaryPredicate.getChild(0)).getColumnName();
-                } else if (condition instanceof IsNullPredicate) {
-                    IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                    columnName = ((SlotRef) isNullPredicate.getChild(0)).getColumnName();
-                }
-                Column column = indexNameToColumn.get(columnName);
-                if (column == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
-                }
-
-                if (table.getKeysType() == KeysType.DUP_KEYS && !column.isKey()) {
-                    throw new DdlException("Column[" + columnName + "] is not key column in index[" + indexName + "]");
-                }
-            }
-
-            // check replica version and backend alive
-            short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
-            for (Tablet tablet : index.getTablets()) {
-                Set<Long> needAsyncBackendIds = Sets.newHashSet();
-                for (Replica replica : tablet.getReplicas()) {
-                    if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(replica.getBackendId())) {
-                        LOG.warn("backend[{}] is not alive when delete check. pre: {}",
-                                 replica.getBackendId(), preCheck);
-                        needAsyncBackendIds.add(replica.getBackendId());
-                        continue;
-                    }
-
-                    // check replica version.
-                    // here is a little bit confused. the main idea is
-                    // 1. check if replica catch up the version
-                    // 2. if not catch up and this is pre check, make sure there will be right quorum finished load jobs
-                    //    to fill the version gap between 'replica committed version' and 'partition committed version'.
-                    // 3. if not catch up and this is after check
-                    //      1) if diff version == 1, some sync delete task may failed. add async delete task.
-                    //      2) if diff version > 1, make sure there will be right quorum finished load jobs
-                    //         to fill the version gap between 'replica committed version' and 'delete version - 1'.
-                    // if ok, add async delete task.
-                    if (!replica.checkVersionCatchUp(checkVersion, checkVersionHash)) {
-                        long replicaVersion = replica.getVersion();
-                        if (replicaVersion == checkVersion) {
-                            // in this case, version is same but version hash is not.
-                            // which mean the current replica version is a non-committed version.
-                            // so the replica's committed version should be the previous one.
-                            --replicaVersion;
-                        }
-
-                        // the *diffVersion* is number of versions need to be check
-                        // for now:
-                        //  *replicaVersion* : the 'committed version' of the replica
-                        //  *checkVersion* : 
-                        //      1) if preCheck, this is partition committed version
-                        //      2) if not preCheck, this is delete version
-                        long diffVersion = checkVersion - replicaVersion;
-                        Preconditions.checkState(diffVersion > 0);
-                        for (int i = 1; i <= diffVersion; i++) {
-                            boolean find = false;
-                            long theVersion = replicaVersion + i;
-                            for (LoadJob loadJob : quorumFinishedLoadJobs) {
-                                if (theVersion == loadJob.getPartitionLoadInfo(tableId, partitionId).getVersion()) {
-                                    find = true;
-                                    break;
-                                }
-                            }
-
-                            for (AsyncDeleteJob deleteJob : asyncDeleteJobs) {
-                                if (tableId == deleteJob.getTableId() && partitionId == deleteJob.getPartitionId()
-                                        && theVersion == deleteJob.getPartitionVersion()) {
-                                    find = true;
-                                    break;
-                                }
-                            }
-
-                            if (!find) {
-                                if (theVersion == checkVersion && !preCheck) {
-                                    // the sync delete task of this replica may failed.
-                                    // add async delete task after.
-                                    continue;
-                                } else {
-                                    // this should not happend. add log to observe.
-                                    LOG.error("replica version does not catch up with version: {}-{}. "
-                                                      + "replica: {}-{}-{}-{}",
-                                              checkVersion, checkVersionHash, replica.getId(), tablet.getId(),
-                                              replica.getBackendId(), replica.getState());
-                                    throw new DdlException("Replica[" + tablet.getId() + "-" + replica.getId()
-                                                                   + "] is not catch up with version: " + checkVersion + "-"
-                                                                   + replica.getVersion());
-                                }
-                            }
-                        }
-
-                        needAsyncBackendIds.add(replica.getBackendId());
-                    } // end check replica version
-                } // end for replicas
-
-                if (replicationNum - needAsyncBackendIds.size() < replicationNum / 2 + 1) {
-                    String backendsStr = Joiner.on(", ").join(needAsyncBackendIds);
-                    LOG.warn("too many unavailable replica in tablet[{}], backends:[{}]", tablet.getId(), backendsStr);
-                    throw new DdlException("Too many replicas are not available. Wait 10 mins and try again."
-                                                   + " if still not work, contact Palo RD");
-                }
-
-                if (!needAsyncBackendIds.isEmpty()) {
-                    LOG.info("add tablet[{}] to async delete. backends: {}",
-                             tablet.getId(), needAsyncBackendIds);
-                    asyncTabletIdToBackends.put(tablet.getId(), needAsyncBackendIds);
-                }
-            } // end for tablets
         } // end for indices
 
         if (deleteConditions == null) {
@@ -3122,7 +3267,7 @@ public class Load {
         String tableName = stmt.getTableName();
         String partitionName = stmt.getPartitionName();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -3170,7 +3315,7 @@ public class Load {
                           deleteConditions, true);
             addRunningPartition = checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
             // do not use transaction id generator, or the id maybe duplicated
-            long jobId = Catalog.getInstance().getNextId();
+            long jobId = Catalog.getCurrentCatalog().getNextId();
             String jobLabel = "delete_" + UUID.randomUUID();
             // the version info in delete info will be updated after job finished
             DeleteInfo deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
@@ -3179,7 +3324,7 @@ public class Load {
             loadDeleteJob = new LoadJob(jobId, db.getId(), tableId,
                                         partitionId, jobLabel, olapTable.getIndexIdToSchemaHash(), conditions, deleteInfo);
             Map<Long, TabletLoadInfo> idToTabletLoadInfo = Maps.newHashMap();
-            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 for (Tablet tablet : materializedIndex.getTablets()) {
                     long tabletId = tablet.getId();
                     // tabletLoadInfo is empty, because delete load does not need filepath filesize info
@@ -3189,8 +3334,10 @@ public class Load {
             }
             loadDeleteJob.setIdToTabletLoadInfo(idToTabletLoadInfo);
             loadDeleteJob.setState(JobState.LOADING);
-            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), jobLabel,
-                    "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
+            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                    Lists.newArrayList(table.getId()), jobLabel,
+                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    LoadJobSourceType.FRONTEND,
                     Config.stream_load_default_timeout_second);
             loadDeleteJob.setTransactionId(transactionId);
             // the delete job will be persist in editLog
@@ -3222,7 +3369,8 @@ public class Load {
                         break;
                     }
                     if (System.currentTimeMillis() - startDeleteTime > timeout) {
-                        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(loadDeleteJob.getTransactionId());
+                        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(loadDeleteJob.getDbId(),
+                                loadDeleteJob.getTransactionId());
                         if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
                             boolean isSuccess = cancelLoadJob(loadDeleteJob, CancelType.TIMEOUT, "load delete job timeout");
                             if (isSuccess) {
@@ -3240,227 +3388,6 @@ public class Load {
             LOG.warn(failMsg, e);
             throw new DdlException(failMsg);
         } finally {
-            writeLock();
-            try {
-                partitionUnderDelete.remove(partitionId);
-            } finally {
-                writeUnlock();
-            }
-        }
-    }
-
-    @Deprecated
-    public void deleteOld(DeleteStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTableName();
-        String partitionName = stmt.getPartitionName();
-        List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getInstance().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
-
-        DeleteInfo deleteInfo = null;
-
-        long tableId = -1;
-        long partitionId = -1;
-        long visibleVersion = -1;
-        long visibleVersionHash = -1;
-        long newVersion = -1;
-        long newVersionHash = -1;
-        AgentBatchTask deleteBatchTask = null;
-        int totalReplicaNum = 0;
-        Map<Long, Set<Long>> asyncTabletIdToBackends = Maps.newHashMap();
-        db.readLock();
-        try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table does not exist. name: " + tableName);
-            }
-
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Not olap type table. type: " + table.getType().name());
-            }
-            OlapTable olapTable = (OlapTable) table;
-
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table's state is not normal: " + tableName);
-            }
-
-            tableId = olapTable.getId();
-            Partition partition = olapTable.getPartition(partitionName);
-            if (partition == null) {
-                throw new DdlException("Partition does not exist. name: " + partitionName);
-            }
-            partitionId = partition.getId();
-
-            // pre check
-            visibleVersion = partition.getVisibleVersion();
-            visibleVersionHash = partition.getVisibleVersionHash();
-            checkDelete(olapTable, partition, conditions, visibleVersion, visibleVersionHash,
-                        null, asyncTabletIdToBackends, true);
-
-            newVersion = visibleVersion + 1;
-            newVersionHash = Util.generateVersionHash();
-            deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
-                                        partition.getId(), partitionName,
-                                        newVersion, newVersionHash, null);
-
-            checkAndAddRunningSyncDeleteJob(deleteInfo.getPartitionId(), partitionName);
-
-            // create sync delete tasks
-            deleteBatchTask = new AgentBatchTask();
-            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
-                int schemaHash = olapTable.getSchemaHashByIndexId(materializedIndex.getId());
-                for (Tablet tablet : materializedIndex.getTablets()) {
-                    long tabletId = tablet.getId();
-                    for (Replica replica : tablet.getReplicas()) {
-
-                        if (asyncTabletIdToBackends.containsKey(tabletId)
-                                && asyncTabletIdToBackends.get(tabletId).contains(replica.getBackendId())) {
-                            continue;
-                        }
-
-                        AgentTask pushTask = new PushTask(null, replica.getBackendId(), db.getId(),
-                                                          tableId, partition.getId(),
-                                                          materializedIndex.getId(), tabletId, replica.getId(),
-                                                          schemaHash, newVersion,
-                                                          newVersionHash, null, -1L, 0, -1L, TPushType.DELETE,
-                                                          conditions, false, TPriority.HIGH);
-                        if (AgentTaskQueue.addTask(pushTask)) {
-                            deleteBatchTask.addTask(pushTask);
-                            ++totalReplicaNum;
-                        }
-                    }
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
-        // send tasks to backends
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
-        for (AgentTask task : deleteBatchTask.getAllTasks()) {
-            countDownLatch.addMark(task.getBackendId(), task.getSignature());
-            ((PushTask) task).setCountDownLatch(countDownLatch);
-        }
-        AgentTaskExecutor.submit(deleteBatchTask);
-        long timeout = Config.tablet_delete_timeout_second * 1000L * totalReplicaNum;
-        boolean ok = false;
-        try {
-            ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            LOG.warn("InterruptedException: ", e);
-            ok = false;
-        }
-
-        if (!ok) {
-            // sync delete failed for unknown reason.
-            // use async delete to try to make up after.
-            LOG.warn("sync delete failed. try async delete. table: {}, partition: {}", tableName, partitionName);
-        }
-
-        Partition partition = null;
-        try {
-            // after check
-            db.writeLock();
-            try {
-                OlapTable table = (OlapTable) db.getTable(tableName);
-                if (table == null) {
-                    throw new DdlException("Table does not exist. name: " + tableName);
-                }
-
-                partition = table.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition does not exist. name: " + partitionName);
-                }
-
-                // after check
-                // 1. check partition committed version first
-                if (partition.getVisibleVersion() > visibleVersion
-                        || (visibleVersion == partition.getVisibleVersion()
-                        && visibleVersionHash != partition.getVisibleVersionHash())) {
-                    LOG.warn("before delete version: {}-{}. after delete version: {}-{}",
-                             visibleVersion, visibleVersionHash,
-                             partition.getVisibleVersion(), partition.getVisibleVersionHash());
-                    throw new DdlException("There may have some load job done during delete job. Try again");
-                }
-
-                // 2. after check
-                List<String> deleteConditions = Lists.newArrayList();
-                checkDelete(table, partition, conditions, newVersion, newVersionHash, deleteConditions,
-                            asyncTabletIdToBackends, false);
-                deleteInfo.setDeleteConditions(deleteConditions);
-
-                // update partition's version
-                updatePartitionVersion(partition, newVersion, newVersionHash, -1);
-
-                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
-                    long indexId = materializedIndex.getId();
-                    for (Tablet tablet : materializedIndex.getTablets()) {
-                        long tabletId = tablet.getId();
-                        for (Replica replica : tablet.getReplicas()) {
-                            ReplicaPersistInfo info =
-                                    ReplicaPersistInfo.createForCondDelete(indexId,
-                                            tabletId,
-                                            replica.getId(),
-                                            replica.getVersion(),
-                                            replica.getVersionHash(),
-                                            table.getSchemaHashByIndexId(indexId),
-                                            replica.getDataSize(),
-                                            replica.getRowCount(),
-                                            replica.getLastFailedVersion(),
-                                            replica.getLastFailedVersionHash(),
-                                            replica.getLastSuccessVersion(),
-                                            replica.getLastSuccessVersionHash());
-                            deleteInfo.addReplicaPersistInfo(info);
-                        }
-                    }
-                }
-
-                writeLock();
-                try {
-                    // handle async delete jobs
-                    if (!asyncTabletIdToBackends.isEmpty()) {
-                        AsyncDeleteJob asyncDeleteJob = new AsyncDeleteJob(db.getId(), tableId, partition.getId(),
-                                                                           newVersion, newVersionHash,
-                                                                           conditions);
-                        for (Long tabletId : asyncTabletIdToBackends.keySet()) {
-                            asyncDeleteJob.addTabletId(tabletId);
-                        }
-                        deleteInfo.setAsyncDeleteJob(asyncDeleteJob);
-                        idToQuorumFinishedDeleteJob.put(asyncDeleteJob.getJobId(), asyncDeleteJob);
-                        LOG.info("finished create async delete job: {}", asyncDeleteJob.getJobId());
-                    }
-
-                    // save delete info
-                    List<DeleteInfo> deleteInfos = dbToDeleteInfos.get(db.getId());
-                    if (deleteInfos == null) {
-                        deleteInfos = Lists.newArrayList();
-                        dbToDeleteInfos.put(db.getId(), deleteInfos);
-                    }
-                    deleteInfos.add(deleteInfo);
-                } finally {
-                    writeUnlock();
-                }
-
-                // Write edit log
-                Catalog.getInstance().getEditLog().logFinishSyncDelete(deleteInfo);
-                LOG.info("delete job finished at: {}. table: {}, partition: {}",
-                         TimeUtils.longToTimeString(System.currentTimeMillis()), tableName, partitionName);
-            } finally {
-                db.writeUnlock();
-            }
-        } finally {
-            // clear tasks
-            List<AgentTask> tasks = deleteBatchTask.getAllTasks();
-            for (AgentTask task : tasks) {
-                PushTask pushTask = (PushTask) task;
-                AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                              pushTask.getVersion(), pushTask.getVersionHash(),
-                                              pushTask.getPushType(), pushTask.getTaskType());
-            }
-
             writeLock();
             try {
                 partitionUnderDelete.remove(partitionId);
@@ -3500,7 +3427,7 @@ public class Load {
         return infos;
     }
 
-    public int getDeleteJobNumByState(long dbId, JobState state) {
+    public long getDeleteJobNumByState(long dbId, JobState state) {
         readLock();
         try {
             List<LoadJob> deleteJobs = dbToDeleteJobs.get(dbId);
@@ -3536,7 +3463,7 @@ public class Load {
 
     public List<List<Comparable>> getDeleteInfosByDb(long dbId, boolean forUser) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             return infos;
         }
@@ -3727,5 +3654,3 @@ public class Load {
         return num;
     }
 }
-
-

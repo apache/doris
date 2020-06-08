@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
@@ -30,9 +31,10 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -54,7 +56,7 @@ import java.util.stream.Collectors;
  * This checker is responsible for checking all unhealthy tablets.
  * It does not responsible for any scheduler of tablet repairing or balance
  */
-public class TabletChecker extends Daemon {
+public class TabletChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
     private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
@@ -98,6 +100,18 @@ public class TabletChecker extends Daemon {
         }
     }
 
+    public static class RepairTabletInfo {
+        public long dbId;
+        public long tblId;
+        public List<Long> partIds;
+
+        public RepairTabletInfo(Long dbId, Long tblId, List<Long> partIds) {
+            this.dbId = dbId;
+            this.tblId = tblId;
+            this.partIds = partIds;
+        }
+    }
+
     public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
             TabletSchedulerStat stat) {
         super("tablet checker", CHECK_INTERVAL_MS);
@@ -107,42 +121,42 @@ public class TabletChecker extends Daemon {
         this.stat = stat;
     }
 
-    public void addPrios(long dbId, long tblId, List<Long> partitionIds, long timeoutMs) {
-        Preconditions.checkArgument(!partitionIds.isEmpty());
+    private void addPrios(RepairTabletInfo repairTabletInfo, long timeoutMs) {
+        Preconditions.checkArgument(!repairTabletInfo.partIds.isEmpty());
         long currentTime = System.currentTimeMillis();
         synchronized (prios) {
-            Set<PrioPart> parts = prios.get(dbId, tblId);
+            Set<PrioPart> parts = prios.get(repairTabletInfo.dbId, repairTabletInfo.tblId);
             if (parts == null) {
                 parts = Sets.newHashSet();
-                prios.put(dbId, tblId, parts);
+                prios.put(repairTabletInfo.dbId, repairTabletInfo.tblId, parts);
             }
 
-            for (long partId : partitionIds) {
+            for (long partId : repairTabletInfo.partIds) {
                 PrioPart prioPart = new PrioPart(partId, currentTime, timeoutMs);
                 parts.add(prioPart);
             }
         }
 
         // we also need to change the priority of tablets which are already in
-        tabletScheduler.changePriorityOfTablets(dbId, tblId, partitionIds);
+        tabletScheduler.changeTabletsPriorityToVeryHigh(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
-    private void removePrios(long dbId, long tblId, List<Long> partitionIds) {
-        Preconditions.checkArgument(!partitionIds.isEmpty());
+    private void removePrios(RepairTabletInfo repairTabletInfo) {
+        Preconditions.checkArgument(!repairTabletInfo.partIds.isEmpty());
         synchronized (prios) {
-            Map<Long, Set<PrioPart>> tblMap = prios.row(dbId);
+            Map<Long, Set<PrioPart>> tblMap = prios.row(repairTabletInfo.dbId);
             if (tblMap == null) {
                 return;
             }
-            Set<PrioPart> parts = tblMap.get(tblId);
+            Set<PrioPart> parts = tblMap.get(repairTabletInfo.tblId);
             if (parts == null) {
                 return;
             }
-            for (long partId : partitionIds) {
+            for (long partId : repairTabletInfo.partIds) {
                 parts.remove(new PrioPart(partId, -1, -1));
             }
             if (parts.isEmpty()) {
-                tblMap.remove(tblId);
+                tblMap.remove(repairTabletInfo.tblId);
             }
         }
 
@@ -153,13 +167,13 @@ public class TabletChecker extends Daemon {
      * If a tablet is not healthy, a TabletInfo will be created and sent to TabletScheduler for repairing.
      */
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         int pendingNum = tabletScheduler.getPendingNum();
         int runningNum = tabletScheduler.getRunningNum();
-        if (pendingNum > TabletScheduler.MAX_SCHEDULING_TABLETS
-                || runningNum > TabletScheduler.MAX_SCHEDULING_TABLETS) {
+        if (pendingNum > Config.max_scheduling_tablets
+                || runningNum > Config.max_scheduling_tablets) {
             LOG.info("too many tablets are being scheduled. pending: {}, running: {}, limit: {}. skip check",
-                    pendingNum, runningNum, TabletScheduler.MAX_SCHEDULING_TABLETS);
+                    pendingNum, runningNum, Config.max_scheduling_tablets);
             return;
         }
         
@@ -199,7 +213,7 @@ public class TabletChecker extends Daemon {
                     }
 
                     OlapTable olapTbl = (OlapTable) table;
-                    for (Partition partition : olapTbl.getPartitions()) {
+                    for (Partition partition : olapTbl.getAllPartitions()) {
                         if (partition.getState() != PartitionState.NORMAL) {
                             // when alter job is in FINISHING state, partition state will be set to NORMAL,
                             // and we can schedule the tablets in it.
@@ -207,7 +221,10 @@ public class TabletChecker extends Daemon {
                         }
                         boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
                         boolean prioPartIsHealthy = true;
-                        for (MaterializedIndex idx : partition.getMaterializedIndices()) {
+                        /*
+                         * Tablet in SHADOW index can not be repaired of balanced
+                         */
+                        for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
                                 
@@ -266,7 +283,8 @@ public class TabletChecker extends Daemon {
                             // priorities.
                             LOG.debug("partition is healthy, remove from prios: {}-{}-{}",
                                     db.getId(), olapTbl.getId(), partition.getId());
-                            removePrios(db.getId(), olapTbl.getId(), Lists.newArrayList(partition.getId()));
+                            removePrios(new RepairTabletInfo(db.getId(),
+                                    olapTbl.getId(), Lists.newArrayList(partition.getId())));
                         }
                     } // partitions
                 } // tables
@@ -351,42 +369,9 @@ public class TabletChecker extends Daemon {
      * when being scheduled.
      */
     public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Database " + stmt.getDbName() + " does not exist");
-        }
-
-        long dbId = db.getId();
-        long tblId = -1;
-        List<Long> partIds = Lists.newArrayList();
-        db.readLock();
-        try {
-            Table tbl = db.getTable(stmt.getTblName());
-            if (tbl == null || tbl.getType() != TableType.OLAP) {
-                throw new DdlException("Table does not exist or is not OLAP table: " + stmt.getTblName());
-            }
-
-            tblId = tbl.getId();
-            OlapTable olapTable = (OlapTable) tbl;
-            if (stmt.getPartitions().isEmpty()) {
-                partIds = olapTable.getPartitions().stream().map(p -> p.getId()).collect(Collectors.toList());
-            } else {
-                for (String partName : stmt.getPartitions()) {
-                    Partition partition = olapTable.getPartition(partName);
-                    if (partition == null) {
-                        throw new DdlException("Partition does not exist: " + partName);
-                    }
-                    partIds.add(partition.getId());
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
-        Preconditions.checkState(tblId != -1);
-        addPrios(dbId, tblId, partIds, stmt.getTimeoutS() * 1000);
-        LOG.info("repair database: {}, table: {}, partition: {}", dbId, tblId, partIds);
+        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        addPrios(repairTabletInfo, stmt.getTimeoutS());
+        LOG.info("repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     /*
@@ -394,42 +379,9 @@ public class TabletChecker extends Daemon {
      * This operation will remove the specified partitions from 'prios'
      */
     public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Database " + stmt.getDbName() + " does not exist");
-        }
-
-        long dbId = db.getId();
-        long tblId = -1;
-        List<Long> partIds = Lists.newArrayList();
-        db.readLock();
-        try {
-            Table tbl = db.getTable(stmt.getTblName());
-            if (tbl == null || tbl.getType() != TableType.OLAP) {
-                throw new DdlException("Table does not exist or is not OLAP table: " + stmt.getTblName());
-            }
-
-            tblId = tbl.getId();
-            OlapTable olapTable = (OlapTable) tbl;
-            if (stmt.getPartitions().isEmpty()) {
-                partIds = olapTable.getPartitions().stream().map(p -> p.getId()).collect(Collectors.toList());
-            } else {
-                for (String partName : stmt.getPartitions()) {
-                    Partition partition = olapTable.getPartition(partName);
-                    if (partition == null) {
-                        throw new DdlException("Partition does not exist: " + partName);
-                    }
-                    partIds.add(partition.getId());
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
-        Preconditions.checkState(tblId != -1);
-        removePrios(dbId, tblId, partIds);
-        LOG.info("cancel repair database: {}, table: {}, partition: {}", dbId, tblId, partIds);
+        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        removePrios(repairTabletInfo);
+        LOG.info("cancel repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     public int getPrioPartitionNum() {
@@ -457,5 +409,45 @@ public class TabletChecker extends Daemon {
             }
         }
         return infos;
+    }
+
+    public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName, List<String> partitions) throws DdlException {
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist");
+        }
+
+        long dbId = db.getId();
+        long tblId = -1;
+        List<Long> partIds = Lists.newArrayList();
+        db.readLock();
+        try {
+            Table tbl = db.getTable(tblName);
+            if (tbl == null || tbl.getType() != TableType.OLAP) {
+                throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
+            }
+
+            tblId = tbl.getId();
+            OlapTable olapTable = (OlapTable) tbl;
+
+            if (partitions == null || partitions.isEmpty()) {
+                partIds = olapTable.getPartitions().stream().map(Partition::getId).collect(Collectors.toList());
+            } else {
+                for (String partName : partitions) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        throw new DdlException("Partition does not exist: " + partName);
+                    }
+                    partIds.add(partition.getId());
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
+
+        Preconditions.checkState(tblId != -1);
+
+        return new RepairTabletInfo(dbId, tblId, partIds);
     }
 }

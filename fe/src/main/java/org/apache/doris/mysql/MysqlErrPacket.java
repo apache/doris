@@ -20,8 +20,13 @@ package org.apache.doris.mysql;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.QueryState;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 // MySQL protocol error packet
 public class MysqlErrPacket extends MysqlPacket {
+    private static final Logger LOG = LogManager.getLogger(MysqlErrPacket.class);
+
     private static final int ERROR_PACKET_INDICATOR = 0XFF;
     // only first FIVE char is useful in SQL STATE
     private byte[] sqlState = {'H', 'Y', '0', '0', '0'};
@@ -52,7 +57,7 @@ public class MysqlErrPacket extends MysqlPacket {
         if (errorMessage == null || errorMessage.isEmpty()) {
             // NOTICE: if write "" or "\0", the client will be show "Query OK"
             // SO we need write no-empty string
-            serializer.writeEofString(" ");
+            serializer.writeEofString("Unknown error");
         } else {
             serializer.writeEofString(errorMessage);
         }

@@ -67,7 +67,7 @@ public class JournalObserver implements Comparable<JournalObserver> {
             boolean ok = false;
             do {
                 // check if the replayed journal version is already larger than the expected version
-                long replayedJournalId = Catalog.getInstance().getReplayedJournalId();
+                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
                 if (replayedJournalId >= targetJournalVersion || timeoutMs <= 0) {
                     LOG.debug("the replayed journal version {} already large than expected version: {}",
                               replayedJournalId, targetJournalVersion);
@@ -85,6 +85,7 @@ public class JournalObserver implements Comparable<JournalObserver> {
             } while (leftTimeoutMs > 0);
 
             if (!ok) {
+                LOG.warn("timeout waiting result from master. timeout ms: {}", timeoutMs);
                 throw new DdlException("Execute timeout, the command may be succeed, you'd better retry");
             }
 

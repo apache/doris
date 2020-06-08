@@ -37,7 +37,7 @@ namespace doris {
 // mock
 class EsScanNodeTest : public testing::Test {
 public:
-    EsScanNodeTest() : _runtime_state("EsScanNodeTest") {
+    EsScanNodeTest() : _runtime_state(TQueryGlobals()) {
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
         TDescriptorTable t_desc_table;
 
@@ -134,7 +134,8 @@ TEST_F(EsScanNodeTest, normal_use) {
 
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
-    RowBatch row_batch(scan_node._row_descriptor, _runtime_state.batch_size(), new MemTracker(-1));
+    std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1));
+    RowBatch row_batch(scan_node._row_descriptor, _runtime_state.batch_size(), mem_tracker.get());
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &row_batch, &eos);
     ASSERT_TRUE(status.ok());

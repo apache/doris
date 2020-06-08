@@ -194,7 +194,7 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
             data_length += stream->get_stream_length();
         }
 
-        VLOG(3) << "stream id=" << it->first.unique_column_id()
+        VLOG(10) << "stream id=" << it->first.unique_column_id()
                 << ", type=" << it->first.kind()
                 << ", length=" << stream->get_stream_length();
     }
@@ -209,11 +209,15 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
     OLAPStatus res = OLAP_SUCCESS;
     FileHandler file_handle;
     FileHeader<ColumnDataHeaderMessage> file_header;
-    boost::filesystem::path tablet_path(_segment_group->rowset_path_prefix());
-    boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
-    std::string data_dir_string = data_dir_path.string();
-    DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
-    data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_segment_group->rowset_id()));
+    StorageEngine* engine = StorageEngine::instance();
+    DataDir* data_dir = nullptr;
+    if (engine != nullptr) {
+        boost::filesystem::path tablet_path(_segment_group->rowset_path_prefix());
+        boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
+        std::string data_dir_string = data_dir_path.string();
+        data_dir = engine->get_store(data_dir_string);
+        data_dir->add_pending_ids(ROWSET_ID_PREFIX + _segment_group->rowset_id().to_string());
+    }
     if (OLAP_SUCCESS != (res = file_handle.open_with_mode(
             _file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR))) {
         LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
@@ -223,6 +227,17 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
     res = _make_file_header(file_header.mutable_message());
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to make file header. [res=%d]", res);
+        return res;
+    }
+
+    // check disk capacity
+    if (data_dir != nullptr && data_dir->reach_capacity_limit((int64_t) file_header.file_length())) {
+         return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+    }
+
+    if (OLAP_SUCCESS != (res = file_handle.open_with_mode(
+            _file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR))) {
+        LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
         return res;
     }
 
@@ -248,7 +263,7 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
         // 输出没有被掐掉的流
         if (!stream->is_suppressed()) {
             checksum = stream->crc32(checksum);
-            VLOG(3) << "stream id=" << it->first.unique_column_id()
+            VLOG(10) << "stream id=" << it->first.unique_column_id()
                     << ", type=" << it->first.kind();
             res = stream->write_to_file(
                     &file_handle, _write_mbytes_per_sec);

@@ -27,15 +27,13 @@ namespace doris {
 
 // Provides the amount of physical memory available.
 // Populated from /proc/meminfo.
-// TODO: Allow retrieving of cgroup memory limits,
-// e.g., by checking /sys/fs/cgroup/memory/groupname/impala/memory.limit_in_bytes
 // TODO: Combine mem-info, cpu-info and disk-info into hardware-info?
 class MemInfo {
 public:
     // Initialize MemInfo.
     static void init();
 
-    // Get total physical memory in bytes (ignores cgroups memory limits).
+    // Get total physical memory in bytes (if has cgroups memory limits, return the limits).
     static int64_t physical_mem() {
         DCHECK(_s_initialized);
         return _s_physical_mem;

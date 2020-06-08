@@ -53,8 +53,9 @@ public:
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
-        DorisScanRange* scan_range,
-        const std::vector<OlapScanRange>& key_ranges);
+        bool need_agg_finalize,
+        const TPaloScanRange& scan_range,
+        const std::vector<OlapScanRange*>& key_ranges);
 
     ~OlapScanner();
 
@@ -80,14 +81,18 @@ public:
     int64_t raw_rows_read() const { return _raw_rows_read; }
 
     void update_counter();
+
+    const std::string& scan_disk() const {
+        return _tablet->data_dir()->path();
+    }
 private:
     Status _prepare(
-        DorisScanRange* scan_range,
-        const std::vector<OlapScanRange>& key_ranges,
+        const TPaloScanRange& scan_range,
+        const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<TCondition>& is_nulls);
     Status _init_params(
-        const std::vector<OlapScanRange>& key_ranges,
+        const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<TCondition>& is_nulls);
     Status _init_return_columns();
@@ -107,6 +112,7 @@ private:
     int _id;
     bool _is_open;
     bool _aggregation;
+    bool _need_agg_finalize = true;
     bool _has_update_counter = false;
 
     Status _ctor_status;
@@ -125,10 +131,7 @@ private:
 
     RowCursor _read_row_cursor;
 
-    std::vector<uint32_t> _request_columns_size;
-
     std::vector<SlotDescriptor*> _query_slots;
-    std::vector<const Field*> _query_fields;
 
     // time costed and row returned statistics
     ExecNode::EvalConjunctsFn _eval_conjuncts_fn = nullptr;
@@ -136,6 +139,7 @@ private:
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
+    int64_t _compressed_bytes_read = 0;
 
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     // number rows filtered by pushed condition

@@ -35,7 +35,7 @@ public:
     // NOTE: the number of bytes written may be less than count if.
     virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) = 0;
 
-    virtual void close() = 0;
+    virtual Status close() = 0;
 };
 
 } // end namespace doris

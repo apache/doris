@@ -51,9 +51,6 @@ public:
             std::function<bool(long, long, const std::string&)> const& func, const string& header_prefix = "tabletmeta_");
 
     static OLAPStatus load_json_meta(DataDir* store, const std::string& meta_path);
-
-    static OLAPStatus dump_header(DataDir* store, TTabletId tablet_id,
-            TSchemaHash schema_hash, const std::string& path);
 };
 
 }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
@@ -61,7 +62,7 @@ public abstract class LoadEtlTask extends MasterTask {
         super();
         this.job = job;
         this.signature = job.getId();
-        this.load = Catalog.getInstance().getLoadInstance();
+        this.load = Catalog.getCurrentCatalog().getLoadInstance();
     }
 
     protected String getErrorMsg() {
@@ -83,7 +84,7 @@ public abstract class LoadEtlTask extends MasterTask {
         
         // check db
         long dbId = job.getDbId();
-        db = Catalog.getInstance().getDb(dbId);
+        db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -184,7 +185,7 @@ public abstract class LoadEtlTask extends MasterTask {
                         Partition partition = table.getPartition(partitionId);
                         if (partition == null) {
                             throw new MetaNotFoundException("partition does not exist. id: " + partitionId);
-                        } 
+                        }
                         // yiguolei: real time load do not need get version here
                     } finally {
                         db.readUnlock();
@@ -264,7 +265,7 @@ public abstract class LoadEtlTask extends MasterTask {
                     }
                     
                     // yiguolei: how to deal with filesize == -1?
-                    for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                    for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = materializedIndex.getId();
                         int tabletIndex = 0;
                         for (Tablet tablet : materializedIndex.getTablets()) {

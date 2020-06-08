@@ -28,8 +28,6 @@
 
 namespace doris {
 
-const char* DateTimeValue::_s_llvm_class_name = "class.doris::DateTimeValue";
-
 const uint64_t log_10_int[] = {
     1, 10, 100, 1000, 10000UL, 100000UL, 1000000UL, 10000000UL,
     100000000UL, 1000000000UL, 10000000000UL, 100000000000UL
@@ -66,6 +64,7 @@ static uint32_t calc_days_in_year(uint32_t year) {
 DateTimeValue DateTimeValue::_s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0, 0, 1, 1);
 DateTimeValue DateTimeValue::_s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 
                                                    9999, 12, 31);
+RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 // jint length_of_str(DateTimeValue& value) {
 // j    if (_type == TIME_DATE) {
 // j        return 10;
@@ -1110,6 +1109,7 @@ bool DateTimeValue::from_date_format_str(
     bool strict_week_number_year_type = false;
     int strict_week_number_year = -1;
     bool usa_time = false;
+
     while (ptr < end && val < val_end) {
         // Skip space character
         while (val < val_end && isspace(*val)) {
@@ -1356,6 +1356,12 @@ bool DateTimeValue::from_date_format_str(
                     val++;
                 }
                 break;
+            case '%': // %%, escape the %
+                if ('%' != *val) {
+                    return false;
+                }
+                val++;
+                break;
             default:
                 return false;
             }
@@ -1524,43 +1530,40 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
     return true;
 }
 
-int DateTimeValue::unix_timestamp() const {
-    int64_t days = daynr() - calc_daynr(1970, 1, 1);
-    if (days < 0) {
-        return 0;
-    }
-    int64_t seconds = days * 86400 + _hour * 3600 + _minute * 60 + _second;
-    if (seconds > std::numeric_limits<int>::max()) {
-        return 0;
-    }
-    // TODO(zc): we only support Beijing Timezone, so minus 28800
-    seconds -= 28800;
-    if (seconds < 0) {
-        return 0;
-    }
-    return seconds;
-}
-
-bool DateTimeValue::from_unixtime(int64_t seconds) {
-    if (seconds < 0) {
+bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const{
+    cctz::time_zone ctz;
+    if (!find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    // TODO(zc): we only support Beijing Timezone, so add 28800
-    seconds += 28800;
-    int64_t days = seconds / 86400 + calc_daynr(1970, 1, 1);
 
-    _neg = false;
-    get_date_from_daynr(days);
-    seconds %= 86400;
-    if (seconds == 0) {
-        _type = TIME_DATE;
-        return true;
+    const auto tp =
+            cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
+    *timestamp = tp.time_since_epoch().count();
+    return true;
+}
+
+bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
+    cctz::time_zone ctz;
+    if (!find_cctz_time_zone(timezone, ctz)) {
+        return false;
     }
+
+    static const cctz::time_point<cctz::sys_seconds> epoch =
+            std::chrono::time_point_cast<cctz::sys_seconds>(std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
+
+    const auto tp = cctz::convert(t, ctz);
+
+    _neg = 0;
     _type = TIME_DATETIME;
-    _hour = seconds / 3600;
-    seconds %= 3600;
-    _minute = seconds / 60;
-    _second = seconds % 60;
+    _year = tp.year();
+    _month = tp.month();
+    _day = tp.day();
+    _hour = tp.hour();
+    _minute = tp.minute();
+    _second = tp.second();
+    _microsecond = 0;
+    
     return true;
 }
 
@@ -1581,7 +1584,7 @@ const char* DateTimeValue::day_name() const {
 
 DateTimeValue DateTimeValue::local_time() {
     DateTimeValue value;
-    value.from_unixtime(time(NULL));
+    value.from_unixtime(time(NULL), TimezoneDatabase::default_time_zone);
     return value;
 }
 

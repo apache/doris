@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -28,6 +29,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 
+@Deprecated
 public class DropClusterStmt extends DdlStmt {
     private boolean ifExists;
     private String name;
@@ -39,6 +41,10 @@ public class DropClusterStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+        if (Config.disable_cluster_feature) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "DROP CLUSTER");
+        }
+
         if (Strings.isNullOrEmpty(name)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
         }
