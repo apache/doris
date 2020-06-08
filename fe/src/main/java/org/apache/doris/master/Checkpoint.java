@@ -94,7 +94,7 @@ public class Checkpoint extends MasterDaemon {
         long replayedJournalId = -1;
         // generate new image file
         LOG.info("begin to generate new image: image.{}", checkPointVersion);
-        catalog = Catalog.getCheckpoint();
+        catalog = Catalog.getCurrentCatalog();
         catalog.setEditLog(editLog);
         try {
             catalog.loadImage(imageDir);

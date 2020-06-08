@@ -72,7 +72,6 @@ public class PaloFe {
             return;
         }
 
-
         CommandLineOptions cmdLineOpts = parseArgs(args);
         System.out.println(cmdLineOpts.toString());
 
