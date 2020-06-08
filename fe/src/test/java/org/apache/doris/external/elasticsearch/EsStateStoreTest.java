@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.es;
+package org.apache.doris.external.elasticsearch;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -32,9 +32,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.external.EsIndexState;
-import org.apache.doris.external.EsStateStore;
-import org.apache.doris.external.EsTableState;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Lists;
