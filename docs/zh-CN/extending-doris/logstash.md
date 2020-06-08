@@ -32,6 +32,7 @@ under the License.
 
 [了解更多关于Doris](http://doris.apache.org/master/zh-CN/)
 
+
 ## 安装和编译
 ### 1.下载插件源码
 
@@ -103,6 +104,7 @@ copy logstash-output-doris-{version}.gem 到 logstash 安装目录下
 `automatic_retries` | 失败时重试最大次数，默认为3
 `batch_size` | 每批次最多处理的event数量，默认为100000
 `idle_flush_time` | 最大间隔时间，默认为20（秒）
+
 
 ## 启动
 执行命令启动doris output plugin：
