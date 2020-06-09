@@ -41,7 +41,7 @@ if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
     ${DORIS_THIRDPARTY}/build-thirdparty.sh
 fi
 
-PARALLEL=$[$(nproc)/4+1]
+PARALLEL=$[$(nproc)/2+1]
 
 # Check args
 usage() {

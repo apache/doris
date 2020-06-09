@@ -516,8 +516,10 @@ public class InsertStmt extends DdlStmt {
                 analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols, origColIdx2MVColumn);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
+                selectStmt.getBaseTblResultExprs().clear();
                 for (Expr expr : rows.get(0)) {
                     selectStmt.getResultExprs().add(expr);
+                    selectStmt.getBaseTblResultExprs().add(expr);
                 }
             }
             isStreaming = true;
@@ -527,6 +529,7 @@ public class InsertStmt extends DdlStmt {
                 // extend the result expr by duplicating the related exprs
                 for (Integer idx : origColIdxsForShadowCols) {
                     queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(idx));
+                    queryStmt.getBaseTblResultExprs().add(queryStmt.getResultExprs().get(idx));
                 }
             }
 
@@ -537,7 +540,9 @@ public class InsertStmt extends DdlStmt {
                     smap.getLhs().add(mvColumn.getRefColumn());
                     smap.getRhs().add(queryStmt.getResultExprs().get(origColIdx));
 
-                    queryStmt.getResultExprs().add(Expr.substituteList(Lists.newArrayList(mvColumn.getDefineExpr()), smap, analyzer, false).get(0));
+                    Expr e = Expr.substituteList(Lists.newArrayList(mvColumn.getDefineExpr()), smap, analyzer, false).get(0);
+                    queryStmt.getResultExprs().add(e);
+                    queryStmt.getBaseTblResultExprs().add(e);
                 });
             }
 
@@ -556,17 +561,8 @@ public class InsertStmt extends DdlStmt {
             }
         }
 
-        // expand baseTblResultExprs and colLabels in QueryStmt
+        // expand colLabels in QueryStmt
         if (!origColIdxsForShadowCols.isEmpty() || !origColIdx2MVColumn.isEmpty()) {
-            if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
-                for (Integer idx : origColIdxsForShadowCols) {
-                    queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(idx));
-                }
-                for (Integer idx : origColIdx2MVColumn.keySet()) {
-                    queryStmt.getBaseTblResultExprs().add(queryStmt.getResultExprs().get(idx));
-                }
-            }
-
             if (queryStmt.getResultExprs().size() != queryStmt.getColLabels().size()) {
                 for (Integer idx : origColIdxsForShadowCols) {
                     queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
