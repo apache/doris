@@ -35,7 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
-import org.apache.doris.common.Pair;
+import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -85,6 +85,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "partitionIndexTabletMap")
     private Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
     // partition id -> (shadow index id -> shadow index))
+    @SerializedName(value = "partitionIndexMap")
     private Table<Long, Long, MaterializedIndex> partitionIndexMap = HashBasedTable.create();
     // shadow index id -> origin index id
     @SerializedName(value = "indexIdMap")
@@ -97,7 +98,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private Map<Long, List<Column>> indexSchemaMap = Maps.newHashMap();
     // shadow index id -> (shadow index schema version : schema hash)
     @SerializedName(value = "indexSchemaVersionAndHashMap")
-    private Map<Long, Pair<Integer, Integer>> indexSchemaVersionAndHashMap = Maps.newHashMap();
+    private Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
     // shadow index id -> shadow index short key count
     @SerializedName(value = "indexShortKeyMap")
     private Map<Long, Short> indexShortKeyMap = Maps.newHashMap();
@@ -151,7 +152,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             short shadowIdxShortKeyCount, List<Column> shadowIdxSchema) {
         indexIdMap.put(shadowIdxId, originIdxId);
         indexIdToName.put(shadowIdxId, shadowIndexName);
-        indexSchemaVersionAndHashMap.put(shadowIdxId, Pair.create(shadowSchemaVersion, shadowSchemaHash));
+        indexSchemaVersionAndHashMap.put(shadowIdxId, new SchemaVersionAndHash(shadowSchemaVersion, shadowSchemaHash));
         indexShortKeyMap.put(shadowIdxId, shadowIdxShortKeyCount);
         indexSchemaMap.put(shadowIdxId, shadowIdxSchema);
     }
@@ -234,7 +235,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     
                     short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                     List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
-                    int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).second;
+                    int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
                     
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
@@ -334,8 +335,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         for (long shadowIdxId : indexIdMap.keySet()) {
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
-                    indexSchemaVersionAndHashMap.get(shadowIdxId).first,
-                    indexSchemaVersionAndHashMap.get(shadowIdxId).second,
+                    indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
+                    indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN, null);
         }
 
@@ -385,7 +386,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     MaterializedIndex shadowIdx = entry.getValue();
 
                     long originIdxId = indexIdMap.get(shadowIdxId);
-                    int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).second;
+                    int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
 
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
@@ -679,7 +680,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                        indexSchemaVersionAndHashMap.get(shadowIndexId).second, medium);
+                        indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium);
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
@@ -867,7 +868,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             int schemaVersion = in.readInt();
             int schemaVersionHash = in.readInt();
-            Pair<Integer, Integer> schemaVersionAndHash = Pair.create(schemaVersion, schemaVersionHash);
+            SchemaVersionAndHash schemaVersionAndHash = new SchemaVersionAndHash(schemaVersion, schemaVersionHash);
             short shortKeyCount = in.readShort();
 
             indexIdMap.put(shadowIndexId, originIndexId);
@@ -923,7 +924,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             String indexName = Text.readString(in);
             int schemaVersion = in.readInt();
             int schemaVersionHash = in.readInt();
-            Pair<Integer, Integer> schemaVersionAndHash = Pair.create(schemaVersion, schemaVersionHash);
+            SchemaVersionAndHash schemaVersionAndHash = new SchemaVersionAndHash(schemaVersion, schemaVersionHash);
 
             indexIdMap.put(shadowIndexId, originIndexId);
             indexIdToName.put(shadowIndexId, indexName);
