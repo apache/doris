@@ -136,6 +136,7 @@ module.exports = [
       "plugin-development-manual",
       "user-defined-function",
       "spark-doris-connector",
+      "logstash",
     ],
   },
   {
