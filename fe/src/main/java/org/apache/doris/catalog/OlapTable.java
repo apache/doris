@@ -1224,7 +1224,7 @@ public class OlapTable extends Table {
 
                     Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
                             infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum,
-                            availableBackendsNum);
+                            availableBackendsNum, false);
                     if (statusPair.first != TabletStatus.HEALTHY) {
                         LOG.info("table {} is not stable because tablet {} status is {}. replicas: {}",
                                 id, tablet.getId(), statusPair.first, tablet.getReplicas());

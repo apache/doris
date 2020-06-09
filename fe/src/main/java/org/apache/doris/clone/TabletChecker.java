@@ -239,7 +239,7 @@ public class TabletChecker extends MasterDaemon {
                                         partition.getVisibleVersion(),
                                         partition.getVisibleVersionHash(),
                                         olapTbl.getPartitionInfo().getReplicationNum(partition.getId()),
-                                        availableBackendsNum);
+                                        availableBackendsNum,false);
 
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                                     // Only set last status check time when status is healthy.

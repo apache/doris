@@ -61,6 +61,7 @@ public class Tablet extends MetaObject implements Writable {
         COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
         COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
+        NO_AVAILABLE_REPLICA, // without available replica.
     }
 
     @SerializedName(value = "id")
@@ -395,7 +396,7 @@ public class Tablet extends MetaObject implements Writable {
         return dataSize;
     }
 
-    /**
+    /*
      * A replica is healthy only if
      * 1. the backend is available
      * 2. replica version is caught up, and last failed version is -1
@@ -403,11 +404,15 @@ public class Tablet extends MetaObject implements Writable {
      * A tablet is healthy only if
      * 1. healthy replica num is equal to replicationNum
      * 2. all healthy replicas are in right cluster
+     * returnNoAvlExplicit
+     * True:  means special usage to show lostTabletIds in the systemInfo
+     *        if aliveAndVersionComplete==0 return NO_AVAILABLE_REPLICA
+     * False: normally to get the schedule priority of the tablet
      */
     public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
             long visibleVersion, long visibleVersionHash, int replicationNum,
-            int availableBackendsNum) {
+            int availableBackendsNum, boolean returnNoAvlExplicit) {
 
         int alive = 0;
         int aliveAndVersionComplete = 0;
@@ -450,6 +455,12 @@ public class Tablet extends MetaObject implements Writable {
             if (replica.needFurtherRepair() && needFurtherRepairReplica == null) {
                 needFurtherRepairReplica = replica;
             }
+        }
+
+        // special useage to show lost tablet ids in system info, do not need to schedule.
+        if (returnNoAvlExplicit && aliveAndVersionComplete == 0){
+
+            return Pair.create(TabletStatus.NO_AVAILABLE_REPLICA, null);
         }
 
         // 1. alive replicas are not enough

@@ -500,7 +500,7 @@ public class TabletScheduler extends MasterDaemon {
                         partition.getVisibleVersion(),
                         partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicationNum(partition.getId()),
-                        availableBackendsNum);
+                        availableBackendsNum, false);
             }
 
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {

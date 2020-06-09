@@ -803,7 +803,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
             Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
                     infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicationNum,
-                    availableBackendsNum);
+                    availableBackendsNum,false);
             if (pair.first == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");
             }

@@ -52,6 +52,7 @@ public class StatisticProcDir implements ProcDirInterface {
             .add("DbId").add("DbName").add("TableNum").add("PartitionNum")
             .add("IndexNum").add("TabletNum").add("ReplicaNum").add("UnhealthyTabletNum")
             .add("InconsistentTabletNum").add("CloningTabletNum")
+            .add("LostTabletNum") // count of tablets without available replica.
             .build();
     private static final Logger LOG = LogManager.getLogger(StatisticProcDir.class);
 
@@ -63,12 +64,15 @@ public class StatisticProcDir implements ProcDirInterface {
     Multimap<Long, Long> inconsistentTabletIds;
     // db id -> set(tablet id)
     Multimap<Long, Long> cloningTabletIds;
+    // db id -> set(tablet id)
+    Multimap<Long, Long> noAvlreplicaTabletIds;
 
     public StatisticProcDir(Catalog catalog) {
         this.catalog = catalog;
         unhealthyTabletIds = HashMultimap.create();
         inconsistentTabletIds = HashMultimap.create();
         cloningTabletIds = HashMultimap.create();
+        noAvlreplicaTabletIds = HashMultimap.create();
     }
 
     @Override
@@ -96,6 +100,7 @@ public class StatisticProcDir implements ProcDirInterface {
         unhealthyTabletIds.clear();
         inconsistentTabletIds.clear();
         cloningTabletIds = AgentTaskQueue.getTabletIdsByType(TTaskType.CLONE);
+        noAvlreplicaTabletIds.clear();
         List<List<Comparable>> lines = new ArrayList<List<Comparable>>();
         for (Long dbId : dbIds) {
             if (dbId == 0) {
@@ -137,12 +142,17 @@ public class StatisticProcDir implements ProcDirInterface {
                                 Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
                                         infoService, db.getClusterName(),
                                         partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                        replicationNum, availableBackendsNum);
+                                        replicationNum, availableBackendsNum, true);
 
                                 // here we treat REDUNDANT as HEALTHY, for user friendly.
                                 if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
                                         && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR) {
                                     unhealthyTabletIds.put(dbId, tablet.getId());
+                                }
+
+                                // add tablet without available replica;
+                                if (res.first == TabletStatus.NO_AVAILABLE_REPLICA) {
+                                    noAvlreplicaTabletIds.put(dbId, tablet.getId());
                                 }
 
                                 if (!tablet.isConsistent()) {
@@ -164,6 +174,7 @@ public class StatisticProcDir implements ProcDirInterface {
                 oneLine.add(unhealthyTabletIds.get(dbId).size());
                 oneLine.add(inconsistentTabletIds.get(dbId).size());
                 oneLine.add(cloningTabletIds.get(dbId).size());
+                oneLine.add(noAvlreplicaTabletIds.get(dbId).size());
 
                 lines.add(oneLine);
 
@@ -193,6 +204,7 @@ public class StatisticProcDir implements ProcDirInterface {
         finalLine.add(unhealthyTabletIds.size());
         finalLine.add(inconsistentTabletIds.size());
         finalLine.add(cloningTabletIds.size());
+        finalLine.add(noAvlreplicaTabletIds.size());
         lines.add(finalLine);
 
         // add result
@@ -223,6 +235,7 @@ public class StatisticProcDir implements ProcDirInterface {
 
         return new IncompleteTabletsProcNode(unhealthyTabletIds.get(dbId),
                                              inconsistentTabletIds.get(dbId),
-                                             cloningTabletIds.get(dbId));
+                                             cloningTabletIds.get(dbId),
+                                             noAvlreplicaTabletIds.get(dbId));
     }
 }

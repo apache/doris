@@ -29,20 +29,24 @@ import java.util.List;
 
 public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("UnhealthyTablets").add("InconsistentTablets").add("CloningTablets")
+            .add("UnhealthyTablets").add("InconsistentTablets").add("CloningTablets").add("LostTablets")
             .build();
+
     private static final Joiner JOINER = Joiner.on(",");
 
     Collection<Long> unhealthyTabletIds;
     Collection<Long> inconsistentTabletIds;
+    Collection<Long> noAvlreplicaTabletIds;
     Collection<Long> cloningTabletIds;
 
     public IncompleteTabletsProcNode(Collection<Long> unhealthyTabletIds,
                                      Collection<Long> inconsistentTabletIds,
-                                     Collection<Long> cloningTabletIds) {
+                                     Collection<Long> cloningTabletIds,
+                                     Collection<Long> noAvlreplicaTabletIds) {
         this.unhealthyTabletIds = unhealthyTabletIds;
         this.inconsistentTabletIds = inconsistentTabletIds;
         this.cloningTabletIds = cloningTabletIds;
+        this.noAvlreplicaTabletIds = noAvlreplicaTabletIds;
     }
 
     @Override
@@ -55,10 +59,12 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
 
         String incompleteTablets = JOINER.join(Arrays.asList(unhealthyTabletIds));
         String inconsistentTablets = JOINER.join(Arrays.asList(inconsistentTabletIds));
+        String noAvlreplicaTablets = JOINER.join(Arrays.asList(noAvlreplicaTabletIds));
         String cloningTablets = JOINER.join(Arrays.asList(cloningTabletIds));
         row.add(incompleteTablets);
         row.add(inconsistentTablets);
         row.add(cloningTablets);
+        row.add(noAvlreplicaTablets);
 
         result.addRow(row);
 
