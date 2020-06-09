@@ -17,39 +17,42 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
-// Broker descriptor
+// Resource descriptor
 //
-// Broker example:
-// WITH BROKER "broker0"
+// Spark example:
+// WITH RESOURCE "spark0"
 // (
-//   "username" = "user0",
-//   "password" = "password0"
+//   "spark.jars" = "xxx.jar,yyy.jar",
+//   "spark.files" = "/tmp/aaa,/tmp/bbb",
+//   "spark.executor.memory" = "1g",
+//   "spark.yarn.queue" = "queue0"
 // )
-public class BrokerDesc implements Writable {
-    private String name;
-    private Map<String, String> properties;
+public class ResourceDesc {
+    protected String name;
+    protected Map<String, String> properties;
+    protected EtlJobType etlJobType;
 
     // Only used for recovery
-    private BrokerDesc() {
+    private ResourceDesc() {
     }
 
-    public BrokerDesc(String name, Map<String, String> properties) {
+    public ResourceDesc(String name, Map<String, String> properties) {
         this.name = name;
         this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
+        this.etlJobType = EtlJobType.UNKNOWN;
     }
 
     public String getName() {
@@ -60,36 +63,24 @@ public class BrokerDesc implements Writable {
         return properties;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
+    public EtlJobType getEtlJobType() {
+        return etlJobType;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        name = Text.readString(in);
-        int size = in.readInt();
-        properties = Maps.newHashMap();
-        for (int i = 0; i < size; ++i) {
-            final String key = Text.readString(in);
-            final String val = Text.readString(in);
-            properties.put(key, val);
+    public void analyze() throws AnalysisException {
+        // check resource exist or not
+        Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(getName());
+        if (resource == null) {
+            throw new AnalysisException("Resource does not exist. name: " + getName());
         }
-    }
-
-    public static BrokerDesc read(DataInput in) throws IOException {
-        BrokerDesc desc = new BrokerDesc();
-        desc.readFields(in);
-        return desc;
+        if (resource.getType() == Resource.ResourceType.SPARK) {
+            etlJobType = EtlJobType.SPARK;
+        }
     }
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("WITH BROKER ").append(name);
+        sb.append("WITH RESOURCE '").append(name).append("'");
         if (properties != null && !properties.isEmpty()) {
             PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false, true);
             sb.append(" (").append(printableMap.toString()).append(")");

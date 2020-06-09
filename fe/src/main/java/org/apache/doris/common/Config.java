@@ -492,6 +492,12 @@ public class Config extends ConfigBase {
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
     /*
+     * Default spark load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int spark_load_default_timeout_second = 86400; // 1 day
+
+    /*
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
      * In some situation, such as switch the master, the current number is maybe more then desired_max_waiting_jobs

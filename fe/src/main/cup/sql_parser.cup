@@ -423,8 +423,8 @@ nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
 nonterminal String opt_with_label;
 nonterminal String opt_system;
-nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
+nonterminal ResourceDesc resource_desc;
 nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
 nonterminal ColWithComment col_with_comment;
@@ -1197,6 +1197,13 @@ load_stmt ::=
     {:
         RESULT = new LoadStmt(label, dataDescList, broker, system, properties);
     :}
+    | KW_LOAD KW_LABEL job_label:label
+    LPAREN data_desc_list:dataDescList RPAREN
+    resource_desc:resource
+    opt_properties:properties
+    {:
+        RESULT = new LoadStmt(label, dataDescList, resource, properties);
+    :}
     ;
 
 job_label ::=
@@ -1364,15 +1371,16 @@ opt_broker ::=
     :}
     ;
 
-opt_cluster ::=
-    {:
-        RESULT = null;
-    :}
-    | KW_BY ident_or_text:cluster
-    {:
-        RESULT = cluster;
-    :}
-    ;
+resource_desc ::=                                                               
+    KW_WITH KW_RESOURCE ident_or_text:resourceName                                 
+    {:                                                                               
+        RESULT = new ResourceDesc(resourceName, null);                               
+    :}                                                                               
+    | KW_WITH KW_RESOURCE ident_or_text:resourceName LPAREN key_value_map:properties RPAREN
+    {:                                                                               
+        RESULT = new ResourceDesc(resourceName, properties);                         
+    :}                                                                               
+    ; 
 
 // Routine load statement
 create_routine_load_stmt ::=

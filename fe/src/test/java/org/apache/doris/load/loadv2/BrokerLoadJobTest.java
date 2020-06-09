@@ -101,7 +101,7 @@ public class BrokerLoadJobTest {
         };
 
         try {
-            BrokerLoadJob.fromLoadStmt(loadStmt);
+            BulkLoadJob.fromLoadStmt(loadStmt);
             Assert.fail();
         } catch (DdlException e) {
             System.out.println("could not find table named " + tableName);
@@ -123,6 +123,7 @@ public class BrokerLoadJobTest {
         String databaseName = "database";
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
+        BrokerDesc brokerDesc = new BrokerDesc("broker0", Maps.newHashMap());
 
         new Expectations() {
             {
@@ -153,6 +154,12 @@ public class BrokerLoadJobTest {
                 database.getId();
                 minTimes = 0;
                 result = dbId;
+                loadStmt.getBrokerDesc();
+                minTimes = 0;
+                result = brokerDesc;
+                loadStmt.getEtlJobType();
+                minTimes = 0;
+                result = EtlJobType.BROKER;
             }
         };
 
@@ -165,7 +172,7 @@ public class BrokerLoadJobTest {
         };
 
         try {
-            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(loadStmt);
+            BrokerLoadJob brokerLoadJob = (BrokerLoadJob) BulkLoadJob.fromLoadStmt(loadStmt);
             Assert.assertEquals(Long.valueOf(dbId), Deencapsulation.getField(brokerLoadJob, "dbId"));
             Assert.assertEquals(label, Deencapsulation.getField(brokerLoadJob, "label"));
             Assert.assertEquals(JobState.PENDING, Deencapsulation.getField(brokerLoadJob, "state"));
