@@ -132,7 +132,7 @@ Get the file logstash-output-doris-0.1.0.gem, and the compilation is complete
 
 ### 2. Install and configure filebeat (here use filebeat as input)
 
-1> [es official website] (https://www.elastic.co/) Download the filebeat tar compression package and decompress it
+1> [es official website](https://www.elastic.co/) Download the filebeat tar compression package and decompress it
 
 2> Enter the filebeat directory and modify the configuration file filebeat.yml as follows:
 
@@ -151,7 +151,7 @@ Get the file logstash-output-doris-0.1.0.gem, and the compilation is complete
 
 
 ### 3.Install logstash and doris-out-plugin
-1> [es official website] (https://www.elastic.co/) Download the logstash tar compressed package and decompress it
+1> [es official website](https://www.elastic.co/) Download the logstash tar compressed package and decompress it
 
 2> Copy the logstash-output-doris-0.1.0.gem obtained in step 1 to the logstash installation directory
 
