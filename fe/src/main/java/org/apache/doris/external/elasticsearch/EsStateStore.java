@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -32,13 +32,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 
 import java.util.Collections;
 import java.util.Comparator;
