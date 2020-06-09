@@ -106,8 +106,7 @@ under the License.
         example：DROP ROLLUP r1,r2
     2.2 note:
             1) Cannot delete base index
-            2) Execute DROP ROLLUP For a period of time, the deleted rollup index can be restored by the RECOVER statement. See the RECOVER statement for details.
-    
+               
             
     Schema change supports the following modifications:
     1. Add a column to the specified location of the specified index
