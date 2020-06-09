@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
+import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
@@ -435,8 +436,10 @@ public class MaterializedViewHandler extends AlterHandler {
                 Type type;
                 if (mvColumnItem.getAggregationType().equals(AggregateType.BITMAP_UNION)) {
                     type = Type.BITMAP;
-                } else if (mvColumnItem.getAggregationType().equals(AggregateType.HLL_UNION)){
+                } else if (mvColumnItem.getAggregationType().equals(AggregateType.HLL_UNION)) {
                     type = Type.HLL;
+                } else if (mvColumnItem.getAggregationType().equals(AggregateType.SUM)) {
+                    type = Type.BIGINT;
                 } else {
                     throw new DdlException("The define expr of column is only support bitmap_union or hll_union");
                 }

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -210,7 +211,55 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     mvColumnItemList.add(mvColumnItem);
                     continue;
                 }
-                
+
+                if (functionName.equalsIgnoreCase("count(*)")) {
+                    defineExpr = new IntLiteral(1, Type.BIGINT);
+                    meetAggregate = true;
+                    String columnName = MATERIALIZED_VIEW_NAME_PRFIX + functionName;
+                    if (!mvColumnNameSet.add(columnName)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
+                    }
+
+                    if (beginIndexOfAggregation == -1) {
+                        beginIndexOfAggregation = i;
+                    }
+                    MVColumnItem mvColumnItem = new MVColumnItem(columnName);
+                    mvColumnItem.setAggregationType(AggregateType.valueOf("SUM"), false);
+                    mvColumnItem.setDefineExpr(defineExpr);
+                    mvColumnItemList.add(mvColumnItem);
+                    continue;
+                }
+
+                if (functionName.equalsIgnoreCase("count")) {
+                    Preconditions.checkState(functionChild0.getChildren().size() == 1);
+                    defineExpr = functionChild0;
+
+                    List<Expr> slots = new ArrayList<>();
+                    defineExpr.collect(SlotRef.class, slots);
+                    Preconditions.checkArgument(slots.size() == 1);
+
+                    defineExpr = new CaseExpr(null,
+                            Lists.newArrayList(new CaseWhenClause(new IsNullPredicate(slots.get(0), false), new IntLiteral(0, Type.BIGINT))),
+                            new IntLiteral(1, Type.BIGINT));
+
+
+                    meetAggregate = true;
+                    String columnName = MATERIALIZED_VIEW_NAME_PRFIX + functionName;
+                    if (!mvColumnNameSet.add(columnName)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
+                    }
+
+                    if (beginIndexOfAggregation == -1) {
+                        beginIndexOfAggregation = i;
+                    }
+                    MVColumnItem mvColumnItem = new MVColumnItem(columnName);
+                    mvColumnItem.setAggregationType(AggregateType.valueOf("SUM"), false);
+                    mvColumnItem.setDefineExpr(defineExpr);
+                    mvColumnItemList.add(mvColumnItem);
+                    continue;
+                }
+
+
                 SlotRef slotRef;
                 if (functionChild0 instanceof SlotRef) {
                     slotRef = (SlotRef) functionChild0;
