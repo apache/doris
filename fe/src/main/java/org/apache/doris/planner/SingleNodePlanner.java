@@ -2105,7 +2105,9 @@ public class SingleNodePlanner {
 
     private List<Expr> getBoundPredicates(Analyzer analyzer, TupleDescriptor tupleDesc) {
         final List<TupleId> tupleIds = Lists.newArrayList();
-        tupleIds.add(tupleDesc.getId());
+        if (tupleDesc != null) {
+            tupleIds.add(tupleDesc.getId());
+        }
         return analyzer.getUnassignedConjuncts(tupleIds);
     }
 }
