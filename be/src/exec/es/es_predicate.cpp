@@ -54,8 +54,7 @@ using namespace std;
             const Expr* expr_without_cast = Expr::expr_without_cast(expr); \
             if (expr_without_cast->node_type() != TExprNodeType::SLOT_REF) { \
                 return Status::InternalError("build disjuncts failed: child is not slot ref"); \
-            }
-        } \
+            } \
     } while (false)
 
 std::string ExtLiteral::value_to_string() {
