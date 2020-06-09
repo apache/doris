@@ -118,7 +118,7 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
     }
 
     if (base_tablet->is_memory() || existed_tablet->is_memory()) {
-        LOG(WARNING) << "add the same tablet twice! tablet_id=" << tablet_id
+        LOG(WARNING) << "add the same MemTablet twice! tablet_id=" << tablet_id
                      << ", schema_hash=" << schema_hash
                      << ", tablet_path=" << base_tablet->tablet_path();
         return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
