@@ -17,9 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -68,15 +73,26 @@ public class LoadStmtTest {
     }
 
     @Test
-    public void testNormal(@Injectable DataDescription desc) throws UserException, AnalysisException {
+    public void testNormal(@Injectable DataDescription desc, @Mocked Catalog catalog,
+                           @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
+        String resourceName = "spark0";
+        SparkResource resource = new SparkResource(resourceName);
 
         new Expectations(){
             {
                 desc.toSql();
                 minTimes = 0;
                 result = "XXX";
+                catalog.getResourceMgr();
+                result = resourceMgr;
+                resourceMgr.getResource(resourceName);
+                result = resource;
+                catalog.getAuth();
+                result = auth;
+                auth.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
+                result = true;
             }
         };
 
@@ -88,6 +104,16 @@ public class LoadStmtTest {
 
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n"
                 + "(XXX)", stmt.toString());
+
+        // test ResourceDesc
+        // TODO(wyb): spark-load
+        LoadStmt.disableSparkLoad = false;
+        stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
+                            new ResourceDesc(resourceName, null), null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(EtlJobType.SPARK, stmt.getResourceDesc().getEtlJobType());
+        Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH RESOURCE 'spark0'",
+                            stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

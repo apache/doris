@@ -104,14 +104,14 @@ public class LoadManager implements Writable{
         writeLock();
         try {
             checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getBrokerDesc() == null) {
-                throw new DdlException("LoadManager only support the broker load.");
+            if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
+                throw new DdlException("LoadManager only support the broker and spark load.");
             }
             if (loadJobScheduler.isQueueFull()) {
                 throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
-            loadJob = BrokerLoadJob.fromLoadStmt(stmt);
+            loadJob = BulkLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
@@ -529,7 +529,6 @@ public class LoadManager implements Writable{
      *
      * @param dbId
      * @param label
-     * @param requestId: the uuid of each txn request from BE
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
     private void checkLabelUsed(long dbId, String label)
