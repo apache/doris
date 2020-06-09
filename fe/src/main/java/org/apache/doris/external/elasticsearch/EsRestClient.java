@@ -15,12 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+package org.apache.doris.external.elasticsearch;
 
-import okhttp3.Credentials;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
@@ -34,6 +30,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import okhttp3.Credentials;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 public class EsRestClient {
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
@@ -142,14 +143,19 @@ public class EsRestClient {
             Request request = builder.get()
                     .url(currentNode + "/" + path)
                     .build();
+            Response response = null;
             try {
-                Response response = networkClient.newCall(request).execute();
+                response = networkClient.newCall(request).execute();
                 if (response.isSuccessful()) {
                     return response.body().string();
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
                 scratchExceptionForThrow = e;
+            } finally {
+                if (response != null) {
+                    response.close();
+                }
             }
             nextNode = selectNextNode();
             if (!nextNode) {

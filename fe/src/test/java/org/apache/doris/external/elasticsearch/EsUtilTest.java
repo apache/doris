@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.es;
+package org.apache.doris.external.elasticsearch;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -24,8 +24,6 @@ import static org.junit.Assert.assertTrue;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.Test;
-
-import org.apache.doris.external.EsUtil;
 
 public class EsUtilTest {
 

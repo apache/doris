@@ -25,8 +25,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.external.EsIndexState;
-import org.apache.doris.external.EsShardRouting;
+import org.apache.doris.external.elasticsearch.EsIndexState;
+import org.apache.doris.external.elasticsearch.EsShardRouting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
