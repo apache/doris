@@ -757,9 +757,9 @@ public class SingleNodePlanner {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             ArrayList<String> commonHints = new ArrayList();
             if (selectStmt.getTableRefs().size() > 0) {
-            if (selectStmt.getTableRefs().get(0).getCommonHints() != null) {
-                commonHints.addAll(selectStmt.getTableRefs().get(0).getCommonHints());
-            }
+                if (selectStmt.getTableRefs().get(0).getCommonHints() != null) {
+                    commonHints.addAll(selectStmt.getTableRefs().get(0).getCommonHints());
+                }
             }
             for (TableRef tableRef : selectStmt.getTableRefs()) {
                 if (tableRef instanceof InlineViewRef) {

@@ -14,10 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-<<<<<<< HEAD
-
-=======
->>>>>>> bfb28b3dcac2f11c12f2bbd3a5549938a5f64655
 
 #include <cstdint>
 #include <gtest/gtest.h>

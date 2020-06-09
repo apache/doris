@@ -188,8 +188,6 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
         break; \
     }
 
-
-
 bool RowBlockChanger::change_row_block(
         const RowBlock* ref_block,
         int32_t data_version,
@@ -1912,6 +1910,11 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
             if (column_index >= 0) {
                 column_mapping->ref_column = column_index;
                 continue;
+            } else {
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name
+                             << " referenced_column=" << column_index << "]";
+                return OLAP_ERR_CE_CMD_PARAMS_ERROR;
             }
         }
 

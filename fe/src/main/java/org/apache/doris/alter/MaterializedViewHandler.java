@@ -430,7 +430,6 @@ public class MaterializedViewHandler extends AlterHandler {
         List<Column> newMVColumns = Lists.newArrayList();
         int numOfKeys = 0;
         for (MVColumnItem mvColumnItem : mvColumnItemList) {
-
             //FIXME(lhy) FOR TEST
             if (mvColumnItem.getDefineExpr() != null) {
                 Type type;
