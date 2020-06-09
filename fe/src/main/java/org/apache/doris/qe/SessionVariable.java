@@ -101,6 +101,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
     public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
 
+    public static final String ALLOW_IGNORE_ORDER_BY = "allow_ignore_order_by";
+
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
@@ -248,6 +250,9 @@ public class SessionVariable implements Serializable, Writable {
     private int maxScanKeyNum = -1;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     private int maxPushdownConditionsPerColumn = -1;
+    // TODO(Yangzhengguo) set this default value to true if we support spill data top disk
+    @VariableMgr.VarAttr(name = ALLOW_IGNORE_ORDER_BY)
+    private boolean allowIgnoreOrderBy = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -369,6 +374,10 @@ public class SessionVariable implements Serializable, Writable {
         return codegenLevel;
     }
 
+    public boolean isAllowIgnoreOrderBy() {
+        return allowIgnoreOrderBy;
+    }
+
     public void setMaxExecMemByte(long maxExecMemByte) {
         if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
             this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
@@ -472,6 +481,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
         this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
+    }
+
+    public void setAllowIgnoreOrderBy(boolean allowIgnoreOrderBy) {
+        this.allowIgnoreOrderBy = allowIgnoreOrderBy;
     }
 
     // Serialize to thrift object
