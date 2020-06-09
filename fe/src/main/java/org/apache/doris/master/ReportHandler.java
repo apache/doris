@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
@@ -892,9 +893,10 @@ public class ReportHandler extends Daemon {
                 }
                 long tabletId = tabletInfo.getTablet_id();
                 boolean beIsInMemory = tabletInfo.is_in_memory;
-                long dbId = invertedIndex.getDbId(tabletId);
-                long tableId = invertedIndex.getTableId(tabletId);
-                long partitionId = invertedIndex.getPartitionId(tabletId);
+                TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+                long dbId = tabletMeta != null ? tabletMeta.getDbId() : -1L;
+                long tableId = tabletMeta != null ? tabletMeta.getTableId() : -1L;
+                long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : -1L;
 
                 Database db = Catalog.getCurrentCatalog().getDb(dbId);
                 if (db == null) {
@@ -946,10 +948,11 @@ public class ReportHandler extends Daemon {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        long dbId = invertedIndex.getDbId(tabletId);
-        long tableId = invertedIndex.getTableId(tabletId);
-        long partitionId = invertedIndex.getPartitionId(tabletId);
-        long indexId = invertedIndex.getIndexId(tabletId);
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+        long dbId = tabletMeta != null ? tabletMeta.getDbId() : -1L;
+        long tableId = tabletMeta != null ? tabletMeta.getTableId() : -1L;
+        long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : -1L;
+        long indexId = tabletMeta != null ? tabletMeta.getIndexId() : - 1L;
         
         int schemaHash = backendTabletInfo.getSchema_hash();
         long version = backendTabletInfo.getVersion();

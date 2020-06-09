@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.StampedLock;
 import java.util.stream.Collectors;
 
 /*
@@ -58,7 +59,7 @@ public class TabletInvertedIndex {
 
     public static final int NOT_EXIST_VALUE = -1;
 
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private StampedLock lock = new StampedLock();
 
     // tablet id -> tablet meta
     private Map<Long, TabletMeta> tabletMetaMap = Maps.newHashMap();
@@ -87,7 +88,7 @@ public class TabletInvertedIndex {
     }
 
     private void readLock() {
-        this.lock.readLock().lock();
+
     }
 
     private void readUnlock() {
@@ -252,18 +253,6 @@ public class TabletInvertedIndex {
                  tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), (end - start));
     }
 
-    public long getDbId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getDbId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-
     public long getTableId(long tabletId) {
         readLock();
         try {
@@ -275,20 +264,7 @@ public class TabletInvertedIndex {
             readUnlock();
         }
     }
-    
-    public TabletMeta getTabletMetaByReplica(long replicaId) {
-        readLock();
-        try {
-            Long tabletId = replicaToTabletMap.get(replicaId);
-            if (tabletId == null) {
-                return null;
-            }
-            return tabletMetaMap.get(tabletId);
-        } finally {
-            readUnlock();
-        }
-    }
-    
+
     public Long getTabletIdByReplica(long replicaId) {
         readLock();
         try {
