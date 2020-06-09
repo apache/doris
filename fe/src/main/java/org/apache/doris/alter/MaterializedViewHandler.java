@@ -481,7 +481,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public List<Column> checkAndPrepareMaterializedView(AddRollupClause addRollupClause, OlapTable olapTable,
                                                         long baseIndexId, boolean changeStorageFormat)
-            throws DdlException {
+            throws DdlException{
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
         if (changeStorageFormat) {
@@ -561,13 +561,19 @@ public class MaterializedViewHandler extends AlterHandler {
                     if (baseColumn == null) {
                         throw new DdlException("Column[" + columnName + "] does not exist in base index");
                     }
+                    // Supplement key of MV columns
+                    if (baseColumn.getType().getPrimitiveType().isFloatingPointType() && i == 0) {
+                        throw new DdlException("The first column could not be float or double, "
+                                + "use decimal instead.");
+                    }
                     keyStorageLayoutBytes += baseColumn.getType().getStorageLayoutBytes();
                     Column rollupColumn = new Column(baseColumn);
                     if(changeStorageFormat) {
                         rollupColumn.setIsKey(baseColumn.isKey());
                         rollupColumn.setAggregationType(baseColumn.getAggregationType(), true);
-                    } else if ((i + 1) <= FeConstants.shortkey_max_column_count
-                            || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
+                    } else if (!rollupColumn.getType().getPrimitiveType()
+                            .isFloatingPointType() && ((i + 1) <= FeConstants.shortkey_max_column_count ||
+                            keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes)) {
                         rollupColumn.setIsKey(true);
                         rollupColumn.setAggregationType(null, false);
                     } else {

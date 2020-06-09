@@ -284,10 +284,19 @@ public class CreateTableStmt extends DdlStmt {
                 } else {
                     for (ColumnDef columnDef : columnDefs) {
                         keyLength += columnDef.getType().getStorageLayoutBytes();
-                        if (keysColumnNames.size() < FeConstants.shortkey_max_column_count
-                                || keyLength < FeConstants.shortkey_maxsize_bytes) {
+                        if ((!columnDef.getType().getPrimitiveType().isFloatingPointType())
+                                && ((keysColumnNames.size() < FeConstants.shortkey_max_column_count)
+                                || (keyLength < FeConstants.shortkey_maxsize_bytes))) {
                             keysColumnNames.add(columnDef.getName());
+                        } else {
+                            break;
                         }
+                    }
+                    // The OLAP table must has at least one short key and the float and double should not be short key.
+                    // So the float and double could not be the first column in OLAP table.
+                    if (keysColumnNames.isEmpty()) {
+                        throw new AnalysisException(
+                                "The first column could not be float or double, " + "use decimal instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }

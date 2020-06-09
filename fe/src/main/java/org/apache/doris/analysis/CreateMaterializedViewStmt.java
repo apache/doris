@@ -164,6 +164,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
+                mvColumnItem.setType(slotRef.getType().getPrimitiveType());
                 mvColumnItemList.add(mvColumnItem);
             } else if (selectListItem.getExpr() instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItem.getExpr();
@@ -235,6 +236,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     if (mvColumnItem.getAggregationType() != null) {
                         break;
                     }
+                    if (mvColumnItem.getType().isFloatingPointType()) {
+                        throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
+                    }
                     mvColumnItem.setIsKey(true);
                 }
                 return;
@@ -255,10 +259,15 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 MVColumnItem mvColumnItem = mvColumnItemList.get(i);
                 Expr resultColumn = selectStmt.getResultExprs().get(i);
                 keyStorageLayoutBytes += resultColumn.getType().getStorageLayoutBytes();
-                if ((i + 1) <= FeConstants.shortkey_max_column_count
-                        || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
+                if ((!mvColumnItem.getType().isFloatingPointType())
+                        && ((i + 1) <= FeConstants.shortkey_max_column_count
+                        || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes)) {
                     mvColumnItem.setIsKey(true);
                 } else {
+                    if (i == 0) {
+                        throw new AnalysisException("The first column could not be float or double, "
+                                + "use decimal instead.");
+                    }
                     mvColumnItem.setAggregationType(AggregateType.NONE, true);
                 }
             }
