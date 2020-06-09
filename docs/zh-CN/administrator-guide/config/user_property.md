@@ -1,6 +1,6 @@
 ---
 {
-    "title": "User 配置项",
+    "title": "用户配置项",
     "language": "zh-CN"
 }
 ---
