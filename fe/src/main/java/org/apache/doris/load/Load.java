@@ -1013,14 +1013,20 @@ public class Load {
                 slotDescByName.put(realColName, slotDesc);
             }
         }
-        // The extension column of the materialized view is added to the expression evaluation of load
+        /*
+         * The extension column of the materialized view is added to the expression evaluation of load
+         * To avoid nested expressions. eg : column(a, tmp_c, c = expr(tmp_c)) ,
+         * __doris_materialized_view_bitmap_union_c need be analyzed after exprsByName
+         * So the columns of the materialized view are stored separately here
+         */
+        Map<String, Expr> mvDefineExpr = Maps.newHashMap();
         for (Column column : tbl.getFullSchema()) {
             if (column.getDefineExpr() != null) {
-                exprsByName.put(column.getName(), column.getDefineExpr());
+                mvDefineExpr.put(column.getName(), column.getDefineExpr());
             }
         }
 
-        LOG.debug("slotDescByName: {}, exprsByName: {}", slotDescByName, exprsByName);
+        LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}", slotDescByName, exprsByName, mvDefineExpr);
 
         // analyze all exprs
         for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
@@ -1047,6 +1053,28 @@ public class Load {
                     throw new AnalysisException("Don't support aggregation function in load expression");
                 }
             }
+            exprsByName.put(entry.getKey(), expr);
+        }
+
+        for (Map.Entry<String, Expr> entry : mvDefineExpr.entrySet()) {
+            ExprSubstitutionMap smap = new ExprSubstitutionMap();
+            List<SlotRef> slots = Lists.newArrayList();
+            entry.getValue().collect(SlotRef.class, slots);
+            for (SlotRef slot : slots) {
+                if (slotDescByName.get(slot.getColumnName()) != null) {
+                    smap.getLhs().add(slot);
+                    smap.getRhs().add(new SlotRef(slotDescByName.get(slot.getColumnName())));
+                } else if (exprsByName.get(slot.getColumnName()) != null) {
+                    smap.getLhs().add(slot);
+                    smap.getRhs().add(exprsByName.get(slot.getColumnName()));
+                } else {
+                    throw new UserException("unknown reference column, column=" + entry.getKey()
+                            + ", reference=" + slot.getColumnName());
+                }
+            }
+            Expr expr = entry.getValue().clone(smap);
+            expr.analyze(analyzer);
+
             exprsByName.put(entry.getKey(), expr);
         }
         LOG.debug("after init column, exprMap: {}", exprsByName);
