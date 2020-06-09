@@ -26,7 +26,7 @@ under the License.
 
 # User 配置项
 
-该文档主要介绍了 User 级别的相关配置项。User 级别的配置主要是生效范围为单个用户。每个用户都可以设置自己的 User property。相互不影响。
+该文档主要介绍了 User 级别的相关配置项。User 级别的配置生效范围为单个用户。每个用户都可以设置自己的 User property。相互不影响。
 
 ## 查看配置项
 
