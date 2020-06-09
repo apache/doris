@@ -89,7 +89,7 @@ under the License.
 
 * `dynamic_partition.time_zone`
 
-    动态分区的时区，如果不填写，则默认为当前机器的系统的时区，例如 `Asia/Shanghai`，如果想获取当前支持的时区设置，可以在Java下运行 `TimeZone.getAvailableIDs()`　来获取。
+    动态分区的时区，如果不填写，则默认为当前机器的系统的时区，例如 `Asia/Shanghai`，如果想获取当前支持的时区设置，可以参考 `https://en.wikipedia.org/wiki/List_of_tz_database_time_zones`。
 
 * `dynamic_partition.start`
 

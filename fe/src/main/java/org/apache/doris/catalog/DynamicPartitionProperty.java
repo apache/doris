@@ -55,7 +55,7 @@ public class DynamicPartitionProperty {
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
-            this.tz = TimeZone.getTimeZone(properties.getOrDefault(TIME_ZONE, ZoneId.systemDefault().toString()));
+            this.tz = TimeUtils.getOrSystemTimeZone(properties.get(TIME_ZONE));
             // In order to compatible dynamic add partition version
             this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
             this.end = Integer.parseInt(properties.get(END));

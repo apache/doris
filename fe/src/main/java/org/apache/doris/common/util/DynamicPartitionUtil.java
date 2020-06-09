@@ -151,19 +151,6 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkTimeZone(String val) throws DdlException {
-        boolean validId = false;
-        for (String availableId : TimeZone.getAvailableIDs()) {
-            if (availableId != null && availableId.equals(val)) {
-                validId = true;
-                break;
-            }
-        }
-        if (!validId) {
-            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.TIME_ZONE);
-        }
-    }
-
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
         if (properties == null) {
             return false;
@@ -293,7 +280,7 @@ public class DynamicPartitionUtil {
 
         if (properties.containsKey(DynamicPartitionProperty.TIME_ZONE)) {
             String val = properties.get(DynamicPartitionProperty.TIME_ZONE);
-            checkTimeZone(val);
+            TimeUtils.checkTimeZoneValidAndStandardize(val);
             properties.remove(DynamicPartitionProperty.TIME_ZONE);
             analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
