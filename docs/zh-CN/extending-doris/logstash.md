@@ -46,7 +46,11 @@ under the License.
 ### 3.插件安装
 copy logstash-output-doris-{version}.gem 到 logstash 安装目录下
 
-执行命令`./bin/logstash-plugin install logstash-output-doris-{version}.gem` 安装 logstash-output-doris 插件
+执行命令
+
+`./bin/logstash-plugin install logstash-output-doris-{version}.gem` 
+
+安装 logstash-output-doris 插件
 
 ## 配置
 ### 示例：
@@ -110,4 +114,85 @@ copy logstash-output-doris-{version}.gem 到 logstash 安装目录下
 执行命令启动doris output plugin：
 
 `{logstash-home}/bin/logstash -f {logstash-home}/config/logstash-doris.conf --config.reload.automatic`
+
+
+
+
+## 完整使用示例
+### 1.编译doris-output-plugin
+1> 下载ruby压缩包，自行到[ruby官网](https://www.ruby-lang.org/en/downloads/)下载，这里使用的2.7.1版本
+
+2> 编译安装，配置ruby的环境变量
+
+3> 到doris源码 extension/logstash/ 目录下，执行
+
+`gem build logstash-output-doris.gemspec`
+
+得到文件 logstash-output-doris-0.1.0.gem，至此编译完成
+
+### 2.安装配置filebeat(此处使用filebeat作为input)
+
+1> [es官网](https://www.elastic.co/)下载 filebeat tar压缩包并解压
+
+2> 进入filebeat目录下，修改配置文件 filebeat.yml 如下：
+
+	filebeat.inputs:
+	- type: log
+	  paths:
+	    - /tmp/doris.data
+	output.logstash:
+	  hosts: ["localhost:5044"]
+
+/tmp/doris.data 为doris数据路径
+
+3> 启动filebeat：
+
+`./filebeat -e -c filebeat.yml -d "publish"`
+
+
+### 3.安装logstash及doris-out-plugin
+1> [es官网](https://www.elastic.co/)下载 logstash tar压缩包并解压
+
+2> 将步骤1中得到的 logstash-output-doris-0.1.0.gem copy到logstash安装目录下
+
+3> 执行
+
+`./bin/logstash-plugin install logstash-output-doris-0.1.0.gem`
+
+安装插件
+
+4> 在config 目录下新建配置文件 logstash-doris.conf 内容如下：
+
+	input {
+	    beats {
+	        port => "5044"
+	    }
+	}
+	
+	output {
+	    doris {
+	        http_hosts => [ "http://127.0.0.1:8030" ]
+	        user => doris
+	        password => doris
+	        db => "logstash_output_test"
+	        table => "output"
+	        label_prefix => "doris"
+	        column_separator => ","
+	        columns => "a,b,c,d,e"
+	    }
+	}
+
+这里的配置需按照配置说明自行配置
+
+5> 启动logstash：
+
+./bin/logstash -f ./config/logstash-doris.conf --config.reload.automatic
+
+### 4.测试功能
+
+向/tmp/doris.data追加写入数据
+
+`echo a,b,c,d,e >> /tmp/doris.data`
+
+观察logstash日志，若返回response的Status为 Success，则导入成功，此时可在 logstash_output_test.output 表中查看已导入的数据
 
