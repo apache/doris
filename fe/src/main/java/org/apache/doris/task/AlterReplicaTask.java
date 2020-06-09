@@ -46,7 +46,7 @@ public class AlterReplicaTask extends AgentTask {
     private long jobId;
     private AlterJobV2.JobType jobType;
 
-    private Map<String, Expr> defileExprs;
+    private Map<String, Expr> defineExprs;
 
     public AlterReplicaTask(long backendId, long dbId, long tableId,
                             long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
@@ -76,7 +76,7 @@ public class AlterReplicaTask extends AgentTask {
 
         this.jobType = jobType;
 
-        this.defileExprs = defileExprs;
+        this.defineExprs = defileExprs;
     }
 
     public long getBaseTabletId() {
@@ -115,8 +115,8 @@ public class AlterReplicaTask extends AgentTask {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlter_version(version);
         req.setAlter_version_hash(versionHash);
-        if (defileExprs != null) {
-            for (Map.Entry<String, Expr> expr : defileExprs.entrySet()) {
+        if (defineExprs != null) {
+            for (Map.Entry<String, Expr> expr : defineExprs.entrySet()) {
                 List<SlotRef> slots = Lists.newArrayList();
                 expr.getValue().collect(SlotRef.class, slots);
                 Preconditions.checkState(slots.size() == 1);
