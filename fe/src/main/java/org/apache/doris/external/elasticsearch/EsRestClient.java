@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+package org.apache.doris.external.elasticsearch;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -44,34 +44,35 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class EsRestClient {
-
+    
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
     private ObjectMapper mapper;
-
+    
     {
         mapper = new ObjectMapper();
         mapper.configure(DeserializationConfig.Feature.USE_ANNOTATIONS, false);
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
-
+    
     private static OkHttpClient networkClient = new OkHttpClient.Builder()
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build();
-
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build();
+    
     private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
     private int currentNodeIndex = 0;
-
+    
     public EsRestClient(String[] nodes, String authUser, String authPassword) {
         this.nodes = nodes;
         this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-            this.builder.addHeader(HttpHeaders.AUTHORIZATION, Credentials.basic(authUser, authPassword));
+            this.builder.addHeader(HttpHeaders.AUTHORIZATION,
+                    Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
     }
-
+    
     private void selectNextNode() {
         currentNodeIndex++;
         // reroute, because the previously failed node may have already been restored
@@ -80,7 +81,7 @@ public class EsRestClient {
         }
         currentNode = nodes[currentNodeIndex];
     }
-
+    
     public Map<String, EsNodeInfo> getHttpNodes() throws Exception {
         Map<String, Map<String, Object>> nodesData = get("_nodes/http", "nodes");
         if (nodesData == null) {
@@ -96,10 +97,13 @@ public class EsRestClient {
         return nodesMap;
     }
     
-    public EsFieldInfo getFieldInfo(String indexName, String mappingType, List<Column> colList) {
+    public EsFieldInfo getFieldInfo(String indexName, String mappingType, List<Column> colList) throws Exception {
         String path = indexName + "/_mapping";
         String indexMapping = execute(path);
-        return indexMapping == null ? null : getFieldInfo(colList, parseProperties(indexMapping, mappingType));
+        if (indexMapping == null) {
+            throw new Exception( "index[" + indexName + "] _mapping not found for the Elasticsearch Cluster");
+        }
+        return getFieldInfo(colList, parseProperties(indexMapping, mappingType));
     }
     
     @VisibleForTesting
@@ -121,7 +125,7 @@ public class EsRestClient {
             }
             String docValueField = EsUtil.getDocValueField(fieldObject, colName);
             if (StringUtils.isNotEmpty(docValueField)) {
-               docValueFieldMap.put(colName, docValueField);
+                docValueFieldMap.put(colName, docValueField);
             }
         }
         return new EsFieldInfo(fetchFieldMap, docValueFieldMap);
@@ -138,11 +142,14 @@ public class EsRestClient {
         JSONObject rootSchema = mappings.optJSONObject(mappingType);
         return rootSchema.optJSONObject("properties");
     }
-
-    public EsIndexState getIndexState(String indexName) {
+    
+    public EsIndexState getIndexState(String indexName) throws Exception {
         String path = indexName + "/_search_shards";
         String shardLocation = execute(path);
-        return shardLocation == null ? null : parseIndexState(indexName, shardLocation);
+        if (shardLocation == null) {
+            throw new Exception( "index[" + indexName + "] _search_shards not found for the Elasticsearch Cluster");
+        }
+        return parseIndexState(indexName, shardLocation);
     }
     
     @VisibleForTesting
@@ -159,14 +166,15 @@ public class EsRestClient {
             for (int j = 0; j < arrayLength; j++) {
                 JSONObject shard = shardsArray.getJSONObject(j);
                 String shardState = shard.getString("state");
-                if ("STARTED".equalsIgnoreCase(shardState) || "RELOCATING".equalsIgnoreCase(shardState)) {
+                if ("STARTED".equalsIgnoreCase(shardState) ||
+                        "RELOCATING".equalsIgnoreCase(shardState)) {
                     try {
                         singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState,
-                            String.valueOf(i), shard, nodesMap));
+                                String.valueOf(i), shard, nodesMap));
                     } catch (Exception e) {
                         LOG.info(
-                            "errors while parse shard routing from json [{}], ignore this shard",
-                            shard, e);
+                                "errors while parse shard routing from json [{}], ignore this shard",
+                                shard, e);
                     }
                 }
             }
@@ -177,15 +185,15 @@ public class EsRestClient {
         }
         return indexState;
     }
-
+    
     /**
      * Get the Elasticsearch cluster version
      *
      * @return
      */
-    public EsMajorVersion version() {
+    public EsMajorVersion version () throws Exception {
         Map<String, String> versionMap = get("/", "version");
-
+        
         EsMajorVersion majorVersion;
         try {
             majorVersion = EsMajorVersion.parse(versionMap.get("version"));
@@ -195,15 +203,16 @@ public class EsRestClient {
         }
         return majorVersion;
     }
-
+    
     /**
      * execute request for specific path，it will try again nodes.length times if it fails
      *
      * @param path the path must not leading with '/'
      * @return response
      */
-    private String execute(String path) {
+    private String execute (String path) throws Exception {
         int retrySize = nodes.length;
+        Exception scratchExceptionForThrow = null;
         for (int i = 0; i < retrySize; i++) {
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
@@ -216,8 +225,8 @@ public class EsRestClient {
                 currentNode = "http://" + currentNode;
             }
             Request request = builder.get()
-                .url(currentNode + "/" + path)
-                .build();
+                    .url(currentNode + "/" + path)
+                    .build();
             if (LOG.isTraceEnabled()) {
                 LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             }
@@ -228,19 +237,23 @@ public class EsRestClient {
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
+                scratchExceptionForThrow = e;
             }
             selectNextNode();
         }
         LOG.warn("try all nodes [{}],no other nodes left", nodes);
+        if (scratchExceptionForThrow != null) {
+            throw scratchExceptionForThrow;
+        }
         return null;
     }
-
-    public <T> T get(String q, String key) {
+    
+    public <T > T get(String q, String key) throws Exception {
         return parseContent(execute(q), key);
     }
-
+    
     @SuppressWarnings("unchecked")
-    private <T> T parseContent(String response, String key) {
+    private <T > T parseContent(String response, String key) {
         Map<String, Object> map = Collections.emptyMap();
         try {
             JsonParser jsonParser = mapper.getJsonFactory().createJsonParser(response);
@@ -250,5 +263,5 @@ public class EsRestClient {
         }
         return (T) (key != null ? map.get(key) : map);
     }
-
+    
 }

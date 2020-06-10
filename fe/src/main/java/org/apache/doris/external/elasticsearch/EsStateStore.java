@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+package org.apache.doris.external.elasticsearch;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
@@ -44,41 +44,41 @@ import org.apache.logging.log4j.Logger;
  * it is used to call es api to get shard allocation state
  */
 public class EsStateStore extends MasterDaemon {
-
+    
     private static final Logger LOG = LogManager.getLogger(EsStateStore.class);
-
+    
     private Map<Long, EsTable> esTables;
-
+    
     private Map<Long, EsRestClient> esClients;
-
+    
     public EsStateStore() {
         super("es state store", Config.es_state_sync_interval_second * 1000);
         esTables = Maps.newConcurrentMap();
         esClients = Maps.newConcurrentMap();
     }
-
+    
     public void registerTable(EsTable esTable) {
         if (Catalog.isCheckpointThread()) {
             return;
         }
         esTables.put(esTable.getId(), esTable);
         esClients.put(esTable.getId(),
-            new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd()));
+                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd()));
         LOG.info("register a new table [{}] to sync list", esTable);
     }
-
+    
     public void deRegisterTable(long tableId) {
         esTables.remove(tableId);
         esClients.remove(tableId);
         LOG.info("deregister table [{}] from sync list", tableId);
     }
-
+    
     @Override
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
                 EsRestClient client = esClients.get(esTable.getId());
-
+                
                 if (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable()) {
                     EsFieldInfo fieldInfo = client.getFieldInfo(esTable.getIndexName(), esTable.getMappingType(), esTable.getFullSchema());
                     if (fieldInfo == null) {
@@ -86,33 +86,30 @@ public class EsStateStore extends MasterDaemon {
                     }
                     setEsTableContext(fieldInfo, esTable);
                 }
-
+                
                 EsIndexState esIndexState = client.getIndexState(esTable.getIndexName());
-                if (esIndexState == null) {
-                    continue;
-                }
-
+                
                 EsTableState esTableState = setPartitionInfo(esTable, esIndexState);
                 if (esTableState == null) {
                     continue;
                 }
-
+                
                 if (EsTable.TRANSPORT_HTTP.equals(esTable.getTransport())) {
                     Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
                     esTableState.addHttpAddress(nodesInfo);
                 }
                 esTable.setEsTableState(esTableState);
             } catch (Throwable e) {
-                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
-                    esTable.getName(), e);
+                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
+                esTable.setEsTableState(null);
+                esTable.setLastMetaDataSyncException(e);
             }
         }
     }
-
+    
     // should call this method to init the state store after loading image
     // the rest of tables will be added or removed by replaying edit log
     // when fe is start to load image, should call this method to init the state store
-
     public void loadTableFromCatalog() {
         if (Catalog.isCheckpointThread()) {
             return;
@@ -120,7 +117,7 @@ public class EsStateStore extends MasterDaemon {
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database database = Catalog.getCurrentCatalog().getDb(dbId);
-
+            
             List<Table> tables = database.getTables();
             for (Table table : tables) {
                 if (table.getType() == TableType.ELASTICSEARCH) {
@@ -129,7 +126,7 @@ public class EsStateStore extends MasterDaemon {
             }
         }
     }
-
+    
     // Configure keyword and doc_values by mapping
     public void setEsTableContext(EsFieldInfo fieldInfo, EsTable esTable) {
         // we build the doc value context for fields maybe used for scanning
@@ -152,10 +149,10 @@ public class EsStateStore extends MasterDaemon {
             esTable.addDocValueField(fieldInfo.getDocValueFields());
         }
     }
-
+    
     @VisibleForTesting
     public EsTableState setPartitionInfo(EsTable esTable, EsIndexState indexState)
-        throws ExternalDataSourceException, DdlException {
+            throws ExternalDataSourceException, DdlException {
         EsTableState esTableState = new EsTableState();
         RangePartitionInfo partitionInfo = null;
         if (esTable.getPartitionInfo() != null) {
@@ -175,15 +172,15 @@ public class EsStateStore extends MasterDaemon {
                     }
                     sb.append(")");
                     LOG.debug("begin to parse es table [{}] state from search shards,"
-                        + " with partition info [{}]", esTable.getName(), sb.toString());
+                            + " with partition info [{}]", esTable.getName(), sb.toString());
                 }
             } else if (esTable.getPartitionInfo() instanceof SinglePartitionInfo) {
                 LOG.debug("begin to parse es table [{}] state from search shards, "
-                    + "with no partition info", esTable.getName());
+                        + "with no partition info", esTable.getName());
             } else {
                 throw new ExternalDataSourceException("es table only support range partition, "
-                    + "but current partition type is "
-                    + esTable.getPartitionInfo().getType());
+                        + "but current partition type is "
+                        + esTable.getPartitionInfo().getType());
             }
         }
         esTableState.addIndexState(esTable.getIndexName(), indexState);
@@ -191,20 +188,20 @@ public class EsStateStore extends MasterDaemon {
         if (partitionInfo != null) {
             // sort the index state according to partition key and then add to range map
             List<EsIndexState> esIndexStates = new ArrayList<>(
-                esTableState.getPartitionedIndexStates().values());
+                    esTableState.getPartitionedIndexStates().values());
             esIndexStates.sort(Comparator.comparing(EsIndexState::getPartitionKey));
             long partitionId = 0;
             for (EsIndexState esIndexState : esIndexStates) {
                 Range<PartitionKey> range = partitionInfo.handleNewSinglePartitionDesc(
-                    esIndexState.getPartitionDesc(), partitionId, false);
+                        esIndexState.getPartitionDesc(), partitionId, false);
                 esTableState.addPartition(esIndexState.getIndexName(), partitionId);
                 esIndexState.setPartitionId(partitionId);
                 ++partitionId;
                 LOG.debug("add parition to es table [{}] with range [{}]", esTable.getName(),
-                    range);
+                        range);
             }
         }
         return esTableState;
     }
-
+    
 }
