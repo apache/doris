@@ -292,8 +292,8 @@ public class RestoreJob extends AbstractJob {
         }
 
         if (System.currentTimeMillis() - createTime > timeoutMs) {
-            status = new Status(ErrCode.TIMEOUT, "");
-            cancel();
+            status = new Status(ErrCode.TIMEOUT, "restore job with label: " + label + "  timeout.");
+            cancelInternal(false);
             return;
         }
 
