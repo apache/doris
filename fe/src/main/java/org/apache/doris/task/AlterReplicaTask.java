@@ -63,7 +63,7 @@ public class AlterReplicaTask extends AgentTask {
     public AlterReplicaTask(long backendId, long dbId, long tableId,
             long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
             long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
-            long version, long versionHash, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defileExprs) {
+            long version, long versionHash, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -78,7 +78,7 @@ public class AlterReplicaTask extends AgentTask {
 
         this.jobType = jobType;
 
-        this.defineExprs = defileExprs;
+        this.defineExprs = defineExprs;
     }
 
     public long getBaseTabletId() {
@@ -118,24 +118,26 @@ public class AlterReplicaTask extends AgentTask {
         req.setAlter_version(version);
         req.setAlter_version_hash(versionHash);
         if (defineExprs != null) {
-            for (Map.Entry<String, Expr> expr : defineExprs.entrySet()) {
+            for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
                 List<SlotRef> slots = Lists.newArrayList();
-                expr.getValue().collect(SlotRef.class, slots);
+                entry.getValue().collect(SlotRef.class, slots);
+
+                /*
+                 * TODO(lhy)
+                 * Building the materialized view function for schema_change here based on defineExpr.
+                 * This is a trick because the current storage layer does not support expression evaluation.
+                 * We can refactor this part of the code until the uniform expression evaluates the logic.
+                 * count distinct materialized view will set mv_expr with to_bitmap or hll_hash.
+                 * count materialized view will set mv_expr with count.
+                 */
                 TAlterMaterializedViewParam mvParam = null;
-                if (slots.size() == 0) {
-                    mvParam = new TAlterMaterializedViewParam(expr.getKey(), "");
-                    mvParam.setMv_expr("count(*)");
-                } else {
-                    Preconditions.checkState(slots.size() == 1);
-                    if (expr.getValue() instanceof FunctionCallExpr) {
-                        mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName());
-                        mvParam.setMv_expr(((FunctionCallExpr) expr.getValue()).getFnName().getFunction());
-                    } else if (expr.getValue() instanceof CaseExpr) {
-                        mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName());
-                        mvParam.setMv_expr("count");
-                    }
+                if (entry.getValue() instanceof FunctionCallExpr) {
+                    mvParam = new TAlterMaterializedViewParam(entry.getKey(), slots.get(0).getColumnName());
+                    mvParam.setMv_expr(((FunctionCallExpr) entry.getValue()).getFnName().getFunction());
+                } else if (entry.getValue() instanceof CaseExpr) {
+                    mvParam = new TAlterMaterializedViewParam(entry.getKey(), slots.get(0).getColumnName());
+                    mvParam.setMv_expr("count");
                 }
-                Preconditions.checkArgument(mvParam != null);
                 req.addToMaterialized_view_params(mvParam);
             }
         }
