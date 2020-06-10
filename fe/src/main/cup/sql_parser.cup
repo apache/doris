@@ -1244,6 +1244,15 @@ data_desc ::=
         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
         columnsFromPath, isNeg, colMappingList, whereExpr);
     :}
+    | KW_DATA KW_FROM KW_TABLE ident:srcTableName
+    opt_negative:isNeg
+    KW_INTO KW_TABLE ident:tableName
+    opt_partition_names:partitionNames
+    opt_col_mapping_list:colMappingList
+    where_clause:whereExpr
+    {:
+        RESULT = new DataDescription(tableName, partitionNames, srcTableName, isNeg, colMappingList, whereExpr);
+    :}
     ;
 
 opt_negative ::=

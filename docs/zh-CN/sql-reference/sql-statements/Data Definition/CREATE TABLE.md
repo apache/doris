@@ -35,7 +35,7 @@ under the License.
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
     (column_definition1[, column_definition2, ...]
     [, index_definition1[, ndex_definition12,]])
-    [ENGINE = [olap|mysql|broker]]
+    [ENGINE = [olap|mysql|broker|hive]]
     [key_desc]
     [COMMENT "table comment"];
     [partition_desc]
@@ -131,7 +131,7 @@ under the License.
     
     在 Palo 创建 mysql 表的目的是可以通过 Palo 访问 mysql 数据库。
         而 Palo 本身并不维护、存储任何 mysql 数据。
-    1) 如果是 broker，表示表的访问需要通过指定的broker, 需要在 properties 提供以下信息：
+    2) 如果是 broker，表示表的访问需要通过指定的broker, 需要在 properties 提供以下信息：
         ```
         PROPERTIES (
         "broker_name" = "broker_name",
@@ -151,6 +151,18 @@ under the License.
     注意：
         "path" 中如果有多个文件，用逗号[,]分割。如果文件名中包含逗号，那么使用 %2c 来替代。如果文件名中包含 %，使用 %25 代替
         现在文件内容格式支持CSV，支持GZ，BZ2，LZ4，LZO(LZOP) 压缩格式。
+
+    3) 如果是hive，则需要在properties提供以下信息：
+    ```
+    PROPERTIES (
+        "database" = "hive_db_name",
+        "table" = "hive_table_name",
+        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    )
+
+    ```
+    其中database是hive表对应的库名字，table是hive表的名字，hive.metastore.uris是hive metastore服务地址。
+    注意：目前hive外部表仅用于Spark Load使用。
 
 1. key_desc
     语法：
@@ -605,6 +617,24 @@ under the License.
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES ("in_memory"="true");
+```
+
+13. 创建一个hive外部表
+
+```
+    CREATE TABLE example_db.table_hive
+    (
+      k1 TINYINT,
+      k2 VARCHAR(50),
+      v2 INT
+    )
+    ENGINE=hive
+    PROPERTIES
+    (
+      "database" = "hive_db_name",
+      "table" = "hive_table_name",
+      "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    );
 ```
 
 ## keyword
