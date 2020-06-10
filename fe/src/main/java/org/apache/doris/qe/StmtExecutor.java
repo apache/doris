@@ -346,7 +346,6 @@ public class StmtExecutor {
         profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
-        System.out.println(builder.toString());
         ProfileManager.getInstance().pushProfile(profile);
     }
 

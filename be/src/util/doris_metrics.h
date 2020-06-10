@@ -115,7 +115,7 @@ public:
 	// total number of segments read
 	METRIC_DEFINE_INT_COUNTER(segment_read_total, MetricUnit::OPERATIONS);
 	// total number of rows in queried segments (before index pruning)
-	METRIC_DEFINE_INT_COUNTER(segment_row_total:egment_row_total, MetricUnit::ROWS);
+	METRIC_DEFINE_INT_COUNTER(segment_row_total, MetricUnit::ROWS);
 	// total number of rows selected by short key index
 	METRIC_DEFINE_INT_COUNTER(segment_rows_by_short_key, MetricUnit::ROWS);
 	// total number of rows selected by zone map index

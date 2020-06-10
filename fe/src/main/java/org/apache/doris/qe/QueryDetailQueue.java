@@ -55,8 +55,9 @@ public class QueryDetailQueue {
         int pos = 0;
         Iterator<QueryDetail> it = totalQueries.iterator();
         while(it.hasNext()) {
-            if (it.next().getEventTime() > eventTime) {
-                results.add(it.next());
+            QueryDetail queryDetail = it.next();
+            if (queryDetail.getEventTime() > eventTime) {
+                results.add(queryDetail);
             } else {
                 pos++;
             }

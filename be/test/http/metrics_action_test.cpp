@@ -56,7 +56,7 @@ TEST_F(MetricsActionTest, prometheus_output) {
     IntGauge cpu_idle(MetricUnit::PERCENT);
     cpu_idle.set_value(50);
     registry.register_metric("cpu_idle", &cpu_idle);
-    IntCounter put_requests_total(MetricUnit::NUMBER);
+    IntCounter put_requests_total(MetricUnit::NOUNIT);
     put_requests_total.increment(2345);
     registry.register_metric("requests_total",
                              MetricLabels().add("type", "put").add("path", "/sports"),
