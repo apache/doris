@@ -339,7 +339,7 @@ public class RollupJob extends AlterJob {
         if (!clearFailed && batchClearAlterTask != null) {
             return 1;
         }
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -405,7 +405,7 @@ public class RollupJob extends AlterJob {
         // here we just rejoin tasks to AgentTaskQueue.
         // task report process will later resend these tasks
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -512,7 +512,7 @@ public class RollupJob extends AlterJob {
         this.finishedTime = System.currentTimeMillis();
 
         // log
-        Catalog.getInstance().getEditLog().logCancelRollup(this);
+        Catalog.getCurrentCatalog().getEditLog().logCancelRollup(this);
         LOG.debug("cancel rollup job[{}] finished. because: {}", tableId, cancelMsg);
     }
 
@@ -621,7 +621,7 @@ public class RollupJob extends AlterJob {
             return 0;
         }
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = "Db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -760,7 +760,7 @@ public class RollupJob extends AlterJob {
             db.writeUnlock();
         }
 
-        Catalog.getInstance().getEditLog().logFinishingRollup(this);
+        Catalog.getCurrentCatalog().getEditLog().logFinishingRollup(this);
         LOG.info("rollup job[{}] is finishing.", this.getTableId());
 
         return 1;
@@ -938,7 +938,7 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void finishJob() {
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = String.format("database %d does not exist", dbId);
             LOG.warn(cancelMsg);

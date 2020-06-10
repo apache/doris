@@ -33,7 +33,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.external.EsUtil;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -322,24 +322,12 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isHllType()) {
-                if (columnDef.isKey()) {
-                    throw new AnalysisException("HLL can't be used as keys, " +
-                            "please specify the aggregation type HLL_UNION");
-                }
                 hasHll = true;
             }
 
-            if (columnDef.getType().isBitmapType()) {
-                if (columnDef.isKey()) {
-                    throw new AnalysisException("BITMAP can't be used as keys, ");
-                }
-            }
 
             if (columnDef.getAggregateType() == BITMAP_UNION) {
-                if (columnDef.isKey()) {
-                    throw new AnalysisException("Key column can't has the BITMAP_UNION aggregation type");
-                }
-                hasBitmap = true;
+                hasBitmap = columnDef.getType().isBitmapType();
             }
 
             if (!columnSet.add(columnDef.getName())) {

@@ -77,7 +77,7 @@ public class MigrationAction extends RestBaseAction {
             throw new DdlException("Missing params. Need database name");
         }
 
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }

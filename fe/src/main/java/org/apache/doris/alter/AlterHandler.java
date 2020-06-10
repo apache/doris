@@ -466,7 +466,7 @@ public abstract class AlterHandler extends MasterDaemon {
                         replica.getDataSize(), replica.getRowCount(),
                         replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
                         replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
-                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+                Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
             
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);

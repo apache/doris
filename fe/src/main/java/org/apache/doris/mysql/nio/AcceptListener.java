@@ -49,7 +49,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             }
             LOG.info("Connection established. remote={}", connection.getPeerAddress());
             NConnectContext context = new NConnectContext(connection);
-            context.setCatalog(Catalog.getInstance());
+            context.setCatalog(Catalog.getCurrentCatalog());
             connectScheduler.submit(context);
 
             channel.getWorker().execute(() -> {

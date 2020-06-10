@@ -52,7 +52,7 @@ public abstract class LoadPendingTask extends MasterTask {
     public LoadPendingTask(LoadJob job) {
         this.job = job;
         this.signature = job.getId();
-        this.load = Catalog.getInstance().getLoadInstance();
+        this.load = Catalog.getCurrentCatalog().getLoadInstance();
     }
 
     @Override
@@ -71,7 +71,7 @@ public abstract class LoadPendingTask extends MasterTask {
         // get db
         long dbId = job.getDbId();
         long tableId = job.getTableId();
-        db = Catalog.getInstance().getDb(dbId);
+        db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, "db does not exist. id: " + dbId);
             return;

@@ -104,14 +104,14 @@ public class LoadManager implements Writable{
         writeLock();
         try {
             checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getBrokerDesc() == null) {
-                throw new DdlException("LoadManager only support the broker load.");
+            if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
+                throw new DdlException("LoadManager only support the broker and spark load.");
             }
             if (loadJobScheduler.isQueueFull()) {
                 throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
-            loadJob = BrokerLoadJob.fromLoadStmt(stmt);
+            loadJob = BulkLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
@@ -287,7 +287,7 @@ public class LoadManager implements Writable{
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
-        Database db = Catalog.getInstance().getDb(stmt.getDbName());
+        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + stmt.getDbName());
         }
@@ -496,7 +496,7 @@ public class LoadManager implements Writable{
 
     private Database checkDb(String dbName) throws DdlException {
         // get db
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             LOG.warn("Database {} does not exist", dbName);
             throw new DdlException("Database[" + dbName + "] does not exist");
@@ -529,7 +529,6 @@ public class LoadManager implements Writable{
      *
      * @param dbId
      * @param label
-     * @param requestId: the uuid of each txn request from BE
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
     private void checkLabelUsed(long dbId, String label)

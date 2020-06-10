@@ -126,7 +126,7 @@ public class MultiLoadMgr {
             if (multiLoadDesc == null) {
                 throw new DdlException("Unknown label(" + multiLabel + ")");
             }
-            Catalog.getInstance().getLoadInstance().addLoadJob(
+            Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(
                     multiLoadDesc.toLoadStmt(),
                     EtlJobType.MINI,
                     System.currentTimeMillis());
@@ -134,7 +134,7 @@ public class MultiLoadMgr {
         } finally {
             lock.writeLock().unlock();
         }
-        Catalog.getInstance().getLoadInstance().deregisterMiniLabel(fullDbName, label);
+        Catalog.getCurrentCatalog().getLoadInstance().deregisterMiniLabel(fullDbName, label);
     }
 
     // Abort a in-progress multi-load job
@@ -150,7 +150,7 @@ public class MultiLoadMgr {
         } finally {
             lock.writeLock().unlock();
         }
-        Catalog.getInstance().getLoadInstance().deregisterMiniLabel(fullDbName, label);
+        Catalog.getCurrentCatalog().getLoadInstance().deregisterMiniLabel(fullDbName, label);
     }
 
     public void desc(String fullDbName, String label, List<String> subLabels) throws DdlException {

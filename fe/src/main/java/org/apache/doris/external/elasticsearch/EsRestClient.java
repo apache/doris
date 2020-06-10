@@ -15,12 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+package org.apache.doris.external.elasticsearch;
 
-import okhttp3.Credentials;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
@@ -34,6 +30,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import okhttp3.Credentials;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 public class EsRestClient {
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
@@ -86,7 +87,7 @@ public class EsRestClient {
         return nodes;
     }
 
-    public String getIndexMetaData(String indexName) {
+    public String getIndexMetaData(String indexName) throws Exception {
         String path = "_cluster/state?indices=" + indexName
                 + "&metric=routing_table,nodes,metadata&expand_wildcards=open";
         return execute(path);
@@ -99,7 +100,7 @@ public class EsRestClient {
      *
      * @return
      */
-    public EsMajorVersion version() {
+    public EsMajorVersion version() throws Exception {
         Map<String, String> versionMap = get("/", "version");
 
         EsMajorVersion majorVersion;
@@ -118,9 +119,10 @@ public class EsRestClient {
      * @param path the path must not leading with '/'
      * @return
      */
-    private String execute(String path) {
+    private String execute(String path) throws Exception {
         selectNextNode();
         boolean nextNode;
+        Exception scratchExceptionForThrow = null;
         do {
             Request.Builder builder = new Request.Builder();
             if (!Strings.isEmpty(basicAuth)) {
@@ -141,24 +143,32 @@ public class EsRestClient {
             Request request = builder.get()
                     .url(currentNode + "/" + path)
                     .build();
-            LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
+            Response response = null;
             try {
-                Response response = networkClient.newCall(request).execute();
+                response = networkClient.newCall(request).execute();
                 if (response.isSuccessful()) {
                     return response.body().string();
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
+                scratchExceptionForThrow = e;
+            } finally {
+                if (response != null) {
+                    response.close();
+                }
             }
             nextNode = selectNextNode();
             if (!nextNode) {
                 LOG.warn("try all nodes [{}],no other nodes left", nodes);
             }
         } while (nextNode);
+        if (scratchExceptionForThrow != null) {
+            throw scratchExceptionForThrow;
+        }
         return null;
     }
 
-    public <T> T get(String q, String key) {
+    public <T> T get(String q, String key) throws Exception {
         return parseContent(execute(q), key);
     }
 

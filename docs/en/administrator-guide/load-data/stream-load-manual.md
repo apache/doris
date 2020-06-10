@@ -162,6 +162,11 @@ Examples:
     "NumberUnselectedRows": 0,
     "LoadBytes": 40888898,
     "LoadTimeMs": 2144,
+    "BeginTxnTimeMs": 1,
+    "StreamLoadPutTimeMs": 2,
+    "ReadDataTimeMs": 325,
+    "WriteDataTimeMs": 1933,
+    "CommitAndPublishTimeMs": 106,
     "ErrorURL": "http://192.168.1.1:8042/api/_load_error_log?file=__shard_0/error_log_insert_stmt_db18266d4d9b4ee5-abb00ddd64bdf005_db18266d4d9b4ee5_abb00ddd64bdf005"
 }
 ```
@@ -199,6 +204,16 @@ The following main explanations are given for the Stream load import result para
 + LoadBytes: Number of bytes imported.
 
 + LoadTimeMs: Import completion time. Unit milliseconds.
+
++ BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
+
++ StreamLoadPutTimeMs：The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
+  
++ ReadDataTimeMs：Read data time, Unit milliseconds.
+
++ WriteDataTimeMs：Write data time, Unit milliseconds.
+
++ CommitAndPublishTimeMs：The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
 
 + ErrorURL: If you have data quality problems, visit this URL to see specific error lines.
 

@@ -85,12 +85,18 @@ public:
     inline const AlterTabletType& alter_type() const { return _alter_type; }
     inline void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
 
+    friend bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
+    friend bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
+
 private:
-    AlterTabletState _alter_state;
-    int64_t _related_tablet_id;
-    int32_t _related_schema_hash;
-    AlterTabletType _alter_type;
+    AlterTabletState _alter_state = ALTER_PREPARED;
+    int64_t _related_tablet_id = 0;
+    int32_t _related_schema_hash = 0;
+    AlterTabletType _alter_type = SCHEMA_CHANGE;
 };
+
+bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
+bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
 
 typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
 
@@ -196,6 +202,10 @@ public:
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
+    // _del_pred_array is ignored to compare.
+    friend bool operator==(const TabletMeta& a, const TabletMeta& b);
+    friend bool operator!=(const TabletMeta& a, const TabletMeta& b);
+
 private:
     int64_t _table_id = 0;
     int64_t _partition_id = 0;
@@ -214,7 +224,7 @@ private:
     DelPredicateArray _del_pred_array;
     AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode = false;
-    RowsetTypePB _preferred_rowset_type;
+    RowsetTypePB _preferred_rowset_type = ALPHA_ROWSET;
 
     RWMutex _meta_lock;
 };
@@ -314,6 +324,10 @@ inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
     return _inc_rs_metas;
 }
+
+// Only for unit test now.
+bool operator==(const TabletMeta& a, const TabletMeta& b);
+bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
 }  // namespace doris
 

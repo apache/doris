@@ -15,15 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+#include <string>
 
-import org.apache.doris.common.UserException;
+#include <gtest/gtest.h>
 
-public class ExternalDataSourceException extends UserException {
+#include "olap/tablet_meta.h"
 
-    private static final long serialVersionUID = 7912833584319374692L;
+namespace doris {
 
-    public ExternalDataSourceException(String msg) {
-        super(msg);
+TEST(TabletMetaTest, SaveAndParse) {
+    std::string meta_path = "./be/test/olap/test_data/tablet_meta_test.hdr";
+
+    TabletMeta old_tablet_meta(1, 2, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK);
+    ASSERT_EQ(OLAP_SUCCESS, old_tablet_meta.save(meta_path));
+
+    {
+        // Just to make stack space dirty
+        TabletMeta new_tablet_meta;
+        new_tablet_meta._preferred_rowset_type = BETA_ROWSET;
     }
+    TabletMeta new_tablet_meta;
+    new_tablet_meta.create_from_file(meta_path);
+
+    ASSERT_EQ(old_tablet_meta, new_tablet_meta);
+}
+
+}  // namespace doris
+
+int main(int argc, char **argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

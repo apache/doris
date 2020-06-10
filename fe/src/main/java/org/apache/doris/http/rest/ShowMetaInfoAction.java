@@ -98,16 +98,16 @@ public class ShowMetaInfoAction extends RestBaseAction {
     
     public Map<String, String> getHaInfo() {
         HashMap<String, String> feInfo = new HashMap<String, String>();
-        feInfo.put("role", Catalog.getInstance().getFeType().toString());
-        if (Catalog.getInstance().isMaster()) {
+        feInfo.put("role", Catalog.getCurrentCatalog().getFeType().toString());
+        if (Catalog.getCurrentCatalog().isMaster()) {
             feInfo.put("current_journal_id",
-                       String.valueOf(Catalog.getInstance().getEditLog().getMaxJournalId()));
+                       String.valueOf(Catalog.getCurrentCatalog().getEditLog().getMaxJournalId()));
         } else {
             feInfo.put("current_journal_id",
-                       String.valueOf(Catalog.getInstance().getReplayedJournalId()));
+                       String.valueOf(Catalog.getCurrentCatalog().getReplayedJournalId()));
         }
 
-        HAProtocol haProtocol = Catalog.getInstance().getHaProtocol();
+        HAProtocol haProtocol = Catalog.getCurrentCatalog().getHaProtocol();
         if (haProtocol != null) {
 
             InetSocketAddress master = null;
@@ -142,8 +142,8 @@ public class ShowMetaInfoAction extends RestBaseAction {
             }
         }
 
-        feInfo.put("can_read", String.valueOf(Catalog.getInstance().canRead()));
-        feInfo.put("is_ready", String.valueOf(Catalog.getInstance().isReady()));
+        feInfo.put("can_read", String.valueOf(Catalog.getCurrentCatalog().canRead()));
+        feInfo.put("is_ready", String.valueOf(Catalog.getCurrentCatalog().isReady()));
         try {
             Storage storage = new Storage(Config.meta_dir + "/image");
             feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));
@@ -157,11 +157,11 @@ public class ShowMetaInfoAction extends RestBaseAction {
 
     public Map<String, Long> getDataSize() {
         Map<String, Long> result = new HashMap<String, Long>();
-        List<String> dbNames = Catalog.getInstance().getDbNames();
+        List<String> dbNames = Catalog.getCurrentCatalog().getDbNames();
 
         for (int i = 0; i < dbNames.size(); i++) {
             String dbName = dbNames.get(i);
-            Database db = Catalog.getInstance().getDb(dbName);
+            Database db = Catalog.getCurrentCatalog().getDb(dbName);
 
             long totalSize = 0;
             List<Table> tables = db.getTables();

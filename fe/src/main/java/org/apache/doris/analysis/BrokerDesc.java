@@ -29,6 +29,13 @@ import java.io.IOException;
 import java.util.Map;
 
 // Broker descriptor
+//
+// Broker example:
+// WITH BROKER "broker0"
+// (
+//   "username" = "user0",
+//   "password" = "password0"
+// )
 public class BrokerDesc implements Writable {
     private String name;
     private Map<String, String> properties;
@@ -82,9 +89,9 @@ public class BrokerDesc implements Writable {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append(" WITH BROKER ").append(name);
+        sb.append("WITH BROKER ").append(name);
         if (properties != null && !properties.isEmpty()) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false);
+            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false, true);
             sb.append(" (").append(printableMap.toString()).append(")");
         }
         return sb.toString();

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -32,28 +32,19 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
-import java.io.IOException;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
-import okhttp3.Authenticator;
-import okhttp3.Call;
-import okhttp3.Credentials;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.Route;
 
 
 /**
@@ -92,9 +83,12 @@ public class EsStateStore extends MasterDaemon {
                 // in the future, we maybe need this version
                 String indexMetaData = client.getIndexMetaData(esTable.getIndexName());
                 if (indexMetaData == null) {
+                    esTable.setLastMetaDataSyncException(new Exception("fetch index meta data failure from /_cluster/state"));
+                    // set null for checking in EsScanNode#getShardLocations
+                    esTable.setEsTableState(null);
                     continue;
                 }
-                EsTableState esTableState = parseClusterState55(indexMetaData, esTable);
+                EsTableState esTableState = getTableState(indexMetaData, esTable);
                 if (esTableState == null) {
                     continue;
                 }
@@ -105,6 +99,8 @@ public class EsStateStore extends MasterDaemon {
                 esTable.setEsTableState(esTableState);
             } catch (Throwable e) {
                 LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
+                esTable.setEsTableState(null);
+                esTable.setLastMetaDataSyncException(e);
             }
         }
     }
@@ -112,7 +108,6 @@ public class EsStateStore extends MasterDaemon {
     // should call this method to init the state store after loading image
     // the rest of tables will be added or removed by replaying edit log
     // when fe is start to load image, should call this method to init the state store
-
     public void loadTableFromCatalog() {
         if (Catalog.isCheckpointThread()) {
             return;
@@ -130,54 +125,10 @@ public class EsStateStore extends MasterDaemon {
         }
     }
 
-    private EsTableState loadEsIndexMetadataV55(final EsTable esTable) {
-        OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder();
-        clientBuilder.authenticator(new Authenticator() {
-            @Override
-            public Request authenticate(Route route, Response response) throws IOException {
-                String credential = Credentials.basic(esTable.getUserName(), esTable.getPasswd());
-                return response.request().newBuilder().header("Authorization", credential).build();
-            }
-        });
-        String[] seeds = esTable.getSeeds();
-        for (String seed : seeds) {
-            String url = seed + "/_cluster/state?indices="
-                    + esTable.getIndexName()
-                    + "&metric=routing_table,nodes,metadata&expand_wildcards=open";
-            String basicAuth = "";
-            try {
-                Request request = new Request.Builder()
-                        .get()
-                        .url(url)
-                        .addHeader("Authorization", basicAuth)
-                        .build();
-                Call call = clientBuilder.build().newCall(request);
-                Response response = call.execute();
-                String responseStr = response.body().string();
-                if (response.isSuccessful()) {
-                    try {
-                        EsTableState esTableState = parseClusterState55(responseStr, esTable);
-                        if (esTableState != null) {
-                            return esTableState;
-                        }
-                    } catch (Exception e) {
-                        LOG.warn("errors while parse response msg {}", responseStr, e);
-                    }
-                } else {
-                    LOG.info("errors while call es [{}] to get state info {}", url, responseStr);
-                }
-            } catch (Exception e) {
-                LOG.warn("errors while call es [{}]", url, e);
-            }
-        }
-        return null;
-    }
-
     @VisibleForTesting
-    public EsTableState parseClusterState55(String responseStr, EsTable esTable)
+    public EsTableState getTableState(String responseStr, EsTable esTable)
             throws DdlException, AnalysisException, ExternalDataSourceException {
         JSONObject jsonObject = new JSONObject(responseStr);
-        String clusterName = jsonObject.getString("cluster_name");
         JSONObject nodesMap = jsonObject.getJSONObject("nodes");
         // we build the doc value context for fields maybe used for scanning
         // "properties": {
@@ -194,9 +145,17 @@ public class EsStateStore extends MasterDaemon {
         // {"city": "city.raw"}
         JSONObject indicesMetaMap = jsonObject.getJSONObject("metadata").getJSONObject("indices");
         JSONObject indexMetaMap = indicesMetaMap.optJSONObject(esTable.getIndexName());
+        if (indexMetaMap == null) {
+            esTable.setLastMetaDataSyncException(new Exception( "index[" + esTable.getIndexName() + "] not found for the Elasticsearch Cluster"));
+            return null;
+        }
         if (indexMetaMap != null && (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable())) {
             JSONObject mappings = indexMetaMap.optJSONObject("mappings");
             JSONObject rootSchema = mappings.optJSONObject(esTable.getMappingType());
+            if (rootSchema == null) {
+                esTable.setLastMetaDataSyncException(new Exception( "type[" + esTable.getMappingType() + "] not found for the Elasticsearch Cluster with index: [" + esTable.getIndexName() + "]"));
+                return null;
+            }
             JSONObject schema = rootSchema.optJSONObject("properties");
             List<Column> colList = esTable.getFullSchema();
             for (Column col : colList) {

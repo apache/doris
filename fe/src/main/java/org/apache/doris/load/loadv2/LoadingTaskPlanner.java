@@ -68,7 +68,7 @@ public class LoadingTaskPlanner {
 
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
-    private Analyzer analyzer = new Analyzer(Catalog.getInstance(), new ConnectContext());
+    private Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
     private DescriptorTable descTable = analyzer.getDescTbl();
 
     // Output params

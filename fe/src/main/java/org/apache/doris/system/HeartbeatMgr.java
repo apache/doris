@@ -277,11 +277,11 @@ public class HeartbeatMgr extends MasterDaemon {
 
         @Override
         public HeartbeatResponse call() {
-            if (fe.getHost().equals(Catalog.getInstance().getSelfNode().first)) {
+            if (fe.getHost().equals(Catalog.getCurrentCatalog().getSelfNode().first)) {
                 // heartbeat to self
-                if (Catalog.getInstance().isReady()) {
+                if (Catalog.getCurrentCatalog().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
-                            Catalog.getInstance().getReplayedJournalId(), System.currentTimeMillis());
+                            Catalog.getCurrentCatalog().getReplayedJournalId(), System.currentTimeMillis());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }

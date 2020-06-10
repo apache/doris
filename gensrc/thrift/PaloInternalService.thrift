@@ -130,7 +130,14 @@ struct TQueryOptions {
   // if this is a query option for LOAD, load_mem_limit should be set to limit the mem comsuption
   // of load channel.
   28: optional i64 load_mem_limit = 0;
+  // see BE config `doris_max_scan_key_num` for details
+  // if set, this will overwrite the BE config.
+  29: optional i32 max_scan_key_num;
+  // see BE config `max_pushdown_conditions_per_column` for details
+  // if set, this will overwrite the BE config.
+  30: optional i32 max_pushdown_conditions_per_column
 }
+    
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {

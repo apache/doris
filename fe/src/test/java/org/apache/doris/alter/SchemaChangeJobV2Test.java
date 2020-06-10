@@ -52,6 +52,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
@@ -61,6 +62,8 @@ import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
+
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -128,7 +131,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
@@ -145,7 +148,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
 
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -221,7 +224,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
 
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -303,7 +306,7 @@ public class SchemaChangeJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         Map<String, String> properties = new HashMap<>();
         properties.put(DynamicPartitionProperty.ENABLE, "true");
@@ -359,7 +362,7 @@ public class SchemaChangeJobV2Test {
             throws UserException {
         fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(masterCatalog);
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         Map<String, String> properties = new HashMap<>();
         properties.put(propertyKey, propertyValue);
@@ -393,7 +396,9 @@ public class SchemaChangeJobV2Test {
         SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1,1, "test",600000);
         schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
         Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
-
+        Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
+        indexSchemaVersionAndHashMap.put(Long.valueOf(1000), new SchemaVersionAndHash(10, 20));
+        Deencapsulation.setField(schemaChangeJobV2, "indexSchemaVersionAndHashMap", indexSchemaVersionAndHashMap);
 
         // write schema change job
         schemaChangeJobV2.write(out);
@@ -410,5 +415,12 @@ public class SchemaChangeJobV2Test {
         Assert.assertEquals(1, result.getJobId());
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, result.getJobState());
         Assert.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
+
+        Assert.assertNotNull(Deencapsulation.getField(result, "partitionIndexMap"));
+        Assert.assertNotNull(Deencapsulation.getField(result, "partitionIndexTabletMap"));
+
+        Map<Long, SchemaVersionAndHash> map = Deencapsulation.getField(result, "indexSchemaVersionAndHashMap");
+        Assert.assertEquals(10, map.get(1000L).schemaVersion);
+        Assert.assertEquals(20, map.get(1000L).schemaHash);
     }
 }

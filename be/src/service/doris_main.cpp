@@ -126,14 +126,40 @@ int main(int argc, char** argv) {
     }
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-    MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit",
-                                                    21474836480);
+    // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
+    // not backed by physical pages and do not contribute towards memory consumption.
+    MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
+    // Change the total TCMalloc thread cache size if necessary.
+    if (!MallocExtension::instance()->SetNumericProperty(
+                "tcmalloc.max_total_thread_cache_bytes", doris::config::tc_max_total_thread_cache_bytes)) {
+        fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
+        return -1;
+    }
 #endif
 
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (olap_res != doris::OLAP_SUCCESS) {
         LOG(FATAL) << "parse config storage path failed, path=" << doris::config::storage_root_path;
+        exit(-1);
+    }
+    auto it = paths.begin();
+    for (;it != paths.end();) {
+        if (!doris::check_datapath_rw(it->path)) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "read write test file failed, path=" << it->path;
+                it = paths.erase(it);
+            } else {
+                LOG(FATAL) << "read write test file failed, path=" << it->path;
+                exit(-1);
+            }
+        } else {
+            ++it;
+        }
+    }
+
+    if (paths.empty()) {
+        LOG(FATAL) << "All disks are broken, exit.";
         exit(-1);
     }
 

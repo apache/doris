@@ -120,7 +120,7 @@ public class DeleteHandler implements Writable {
         String tableName = stmt.getTableName();
         String partitionName = stmt.getPartitionName();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -566,7 +566,7 @@ public class DeleteHandler implements Writable {
     // show delete stmt
     public List<List<Comparable>> getDeleteInfosByDb(long dbId, boolean forUser) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             return infos;
         }

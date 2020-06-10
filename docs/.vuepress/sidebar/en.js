@@ -108,6 +108,7 @@ module.exports = [
       "export_manual",
       "outfile",
       "privilege",
+      "running-profile",
       "small-file-mgr",
       "sql-mode",
       "time-zone",

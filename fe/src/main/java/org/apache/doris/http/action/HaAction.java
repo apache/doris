@@ -64,23 +64,23 @@ public class HaAction extends WebBaseAction {
     private void appendRoleInfo(StringBuilder buffer) {
         buffer.append("<h2>Frontend Role</h2>");
         buffer.append("<pre>");
-        buffer.append("<p>" + Catalog.getInstance().getFeType() + "</p>");
+        buffer.append("<p>" + Catalog.getCurrentCatalog().getFeType() + "</p>");
         buffer.append("</pre>");
     }
     
     private void appendJournalInfo(StringBuilder buffer) {
         buffer.append("<h2>Current Journal Id</h2>");
         buffer.append("<pre>");
-        if (Catalog.getInstance().isMaster()) {
-            buffer.append("<p>" + Catalog.getInstance().getEditLog().getMaxJournalId() + "</p>");
+        if (Catalog.getCurrentCatalog().isMaster()) {
+            buffer.append("<p>" + Catalog.getCurrentCatalog().getEditLog().getMaxJournalId() + "</p>");
         } else {
-            buffer.append("<p>" + Catalog.getInstance().getReplayedJournalId() + "</p>");
+            buffer.append("<p>" + Catalog.getCurrentCatalog().getReplayedJournalId() + "</p>");
         }
         buffer.append("</pre>");
     }
     
     private void appendNodesInfo(StringBuilder buffer) {
-        HAProtocol haProtocol = Catalog.getInstance().getHaProtocol();
+        HAProtocol haProtocol = Catalog.getCurrentCatalog().getHaProtocol();
         if (haProtocol == null) {
             return;
         }
@@ -111,7 +111,7 @@ public class HaAction extends WebBaseAction {
     private void appendCanReadInfo(StringBuilder buffer) {
         buffer.append("<h2>Can Read</h2>");
         buffer.append("<pre>");
-        buffer.append("<p>" + Catalog.getInstance().canRead() + "</p>");
+        buffer.append("<p>" + Catalog.getCurrentCatalog().canRead() + "</p>");
         
         buffer.append("</pre>");
     }
@@ -132,7 +132,7 @@ public class HaAction extends WebBaseAction {
     }
     
     private void appendDbNames(StringBuilder buffer) {
-        List<Long> names = Catalog.getInstance().getEditLog().getDatabaseNames();
+        List<Long> names = Catalog.getCurrentCatalog().getEditLog().getDatabaseNames();
         if (names == null) {
             return;
         }
@@ -148,7 +148,7 @@ public class HaAction extends WebBaseAction {
     }
     
     private void appendFe(StringBuilder buffer) {
-        List<Frontend> fes = Catalog.getInstance().getFrontends(null /* all */);
+        List<Frontend> fes = Catalog.getCurrentCatalog().getFrontends(null /* all */);
         if (fes == null) {
             return;
         }
@@ -162,7 +162,7 @@ public class HaAction extends WebBaseAction {
     }
     
     private void appendRemovedFe(StringBuilder buffer) {
-        List<String> feNames = Catalog.getInstance().getRemovedFrontendNames();
+        List<String> feNames = Catalog.getCurrentCatalog().getRemovedFrontendNames();
         buffer.append("<h2>Removed Frontends</h2>");
         buffer.append("<pre>");
         for (String feName : feNames) {

@@ -317,7 +317,7 @@ public class BrokerScanNode extends LoadScanNode {
 
         FsBroker broker = null;
         try {
-            broker = Catalog.getInstance().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
+            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }

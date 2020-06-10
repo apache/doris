@@ -698,7 +698,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
 
             // batch log drop rollup operation
-            EditLog editLog = Catalog.getInstance().getEditLog();
+            EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
             long dbId = db.getId();
             long tableId = olapTable.getId();
             editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, indexIdSet));
@@ -718,7 +718,7 @@ public class MaterializedViewHandler extends AlterHandler {
             // Step2; drop data in memory
             long mvIndexId = dropMaterializedView(mvName, olapTable);
             // Step3: log drop mv operation
-            EditLog editLog = Catalog.getInstance().getEditLog();
+            EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
             editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), mvIndexId));
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
@@ -1028,7 +1028,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         // handle cancelled rollup jobs
         for (AlterJob rollupJob : cancelledJobs) {
-            Database db = Catalog.getInstance().getDb(rollupJob.getDbId());
+            Database db = Catalog.getCurrentCatalog().getDb(rollupJob.getDbId());
             if (db == null) {
                 cancelInternal(rollupJob, null, null);
                 continue;
@@ -1053,7 +1053,7 @@ public class MaterializedViewHandler extends AlterHandler {
             // then schema change job will be failed.
             alterJob.finishJob();
             jobDone(alterJob);
-            Catalog.getInstance().getEditLog().logFinishRollup((RollupJob) alterJob);
+            Catalog.getCurrentCatalog().getEditLog().logFinishRollup((RollupJob) alterJob);
         }
     }
 
@@ -1152,7 +1152,7 @@ public class MaterializedViewHandler extends AlterHandler {
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
