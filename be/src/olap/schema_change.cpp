@@ -189,14 +189,14 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     }
 
 
-bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* ref_column,
+bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
                int field_idx, int ref_field_idx, MemPool* mem_pool) {
     write_helper->set_not_null(ref_field_idx);
     BitmapValue bitmap;
     if (!read_helper->is_null(ref_field_idx)) {
         uint64_t origin_value;
         char *src = read_helper->cell_ptr(ref_field_idx);
-        switch (ref_column->type()) {
+        switch (ref_column.type()) {
             case OLAP_FIELD_TYPE_TINYINT:
                 if (*(int8_t *) src < 0) {
                     LOG(WARNING) << "The input: " << *(int8_t *) src
@@ -244,7 +244,7 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* re
             default:
                 LOG(WARNING) << "the column type which was altered from was unsupported."
                              << " from_type="
-                             << ref_column->type();
+                             << ref_column.type();
                 return false;
         }
         bitmap.add(origin_value);
@@ -256,15 +256,15 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* re
     return true;
 }
 
-bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* ref_column,
+bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
               int field_idx, int ref_field_idx, MemPool* mem_pool) {
     write_helper->set_not_null(field_idx);
     HyperLogLog hll;
     if (!read_helper->is_null(ref_field_idx)) {
         Slice src;
-        if (ref_column->type() != OLAP_FIELD_TYPE_VARCHAR) {
+        if (ref_column.type() != OLAP_FIELD_TYPE_VARCHAR) {
             src.data = read_helper->cell_ptr(ref_field_idx);
-            src.size = ref_column->length();
+            src.size = ref_column.length();
         } else {
             src = *reinterpret_cast<Slice *>(read_helper->cell_ptr(ref_field_idx));
         }
@@ -279,7 +279,7 @@ bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* ref
     return true;
 }
 
-bool count(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* ref_column,
+bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
            int field_idx, int ref_field_idx, MemPool* mem_pool) {
     write_helper->set_not_null(field_idx);
     int64_t count = read_helper->is_null(field_idx) ? 0 : 1;
