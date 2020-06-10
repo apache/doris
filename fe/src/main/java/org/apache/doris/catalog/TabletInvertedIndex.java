@@ -45,7 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.concurrent.locks.StampedLock;
 import java.util.stream.Collectors;
 
 /*
@@ -59,7 +58,7 @@ public class TabletInvertedIndex {
 
     public static final int NOT_EXIST_VALUE = -1;
 
-    private StampedLock lock = new StampedLock();
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     // tablet id -> tablet meta
     private Map<Long, TabletMeta> tabletMetaMap = Maps.newHashMap();
@@ -88,7 +87,7 @@ public class TabletInvertedIndex {
     }
 
     private void readLock() {
-
+        this.lock.readLock().lock();
     }
 
     private void readUnlock() {
@@ -253,59 +252,10 @@ public class TabletInvertedIndex {
                  tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), (end - start));
     }
 
-    public long getTableId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getTableId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-
     public Long getTabletIdByReplica(long replicaId) {
         readLock();
         try {
             return replicaToTabletMap.get(replicaId);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getPartitionId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getPartitionId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getIndexId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getIndexId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public int getEffectiveSchemaHash(long tabletId) {
-        // always get old schema hash(as effective one)
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getOldSchemaHash();
-            }
-            return NOT_EXIST_VALUE;
         } finally {
             readUnlock();
         }
@@ -319,10 +269,18 @@ public class TabletInvertedIndex {
             readUnlock();
         }
     }
-    
-    public Set<Long> getTabletBackends(long tabletId) {
-        Map<Long, Replica> backendIdToReplica = replicaMetaTable.row(tabletId);
-        return backendIdToReplica.keySet();
+
+    public List<TabletMeta> getTabletMetaList(List<Long> tabletIdList) {
+        List<TabletMeta> tabletMetaList = Lists.newArrayList();
+        readLock();
+        try {
+            for (Long tabletId : tabletIdList) {
+                tabletMetaList.add(tabletMetaMap.get(tabletId));
+            }
+            return tabletMetaList;
+        } finally {
+            readUnlock();
+        }
     }
 
     private boolean needSync(Replica replicaInFe, TTabletInfo backendTabletInfo) {

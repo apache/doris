@@ -389,21 +389,26 @@ public class ReportHandler extends Daemon {
                 List<Long> tabletIds = tabletSyncMap.get(dbId);
                 LOG.info("before sync tablets in db[{}]. report num: {}. backend[{}]",
                          dbId, tabletIds.size(), backendId);
-
-                for (Long tabletId : tabletIds) {
-                    long tableId = invertedIndex.getTableId(tabletId);
+                List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+                for (int i = 0; i < tabletMetaList.size(); i++) {
+                    TabletMeta tabletMeta = tabletMetaList.get(i);
+                    if (tabletMeta == null) {
+                        continue;
+                    }
+                    long tabletId = tabletIds.get(i);
+                    long tableId = tabletMeta.getTableId();
                     OlapTable olapTable = (OlapTable) db.getTable(tableId);
                     if (olapTable == null) {
                         continue;
                     }
 
-                    long partitionId = invertedIndex.getPartitionId(tabletId);
+                    long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
                         continue;
                     }
 
-                    long indexId = invertedIndex.getIndexId(tabletId);
+                    long indexId = tabletMeta.getPartitionId();
                     MaterializedIndex index = partition.getIndex(indexId);
                     if (index == null) {
                         continue;
@@ -513,14 +518,20 @@ public class ReportHandler extends Daemon {
             try {
                 int deleteCounter = 0;
                 List<Long> tabletIds = tabletDeleteFromMeta.get(dbId);
-                for (Long tabletId : tabletIds) {
-                    long tableId = invertedIndex.getTableId(tabletId);
+                List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+                for (int i = 0; i < tabletMetaList.size(); i++) {
+                    TabletMeta tabletMeta = tabletMetaList.get(i);
+                    if (tabletMeta == null) {
+                        continue;
+                    }
+                    long tabletId = tabletIds.get(i);
+                    long tableId  = tabletMeta.getTableId();
                     OlapTable olapTable = (OlapTable) db.getTable(tableId);
                     if (olapTable == null) {
                         continue;
                     }
 
-                    long partitionId = invertedIndex.getPartitionId(tabletId);
+                    long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
                         continue;
@@ -528,7 +539,7 @@ public class ReportHandler extends Daemon {
 
                     short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
 
-                    long indexId = invertedIndex.getIndexId(tabletId);
+                    long indexId = tabletMeta.getIndexId();
                     MaterializedIndex index = partition.getIndex(indexId);
                     if (index == null) {
                         continue;
@@ -713,10 +724,14 @@ public class ReportHandler extends Daemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TStorageMedium storageMedium : tabletMetaMigrationMap.keySet()) {
             List<Long> tabletIds = tabletMetaMigrationMap.get(storageMedium);
-            for (Long tabletId : tabletIds) {
+            List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+            for (int i = 0; i < tabletMetaList.size(); i++) {
+                long tabletId = tabletIds.get(i);
+                TabletMeta tabletMeta = tabletMetaList.get(i);
+                // always get old schema hash(as effective one)
+                int effectiveSchemaHash = tabletMeta != null ? tabletMeta.getOldSchemaHash() : TabletInvertedIndex.NOT_EXIST_VALUE;
                 StorageMediaMigrationTask task = new StorageMediaMigrationTask(backendId, tabletId,
-                                                      invertedIndex.getEffectiveSchemaHash(tabletId),
-                                                      storageMedium);
+                        effectiveSchemaHash, storageMedium);
                 batchTask.addTask(task);
             }
         }
@@ -764,20 +779,27 @@ public class ReportHandler extends Daemon {
                 }
                 db.writeLock();
                 try {
-                    for (Long tabletId : tabletRecoveryMap.get(dbId)) {
-                        long tableId = invertedIndex.getTableId(tabletId);
+                    List<Long> tabletIds = tabletRecoveryMap.get(dbId);
+                    List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+                    for (int i = 0; i < tabletMetaList.size(); i++) {
+                        TabletMeta tabletMeta = tabletMetaList.get(i);
+                        if (tabletMeta == null) {
+                            continue;
+                        }
+                        long tabletId = tabletIds.get(i);
+                        long tableId = tabletMeta.getTableId();
                         OlapTable olapTable = (OlapTable) db.getTable(tableId);
                         if (olapTable == null) {
                             continue;
                         }
 
-                        long partitionId = invertedIndex.getPartitionId(tabletId);
+                        long partitionId = tabletMeta.getPartitionId();
                         Partition partition = olapTable.getPartition(partitionId);
                         if (partition == null) {
                             continue;
                         }
 
-                        long indexId = invertedIndex.getIndexId(tabletId);
+                        long indexId = tabletMeta.getIndexId();
                         MaterializedIndex index = partition.getIndex(indexId);
                         if (index == null) {
                             continue;
@@ -844,8 +866,6 @@ public class ReportHandler extends Daemon {
                 // need to write edit log the sync the bad info to other FEs
                 Catalog.getCurrentCatalog().getEditLog().logBackendTabletsInfo(backendTabletsInfo);
             }
-
-            return;
         } else {
             LOG.warn("force recovery is enable. use recovery tablet task to recover");
             AgentBatchTask batchTask = new AgentBatchTask();
