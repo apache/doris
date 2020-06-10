@@ -89,7 +89,7 @@ std::string get_usage(const std::string& progname) {
           "--root_path=/path/to/storage/path --tablet_id=tabletid "
           "--schema_hash=schemahash\n";
     ss << "./meta_tool --operation=delete_meta --tablet_file=file_path\n";
-    ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";\
+    ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";
     ss << "./meta_tool --operation=show_segment_footer --file=/path/to/segment/file\n";
     return ss.str();
 }
