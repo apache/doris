@@ -25,41 +25,40 @@ import org.apache.doris.common.AnalysisException;
 import org.json.JSONObject;
 
 public class EsUtil {
-
+    
     public static void analyzePartitionAndDistributionDesc(PartitionDesc partitionDesc,
-        DistributionDesc distributionDesc)
-        throws AnalysisException {
+            DistributionDesc distributionDesc) throws AnalysisException {
         if (partitionDesc == null && distributionDesc == null) {
             return;
         }
-
+        
         if (partitionDesc != null) {
             if (!(partitionDesc instanceof RangePartitionDesc)) {
                 throw new AnalysisException("Elasticsearch table only permit range partition");
             }
-
+            
             RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
             analyzePartitionDesc(rangePartitionDesc);
         }
-
+        
         if (distributionDesc != null) {
             throw new AnalysisException("could not support distribution clause");
         }
     }
-
+    
     private static void analyzePartitionDesc(RangePartitionDesc partDesc)
-        throws AnalysisException {
+            throws AnalysisException {
         if (partDesc.getPartitionColNames() == null || partDesc.getPartitionColNames().isEmpty()) {
             throw new AnalysisException("No partition columns.");
         }
-
+        
         if (partDesc.getPartitionColNames().size() > 1) {
             throw new AnalysisException(
-                "Elasticsearch table's parition column could only be a single column");
+                    "Elasticsearch table's parition column could only be a single column");
         }
     }
-
-
+    
+    
     /**
      * get the json object from specified jsonObject
      *
@@ -84,7 +83,7 @@ public class EsUtil {
             return null;
         }
     }
-
+    
     public static String getFetchField(JSONObject fieldObject, String colName) {
         String fieldType = fieldObject.optString("type");
         // string-type field used keyword type to generate predicate
@@ -103,7 +102,7 @@ public class EsUtil {
         }
         return null;
     }
-
+    
     public static String getDocValueField(JSONObject fieldObject, String colName) {
         String fieldType = fieldObject.optString("type");
         String docValueField = null;
@@ -112,7 +111,8 @@ public class EsUtil {
             if (fieldsObject != null) {
                 for (String key : fieldsObject.keySet()) {
                     JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(innerTypeObject.optString("type"))) {
+                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(
+                            innerTypeObject.optString("type"))) {
                         continue;
                     }
                     if (innerTypeObject.has("doc_values")) {

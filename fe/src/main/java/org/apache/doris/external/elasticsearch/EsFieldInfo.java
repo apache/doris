@@ -43,4 +43,5 @@ public class EsFieldInfo {
     public Map<String, String> getDocValueFields() {
         return docValueFields;
     }
+    
 }
