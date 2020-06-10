@@ -114,7 +114,7 @@ public class AlterViewStmtTest {
 
         new MockUp<Catalog>() {
             @Mock
-            Catalog getInstance() {
+            Catalog getCurrentCatalog() {
                 return catalog;
             }
             @Mock
@@ -172,7 +172,12 @@ public class AlterViewStmtTest {
         AlterViewStmt alterViewStmt = new AlterViewStmt(new TableName("testDb", "testView"), Lists.newArrayList(col1, col2), alterQueryStmt);
         try {
             alterViewStmt.analyze(analyzer);
-            analyzer.getCatalog().alterView(alterViewStmt);
+            Catalog catalog1 = analyzer.getCatalog();
+            if (catalog1 == null) {
+                System.out.println("cmy get null");
+                return;
+            }
+            catalog1.alterView(alterViewStmt);
         } catch (UserException e) {
             Assert.fail();
         }

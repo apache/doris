@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -33,6 +32,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import mockit.Expectations;
 import mockit.Mocked;
 
 public class ShowDataStmtTest {
@@ -80,7 +80,7 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = catalog;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 
@@ -141,7 +141,7 @@ public class ShowDataStmtTest {
         stmt = new ShowDataStmt("testDb", "test_tbl");
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATA FROM `default_cluster:testDb`.`test_tbl`", stmt.toString());
-        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
     }
 }

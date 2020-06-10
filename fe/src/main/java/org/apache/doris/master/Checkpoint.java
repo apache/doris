@@ -94,7 +94,7 @@ public class Checkpoint extends MasterDaemon {
         long replayedJournalId = -1;
         // generate new image file
         LOG.info("begin to generate new image: image.{}", checkPointVersion);
-        catalog = Catalog.getCheckpoint();
+        catalog = Catalog.getCurrentCatalog();
         catalog.setEditLog(editLog);
         try {
             catalog.loadImage(imageDir);
@@ -124,14 +124,14 @@ public class Checkpoint extends MasterDaemon {
         
         // push image file to all the other non master nodes
         // DO NOT get other nodes from HaProtocol, because node may not in bdbje replication group yet.
-        List<Frontend> allFrontends = Catalog.getInstance().getFrontends(null);
+        List<Frontend> allFrontends = Catalog.getCurrentCatalog().getFrontends(null);
         int successPushed = 0;
         int otherNodesCount = 0;
         if (!allFrontends.isEmpty()) {
             otherNodesCount = allFrontends.size() - 1; // skip master itself
             for (Frontend fe : allFrontends) {
                 String host = fe.getHost();
-                if (host.equals(Catalog.getInstance().getMasterIp())) {
+                if (host.equals(Catalog.getCurrentCatalog().getMasterIp())) {
                     // skip master itself
                     continue;
                 }
@@ -160,7 +160,7 @@ public class Checkpoint extends MasterDaemon {
             if (successPushed > 0) {
                 for (Frontend fe : allFrontends) {
                     String host = fe.getHost();
-                    if (host.equals(Catalog.getInstance().getMasterIp())) {
+                    if (host.equals(Catalog.getCurrentCatalog().getMasterIp())) {
                         // skip master itself
                         continue;
                     }

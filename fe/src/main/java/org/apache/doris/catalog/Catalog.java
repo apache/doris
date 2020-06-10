@@ -127,7 +127,7 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
-import org.apache.doris.external.EsStateStore;
+import org.apache.doris.external.elasticsearch.EsStateStore;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -202,6 +202,7 @@ import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
@@ -359,6 +360,7 @@ public class Catalog {
 
     private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
+    private ResourceMgr resourceMgr;
 
     private GlobalTransactionMgr globalTransactionMgr;
 
@@ -496,6 +498,7 @@ public class Catalog {
 
         this.pullLoadJobMgr = new PullLoadJobMgr();
         this.brokerMgr = new BrokerMgr();
+        this.resourceMgr = new ResourceMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
         this.tabletStatMgr = new TabletStatMgr();
@@ -538,21 +541,13 @@ public class Catalog {
         }
     }
 
-    // use this to get real Catalog instance
-    public static Catalog getInstance() {
-        return SingletonHolder.INSTANCE;
-    }
-
-    // use this to get CheckPoint Catalog instance
-    public static Catalog getCheckpoint() {
-        if (CHECKPOINT == null) {
-            CHECKPOINT = new Catalog();
-        }
-        return CHECKPOINT;
-    }
-
     public static Catalog getCurrentCatalog() {
         if (isCheckpointThread()) {
+            // only checkpoint thread it self will goes here.
+            // so no need to care about the thread safe.
+            if (CHECKPOINT == null) {
+                CHECKPOINT = new Catalog();
+            }
             return CHECKPOINT;
         } else {
             return SingletonHolder.INSTANCE;
@@ -565,6 +560,10 @@ public class Catalog {
 
     public BrokerMgr getBrokerMgr() {
         return brokerMgr;
+    }
+
+    public ResourceMgr getResourceMgr() {
+        return resourceMgr;
     }
 
     public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
@@ -1202,8 +1201,11 @@ public class Catalog {
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
         checkpointer.setMetaContext(metaContext);
-        checkpointer.start();
+        // set "checkpointThreadId" before the checkpoint thread start, because the thread
+        // need to check the "checkpointThreadId" when running.
         checkpointThreadId = checkpointer.getId();
+
+        checkpointer.start();
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
         // heartbeat mgr
@@ -1437,6 +1439,8 @@ public class Catalog {
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
+            // TODO(wyb): spark-load
+            //checksum = loadResources(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
@@ -1838,6 +1842,17 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadResources(DataInputStream in, long checksum) throws IOException {
+        // TODO(wyb): spark-load
+        /*
+        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.new_version_by_wyb) {
+            resourceMgr = ResourceMgr.read(in); 
+        }
+        LOG.info("finished replay resources from image");
+         */
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
             smallFileMgr.readFields(in);
@@ -1890,6 +1905,8 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
+            // TODO(wyb): spark-load
+            //checksum = saveResources(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
@@ -2158,6 +2175,11 @@ public class Catalog {
 
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getLoadManager().write(out);
+        return checksum;
+    }
+
+	public long saveResources(DataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getResourceMgr().write(out);
         return checksum;
     }
 
@@ -3079,7 +3101,9 @@ public class Catalog {
                     bfColumns, olapTable.getBfFpp(),
                     tabletIdSet, olapTable.getCopiedIndexes(),
                     singlePartitionDesc.isInMemory(),
-                    olapTable.getStorageFormat());
+                    olapTable.getStorageFormat(),
+                    singlePartitionDesc.getTabletType()
+                    );
 
             // check again
             db.writeLock();
@@ -3326,6 +3350,14 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
 
+        // 4. tablet type
+        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        try {
+            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         // check if has other undefined properties
         if (properties != null && !properties.isEmpty()) {
             MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
@@ -3352,6 +3384,14 @@ public class Catalog {
             partitionInfo.setIsInMemory(partition.getId(), isInMemory);
             LOG.debug("modify partition[{}-{}-{}] in memory to {}", db.getId(), olapTable.getId(), partitionName,
                     isInMemory);
+        }
+
+        // tablet type
+        // TODO: serialize to edit log
+        if (tabletType != partitionInfo.getTabletType(partition.getId())) {
+            partitionInfo.setTabletType(partition.getId(), tabletType);
+            LOG.debug("modify partition[{}-{}-{}] tablet type to {}", db.getId(), olapTable.getId(), partitionName,
+                    tabletType);
         }
 
         // log
@@ -3391,7 +3431,8 @@ public class Catalog {
                                                  Set<Long> tabletIdSet,
                                                  List<Index> indexes,
                                                  boolean isInMemory,
-                                                 TStorageFormat storageFormat) throws DdlException {
+                                                 TStorageFormat storageFormat,
+                                                 TTabletType tabletType) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3455,7 +3496,8 @@ public class Catalog {
                             schema, bfColumns, bfFpp,
                             countDownLatch,
                             indexes,
-                            isInMemory);
+                            isInMemory,
+                            tabletType);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3553,7 +3595,7 @@ public class Catalog {
         TableIndexes indexes = new TableIndexes(stmt.getIndexes());
 
         // create table
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
                 distributionInfo, indexes);
         olapTable.setComment(stmt.getComment());
@@ -3603,6 +3645,13 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
+        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        try {
+            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
@@ -3620,6 +3669,7 @@ public class Catalog {
             partitionInfo.setDataProperty(partitionId, dataProperty);
             partitionInfo.setReplicationNum(partitionId, replicationNum);
             partitionInfo.setIsInMemory(partitionId, isInMemory);
+            partitionInfo.setTabletType(partitionId, tabletType);
         }
 
         // check colocation properties
@@ -3726,7 +3776,7 @@ public class Catalog {
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat);
+                        isInMemory, storageFormat, tabletType);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3755,7 +3805,8 @@ public class Catalog {
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
-                            isInMemory, storageFormat);
+                            isInMemory, storageFormat,
+                            rangePartitionInfo.getTabletType(entry.getValue()));
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -3798,7 +3849,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, stmt.getProperties());
         mysqlTable.setComment(stmt.getComment());
         if (!db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists())) {
@@ -3828,7 +3879,7 @@ public class Catalog {
             partitionInfo = new SinglePartitionInfo();
         }
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         EsTable esTable = new EsTable(tableId, tableName, baseSchema, stmt.getProperties(), partitionInfo);
         esTable.setComment(stmt.getComment());
 
@@ -3844,7 +3895,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, stmt.getProperties());
         brokerTable.setComment(stmt.getComment());
         brokerTable.setBrokerProperties(stmt.getExtProperties());
@@ -4149,7 +4200,7 @@ public class Catalog {
             GroupId groupId = null;
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
                 // if this is a colocate table, try to get backend seqs from colocation index.
-                Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
+                Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
                 groupId = colocateIndex.getGroup(tabletMeta.getTableId());
                 // Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
                 // This lock will release very fast.
@@ -4846,7 +4897,8 @@ public class Catalog {
         this.alter.processAlterView(stmt, ConnectContext.get());
     }
 
-    public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
+    public void createMaterializedView(CreateMaterializedViewStmt stmt)
+            throws AnalysisException, DdlException {
         this.alter.processCreateMaterializedView(stmt);
     }
 
@@ -4999,6 +5051,11 @@ public class Catalog {
                 // this table is not a colocate table, do nothing
                 return;
             }
+
+            // when replayModifyTableColocate, we need the groupId info
+            String fullGroupName = db.getId() + "_" + oldGroup;
+            groupId = colocateTableIndex.getGroupSchema(fullGroupName).getGroupId();
+
             colocateTableIndex.removeTable(table.getId());
             table.setColocateGroup(null);
         }
@@ -5370,7 +5427,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
         newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
@@ -5959,8 +6016,8 @@ public class Catalog {
                 InfoSchemaDb db;
                 // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
                 // when checkpoint thread load image.
-                if (Catalog.getInstance().getFullNameToDb().containsKey(dbName)) {
-                    db = (InfoSchemaDb)Catalog.getInstance().getFullNameToDb().get(dbName);
+                if (Catalog.getCurrentCatalog().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getCurrentCatalog().getFullNameToDb().get(dbName);
                 } else {
                     db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());
@@ -6222,7 +6279,8 @@ public class Catalog {
                         tabletIdSet,
                         copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(),
-                        copiedTbl.getStorageFormat());
+                        copiedTbl.getStorageFormat(),
+                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId));
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

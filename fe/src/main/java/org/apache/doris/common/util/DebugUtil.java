@@ -75,7 +75,7 @@ public class DebugUtil {
             } 
             if (newValue >= MINUTE) {
                 builder.append(newValue / MINUTE).append("m");
-                newValue %= newValue;
+                newValue %= MINUTE;
                 minute = true;
             }
             if (!hour && newValue >= SECOND) {

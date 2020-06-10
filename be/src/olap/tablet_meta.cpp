@@ -58,19 +58,6 @@ OLAPStatus AlterTabletTask::set_alter_state(AlterTabletState alter_state) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
-                              int64_t tablet_id, int32_t schema_hash,
-                              uint64_t shard_id, const TTabletSchema& tablet_schema,
-                              uint32_t next_unique_id,
-                              const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                              TabletMetaSharedPtr* tablet_meta, TabletUid& tablet_uid) {
-    tablet_meta->reset(new TabletMeta(table_id, partition_id,
-                                      tablet_id, schema_hash,
-                                      shard_id, tablet_schema,
-                                      next_unique_id, col_ordinal_to_unique_id, tablet_uid));
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                               uint64_t shard_id, uint32_t next_unique_id,
                               const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
@@ -78,7 +65,9 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
     tablet_meta->reset(new TabletMeta(request.table_id, request.partition_id,
                                       request.tablet_id, request.tablet_schema.schema_hash,
                                       shard_id, request.tablet_schema,
-                                      next_unique_id, col_ordinal_to_unique_id, tablet_uid));
+                                      next_unique_id, col_ordinal_to_unique_id, tablet_uid,
+                                      request.__isset.tablet_type ?
+                                              request.tablet_type : TTabletType::TABLET_TYPE_DISK));
     return OLAP_SUCCESS;
 }
 
@@ -89,7 +78,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                        uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                       TabletUid tablet_uid) : _tablet_uid(0, 0),
+                       TabletUid tablet_uid, TTabletType::type tabletType) : _tablet_uid(0, 0),
                        _preferred_rowset_type(ALPHA_ROWSET) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -101,6 +90,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     tablet_meta_pb.set_cumulative_layer_point(-1);
     tablet_meta_pb.set_tablet_state(PB_RUNNING);
     *(tablet_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
+    tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_MEMORY ?
+            TabletTypePB::TABLET_TYPE_DISK : TabletTypePB::TABLET_TYPE_MEMORY);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -317,7 +308,7 @@ OLAPStatus TabletMeta::serialize(string* meta_binary) {
         LOG(FATAL) << "deserialize from previous serialize result failed " << full_name();
     }
     return OLAP_SUCCESS;
-};
+}
 
 OLAPStatus TabletMeta::deserialize(const string& meta_binary) {
     TabletMetaPB tablet_meta_pb;
@@ -339,6 +330,11 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _creation_time = tablet_meta_pb.creation_time();
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
+    if (tablet_meta_pb.has_tablet_type()) {
+        _tablet_type = tablet_meta_pb.tablet_type();
+    } else {
+        _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
+    }
 
     // init _tablet_state
     switch (tablet_meta_pb.tablet_state()) {
@@ -405,6 +401,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_creation_time(creation_time());
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
     *(tablet_meta_pb->mutable_tablet_uid()) = tablet_uid().to_proto();
+    tablet_meta_pb->set_tablet_type(_tablet_type);
     switch (tablet_state()) {
         case TABLET_NOTREADY:
             tablet_meta_pb->set_tablet_state(PB_NOTREADY);
@@ -670,6 +667,48 @@ OLAPStatus TabletMeta::set_partition_id(int64_t partition_id) {
     }
     _partition_id = partition_id;
     return OLAP_SUCCESS;
+}
+
+bool operator==(const AlterTabletTask& a, const AlterTabletTask& b) {
+    if (a._alter_state != b._alter_state) return false;
+    if (a._related_tablet_id != b._related_tablet_id) return false;
+    if (a._related_schema_hash != b._related_schema_hash) return false;
+    if (a._alter_type != b._alter_type) return false;
+    return true;
+}
+
+bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b) {
+    return !(a == b);
+}
+
+bool operator==(const TabletMeta& a, const TabletMeta& b) {
+    if (a._table_id != b._table_id) return false;
+    if (a._partition_id != b._partition_id) return false;
+    if (a._tablet_id != b._tablet_id) return false;
+    if (a._schema_hash != b._schema_hash) return false;
+    if (a._shard_id != b._shard_id) return false;
+    if (a._creation_time != b._creation_time) return false;
+    if (a._cumulative_layer_point != b._cumulative_layer_point) return false;
+    if (a._tablet_uid != b._tablet_uid) return false;
+    if (a._tablet_type != b._tablet_type) return false;
+    if (a._tablet_state != b._tablet_state) return false;
+    if (a._schema != b._schema) return false;
+    if (a._rs_metas.size() != b._rs_metas.size()) return false;
+    for (int i = 0; i < a._rs_metas.size(); ++i) {
+        if (a._rs_metas[i] != b._rs_metas[i]) return false;
+    }
+    if (a._inc_rs_metas.size() != b._inc_rs_metas.size()) return false;
+    for (int i = 0; i < a._inc_rs_metas.size(); ++i) {
+        if (a._inc_rs_metas[i] != b._inc_rs_metas[i]) return false;
+    }
+    if (a._alter_task != b._alter_task) return false;
+    if (a._in_restore_mode != b._in_restore_mode) return false;
+    if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
+    return true;
+}
+
+bool operator!=(const TabletMeta& a, const TabletMeta& b) {
+    return !(a == b);
 }
 
 }  // namespace doris

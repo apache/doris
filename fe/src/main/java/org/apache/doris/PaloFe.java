@@ -72,7 +72,6 @@ public class PaloFe {
             return;
         }
 
-
         CommandLineOptions cmdLineOpts = parseArgs(args);
         System.out.println(cmdLineOpts.toString());
 
@@ -104,8 +103,8 @@ public class PaloFe {
             ExecuteEnv.setup();
 
             // init catalog and wait it be ready
-            Catalog.getInstance().initialize(args);
-            Catalog.getInstance().waitForReady();
+            Catalog.getCurrentCatalog().initialize(args);
+            Catalog.getCurrentCatalog().waitForReady();
 
             // init and start:
             // 1. QeService for MySQL Server

@@ -68,7 +68,7 @@ public abstract class LoadScanNode extends ScanNode {
         }
         whereExpr = whereExpr.clone(smap);
         whereExpr.analyze(analyzer);
-        if (whereExpr.getType() != Type.BOOLEAN) {
+        if (!whereExpr.getType().equals(Type.BOOLEAN)) {
             throw new UserException("where statement is not a valid statement return bool");
         }
         addConjuncts(whereExpr.getConjuncts());

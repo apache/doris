@@ -23,6 +23,7 @@ option java_package = "org.apache.doris.proto";
 message PQueryStatistics {
     optional int64 scan_rows = 1;
     optional int64 scan_bytes = 2;
+    optional int64 returned_rows = 3;
 }
 
 message PRowBatch {

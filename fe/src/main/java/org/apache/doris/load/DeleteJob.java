@@ -85,7 +85,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         long dbId = deleteInfo.getDbId();
         long tableId = deleteInfo.getTableId();
         long partitionId = deleteInfo.getPartitionId();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             throw new MetaNotFoundException("can not find database "+ dbId +" when commit delete");
         }

@@ -135,7 +135,7 @@ public class SystemInfoService {
     }
 
     private void setBackendOwner(Backend backend, String clusterName) {
-        final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
+        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
         Preconditions.checkState(cluster != null);
         cluster.addBackend(backend.getId());
         backend.setOwnerClusterName(clusterName);
@@ -144,7 +144,7 @@ public class SystemInfoService {
 
     // Final entry of adding backend
     private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster) throws DdlException {
-        Backend newBackend = new Backend(Catalog.getInstance().getNextId(), host, heartbeatPort);
+        Backend newBackend = new Backend(Catalog.getCurrentCatalog().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
         copiedBackends.put(newBackend.getId(), newBackend);
@@ -168,7 +168,7 @@ public class SystemInfoService {
         }
 
         // log
-        Catalog.getInstance().getEditLog().logAddBackend(newBackend);
+        Catalog.getCurrentCatalog().getEditLog().logAddBackend(newBackend);
         LOG.info("finished to add {} ", newBackend);
 
         // backends is changed, regenerated tablet number metrics
@@ -219,14 +219,14 @@ public class SystemInfoService {
         idToReportVersionRef.set(newIdToReportVersion);
 
         // update cluster
-        final Cluster cluster = Catalog.getInstance().getCluster(droppedBackend.getOwnerClusterName());
+        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(droppedBackend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(droppedBackend.getId());
         } else {
             LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist.");
         }
         // log
-        Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
+        Catalog.getCurrentCatalog().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);
 
         // backends is changed, regenerated tablet number metrics
@@ -406,7 +406,7 @@ public class SystemInfoService {
                 backend.setBackendState(BackendState.free);
                 backend.clearClusterName();
                 if (!isReplay) {
-                    Catalog.getInstance().getEditLog().logBackendStateChange(backend);
+                    Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
                 }
             }
         }
@@ -583,7 +583,7 @@ public class SystemInfoService {
             final Backend backend = idToBackends.get(id);
             backend.setOwnerClusterName(clusterName);
             backend.setBackendState(BackendState.using);
-            Catalog.getInstance().getEditLog().logBackendStateChange(backend);
+            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
         }
         return chosenBackendIds;
     }
@@ -883,7 +883,7 @@ public class SystemInfoService {
     public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId) {
         AtomicLong atomicLong = null;
         if ((atomicLong = idToReportVersionRef.get().get(backendId)) != null) {
-            Database db = Catalog.getInstance().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db != null) {
                 db.readLock();
                 try {
@@ -994,7 +994,7 @@ public class SystemInfoService {
 
         // to add be to DEFAULT_CLUSTER
         if (newBackend.getBackendState() == BackendState.using) {
-            final Cluster cluster = Catalog.getInstance().getCluster(DEFAULT_CLUSTER);
+            final Cluster cluster = Catalog.getCurrentCatalog().getCluster(DEFAULT_CLUSTER);
             if (null != cluster) {
                 // replay log
                 cluster.addBackend(newBackend.getId());
@@ -1020,7 +1020,7 @@ public class SystemInfoService {
         idToReportVersionRef.set(newIdToReportVersion);
 
         // update cluster
-        final Cluster cluster = Catalog.getInstance().getCluster(backend.getOwnerClusterName());
+        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(backend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(backend.getId());
         } else {

@@ -17,18 +17,28 @@
 
 package org.apache.doris.alter;
 
-import mockit.Mock;
-import mockit.MockUp;
+import static org.junit.Assert.assertEquals;
+
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -36,32 +46,48 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class RollupJobV2Test {
+    private static String fileName = "./RollupJobV2Test";
+
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
     private static GlobalTransactionMgr masterTransMgr;
     private static GlobalTransactionMgr slaveTransMgr;
@@ -118,12 +144,18 @@ public class RollupJobV2Test {
         };
     }
 
+    @After
+    public void tearDown() {
+        File file = new File(fileName);
+        file.delete();
+    }
+
     @Test
     public void testRunRollupJobConcurrentLimit() throws UserException {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
         alterClauses.add(clause2);
@@ -144,7 +176,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
@@ -161,7 +193,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
 
         // add a rollup job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -265,7 +297,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
 
         // add a rollup job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -337,5 +369,63 @@ public class RollupJobV2Test {
 
         materializedViewHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.FINISHED, rollupJob.getJobState());
+    }
+
+
+    @Test
+    public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException {
+        // prepare file
+        File file = new File(fileName);
+        file.createNewFile();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        
+        short keysCount = 1;
+        List<Column> columns = Lists.newArrayList();
+        String mvColumnName =CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX + "bitmap_" + "c1";
+        Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
+        columns.add(column);
+        RollupJobV2 rollupJobV2 = new RollupJobV2(1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, 1, 1,
+                KeysType.AGG_KEYS, keysCount,
+                new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
+                        0));
+        rollupJobV2.setStorageFormat(TStorageFormat.V2);
+
+        // write rollup job
+        rollupJobV2.write(out);
+        out.flush();
+        out.close();
+
+        List<MVColumnItem> itemList = Lists.newArrayList();
+        MVColumnItem item = new MVColumnItem(
+                mvColumnName);
+        List<Expr> params = Lists.newArrayList();
+        SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
+        params.add(param1);
+        item.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));
+        itemList.add(item);
+        new Expectations() {
+            {
+                stmt.getMVColumnItemList();
+                result = itemList;
+            }
+        };
+
+        // read objects from file
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_86);
+        metaContext.setThreadLocalInfo();
+
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        RollupJobV2 result = (RollupJobV2) AlterJobV2.read(in);
+        Assert.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
+        List<Column> resultColumns = Deencapsulation.getField(result, "rollupSchema");
+        Assert.assertEquals(1, resultColumns.size());
+        Column resultColumn1 = resultColumns.get(0);
+        Assert.assertEquals(mvColumnName,
+                resultColumn1.getName());
+        Assert.assertTrue(resultColumn1.getDefineExpr() instanceof FunctionCallExpr);
+        FunctionCallExpr resultFunctionCall = (FunctionCallExpr) resultColumn1.getDefineExpr();
+        Assert.assertEquals("to_bitmap", resultFunctionCall.getFnName().getFunction());
+
     }
 }

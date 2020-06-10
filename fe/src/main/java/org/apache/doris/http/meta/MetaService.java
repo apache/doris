@@ -217,7 +217,7 @@ public class MetaService {
 
         @Override
         public void executeGet(BaseRequest request, BaseResponse response) {
-            long id = Catalog.getInstance().getReplayedJournalId();
+            long id = Catalog.getCurrentCatalog().getReplayedJournalId();
             response.updateHeader("id", Long.toString(id));
             writeResponse(request, response);
         }
@@ -243,7 +243,7 @@ public class MetaService {
 
             if (!Strings.isNullOrEmpty(host) && !Strings.isNullOrEmpty(portString)) {
                 int port = Integer.parseInt(portString);
-                Frontend fe = Catalog.getInstance().checkFeExist(host, port);
+                Frontend fe = Catalog.getCurrentCatalog().checkFeExist(host, port);
                 if (fe == null) {
                     response.updateHeader("role", FrontendNodeType.UNKNOWN.name());
                 } else {
@@ -323,7 +323,7 @@ public class MetaService {
              */
 
             // TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
-            String dumpFilePath = Catalog.getInstance().dumpImage();
+            String dumpFilePath = Catalog.getCurrentCatalog().dumpImage();
             if (dumpFilePath == null) {
                 response.appendContent("dump failed. " + dumpFilePath);
             }

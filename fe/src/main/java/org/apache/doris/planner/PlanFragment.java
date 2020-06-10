@@ -17,19 +17,22 @@
 
 package org.apache.doris.planner;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TResultSinkType;
+
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.Logger;
+
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -174,8 +177,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             }
             // add ResultSink
             Preconditions.checkState(sink == null);
-            // we're streaming to an exchange node
-            ResultSink bufferSink = new ResultSink(planRoot.getId());
+            // we're streaming to an result sink
+            ResultSink bufferSink = new ResultSink(planRoot.getId(), TResultSinkType.MYSQL_PROTOCAL);
             sink = bufferSink;
         }
     }

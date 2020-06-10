@@ -194,13 +194,13 @@ TEST_F(JsonFunctionTest, json_path1)
         ASSERT_TRUE(false);
     }
     rapidjson::Value* res3;
-    res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].keyname.ip", &jsonDoc, jsonDoc.GetAllocator());
+    res3 = JsonFunctions::get_json_array_from_parsed_json("$.[*].keyname.ip", &jsonDoc, jsonDoc.GetAllocator());
     ASSERT_TRUE(res3->IsArray());
     for (int i = 0; i < res3->Size(); i++) {
         std::cout<< (*res3)[i].GetString() << std::endl;
     }
 
-    res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].k1", &jsonDoc, jsonDoc.GetAllocator());
+    res3 = JsonFunctions::get_json_array_from_parsed_json("$.[*].k1", &jsonDoc, jsonDoc.GetAllocator());
     ASSERT_TRUE(res3->IsArray());
     for (int i = 0; i < res3->Size(); i++) {
         std::cout<< (*res3)[i].GetString() << std::endl;
@@ -216,7 +216,7 @@ TEST_F(JsonFunctionTest, json_path_get_nullobject)
         ASSERT_TRUE(false);
     }
 
-    rapidjson::Value* res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].b", &jsonDoc, jsonDoc.GetAllocator());
+    rapidjson::Value* res3 = JsonFunctions::get_json_array_from_parsed_json("$.[*].b", &jsonDoc, jsonDoc.GetAllocator());
     ASSERT_TRUE(res3->IsArray());
     ASSERT_EQ(res3->Size(), 3);
     for (int i = 0; i < res3->Size(); i++) {
@@ -239,7 +239,7 @@ TEST_F(JsonFunctionTest, json_path_test)
             ASSERT_TRUE(false);
         }
 
-        rapidjson::Value* res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].a", &jsonDoc, jsonDoc.GetAllocator());
+        rapidjson::Value* res3 = JsonFunctions::get_json_array_from_parsed_json("$.[*].a", &jsonDoc, jsonDoc.GetAllocator());
         ASSERT_TRUE(res3->IsArray());
         ASSERT_EQ(res3->Size(), 2);
         for (int i = 0; i < res3->Size(); i++) {
@@ -258,7 +258,7 @@ TEST_F(JsonFunctionTest, json_path_test)
             ASSERT_TRUE(false);
         }
 
-        rapidjson::Value* res3 = JsonFunctions::get_json_object_from_parsed_json("$.a", &jsonDoc, jsonDoc.GetAllocator());
+        rapidjson::Value* res3 = JsonFunctions::get_json_array_from_parsed_json("$.a", &jsonDoc, jsonDoc.GetAllocator());
         ASSERT_TRUE(res3->IsArray());
         ASSERT_EQ(res3->Size(), 2);
         for (int i = 0; i < res3->Size(); i++) {

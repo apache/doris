@@ -83,7 +83,7 @@ public final class ExportChecker extends MasterDaemon {
     }
 
     private void runPendingJobs() {
-        ExportMgr exportMgr = Catalog.getInstance().getExportMgr();
+        ExportMgr exportMgr = Catalog.getCurrentCatalog().getExportMgr();
         List<ExportJob> pendingJobs = exportMgr.getExportJobs(JobState.PENDING);
 
         // check to limit running etl job num
@@ -118,7 +118,7 @@ public final class ExportChecker extends MasterDaemon {
     }
 
     private void runExportingJobs() {
-        List<ExportJob> jobs = Catalog.getInstance().getExportMgr().getExportJobs(JobState.EXPORTING);
+        List<ExportJob> jobs = Catalog.getCurrentCatalog().getExportMgr().getExportJobs(JobState.EXPORTING);
         LOG.debug("exporting export job num: {}", jobs.size());
         for (ExportJob job : jobs) {
             try {

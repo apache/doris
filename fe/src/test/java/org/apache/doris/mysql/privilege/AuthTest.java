@@ -17,13 +17,13 @@
 
 package org.apache.doris.mysql.privilege;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
+import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
@@ -50,7 +50,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Set;
 
-import mockit.Delegate;
+import mockit.Expectations;
 import mockit.Mocked;
 
 public class AuthTest {
@@ -1050,4 +1050,270 @@ public class AuthTest {
 
     }
 
+    @Test
+    public void testResource() {
+        UserIdentity userIdentity = new UserIdentity("testUser", "%");
+        String role = "role0";
+        String resourceName = "spark0";
+        ResourcePattern resourcePattern = new ResourcePattern(resourceName);
+        String anyResource = "*";
+        ResourcePattern anyResourcePattern = new ResourcePattern(anyResource);
+        List<AccessPrivilege> usagePrivileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        // TODO(wyb): spark-load
+        GrantStmt.disableGrantResource = false;
+
+        // ------ grant|revoke resource to|from user ------
+        // 1. create user with no role
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. grant usage_priv on resource 'spark0' to 'testUser'@'%'
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, resourcePattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on resource 'spark0' from 'testUser'@'%'
+        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, resourcePattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertFalse(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 4. drop user
+        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ grant|revoke resource to|from role ------
+        // 1. create role
+        CreateRoleStmt roleStmt = new CreateRoleStmt(role);
+        try {
+            roleStmt.analyze(analyzer);
+            auth.createRole(roleStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+        // grant usage_priv on resource 'spark0' to role 'role0'
+        grantStmt = new GrantStmt(null, role, resourcePattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. create user with role
+        createUserStmt = new CreateUserStmt(false, userDesc, role);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on resource 'spark0' from role 'role0'
+        revokeStmt = new RevokeStmt(null, role, resourcePattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // also revoke from user with this role
+        Assert.assertFalse(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 4. drop user and role
+        dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        DropRoleStmt dropRoleStmt = new DropRoleStmt(role);
+        try {
+            dropRoleStmt.analyze(analyzer);
+            auth.dropRole(dropRoleStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ grant|revoke any resource to|from user ------
+        // 1. create user with no role
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. grant usage_priv on resource '*' to 'testUser'@'%'
+        grantStmt = new GrantStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertTrue(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on resource '*' from 'testUser'@'%'
+        revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertFalse(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 4. drop user
+        dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ grant|revoke any resource to|from role ------
+        // 1. create role
+        roleStmt = new CreateRoleStmt(role);
+        try {
+            roleStmt.analyze(analyzer);
+            auth.createRole(roleStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+        // grant usage_priv on resource '*' to role 'role0'
+        grantStmt = new GrantStmt(null, role, anyResourcePattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. create user with role
+        createUserStmt = new CreateUserStmt(false, userDesc, role);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertTrue(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on resource '*' from role 'role0'
+        revokeStmt = new RevokeStmt(null, role, anyResourcePattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // also revoke from user with this role
+        Assert.assertFalse(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 4. drop user and role
+        dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        dropRoleStmt = new DropRoleStmt(role);
+        try {
+            dropRoleStmt.analyze(analyzer);
+            auth.dropRole(dropRoleStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ error case ------
+        boolean hasException = false;
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // 1. grant db table priv to resource
+        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        grantStmt = new GrantStmt(userIdentity, null, resourcePattern, privileges);
+        hasException = false;
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+
+        // 2. grant resource priv to db table
+        TablePattern tablePattern = new TablePattern("db1", "*");
+        grantStmt = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
+        hasException = false;
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+    }
 }

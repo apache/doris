@@ -156,7 +156,7 @@ public class BDBEnvironment {
                 adminNodes.add(helper);
                 LOG.info("add helper[{}] as ReplicationGroupAdmin", helperHostPort);
                 // 2. add self if is electable
-                if (!selfNodeHostPort.equals(helperHostPort) && Catalog.getInstance().isElectable()) {
+                if (!selfNodeHostPort.equals(helperHostPort) && Catalog.getCurrentCatalog().isElectable()) {
                     InetSocketAddress self = new InetSocketAddress(selfNodeHostPort.split(":")[0],
                                                                    Integer.parseInt(selfNodeHostPort.split(":")[1]));
                     adminNodes.add(self);
@@ -167,7 +167,7 @@ public class BDBEnvironment {
                 
                 // get a BDBHA object and pass the reference to Catalog
                 HAProtocol protocol = new BDBHA(this, selfNodeName);
-                Catalog.getInstance().setHaProtocol(protocol);
+                Catalog.getCurrentCatalog().setHaProtocol(protocol);
                 
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();

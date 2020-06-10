@@ -613,7 +613,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
 
             // clear all CLONE replicas
-            Database db = Catalog.getInstance().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db != null) {
                 db.writeLock();
                 try {
@@ -860,11 +860,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             if (replica.getState() == ReplicaState.CLONE) {
                 replica.setState(ReplicaState.NORMAL);
-                Catalog.getInstance().getEditLog().logAddReplica(info);
+                Catalog.getCurrentCatalog().getEditLog().logAddReplica(info);
             } else {
                 // if in VERSION_INCOMPLETE, replica is not newly created, thus the state is not CLONE
                 // so we keep it state unchanged, and log update replica
-                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+                Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
 
             state = State.FINISHED;

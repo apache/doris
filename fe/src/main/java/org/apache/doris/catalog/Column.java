@@ -18,11 +18,13 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
@@ -66,6 +68,7 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    private Expr defineExpr; // use to define column in materialize view
 
     public Column() {
         this.name = "";
@@ -157,6 +160,10 @@ public class Column implements Writable {
 
     public Type getType() { return ScalarType.createType(type.getPrimitiveType()); }
 
+    public void setType(Type type) {
+        this.type = type;
+    }
+
     public Type getOriginType() { return type; }
 
     public int getStrLen() { return ((ScalarType) type).getLength(); }
@@ -240,6 +247,9 @@ public class Column implements Writable {
         tColumn.setIs_key(this.isKey);
         tColumn.setIs_allow_null(this.isAllowNull);
         tColumn.setDefault_value(this.defaultValue);
+        if (this.defineExpr != null) {
+            tColumn.setDefine_expr(this.defineExpr.treeToThrift());
+        }
         return tColumn;
     }
 
@@ -308,6 +318,14 @@ public class Column implements Writable {
             return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
         }
         return colName;
+    }
+
+    public Expr getDefineExpr() {
+        return defineExpr;
+    }
+
+    public void setDefineExpr(Expr expr) {
+        defineExpr = expr;
     }
 
     public String toSql() {
@@ -394,31 +412,11 @@ public class Column implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
-        ColumnType.write(out, type);
-        if (null == aggregationType) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, aggregationType.name());
-            out.writeBoolean(isAggregationTypeImplicit);
-        }
-
-        out.writeBoolean(isKey);
-        out.writeBoolean(isAllowNull);
-
-        if (defaultValue == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, defaultValue);
-        }
-        stats.write(out);
-
-        Text.writeString(out, comment);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);
         boolean notNull = in.readBoolean();
@@ -458,8 +456,13 @@ public class Column implements Writable {
     }
 
     public static Column read(DataInput in) throws IOException {
-        Column column = new Column();
-        column.readFields(in);
-        return column;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
+            Column column = new Column();
+            column.readFields(in);
+            return column;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Column.class);
+        }
     }
 }

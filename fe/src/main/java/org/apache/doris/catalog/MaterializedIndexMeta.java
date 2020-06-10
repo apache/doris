@@ -17,9 +17,17 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
@@ -29,9 +37,10 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.List;
 
-public class MaterializedIndexMeta implements Writable {
+public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "indexId")
     private long indexId;
     @SerializedName(value = "schema")
@@ -46,9 +55,11 @@ public class MaterializedIndexMeta implements Writable {
     private TStorageType storageType;
     @SerializedName(value = "keysType")
     private KeysType keysType;
+    @SerializedName(value = "defineStmt")
+    private OriginStatement defineStmt;
 
-    public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int
-            schemaHash, short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
+    public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
         this.indexId = indexId;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
@@ -60,6 +71,7 @@ public class MaterializedIndexMeta implements Writable {
         this.storageType = storageType;
         Preconditions.checkState(keysType != null);
         this.keysType = keysType;
+        this.defineStmt = defineStmt;
     }
 
     public long getIndexId() {
@@ -92,6 +104,17 @@ public class MaterializedIndexMeta implements Writable {
 
     public int getSchemaVersion() {
         return schemaVersion;
+    }
+
+    private void setColumnsDefineExpr(List<MVColumnItem> items) {
+        for (MVColumnItem item : items) {
+            for (Column column : schema) {
+                if (column.getName().equals(item.getName())) {
+                    column.setDefineExpr(item.getDefineExpr());
+                    break;
+                }
+            }
+        }
     }
 
     @Override
@@ -132,6 +155,25 @@ public class MaterializedIndexMeta implements Writable {
     public static MaterializedIndexMeta read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, MaterializedIndexMeta.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // analyze define stmt
+        if (defineStmt == null) {
+            return;
+        }
+        // parse the define stmt to schema
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(defineStmt.originStmt),
+                SqlModeHelper.MODE_DEFAULT));
+        CreateMaterializedViewStmt stmt;
+        try {
+            stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
+            stmt.analyzeSelectClause();
+            setColumnsDefineExpr(stmt.getMVColumnItemList());
+        } catch (Exception e) {
+            throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
+        }
     }
 
 }

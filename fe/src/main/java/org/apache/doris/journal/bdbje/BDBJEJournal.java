@@ -83,7 +83,7 @@ public class BDBJEJournal implements Journal {
     private void initBDBEnv(String nodeName) {
         environmentPath = Catalog.getCurrentCatalog().getBdbDir();
         try {
-            Pair<String, Integer> selfNode = Catalog.getInstance().getSelfNode();
+            Pair<String, Integer> selfNode = Catalog.getCurrentCatalog().getSelfNode();
             if (isPortUsing(selfNode.first, selfNode.second)) {
                 LOG.error("edit_log_port {} is already in use. will exit.", selfNode.second);
                 System.exit(-1);
@@ -310,11 +310,11 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             File dbEnv = new File(environmentPath);
             bdbEnvironment = new BDBEnvironment();
-            Pair<String, Integer> helperNode = Catalog.getInstance().getHelperNode();
+            Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
             String helperHostPort = helperNode.first + ":" + helperNode.second;
             try {
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort,
-                                     helperHostPort, Catalog.getInstance().isElectable());
+                                     helperHostPort, Catalog.getCurrentCatalog().isElectable());
             } catch (Exception e) {
                 LOG.error("catch an exception when setup bdb environment. will exit.", e);
                 System.exit(-1);
@@ -322,7 +322,7 @@ public class BDBJEJournal implements Journal {
         }
         
         // Open a new journal database or get last existing one as current journal database
-        Pair<String, Integer> helperNode = Catalog.getInstance().getHelperNode();
+        Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
         List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
@@ -339,7 +339,7 @@ public class BDBJEJournal implements Journal {
                      *  here we should open database with name image max journal id + 1.
                      *  (default Catalog.getInstance().getReplayedJournalId() is 0)
                      */
-                    String dbName = Long.toString(Catalog.getInstance().getReplayedJournalId() + 1);
+                    String dbName = Long.toString(Catalog.getCurrentCatalog().getReplayedJournalId() + 1);
                     LOG.info("the very first time to open bdb, dbname is {}", dbName);
                     currentJournalDB = bdbEnvironment.openDatabase(dbName);
                 } else {
@@ -360,7 +360,7 @@ public class BDBJEJournal implements Journal {
                 restore.execute(insufficientLogEx, config);
                 bdbEnvironment.close();
                 bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort, 
-                                     helperNode.first + ":" + helperNode.second, Catalog.getInstance().isElectable());
+                                     helperNode.first + ":" + helperNode.second, Catalog.getCurrentCatalog().isElectable());
             }
         }
     }

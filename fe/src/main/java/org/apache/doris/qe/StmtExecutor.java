@@ -56,6 +56,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -127,12 +128,12 @@ public class StmtExecutor {
     }
 
     // constructor for receiving parsed stmt from connect processor
-    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt, OriginStatement originStmt) {
+    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt) {
         this.context = ctx;
-        this.originStmt = originStmt;
+        this.parsedStmt = parsedStmt;
+        this.originStmt = parsedStmt.getOrigStmt();
         this.serializer = context.getSerializer();
         this.isProxy = false;
-        this.parsedStmt = parsedStmt;
     }
 
     // At the end of query execution, we begin to add up profile
@@ -167,13 +168,13 @@ public class StmtExecutor {
     }
 
     public boolean isForwardToMaster() {
-        if (Catalog.getInstance().isMaster()) {
+        if (Catalog.getCurrentCatalog().isMaster()) {
             return false;
         }
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
-        if ((parsedStmt instanceof QueryStmt) && !Catalog.getInstance().isMaster()
-                && !Catalog.getInstance().canRead()) {
+        if ((parsedStmt instanceof QueryStmt) && !Catalog.getCurrentCatalog().isMaster()
+                && !Catalog.getCurrentCatalog().canRead()) {
             return true;
         }
 
@@ -375,7 +376,7 @@ public class StmtExecutor {
             SqlParser parser = new SqlParser(input);
             try {
                 parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
-
+                parsedStmt.setOrigStmt(originStmt);
             } catch (Error e) {
                 LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
                 throw new AnalysisException("sql parsing error, please check your sql");
@@ -578,12 +579,23 @@ public class StmtExecutor {
         // so We need to send fields after first batch arrived
 
         // send result
+        // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
+        //    We will not send real query result to client. Instead, we only send OK to client with
+        //    number of rows selected. For example:
+        //          mysql> select * from tbl1 into outfile xxx;
+        //          Query OK, 10 rows affected (0.01 sec)
+        //
+        // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
-        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        boolean isOutfileQuery = queryStmt.hasOutFileClause();
+        if (!isOutfileQuery) {
+            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        }
         while (true) {
             batch = coord.getNext();
-            if (batch.getBatch() != null) {
+            // for outfile query, there will be only one empty batch send back with eos flag
+            if (batch.getBatch() != null && !isOutfileQuery) {
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
                 }            
@@ -595,7 +607,11 @@ public class StmtExecutor {
         }
 
         statisticsForAuditLog = batch.getQueryStatistics();
-        context.getState().setEof();
+        if (!isOutfileQuery) {
+            context.getState().setEof();
+        } else {
+            context.getState().setOk(statisticsForAuditLog.returned_rows, 0, "");
+        }
     }
 
     // Process a select statement.
@@ -610,6 +626,10 @@ public class StmtExecutor {
             insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
         } else {
             insertStmt = (InsertStmt) parsedStmt;
+        }
+
+        if (insertStmt.getQueryStmt().hasOutFileClause()) {
+            throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }
 
         // assign query id before explain query return
@@ -688,6 +708,7 @@ public class StmtExecutor {
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     10000)) {
                 txnStatus = TransactionStatus.VISIBLE;
+                MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {
                 txnStatus = TransactionStatus.COMMITTED;
             }
@@ -868,7 +889,7 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt, originStmt);
+            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
             context.getState().setOk();
         } catch (QueryStateException e) {
             context.setState(e.getQueryState());
@@ -913,3 +934,4 @@ public class StmtExecutor {
         return statisticsForAuditLog;
     }
 }
+

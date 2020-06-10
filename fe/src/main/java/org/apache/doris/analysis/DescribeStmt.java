@@ -105,7 +105,7 @@ public class DescribeStmt extends ShowStmt {
                                                 dbTableName.getTbl());
         }
 
-        Database db = Catalog.getInstance().getDb(dbTableName.getDb());
+        Database db = Catalog.getCurrentCatalog().getDb(dbTableName.getDb());
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbTableName.getDb());
         }
@@ -162,6 +162,9 @@ public class DescribeStmt extends ShowStmt {
                             }
                             if (bfColumns != null && bfColumns.contains(column.getName())) {
                                 extras.add("BLOOM_FILTER");
+                            }
+                            if (column.getDefineExpr() != null) {
+                                extras.add(column.getDefineExpr().toSql().toUpperCase());
                             }
                             String extraStr = StringUtils.join(extras, ",");
 

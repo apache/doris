@@ -957,12 +957,6 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();

@@ -513,7 +513,7 @@ public class DataDescription {
     }
 
     private static void validateNowFunction(Column mappingColumn) throws AnalysisException {
-        if (mappingColumn.getOriginType() != Type.DATE && mappingColumn.getOriginType() != Type.DATETIME) {
+        if (!mappingColumn.getOriginType().equals(Type.DATE) && !mappingColumn.getOriginType().equals(Type.DATETIME)) {
             throw new AnalysisException("Now() function is only support for DATE/DATETIME column");
         }
     }

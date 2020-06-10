@@ -49,6 +49,8 @@ import java.util.Set;
  * [PROPERTIES ("key" = "value")]
  */
 public class CreateMaterializedViewStmt extends DdlStmt {
+    public static final String MATERIALIZED_VIEW_NAME_PRFIX = "__doris_materialized_view_";
+
     private String mvName;
     private SelectStmt selectStmt;
     private Map<String, String> properties;
@@ -100,9 +102,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        // TODO(ml): remove it
         if (!Config.enable_materialized_view) {
-            throw new AnalysisException("The materialized view is coming soon");
+            throw new AnalysisException("The materialized view is disabled");
         }
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
@@ -128,7 +129,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
-    private void analyzeSelectClause() throws AnalysisException {
+    public void analyzeSelectClause() throws AnalysisException {
         SelectList selectList = selectStmt.getSelectList();
         if (selectList.getItems().isEmpty()) {
             throw new AnalysisException("The materialized view must contain at least one column");
@@ -167,6 +168,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             } else if (selectListItem.getExpr() instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItem.getExpr();
                 String functionName = functionCallExpr.getFnName().getFunction();
+                Expr defineExpr = null;
                 // TODO(ml): support REPLACE, REPLACE_IF_NOT_NULL only for aggregate table, HLL_UNION, BITMAP_UNION
                 if (!functionName.equalsIgnoreCase("sum")
                         && !functionName.equalsIgnoreCase("min")
@@ -174,6 +176,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     throw new AnalysisException("The materialized view only support the sum, min and max aggregate "
                                                         + "function. Error function: " + functionCallExpr.toSqlImpl());
                 }
+
                 Preconditions.checkState(functionCallExpr.getChildren().size() == 1);
                 Expr functionChild0 = functionCallExpr.getChild(0);
                 SlotRef slotRef;
@@ -198,8 +201,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     beginIndexOfAggregation = i;
                 }
                 // TODO(ml): support different type of column, int -> bigint(sum)
+                // TODO: change the column name of bitmap and hll
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                 mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
+                mvColumnItem.setDefineExpr(defineExpr);
                 mvColumnItemList.add(mvColumnItem);
             }
         }

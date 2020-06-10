@@ -25,6 +25,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -165,6 +166,7 @@ public abstract class RoutineLoadTaskInfo {
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         try {
+            MetricRepo.COUNTER_LOAD_ADD.increase(1L);
             txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                     routineLoadJob.getDbId(), Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
                     new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),

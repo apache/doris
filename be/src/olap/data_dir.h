@@ -130,7 +130,7 @@ private:
 
     Status _check_disk();
     OLAPStatus _read_and_write_test_file();
-    Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
+    Status _read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
@@ -159,8 +159,6 @@ private:
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
-    uint32_t _rand_seed;
-
     std::string _file_system;
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;
@@ -173,11 +171,7 @@ private:
     uint64_t _current_shard;
     std::set<TabletInfo> _tablet_set;
 
-    static const size_t TEST_FILE_BUF_SIZE = 4096;
-    static const size_t DIRECT_IO_ALIGNMENT = 512;
     static const uint32_t MAX_SHARD_NUM = 1024;
-    char* _test_file_read_buf;
-    char* _test_file_write_buf;
 
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;

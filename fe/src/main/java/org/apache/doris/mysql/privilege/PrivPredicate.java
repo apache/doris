@@ -27,7 +27,8 @@ public class PrivPredicate {
                                                                             PaloPrivilege.LOAD_PRIV,
                                                                             PaloPrivilege.ALTER_PRIV,
                                                                             PaloPrivilege.CREATE_PRIV,
-                                                                            PaloPrivilege.DROP_PRIV),
+                                                                            PaloPrivilege.DROP_PRIV,
+                                                                            PaloPrivilege.USAGE_PRIV),
                                                               Operator.OR);
     // create/drop/alter/show user
     public static final PrivPredicate GRANT = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
@@ -66,6 +67,11 @@ public class PrivPredicate {
     public static final PrivPredicate OPERATOR = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.NODE_PRIV),
                                                                   Operator.OR);
 
+    // resource usage
+    public static final PrivPredicate USAGE = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                                                                             PaloPrivilege.USAGE_PRIV),
+                                                               Operator.OR);
+
     // all
     public static final PrivPredicate ALL = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.NODE_PRIV,
                                                                            PaloPrivilege.ADMIN_PRIV,
@@ -73,7 +79,8 @@ public class PrivPredicate {
                                                                            PaloPrivilege.LOAD_PRIV,
                                                                            PaloPrivilege.ALTER_PRIV,
                                                                            PaloPrivilege.CREATE_PRIV,
-                                                                           PaloPrivilege.DROP_PRIV),
+                                                                           PaloPrivilege.DROP_PRIV,
+                                                                           PaloPrivilege.USAGE_PRIV),
                                                              Operator.OR);
 
     private PrivBitSet privs;

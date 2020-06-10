@@ -46,6 +46,7 @@ import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Strings;
 
@@ -178,7 +179,8 @@ public class ConnectProcessor {
                     ctx.resetRetureRows();
                 }
                 parsedStmt = stmts.get(i);
-                executor = new StmtExecutor(ctx, parsedStmt, new OriginStatement(originStmt, i));
+                parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+                executor = new StmtExecutor(ctx, parsedStmt);
                 executor.execute();
 
                 if (i != stmts.size() - 1) {
@@ -211,10 +213,10 @@ public class ConnectProcessor {
         // TODO(cmy): when user send multi-statement, the executor is the last statement's executor.
         // We may need to find some way to resolve this.
         if (executor != null) {
-            auditAfterExec(originStmt.replace("\n", " \\n"), executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+            auditAfterExec(originStmt.replace("\n", " "), executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
         } else {
             // executor can be null if we encounter analysis error.
-            auditAfterExec(originStmt.replace("\n", " \\n"), null, null);
+            auditAfterExec(originStmt.replace("\n", " "), null, null);
         }
     }
 
@@ -374,19 +376,13 @@ public class ConnectProcessor {
     public TMasterOpResult proxyExecute(TMasterOpRequest request) {
         ctx.setDatabase(request.db);
         ctx.setQualifiedUser(request.user);
-        ctx.setCatalog(Catalog.getInstance());
+        ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.getState().reset();
         if (request.isSetCluster()) {
             ctx.setCluster(request.cluster);
         }
         if (request.isSetResourceInfo()) {
             ctx.getSessionVariable().setResourceGroup(request.getResourceInfo().getGroup());
-        }
-        if (request.isSetExecMemLimit()) {
-            ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
-        }
-        if (request.isSetQueryTimeout()) {
-            ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
         }
         if (request.isSetUser_ip()) {
             ctx.setRemoteIP(request.getUser_ip());
@@ -400,9 +396,6 @@ public class ConnectProcessor {
         if (request.isSetSqlMode()) {
             ctx.getSessionVariable().setSqlMode(request.sqlMode);
         }
-        if (request.isSetLoadMemLimit()) {
-            ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
-        }
         if (request.isSetEnableStrictMode()) {
             ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
         }
@@ -410,6 +403,38 @@ public class ConnectProcessor {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrent_user_ident());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
+
+        if (request.isSetQuery_options()) {
+            TQueryOptions queryOptions = request.getQuery_options();
+            if (queryOptions.isSetMem_limit()) {
+                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMem_limit());
+            }
+            if (queryOptions.isSetQuery_timeout()) {
+                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQuery_timeout());
+            }
+            if (queryOptions.isSetLoad_mem_limit()) {
+                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoad_mem_limit());
+            }
+            if (queryOptions.isSetMax_scan_key_num()) {
+                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMax_scan_key_num());
+            }
+            if (queryOptions.isSetMax_pushdown_conditions_per_column()) {
+                ctx.getSessionVariable().setMaxPushdownConditionsPerColumn(
+                        queryOptions.getMax_pushdown_conditions_per_column());
+            }
+        } else {
+            // for compatibility, all following variables are moved to TQueryOptions.
+            if (request.isSetExecMemLimit()) {
+                ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
+            }
+            if (request.isSetQueryTimeout()) {
+                ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
+            }
+            if (request.isSetLoadMemLimit()) {
+                ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
+            }
+        }
+
         ctx.setThreadLocalInfo();
 
         if (ctx.getCurrentUserIdentity() == null) {
@@ -418,7 +443,7 @@ public class ConnectProcessor {
             // return error directly.
             TMasterOpResult result = new TMasterOpResult();
             ctx.getState().setError("Missing current user identity. You need to upgrade this Frontend to the same version as Master Frontend.");
-            result.setMaxJournalId(Catalog.getInstance().getMaxJournalId().longValue());
+            result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
             result.setPacket(getResultPacket());
             return result;
         }
@@ -442,7 +467,7 @@ public class ConnectProcessor {
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current jounalID.
         TMasterOpResult result = new TMasterOpResult();
-        result.setMaxJournalId(Catalog.getInstance().getMaxJournalId().longValue());
+        result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
         result.setPacket(getResultPacket());
         if (executor != null && executor.getProxyResultSet() != null) {
             result.setResultSet(executor.getProxyResultSet().tothrift());

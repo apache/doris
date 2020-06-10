@@ -42,6 +42,7 @@ Explain:
 9. Total Capacity represents total disk space. Total Capacity = AvailCapacity + DataUsedCapacity + other non-user data files take up space.
 10. UsedPct represents the percentage of disk usage.
 11. ErrMsg is used to display error messages when a heartbeat fails.
+12. Status is used to display some Status information about BE in JSON format, including the last time that BE reported it's tablet.
 
 ## keyword
 SHOW, BACKENDS

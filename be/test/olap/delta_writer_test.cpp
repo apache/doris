@@ -60,7 +60,8 @@ void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::StorageEngine::open(options, &k_engine);
+    Status s = doris::StorageEngine::open(options, &k_engine);
+    ASSERT_TRUE(s.ok()) << s.to_string();
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
@@ -452,7 +453,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();

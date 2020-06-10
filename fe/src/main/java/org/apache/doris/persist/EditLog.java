@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
@@ -683,6 +684,16 @@ public class EditLog {
                     catalog.getLoadManager().replayEndLoadJob(operation);
                     break;
                 }
+                case OperationType.OP_CREATE_RESOURCE: {
+                    final Resource resource = (Resource) journal.getData();
+                    catalog.getResourceMgr().replayCreateResource(resource);
+                    break;
+                }
+                case OperationType.OP_DROP_RESOURCE: {
+                    final String resourceName = journal.getData().toString();
+                    catalog.getResourceMgr().replayDropResource(resourceName);
+                    break;
+                }
                 case OperationType.OP_CREATE_SMALL_FILE: {
                     SmallFile smallFile = (SmallFile) journal.getData();
                     catalog.getSmallFileMgr().replayCreateFile(smallFile);
@@ -768,6 +779,7 @@ public class EditLog {
             }
         } catch (Exception e) {
             LOG.error("Operation Type {}", opCode, e);
+            System.exit(-1);
         }
     }
 
@@ -1252,6 +1264,16 @@ public class EditLog {
 
     public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
         logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
+    }
+
+    public void logCreateResource(Resource resource) {
+        // TODO(wyb): spark-load
+        //logEdit(OperationType.OP_CREATE_RESOURCE, resource);
+    }
+
+    public void logDropResource(String resourceName) {
+        // TODO(wyb): spark-load
+        //logEdit(OperationType.OP_DROP_RESOURCE, new Text(resourceName));
     }
 
     public void logCreateSmallFile(SmallFile info) {

@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -401,11 +402,24 @@ public class Coordinator {
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         if (topParams.fragment.getSink() instanceof ResultSink) {
+            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(
                     topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(topParams.instanceExecParams.get(0).host),
-                    toBrpcHost(topParams.instanceExecParams.get(0).host),
+                    addressToBackendID.get(execBeAddr),
+                    toBrpcHost(execBeAddr),
                     queryOptions.query_timeout * 1000);
+
+            LOG.info("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
+
+            // set the broker address for OUTFILE sink
+            ResultSink resultSink = (ResultSink) topParams.fragment.getSink();
+            if (resultSink.isOutputFileSink() && resultSink.needBroker()) {
+                FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(resultSink.getBrokerName(),
+                        execBeAddr.getHostname());
+                resultSink.setBrokerAddr(broker.ip, broker.port);
+                LOG.info("OUTFILE through broker: {}:{}", broker.ip, broker.port);
+            }
+
         } else {
             // This is a load process.
             this.queryOptions.setIs_report_success(true);
@@ -414,6 +428,7 @@ public class Coordinator {
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
             Catalog.getCurrentCatalog().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                     relatedBackendIds);
+            LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
 
         // to keep things simple, make async Cancel() calls wait until plan fragment
@@ -912,19 +927,29 @@ public class Coordinator {
             if (!(leftMostNode instanceof ScanNode)) {
                 // (Case B)
                 // there is no leftmost scan; we assign the same hosts as those of our
-                // leftmost input fragment (so that a partitioned aggregation
-                // fragment runs on the hosts that provide the input data)
-                PlanFragmentId inputFragmentIdx = fragments.get(i).getChild(0).getFragmentId();
+                //  input fragment which has a higher instance_number
+
+                int inputFragmentIndex = 0;
+                int maxParallelism = 0;
+                for (int j = 0; j < fragment.getChildren().size(); j++) {
+                    int currentChildFragmentParallelism = fragmentExecParamsMap.get(fragment.getChild(j).getFragmentId()).instanceExecParams.size();
+                    if (currentChildFragmentParallelism > maxParallelism) {
+                        maxParallelism = currentChildFragmentParallelism;
+                        inputFragmentIndex = j;
+                    }
+                }
+
+                PlanFragmentId inputFragmentId = fragment.getChild(inputFragmentIndex).getFragmentId();
                 // AddAll() soft copy()
                 int exchangeInstances = -1;
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
-                if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams.size() > exchangeInstances) {
+                if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId).instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
                     // get distinct host,  when parallel_fragment_exec_instance_num > 1, single host may execute severval instances
                     Set<TNetworkAddress> hostSet = Sets.newHashSet();
-                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
+                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
                         hostSet.add(execParams.host);
                     }
                     List<TNetworkAddress> hosts = Lists.newArrayList(hostSet);
@@ -934,7 +959,7 @@ public class Coordinator {
                         params.instanceExecParams.add(instanceParam);
                     }
                 } else {
-                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentIdx).instanceExecParams) {
+                    for (FInstanceExecParam execParams: fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 0, params);
                         params.instanceExecParams.add(instanceParam);
                     }

@@ -131,7 +131,7 @@ public class ColocateTableTest {
                 Catalog.getCurrentCatalog();
                 result = catalog;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 result = catalog;
 
                 Catalog.getCurrentSystemInfo();

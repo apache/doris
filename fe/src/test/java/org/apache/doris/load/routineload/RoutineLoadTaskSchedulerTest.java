@@ -85,7 +85,7 @@ public class RoutineLoadTaskSchedulerTest {
 
         new Expectations() {
             {
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
                 catalog.getRoutineLoadManager();

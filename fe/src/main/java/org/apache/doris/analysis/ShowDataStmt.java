@@ -62,6 +62,7 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
                     .build();
 
     private String dbName;
@@ -88,7 +89,7 @@ public class ShowDataStmt extends ShowStmt {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
         
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
@@ -194,10 +195,12 @@ public class ShowDataStmt extends ShowStmt {
                 for (Long indexId : sortedIndexNames.values()) {
                     long indexSize = 0;
                     long indexReplicaCount = 0;
+                    long indexRowCount = 0;
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize();
                         indexReplicaCount += mIndex.getReplicaCount();
+                        indexRowCount += mIndex.getRowCount();
                     }
 
                     Pair<Double, String> indexSizePair = DebugUtil.getByteUint(indexSize);
@@ -208,11 +211,13 @@ public class ShowDataStmt extends ShowStmt {
                     if (i == 0) {
                         row = Arrays.asList(tableName,
                                             olapTable.getIndexNameById(indexId),
-                                            readableSize, String.valueOf(indexReplicaCount));
+                                            readableSize, String.valueOf(indexReplicaCount),
+                                            String.valueOf(indexRowCount));
                     } else {
                         row = Arrays.asList("",
                                             olapTable.getIndexNameById(indexId),
-                                            readableSize, String.valueOf(indexReplicaCount));
+                                            readableSize, String.valueOf(indexReplicaCount),
+                                            String.valueOf(indexRowCount));
                     }
 
                     totalSize += indexSize;
@@ -225,7 +230,7 @@ public class ShowDataStmt extends ShowStmt {
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount));
+                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount), "");
                 totalRows.add(row);
             }
         } finally {

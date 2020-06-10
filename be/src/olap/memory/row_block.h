@@ -15,15 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external;
+#pragma once
 
-import org.apache.doris.common.UserException;
+#include "olap/memory/column_block.h"
+#include "olap/memory/column_reader.h"
+#include "olap/memory/common.h"
 
-public class ExternalDataSourceException extends UserException {
+namespace doris {
+namespace memory {
 
-    private static final long serialVersionUID = 7912833584319374692L;
+class RowBlock {
+public:
+    size_t num_rows() const { return _nrows; }
+    size_t num_columns() const { return _columns.size(); }
+    const ColumnBlock& get_column(size_t idx) const { return *_columns[idx].get(); }
 
-    public ExternalDataSourceException(String msg) {
-        super(msg);
-    }
-}
+private:
+    friend class MemTabletScan;
+    explicit RowBlock(size_t num_columns);
+
+    size_t _nrows = 0;
+    vector<ColumnBlockHolder> _columns;
+};
+
+} // namespace memory
+} // namespace doris

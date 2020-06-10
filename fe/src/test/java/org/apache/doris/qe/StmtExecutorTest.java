@@ -175,7 +175,7 @@ public class StmtExecutorTest {
                            @Mocked SqlParser parser,
                            @Mocked Planner planner,
                            @Mocked Coordinator coordinator) throws Exception {
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         Deencapsulation.setField(catalog, "canRead", new AtomicBoolean(true));
 
         new Expectations() {
@@ -232,7 +232,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = -1L;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
             }
@@ -577,7 +577,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
                 minTimes = 0;
             }
         };
@@ -610,7 +610,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
                 minTimes = 0;
                 result = new DdlException("ddl fail");
             }
@@ -644,7 +644,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
                 minTimes = 0;
                 result = new Exception("bug");
             }

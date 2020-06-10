@@ -115,7 +115,7 @@ public class CheckConsistencyJob {
             return false;
         }
 
-        Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
@@ -252,7 +252,7 @@ public class CheckConsistencyJob {
             return -1;
         }
 
-        Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;
@@ -364,7 +364,7 @@ public class CheckConsistencyJob {
             ConsistencyCheckInfo info = new ConsistencyCheckInfo(db.getId(), table.getId(), partition.getId(),
                                                                  index.getId(), tabletId, lastCheckTime,
                                                                  checkedVersion, checkedVersionHash, isConsistent);
-            Catalog.getInstance().getEditLog().logFinishConsistencyCheck(info);
+            Catalog.getCurrentCatalog().getEditLog().logFinishConsistencyCheck(info);
             return 1;
 
         } finally {

@@ -85,12 +85,18 @@ public:
     inline const AlterTabletType& alter_type() const { return _alter_type; }
     inline void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
 
+    friend bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
+    friend bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
+
 private:
-    AlterTabletState _alter_state;
-    int64_t _related_tablet_id;
-    int32_t _related_schema_hash;
-    AlterTabletType _alter_type;
+    AlterTabletState _alter_state = ALTER_PREPARED;
+    int64_t _related_tablet_id = 0;
+    int32_t _related_schema_hash = 0;
+    AlterTabletType _alter_type = SCHEMA_CHANGE;
 };
+
+bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
+bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
 
 typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
 
@@ -98,13 +104,6 @@ typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
 public:
-    static OLAPStatus create(int64_t table_id, int64_t partition_id,
-                             int64_t tablet_id, int32_t schema_hash,
-                             uint64_t shard_id, const TTabletSchema& tablet_schema,
-                             uint32_t next_unique_id,
-                             const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                             TabletMetaSharedPtr* tablet_meta, TabletUid& tablet_uid);
-
     static OLAPStatus create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                              uint64_t shard_id, uint32_t next_unique_id,
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
@@ -116,7 +115,7 @@ public:
                uint64_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-               TabletUid tablet_uid);
+               TabletUid tablet_uid, TTabletType::type tabletType);
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
@@ -135,6 +134,7 @@ public:
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
 
+    inline TabletTypePB tablet_type() const { return _tablet_type; }
     inline TabletUid tablet_uid() const;
     inline int64_t table_id() const;
     inline int64_t partition_id() const;
@@ -202,6 +202,10 @@ public:
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
+    // _del_pred_array is ignored to compare.
+    friend bool operator==(const TabletMeta& a, const TabletMeta& b);
+    friend bool operator!=(const TabletMeta& a, const TabletMeta& b);
+
 private:
     int64_t _table_id = 0;
     int64_t _partition_id = 0;
@@ -211,6 +215,7 @@ private:
     int64_t _creation_time = 0;
     int64_t _cumulative_layer_point = 0;
     TabletUid _tablet_uid;
+    TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
 
     TabletState _tablet_state = TABLET_NOTREADY;
     TabletSchema _schema;
@@ -219,7 +224,7 @@ private:
     DelPredicateArray _del_pred_array;
     AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode = false;
-    RowsetTypePB _preferred_rowset_type;
+    RowsetTypePB _preferred_rowset_type = ALPHA_ROWSET;
 
     RWMutex _meta_lock;
 };
@@ -319,6 +324,10 @@ inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
     return _inc_rs_metas;
 }
+
+// Only for unit test now.
+bool operator==(const TabletMeta& a, const TabletMeta& b);
+bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
 }  // namespace doris
 

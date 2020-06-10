@@ -39,6 +39,7 @@ import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
+import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -52,6 +53,7 @@ import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
+import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
@@ -80,8 +82,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 
 public class DdlExecutor {
-    public static void execute(Catalog catalog, DdlStmt ddlStmt, OriginStatement origStmt)
-            throws DdlException, QueryStateException, Exception {
+    public static void execute(Catalog catalog, DdlStmt ddlStmt) throws Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);
@@ -117,20 +118,18 @@ public class DdlExecutor {
             catalog.cancelAlter((CancelAlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof LoadStmt) {
             LoadStmt loadStmt = (LoadStmt) ddlStmt;
-            EtlJobType jobType;
-            if (loadStmt.getBrokerDesc() != null) {
-                jobType = EtlJobType.BROKER;
-            } else {
-                if (Config.disable_hadoop_load) {
-                    throw new DdlException("Load job by hadoop cluster is disabled."
-                            + " Try using broker load. See 'help broker load;'");
-                }
-                jobType = EtlJobType.HADOOP;
+            EtlJobType jobType = loadStmt.getEtlJobType();
+            if (jobType == EtlJobType.UNKNOWN) {
+                throw new DdlException("Unknown load job type");
+            }
+            if (jobType == EtlJobType.HADOOP && Config.disable_hadoop_load) {
+                throw new DdlException("Load job by hadoop cluster is disabled."
+                        + " Try using broker load. See 'help broker load;'");
             }
             if (loadStmt.getVersion().equals(Load.VERSION) || jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
-                catalog.getLoadManager().createLoadJobFromStmt(loadStmt, origStmt);
+                catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             if (catalog.getLoadInstance().isLabelExist(
@@ -140,7 +139,7 @@ public class DdlExecutor {
                 catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt, origStmt);
+            catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
             catalog.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {
@@ -217,6 +216,10 @@ public class DdlExecutor {
             catalog.checkTablets((AdminCheckTabletsStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetReplicaStatusStmt) {
             catalog.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateResourceStmt) {
+            catalog.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropResourceStmt) {
+            catalog.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

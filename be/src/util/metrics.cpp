@@ -45,6 +45,29 @@ std::ostream& operator<<(std::ostream& os, MetricType type) {
     return os;
 }
 
+const char* unit_name(MetricUnit unit) {
+    switch (unit) {
+    case MetricUnit::NANOSECONDS:
+        return "nanoseconds";
+    case MetricUnit::MICROSECONDS:
+        return "microseconds";
+    case MetricUnit::MILLISECONDS:
+        return "milliseconds";
+    case MetricUnit::SECONDS:
+        return "seconds";
+    case MetricUnit::BYTES:
+        return "bytes";
+    case MetricUnit::ROWS:
+        return "rows";
+    case MetricUnit::NUMBER:
+        return "number";
+    case MetricUnit::PERCENT:
+        return "percent";
+    default:
+        return "nounit";
+    }
+}
+
 void Metric::hide() {
     if (_registry == nullptr) {
         return;

@@ -630,9 +630,9 @@ visible_functions = [
     #hll function
     [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
         '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['hll_hash'], 'VARCHAR', ['VARCHAR'],
+    [['hll_hash'], 'HLL', ['VARCHAR'],
         '_ZN5doris12HllFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['hll_empty'], 'VARCHAR', [],
+    [['hll_empty'], 'HLL', [],
         '_ZN5doris12HllFunctions9hll_emptyEPN9doris_udf15FunctionContextE'],
 
     #bitmap function
