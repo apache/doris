@@ -26,7 +26,16 @@ under the License.
 
 # User Define Function
 
-Users can extend Doris' capabilities through the UDF mechanism. Through this document, users can create their own UDF.
+UDF is mainly suitable for scenarios where the analytical capabilities that users need do not possess. Users can implement custom functions according to their own needs, and register with Doris through UDF to expand Doris' capabilities and solve user analysis needs.
+
+There are two types of analysis requirements that UDF can meet: UDF and UDAF. UDF in this article refers to both.
+
+1. UDF: User-defined function, this function will operate on a single line and output a single line result. When users use UDFs for queries, each row of data will eventually appear in the result set. Typical UDFs are string operations such as concat().
+2. UDAF: User-defined aggregation function. This function operates on multiple lines and outputs a single line of results. When the user uses UDAF in the query, each group of data after grouping will finally calculate a value and expand the result set. A typical UDAF is the set operation sum(). Generally speaking, UDAF will be used together with group by.
+
+This document mainly describes how to write a custom UDF function and how to use it in Doris.
+
+If users use the UDF function and extend Doris' function analysis, and want to contribute their own UDF functions back to the Doris community for other users, please see the document [Contribute UDF to Doris](http://doris.apache.org/master/en/extending-doris/contribute_udf.html).
 
 ## Writing UDF functions
 

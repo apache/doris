@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Contribute UDF",
+    "title": "贡献用户 UDF 函数到社区",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Contribute UDF
+# 贡献用户的 UDF 函数到社区
 
 该手册主要讲述了外部用户如何将自己编写的 UDF 函数贡献给 Doris 社区。
 
