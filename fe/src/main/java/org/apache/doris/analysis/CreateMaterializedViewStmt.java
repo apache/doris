@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -68,6 +69,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private String baseIndexName;
     private String dbName;
     private KeysType mvKeysType = KeysType.DUP_KEYS;
+    private int shortKeyColumnCount;
 
     public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt, Map<String, String> properties) {
         this.mvName = mvName;
@@ -163,7 +165,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
-                mvColumnItem.setType(slotRef.getType().getPrimitiveType());
+                mvColumnItem.setType(slotRef.getType());
                 mvColumnItemList.add(mvColumnItem);
             } else if (selectListItem.getExpr() instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItem.getExpr();
@@ -224,7 +226,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     private void analyzeOrderByClause() throws AnalysisException {
         if (selectStmt.getOrderByElements() == null) {
-            supplyShortKey();
+            supplyOrderColumn();
             return;
         }
 
@@ -264,7 +266,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
-    private void supplyShortKey() throws AnalysisException {
+    /*
+    This function is used to supply order by columns and calculate short key count
+     */
+    private void supplyOrderColumn() throws AnalysisException {
         /**
          * The keys type of Materialized view is aggregation.
          * All of group by columns are keys of materialized view.
@@ -274,45 +279,52 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (mvColumnItem.getAggregationType() != null) {
                     break;
                 }
-                if (mvColumnItem.getType().isFloatingPointType()) {
-                    throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
-                }
                 mvColumnItem.setIsKey(true);
             }
-            return;
-        }
-
-        /**
-         * There is no aggregation function in materialized view.
-         * Supplement key of MV columns
-         * For example: select k1, k2 ... kn from t1
-         * The default key columns are first 36 bytes of the columns in define order.
-         * If the number of columns in the first 36 is less than 3, the first 3 columns will be used.
-         * column: k1, k2, k3... km. The key is true.
-         * Supplement non-key of MV columns
-         * column: km... kn. The key is false, aggregation type is none, isAggregationTypeImplicit is true.
-         */
-        int keyStorageLayoutBytes = 0;
-        int theBeginIndexOfValue = 0;
-        // supply short key
-        for (; theBeginIndexOfValue < selectStmt.getResultExprs().size(); theBeginIndexOfValue++) {
-            MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
-            Expr resultColumn = selectStmt.getResultExprs().get(theBeginIndexOfValue);
-            keyStorageLayoutBytes += resultColumn.getType().getStorageLayoutBytes();
-            if (mvColumnItem.getType().isFloatingPointType()
-                    ||((theBeginIndexOfValue + 1) > FeConstants.shortkey_max_column_count)
-                    && (keyStorageLayoutBytes > FeConstants.shortkey_maxsize_bytes)) {
-                break;
+        } else if (mvKeysType == KeysType.DUP_KEYS) {
+            /**
+             * There is no aggregation function in materialized view.
+             * Supplement key of MV columns
+             * The key is same as the short key in duplicate table
+             * For example: select k1, k2 ... kn from t1
+             * The default key columns are first 36 bytes of the columns in define order.
+             * If the number of columns in the first 36 is more than 3, the first 3 columns will be used.
+             * column: k1, k2, k3. The key is true.
+             * Supplement non-key of MV columns
+             * column: k4... kn. The key is false, aggregation type is none, isAggregationTypeImplicit is true.
+             */
+            int theBeginIndexOfValue = 0;
+            // supply key
+            int keySizeByte = 0;
+            for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
+                MVColumnItem column = mvColumnItemList.get(theBeginIndexOfValue);
+                keySizeByte += column.getType().getIndexSize();
+                if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
+                        || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
+                    if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                        column.setIsKey(true);
+                        theBeginIndexOfValue++;
+                    }
+                    break;
+                }
+                if (column.getType().isFloatingPointType()) {
+                    break;
+                }
+                if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                    column.setIsKey(true);
+                    theBeginIndexOfValue++;
+                    break;
+                }
+                column.setIsKey(true);
             }
-            mvColumnItem.setIsKey(true);
-        }
-        if (theBeginIndexOfValue == 0) {
-            throw new AnalysisException("The first column could not be float or double, use decimal instead.");
-        }
-        // supply value
-        for (; theBeginIndexOfValue < selectStmt.getResultExprs().size(); theBeginIndexOfValue++) {
-            MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
-            mvColumnItem.setAggregationType(AggregateType.NONE, true);
+            if (theBeginIndexOfValue == 0) {
+                throw new AnalysisException("The first column could not be float or double type, use decimal instead");
+            }
+            // supply value
+            for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
+                MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
+                mvColumnItem.setAggregationType(AggregateType.NONE, true);
+            }
         }
 
     }

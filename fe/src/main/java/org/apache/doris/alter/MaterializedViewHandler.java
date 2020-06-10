@@ -36,6 +36,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -567,19 +568,29 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (changeStorageFormat) {
                     return rollupSchema;
                 }
-                // Supplement short key of MV columns
+                // Supplement key of MV columns
                 int theBeginIndexOfValue = 0;
-                int keyStorageLayoutBytes = 0;
+                int keySizeByte = 0;
                 for (; theBeginIndexOfValue < rollupSchema.size(); theBeginIndexOfValue++) {
-                    Column rollupColumn = rollupSchema.get(theBeginIndexOfValue);
-                    keyStorageLayoutBytes += rollupColumn.getType().getStorageLayoutBytes();
-                    if (rollupColumn.getType().getPrimitiveType().isFloatingPointType()
-                            || ((theBeginIndexOfValue + 1) > FeConstants.shortkey_max_column_count)
-                            && (keyStorageLayoutBytes > FeConstants.shortkey_maxsize_bytes)) {
+                    Column column = rollupSchema.get(theBeginIndexOfValue);
+                    keySizeByte += column.getType().getIndexSize();
+                    if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
+                            || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
+                        if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                            column.setIsKey(true);
+                            theBeginIndexOfValue++;
+                        }
                         break;
                     }
-                    rollupColumn.setIsKey(true);
-                    rollupColumn.setAggregationType(null, false);
+                    if (column.getType().isFloatingPointType()) {
+                        break;
+                    }
+                    if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                        column.setIsKey(true);
+                        theBeginIndexOfValue++;
+                        break;
+                    }
+                    column.setIsKey(true);
                 }
                 if (theBeginIndexOfValue == 0) {
                     throw new DdlException("The first column could not be float or double, use decimal instead.");

@@ -158,7 +158,7 @@ public class ColumnDef {
 
         if (type.getPrimitiveType() == PrimitiveType.FLOAT || type.getPrimitiveType() == PrimitiveType.DOUBLE) {
             if (isOlap && isKey) {
-                throw new AnalysisException("Float or double can not used as a short key, use decimal instead.");
+                throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
             }
         }
 
