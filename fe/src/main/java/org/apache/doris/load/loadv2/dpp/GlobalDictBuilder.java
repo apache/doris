@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
+import org.apache.commons.collections.map.MultiValueMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.Dataset;
@@ -32,8 +33,10 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -49,13 +52,13 @@ import java.util.stream.Collectors;
  *
  *  usage example
  *  step1,create a intermediate hive table
- *      BuildGlobalDict.createHiveIntermediateTable()
+ *      GlobalDictBuilder.createHiveIntermediateTable()
  *  step2, get distinct column's value
- *      BuildGlobalDict.extractDistinctColumn()
+ *      GlobalDictBuilder.extractDistinctColumn()
  *  step3, build global dict
- *      BuildGlobalDict.buildGlobalDict()
+ *      GlobalDictBuilder.buildGlobalDict()
  *  step4, encode intermediate hive table with global dict
- *      BuildGlobalDict.encodeDorisIntermediateHiveTable()
+ *      GlobalDictBuilder.encodeDorisIntermediateHiveTable()
  */
 
 public class GlobalDictBuilder {
@@ -63,9 +66,12 @@ public class GlobalDictBuilder {
     protected static final Logger LOG = LoggerFactory.getLogger(GlobalDictBuilder.class);
 
     // name of the column in doris table which need to build global dict
-    // currently doris's table column name need to be consistent with the field name in the hive table
-    // all column is lowercase
-    private List<String> distinctColumnList;
+    // for example: some dict columns a,b,c
+    // case 1: all dict columns has no relation, then the map is as below
+    //     [a=null, b=null, c=null]
+    // case 2: column a's value can reuse column b's value which means column a's value is a subset of column b's value
+    //  [b=a,c=null]
+    private MultiValueMap dictColumn;
     // target doris table columns in current spark load job
     private List<String> dorisOlapTableColumnList;
 
@@ -99,10 +105,7 @@ public class GlobalDictBuilder {
 
     private StructType distinctValueSchema;
 
-    private boolean isEncodeHiveTableInOneSql;
-
-    // TODO(wb): use map to save config to avoid too many args in constructor
-    public GlobalDictBuilder(List<String> distinctColumnList,
+    public GlobalDictBuilder(MultiValueMap dictColumn,
                              List<String> dorisOlapTableColumnList,
                              List<String> mapSideJoinColumns,
                              String sourceHiveDBTableName,
@@ -114,9 +117,8 @@ public class GlobalDictBuilder {
                              int buildConcurrency,
                              List<String> veryHighCardinalityColumn,
                              int veryHighCardinalityColumnSplitNum,
-                             boolean isEncodeHiveTableInOneSql,
                              SparkSession spark) {
-        this.distinctColumnList = distinctColumnList;
+        this.dictColumn = dictColumn;
         this.dorisOlapTableColumnList = dorisOlapTableColumnList;
         this.mapSideJoinColumns = mapSideJoinColumns;
         this.sourceHiveDBTableName = sourceHiveDBTableName;
@@ -128,12 +130,10 @@ public class GlobalDictBuilder {
         this.pool = Executors.newFixedThreadPool(buildConcurrency < 0 ? 1 : buildConcurrency);
         this.veryHighCardinalityColumn = veryHighCardinalityColumn;
         this.veryHighCardinalityColumnSplitNum = veryHighCardinalityColumnSplitNum;
-        this.isEncodeHiveTableInOneSql = isEncodeHiveTableInOneSql;
 
         spark.sql("use " + dorisHiveDB);
     }
 
-    // fetch wanted columns from source hive table
     public void createHiveIntermediateTable() throws AnalysisException {
         Map<String, String> sourceHiveTableColumn = spark.catalog()
                 .listColumns(sourceHiveDBTableName)
@@ -146,7 +146,7 @@ public class GlobalDictBuilder {
         }
 
         // check and get doris column type in hive
-        dorisOlapTableColumnList.stream().forEach(columnName -> {
+        dorisOlapTableColumnList.stream().map(String::toLowerCase).forEach(columnName -> {
             String columnType = sourceHiveTableColumnInLowercase.get(columnName);
             if (StringUtils.isEmpty(columnType)) {
                 throw new RuntimeException(String.format("doris column %s not in source hive table", columnName));
@@ -162,35 +162,35 @@ public class GlobalDictBuilder {
         spark.sql(getInsertIntermediateHiveTableSql());
     }
 
-    // extract the distinct value of bitmap column
     public void extractDistinctColumn() {
         // create distinct tables
         spark.sql(getCreateDistinctKeyTableSql());
 
         // extract distinct column
         List<GlobalDictBuildWorker> workerList = new ArrayList<>();
-        for (String column : distinctColumnList) {
+        // For the column in dictColumns's valueSet, their value is a subset of column in keyset,
+        // so we don't need to extract distinct value of column in valueSet
+        for (Object column : dictColumn.keySet()) {
             workerList.add(()->{
-                spark.sql(getInsertDistinctKeyTableSql(column, dorisIntermediateHiveTable));
+                spark.sql(getInsertDistinctKeyTableSql(column.toString(), dorisIntermediateHiveTable));
             });
         }
 
         submitWorker(workerList);
     }
 
-    // using window function build global dict for bitmap column
-    // the output is a key value pair (key=origin column value, value=encoded value) which stores in a hive table
     public void buildGlobalDict() throws ExecutionException, InterruptedException {
         // create global dict hive table
         spark.sql(getCreateGlobalDictHiveTableSql());
 
         List<GlobalDictBuildWorker> globalDictBuildWorkers = new ArrayList<>();
-        for (String distinctColumnName : distinctColumnList) {
+        for (Object distinctColumnNameOrigin : dictColumn.keySet()) {
+            String distinctColumnNameTmp = distinctColumnNameOrigin.toString();
             globalDictBuildWorkers.add(()->{
                 // get global dict max value
-                List<Row> maxGlobalDictValueRow = spark.sql(getMaxGlobalDictValueSql(distinctColumnName)).collectAsList();
+                List<Row> maxGlobalDictValueRow = spark.sql(getMaxGlobalDictValueSql(distinctColumnNameTmp)).collectAsList();
                 if (maxGlobalDictValueRow.size() == 0) {
-                    throw new RuntimeException(String.format("get max dict value failed: %s", distinctColumnName));
+                    throw new RuntimeException(String.format("get max dict value failed: %s", distinctColumnNameTmp));
                 }
 
                 long maxDictValue = 0;
@@ -200,18 +200,18 @@ public class GlobalDictBuilder {
                     maxDictValue = (long)row.get(0);
                     minDictValue = (long)row.get(1);
                 }
-                LOG.info(" column {} 's max value in dict is {} , min value is {}", distinctColumnName, maxDictValue, minDictValue);
+                LOG.info(" column {} 's max value in dict is {} , min value is {}", distinctColumnNameTmp, maxDictValue, minDictValue);
                 // maybe never happened, but we need detect it
                 if (minDictValue < 0) {
-                    throw new RuntimeException(String.format(" column %s 's cardinality has exceed bigint's max value", distinctColumnName));
+                    throw new RuntimeException(String.format(" column %s 's cardinality has exceed bigint's max value", distinctColumnNameTmp));
                 }
 
-                if (veryHighCardinalityColumn.contains(distinctColumnName) && veryHighCardinalityColumnSplitNum > 1) {
+                if (veryHighCardinalityColumn.contains(distinctColumnNameTmp) && veryHighCardinalityColumnSplitNum > 1) {
                     // split distinct key first and then encode with count
-                    buildGlobalDictBySplit(maxDictValue, distinctColumnName);
+                    buildGlobalDictBySplit(maxDictValue, distinctColumnNameTmp);
                 } else {
                     // build global dict directly
-                    spark.sql(getBuildGlobalDictSql(maxDictValue, distinctColumnName));
+                    spark.sql(getBuildGlobalDictSql(maxDictValue, distinctColumnNameTmp));
                 }
 
             });
@@ -219,14 +219,10 @@ public class GlobalDictBuilder {
         submitWorker(globalDictBuildWorkers);
     }
 
-    // using dict to replace the intermediate hive table's distinct column origin value
+    // encode dorisIntermediateHiveTable's distinct column
     public void encodeDorisIntermediateHiveTable() {
-        if (isEncodeHiveTableInOneSql) {
-            spark.sql(getEncodeDorisIntermediateHiveTableInOneJoinSql());
-        } else {
-            for (String distinctColumn : distinctColumnList) {
-                spark.sql(getEncodeDorisIntermediateHiveTableSql(distinctColumn));
-            }
+        for (Object distinctColumnObj : dictColumn.keySet()) {
+            spark.sql(getEncodeDorisIntermediateHiveTableSql(distinctColumnObj.toString(), (ArrayList)dictColumn.get(distinctColumnObj.toString())));
         }
     }
 
@@ -234,9 +230,12 @@ public class GlobalDictBuilder {
         StringBuilder sql = new StringBuilder();
         sql.append("create table if not exists " + dorisIntermediateHiveTable + " ( ");
 
+        Set<String> allDictColumn = new HashSet<>();
+        allDictColumn.addAll(dictColumn.keySet());
+        allDictColumn.addAll(dictColumn.values());
         dorisOlapTableColumnList.stream().forEach(columnName -> {
             sql.append(columnName).append(" ");
-            if (distinctColumnList.contains(columnName)) {
+            if (allDictColumn.contains(columnName)) {
                 sql.append(" string ,");
             } else {
                 sql.append(dorisColumnNameTypeMap.get(columnName)).append(" ,");
@@ -286,7 +285,7 @@ public class GlobalDictBuilder {
         // 1. get distinct value
         Dataset<Row> newDistinctValue = spark.sql(getNewDistinctValue(distinctColumnName));
 
-        // 2. split the newDistinctValue
+        // 2. split the newDistinctValue to avoid window functions' single node bottleneck
         Dataset<Row>[] splitedDistinctValue = newDistinctValue.randomSplit(getRandomSplitWeights());
         long currentMaxDictValue = maxGlobalDictValue;
         Map<String, Long> distinctKeyMap = new HashMap<>();
@@ -295,7 +294,7 @@ public class GlobalDictBuilder {
             long currentDatasetStartDictValue = currentMaxDictValue;
             long splitDistinctValueCount = splitedDistinctValue[i].count();
             currentMaxDictValue += splitDistinctValueCount;
-            String tmpDictTableName = String.format("%s_%s_tmp_dict", i, currentDatasetStartDictValue);
+            String tmpDictTableName = String.format("%s_%s_tmp_dict_%s", i, currentDatasetStartDictValue, distinctColumnName);
             distinctKeyMap.put(tmpDictTableName, currentDatasetStartDictValue);
             Dataset<Row> distinctValueFrame = spark.createDataFrame(splitedDistinctValue[i].toJavaRDD(), getDistinctValueSchema());
             distinctValueFrame.createOrReplaceTempView(tmpDictTableName);
@@ -349,47 +348,20 @@ public class GlobalDictBuilder {
 
     }
 
-    private String getEncodeDorisIntermediateHiveTableInOneJoinSql() {
-        StringBuilder sql = new StringBuilder();
-        sql.append("insert overwrite table ").append(dorisIntermediateHiveTable).append(" select ");
-        int distinctColumnIndex = 0;
-        for (String columnName : dorisOlapTableColumnList) {
-            if (distinctColumnList.contains(columnName)) {
-                sql.append(String.format("t_%s.dict_value", distinctColumnIndex)).append(" ,");
-                distinctColumnIndex++;
-            } else {
-                sql.append(dorisIntermediateHiveTable).append(".").append(columnName).append(" ,");
-            }
-        }
-
-        sql.deleteCharAt(sql.length() - 1)
-                .append(" from ")
-                .append(dorisIntermediateHiveTable);
-
-
-        for (int i = 0; i < distinctColumnList.size(); i++) {
-            String distinctColumnName = distinctColumnList.get(i);
-            sql.append(" LEFT OUTER JOIN ( select dict_key,dict_value from ").append(globalDictTableName)
-                    .append(" where dict_column='").append(distinctColumnName).append(String.format("' ) t_%s on ", i))
-                    .append(dorisIntermediateHiveTable).append(".").append(distinctColumnName)
-                    .append(String.format(" = t_%s.dict_key ", i));
-        }
-
-        return sql.toString();
-    }
-
-    // TODO(wb) solve the case which even using broadcast join can't solve the data skew
-    private String getEncodeDorisIntermediateHiveTableSql(String distinctColumnName) {
+    private String getEncodeDorisIntermediateHiveTableSql(String dictColumn, List<String> childColumn) {
         StringBuilder sql = new StringBuilder();
         sql.append("insert overwrite table ").append(dorisIntermediateHiveTable).append(" select ");
         // using map join to solve distinct column data skew
         // here is a spark sql hint
-        if (mapSideJoinColumns.size() != 0 && mapSideJoinColumns.contains(distinctColumnName)) {
+        if (mapSideJoinColumns.size() != 0 && mapSideJoinColumns.contains(dictColumn)) {
             sql.append(" /*+ BROADCAST (t) */ ");
         }
         dorisOlapTableColumnList.forEach(columnName -> {
-            if (distinctColumnName.equals(columnName)) {
+            if (dictColumn.equals(columnName)) {
                 sql.append("t.dict_value").append(" ,");
+                // means the dictColumn is reused
+            } else if (childColumn != null && childColumn.contains(columnName)) {
+                sql.append(String.format(" if(%s is null, null, t.dict_value) ", columnName)).append(" ,");
             } else {
                 sql.append(dorisIntermediateHiveTable).append(".").append(columnName).append(" ,");
             }
@@ -398,8 +370,8 @@ public class GlobalDictBuilder {
                 .append(" from ")
                 .append(dorisIntermediateHiveTable)
                 .append(" LEFT OUTER JOIN ( select dict_key,dict_value from ").append(globalDictTableName)
-                .append(" where dict_column='").append(distinctColumnName).append("' ) t on ")
-                .append(dorisIntermediateHiveTable).append(".").append(distinctColumnName)
+                .append(" where dict_column='").append(dictColumn).append("' ) t on ")
+                .append(dorisIntermediateHiveTable).append(".").append(dictColumn)
                 .append(" = t.dict_key ");
         return sql.toString();
     }
