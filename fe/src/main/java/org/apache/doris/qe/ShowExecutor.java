@@ -1127,13 +1127,13 @@ public class ShowExecutor {
             long tabletId = showStmt.getTabletId();
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-            Long dbId = tabletMeta != null ? tabletMeta.getDbId() : -1L;
+            Long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String dbName = null;
-            Long tableId = tabletMeta != null ? tabletMeta.getTableId() : -1L;
+            Long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String tableName = null;
-            Long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : -1L;
+            Long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String partitionName = null;
-            Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : -1L;
+            Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String indexName = null;
             Boolean isSync = true;
 

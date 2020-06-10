@@ -914,9 +914,9 @@ public class ReportHandler extends Daemon {
                 long tabletId = tabletInfo.getTablet_id();
                 boolean beIsInMemory = tabletInfo.is_in_memory;
                 TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                long dbId = tabletMeta != null ? tabletMeta.getDbId() : -1L;
-                long tableId = tabletMeta != null ? tabletMeta.getTableId() : -1L;
-                long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : -1L;
+                long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
+                long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
+                long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
 
                 Database db = Catalog.getCurrentCatalog().getDb(dbId);
                 if (db == null) {
@@ -969,10 +969,10 @@ public class ReportHandler extends Daemon {
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        long dbId = tabletMeta != null ? tabletMeta.getDbId() : -1L;
-        long tableId = tabletMeta != null ? tabletMeta.getTableId() : -1L;
-        long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : -1L;
-        long indexId = tabletMeta != null ? tabletMeta.getIndexId() : - 1L;
+        long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
+        long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
+        long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
+        long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
         
         int schemaHash = backendTabletInfo.getSchema_hash();
         long version = backendTabletInfo.getVersion();
