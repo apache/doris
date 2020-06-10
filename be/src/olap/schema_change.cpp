@@ -1524,7 +1524,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
                 AlterMaterializedViewParam mvParams;
                 mvParams.column_name = item.column_name;
                 mvParams.origin_column_name = item.origin_column_name;
-                mvParams.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
+                mvParams.mv_expr = item.mv_expr;
                 sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mvParams));
             }
         }
