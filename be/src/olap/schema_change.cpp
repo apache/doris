@@ -282,7 +282,7 @@ bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColum
 bool count_star(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
                   int field_idx, int ref_field_idx, MemPool* mem_pool) {
     write_helper->set_not_null(field_idx);
-    int count = 1;
+    int64_t count = 1;
     write_helper->set_field_content(field_idx, (char*)&count, mem_pool);
     return true;
 }
@@ -290,7 +290,7 @@ bool count_star(RowCursor* read_helper, RowCursor* write_helper, const TabletCol
 bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
                     int field_idx, int ref_field_idx, MemPool* mem_pool) {
     write_helper->set_not_null(field_idx);
-    int count;
+    int64_t count;
     if (read_helper->is_null(field_idx)) {
         count = 0;
     } else {
@@ -371,37 +371,39 @@ bool RowBlockChanger::change_row_block(
     for (size_t i = 0, len = mutable_block->tablet_schema().num_columns(); !filter_all && i < len; ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
 
-        if (_schema_mapping[i].ref_column >= 0) {
-            if (!_schema_mapping[i].materialized_function.empty()) {
 
-                bool (*_do_materialized_transform) (RowCursor*, RowCursor*, const TabletColumn&, int, int, MemPool* );
-                if (_schema_mapping[i].materialized_function == "to_bitmap") {
-                    _do_materialized_transform = to_bitmap;
-                } else if (_schema_mapping[i].materialized_function == "hll_hash") {
-                    _do_materialized_transform = hll_hash;
-                } else if (_schema_mapping[i].materialized_function == "count(*)") {
-                    _do_materialized_transform = count_star;
-                } else if (_schema_mapping[i].materialized_function == "count") {
-                    _do_materialized_transform = count;
-                } else {
-                    LOG(WARNING) << "error materialized view function : " << _schema_mapping[i].materialized_function;
-                    return false;
-                }
-                VLOG(3) << "_schema_mapping[" << i << "].materialized_function : " << _schema_mapping[i].materialized_function;
-                for (size_t row_index = 0, new_row_index = 0;
-                     row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // No need row, need to be filter
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
-                    mutable_block->get_row(new_row_index++, &write_helper);
-                    ref_block->get_row(row_index, &read_helper);
-
-                    _do_materialized_transform(&read_helper, &write_helper, ref_block->tablet_schema().column(ref_column), i, _schema_mapping[i].ref_column, mem_pool);
-                }
-                continue;
+        if (!_schema_mapping[i].materialized_function.empty()) {
+            bool (*_do_materialized_transform)(RowCursor *, RowCursor *, const TabletColumn &, int, int, MemPool *);
+            if (_schema_mapping[i].materialized_function == "to_bitmap") {
+                _do_materialized_transform = to_bitmap;
+            } else if (_schema_mapping[i].materialized_function == "hll_hash") {
+                _do_materialized_transform = hll_hash;
+            } else if (_schema_mapping[i].materialized_function == "count(*)") {
+                _do_materialized_transform = count_star;
+            } else if (_schema_mapping[i].materialized_function == "count") {
+                _do_materialized_transform = count;
+            } else {
+                LOG(WARNING) << "error materialized view function : " << _schema_mapping[i].materialized_function;
+                return false;
             }
+            VLOG(3)
+            << "_schema_mapping[" << i << "].materialized_function : " << _schema_mapping[i].materialized_function;
+            for (size_t row_index = 0, new_row_index = 0;
+                 row_index < ref_block->row_block_info().row_num; ++row_index) {
+                // No need row, need to be filter
+                if (need_filter_data && is_data_left_vec[row_index] == 0) {
+                    continue;
+                }
+                mutable_block->get_row(new_row_index++, &write_helper);
+                ref_block->get_row(row_index, &read_helper);
 
+                _do_materialized_transform(&read_helper, &write_helper,
+                                           ref_block->tablet_schema().column(ref_column), i,
+                                           _schema_mapping[i].ref_column, mem_pool);
+            }
+            continue;
+        }
+        if (_schema_mapping[i].ref_column >= 0) {
             // new column will be assigned as referenced column
             // check if the type of new column is equal to the older's.
             FieldType reftype = ref_block->tablet_schema().column(ref_column).type();
