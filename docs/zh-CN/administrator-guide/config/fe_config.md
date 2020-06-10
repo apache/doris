@@ -371,8 +371,6 @@ FE 的配置项有两种方式进行配置：
 
 ### `max_connection_scheduler_threads_num`
 
-### `max_conn_per_user`
-
 ### `max_create_table_timeout_second`
 
 ### `max_distribution_pruner_recursion_depth`
