@@ -49,6 +49,14 @@ namespace doris {
 
 using namespace std;
 
+#define RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(expr) \
+    do { \
+            const Expr* expr_without_cast = Expr::expr_without_cast(expr); \
+            if (expr_without_cast->node_type() != TExprNodeType::SLOT_REF) { \
+                return Status::InternalError("build disjuncts failed: child is not slot ref"); \
+            } \
+    } while (false)
+
 std::string ExtLiteral::value_to_string() {
     std::stringstream ss;
     switch (_type) {
@@ -235,6 +243,8 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()
             || TExprNodeType::CAST_EXPR == conjunct->get_child(0)->node_type()) {
             expr = conjunct->get_child(1);
+            // process such as sub-query: select * from (select split_part(k, "_", 1) as new_field from case_replay_for_milimin) t where t.new_field > 1;
+            RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(conjunct->get_child(0));
             // process cast expr, such as:
             // k (float) > 2.0, k(int) > 3.2
             slot_ref = (SlotRef*)Expr::expr_without_cast(conjunct->get_child(0));
@@ -242,6 +252,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()
             || TExprNodeType::CAST_EXPR == conjunct->get_child(1)->node_type()) {
             expr = conjunct->get_child(0);
+            RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(conjunct->get_child(1));
             slot_ref = (SlotRef*)Expr::expr_without_cast(conjunct->get_child(1));
             op = conjunct->op();
         } else {
@@ -299,6 +310,9 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
 
     if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
         && (conjunct->fn().name.function_name == "is_null_pred" || conjunct->fn().name.function_name == "is_not_null_pred")) {
+        // such as sub-query: select * from (select split_part(k, "_", 1) as new_field from case_replay_for_milimin) t where t.new_field > 1;
+        // conjunct->get_child(0)->node_type() == TExprNodeType::FUNCTION_CALL, at present doris on es can not support push down function 
+        RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(conjunct->get_child(0));
         SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
         const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
         bool is_not_null;
