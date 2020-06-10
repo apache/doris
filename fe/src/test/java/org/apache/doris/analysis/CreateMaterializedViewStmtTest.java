@@ -640,6 +640,9 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
+    /*
+    ISSUE: #3811
+     */
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithFloat(@Injectable SlotRef slotRef1,
             @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
@@ -689,7 +692,7 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getResultExprs();
                 result = Lists.newArrayList(slotRef1, slotRef2, slotRef3, slotRef4);
                 slotRef1.getType().getStorageLayoutBytes();
-                result = 35;
+                result = 1;
                 slotRef1.getType().getPrimitiveType();
                 result = PrimitiveType.INT;
                 slotRef2.getType().getStorageLayoutBytes();
@@ -700,8 +703,6 @@ public class CreateMaterializedViewStmtTest {
                 result = 3;
                 slotRef3.getType().getPrimitiveType();
                 result = PrimitiveType.FLOAT;
-                slotRef4.getType().getStorageLayoutBytes();
-                result = 4;
                 slotRef4.getType().getPrimitiveType();
                 result = PrimitiveType.INT;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
@@ -741,6 +742,9 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
+    /*
+    ISSUE: #3811
+     */
     @Test
     public void testMVColumnsWithFirstFloat(@Injectable SlotRef slotRef1,
             @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {

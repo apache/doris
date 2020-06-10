@@ -554,33 +554,41 @@ public class MaterializedViewHandler extends AlterHandler {
         } else if (KeysType.DUP_KEYS == keysType) {
             // supplement the duplicate key
             if (addRollupClause.getDupKeys() == null || addRollupClause.getDupKeys().isEmpty()) {
-                int keyStorageLayoutBytes = 0;
+                // check the column meta
                 for (int i = 0; i < rollupColumnNames.size(); i++) {
                     String columnName = rollupColumnNames.get(i);
                     Column baseColumn = baseColumnNameToColumn.get(columnName);
                     if (baseColumn == null) {
                         throw new DdlException("Column[" + columnName + "] does not exist in base index");
                     }
-                    // Supplement key of MV columns
-                    if (baseColumn.getType().getPrimitiveType().isFloatingPointType() && i == 0) {
-                        throw new DdlException("The first column could not be float or double, "
-                                + "use decimal instead.");
-                    }
-                    keyStorageLayoutBytes += baseColumn.getType().getStorageLayoutBytes();
                     Column rollupColumn = new Column(baseColumn);
-                    if(changeStorageFormat) {
-                        rollupColumn.setIsKey(baseColumn.isKey());
-                        rollupColumn.setAggregationType(baseColumn.getAggregationType(), true);
-                    } else if (!rollupColumn.getType().getPrimitiveType()
-                            .isFloatingPointType() && ((i + 1) <= FeConstants.shortkey_max_column_count ||
-                            keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes)) {
-                        rollupColumn.setIsKey(true);
-                        rollupColumn.setAggregationType(null, false);
-                    } else {
-                        rollupColumn.setIsKey(false);
-                        rollupColumn.setAggregationType(AggregateType.NONE, true);
-                    }
                     rollupSchema.add(rollupColumn);
+                }
+                if (changeStorageFormat) {
+                    return rollupSchema;
+                }
+                // Supplement short key of MV columns
+                int theBeginIndexOfValue = 0;
+                int keyStorageLayoutBytes = 0;
+                for (; theBeginIndexOfValue < rollupSchema.size(); theBeginIndexOfValue++) {
+                    Column rollupColumn = rollupSchema.get(theBeginIndexOfValue);
+                    keyStorageLayoutBytes += rollupColumn.getType().getStorageLayoutBytes();
+                    if (rollupColumn.getType().getPrimitiveType().isFloatingPointType()
+                            || ((theBeginIndexOfValue + 1) > FeConstants.shortkey_max_column_count)
+                            && (keyStorageLayoutBytes > FeConstants.shortkey_maxsize_bytes)) {
+                        break;
+                    }
+                    rollupColumn.setIsKey(true);
+                    rollupColumn.setAggregationType(null, false);
+                }
+                if (theBeginIndexOfValue == 0) {
+                    throw new DdlException("The first column could not be float or double, use decimal instead.");
+                }
+                // Supplement value of MV columns
+                for (; theBeginIndexOfValue < rollupSchema.size(); theBeginIndexOfValue++) {
+                    Column rollupColumn = rollupSchema.get(theBeginIndexOfValue);
+                    rollupColumn.setIsKey(false);
+                    rollupColumn.setAggregationType(AggregateType.NONE, true);
                 }
             } else {
                 /*
