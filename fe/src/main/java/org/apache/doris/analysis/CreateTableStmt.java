@@ -87,10 +87,14 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("mysql");
         engineNames.add("broker");
         engineNames.add("elasticsearch");
+        engineNames.add("hive");
     }
 
     // for backup. set to -1 for normal use
     private int tableSignature;
+
+    // TODO(wyb): spark-load
+    private static boolean disableHiveTable = true;
 
     public CreateTableStmt() {
         // for persist
@@ -253,8 +257,12 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
+        // TODO(wyb): spark-load
+        if (engineName.equals("hive") && disableHiveTable) {
+            throw new AnalysisException("Spark Load from hive table is comming soon");
+        }
         // analyze key desc
-        if (!(engineName.equals("mysql") || engineName.equals("broker"))) {
+        if (!(engineName.equals("mysql") || engineName.equals("broker") || engineName.equals("hive"))) {
             // olap table
             if (keysDesc == null) {
                 List<String> keysColumnNames = Lists.newArrayList();
@@ -299,7 +307,7 @@ public class CreateTableStmt extends DdlStmt {
                 }
             }
         } else {
-            // mysql and broker do not need key desc
+            // mysql, broker and hive do not need key desc
             if (keysDesc != null) {
                 throw new AnalysisException("Create " + engineName + " table should not contain keys desc");
             }
@@ -433,7 +441,7 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         if (engineName.equals("mysql") || engineName.equals("broker") 
-                || engineName.equals("elasticsearch")) {
+                || engineName.equals("elasticsearch") || engineName.equals("hive")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
