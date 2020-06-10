@@ -17,6 +17,7 @@
 
 package org.apache.doris.external;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.util.Collections;
@@ -29,6 +30,8 @@ import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.catalog.Column;
 import org.apache.http.HttpHeaders;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,16 +95,39 @@ public class EsRestClient {
         }
         return nodesMap;
     }
-
-    public JSONObject getIndexProperties(String indexName, String mappingType) {
+    
+    public EsFieldInfo getFieldInfo(String indexName, String mappingType, List<Column> colList) {
         String path = indexName + "/_mapping";
         String indexMapping = execute(path);
-        if (indexMapping == null) {
+        return indexMapping == null ? null : getFieldInfo(colList, parseProperties(indexMapping, mappingType));
+    }
+    
+    @VisibleForTesting
+    public EsFieldInfo getFieldInfo(List<Column> colList, JSONObject properties) {
+        if (properties == null) {
             return null;
         }
-        return parseProperties(indexMapping, mappingType);
+        Map<String, String> fetchFieldMap = new HashMap<>();
+        Map<String, String> docValueFieldMap = new HashMap<>();
+        for (Column col : colList) {
+            String colName = col.getName();
+            if (!properties.has(colName)) {
+                continue;
+            }
+            JSONObject fieldObject = properties.optJSONObject(colName);
+            String fetchField = EsUtil.getFetchField(fieldObject, colName);
+            if (StringUtils.isNotEmpty(fetchField)) {
+                fetchFieldMap.put(colName, fetchField);
+            }
+            String docValueField = EsUtil.getDocValueField(fieldObject, colName);
+            if (StringUtils.isNotEmpty(docValueField)) {
+               docValueFieldMap.put(colName, docValueField);
+            }
+        }
+        return new EsFieldInfo(fetchFieldMap, docValueFieldMap);
     }
-
+    
+    @VisibleForTesting
     public JSONObject parseProperties(String indexMapping, String mappingType) {
         JSONObject jsonObject = new JSONObject(indexMapping);
         // the indexName use alias takes the first mapping
@@ -116,12 +142,10 @@ public class EsRestClient {
     public EsIndexState getIndexState(String indexName) {
         String path = indexName + "/_search_shards";
         String shardLocation = execute(path);
-        if (shardLocation == null) {
-            return null;
-        }
-        return parseIndexState(indexName, shardLocation);
+        return shardLocation == null ? null : parseIndexState(indexName, shardLocation);
     }
-
+    
+    @VisibleForTesting
     public EsIndexState parseIndexState(String indexName, String shardLocation) {
         EsIndexState indexState = new EsIndexState(indexName);
         JSONObject jsonObject = new JSONObject(shardLocation);

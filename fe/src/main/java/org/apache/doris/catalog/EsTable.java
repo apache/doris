@@ -108,16 +108,16 @@ public class EsTable extends Table {
         validate(properties);
     }
 
-    public void addFetchField(String originName, String replaceName) {
-        fieldsContext.put(originName, replaceName);
+    public void addFetchField(Map<String, String> fetchFieldMap) {
+        fieldsContext.putAll(fetchFieldMap);
     }
 
     public Map<String, String> fieldsContext() {
         return fieldsContext;
     }
 
-    public void addDocValueField(String name, String fieldsName) {
-        docValueContext.put(name, fieldsName);
+    public void addDocValueField(Map<String, String> docValueFieldMap) {
+        docValueContext.putAll(docValueFieldMap);
     }
 
     public Map<String, String> docValueContext() {

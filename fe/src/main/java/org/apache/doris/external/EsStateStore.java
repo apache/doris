@@ -17,13 +17,13 @@
 
 package org.apache.doris.external;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -38,7 +38,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 
 
 /**
@@ -81,11 +80,11 @@ public class EsStateStore extends MasterDaemon {
                 EsRestClient client = esClients.get(esTable.getId());
 
                 if (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable()) {
-                    JSONObject properties = client.getIndexProperties(esTable.getIndexName(), esTable.getMappingType());
-                    if (properties == null) {
+                    EsFieldInfo fieldInfo = client.getFieldInfo(esTable.getIndexName(), esTable.getMappingType(), esTable.getFullSchema());
+                    if (fieldInfo == null) {
                         continue;
                     }
-                    setEsTableContext(properties, esTable);
+                    setEsTableContext(fieldInfo, esTable);
                 }
 
                 EsIndexState esIndexState = client.getIndexState(esTable.getIndexName());
@@ -93,7 +92,7 @@ public class EsStateStore extends MasterDaemon {
                     continue;
                 }
 
-                EsTableState esTableState = setTableStatePartitionInfo(esTable, esIndexState);
+                EsTableState esTableState = setPartitionInfo(esTable, esIndexState);
                 if (esTableState == null) {
                     continue;
                 }
@@ -132,7 +131,7 @@ public class EsStateStore extends MasterDaemon {
     }
 
     // Configure keyword and doc_values by mapping
-    public void setEsTableContext(JSONObject properties, EsTable esTable) {
+    public void setEsTableContext(EsFieldInfo fieldInfo, EsTable esTable) {
         // we build the doc value context for fields maybe used for scanning
         // "properties": {
         //      "city": {
@@ -146,31 +145,16 @@ public class EsStateStore extends MasterDaemon {
         //    }
         // then the docvalue context provided the mapping between the select field and real request field :
         // {"city": "city.raw"}
-        List<Column> colList = esTable.getFullSchema();
-        for (Column col : colList) {
-            String colName = col.getName();
-            if (!properties.has(colName)) {
-                continue;
-            }
-            JSONObject fieldObject = properties.optJSONObject(colName);
-            // string-type field used keyword type to generate predicate
-            if (esTable.isKeywordSniffEnable()) {
-                String fetchField = EsUtil.getFetchField(fieldObject, colName);
-                if (StringUtils.isNotEmpty(fetchField)) {
-                    esTable.addFetchField(colName, fetchField);
-                }
-            }
-
-            if (esTable.isDocValueScanEnable()) {
-                String docValueField = EsUtil.getDocValueField(fieldObject, colName);
-                if (StringUtils.isNotEmpty(docValueField)) {
-                    esTable.addDocValueField(colName, docValueField);
-                }
-            }
+        if (esTable.isKeywordSniffEnable() && fieldInfo.getFetchFields() != null) {
+            esTable.addFetchField(fieldInfo.getFetchFields());
+        }
+        if (esTable.isDocValueScanEnable() && fieldInfo.getDocValueFields() != null) {
+            esTable.addDocValueField(fieldInfo.getDocValueFields());
         }
     }
 
-    public EsTableState setTableStatePartitionInfo(EsTable esTable, EsIndexState indexState)
+    @VisibleForTesting
+    public EsTableState setPartitionInfo(EsTable esTable, EsIndexState indexState)
         throws ExternalDataSourceException, DdlException {
         EsTableState esTableState = new EsTableState();
         RangePartitionInfo partitionInfo = null;
