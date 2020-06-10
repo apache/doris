@@ -74,7 +74,7 @@ public class UserProperty implements Writable {
 
     private String qualifiedUser;
 
-    private long maxConn = Config.max_conn_per_user;
+    private long maxConn = 100;
     // Resource belong to this user.
     private UserResource resource = new UserResource(1000);
     // load cluster

@@ -98,6 +98,7 @@ module.exports = [
         children: [
           "fe_config",
           "be_config",
+          "user_property,
         ],
         sidebarDepth: 1,
       },
