@@ -237,7 +237,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         break;
                     }
                     if (mvColumnItem.getType().isFloatingPointType()) {
-                        throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
+                        throw new AnalysisException("Float or double can not used as a sort key, use decimal instead.");
                     }
                     mvColumnItem.setIsKey(true);
                 }
