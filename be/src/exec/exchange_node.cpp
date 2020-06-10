@@ -110,7 +110,7 @@ Status ExchangeNode::close(RuntimeState* state) {
     if (_stream_recvr != NULL) {
         _stream_recvr->close();
     }
-    _stream_recvr.reset();
+    // _stream_recvr.reset();
     return ExecNode::close(state);
 }
 

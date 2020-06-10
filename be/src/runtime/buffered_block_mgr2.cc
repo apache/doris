@@ -210,8 +210,7 @@ BufferedBlockMgr2::BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_m
     _max_block_size(block_size),
     // Keep two writes in flight per scratch disk so the disks can stay busy.
     _block_write_threshold(tmp_file_mgr->num_active_tmp_devices() * 2),
-    // _disable_spill(state->query_ctx().disable_spilling),
-    _disable_spill(false),
+    _disable_spill(state->disable_spill()),
     _query_id(state->query_id()),
     _tmp_file_mgr(tmp_file_mgr),
     _initialized(false),
@@ -1090,10 +1089,10 @@ Status BufferedBlockMgr2::find_buffer(
         // There are no free buffers. If spills are disabled or there no unpinned blocks we
         // can write, return. We can't get a buffer.
         if (_disable_spill) {
-            return Status::InternalError("Spilling has been disabled for plans that do not have stats and "
-                    "are not hinted to prevent potentially bad plans from using too many cluster "
-                    "resources. Compute stats on these tables, hint the plan or disable this "
-                    "behavior via query options to enable spilling.");
+            return Status::InternalError("Spilling has been disabled for plans,"
+                    "current memory usage has reached the bottleneck."
+                    "You can avoid the behavior via change mem limit"
+                    "by session variable exec_mem_limior or enable spilling.");
         }
 
         // Third, this block needs to use a buffer that was unpinned from another block.
