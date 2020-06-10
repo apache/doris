@@ -211,7 +211,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                     mvColumnItem.setAggregationType(AggregateType.valueOf("SUM"), false);
                     mvColumnItem.setDefineExpr(defineExpr);
-                    mvColumnItem.setMaterializedViewFunc(mvFunc);
                     mvColumnItemList.add(mvColumnItem);
                     continue;
                 }
@@ -242,7 +241,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                     mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
                     mvColumnItem.setDefineExpr(defineExpr);
-                    mvColumnItem.setMaterializedViewFunc(((FunctionCallExpr) defineExpr).getFn().functionName());
                     mvColumnItemList.add(mvColumnItem);
                     continue;
                 }

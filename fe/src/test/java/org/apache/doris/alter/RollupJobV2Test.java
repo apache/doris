@@ -443,7 +443,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
 
