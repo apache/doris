@@ -188,6 +188,105 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
         break; \
     }
 
+
+bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* ref_column,
+               int field_idx, int ref_field_idx, MemPool* mem_pool) {
+    write_helper->set_not_null(ref_field_idx);
+    BitmapValue bitmap;
+    if (!read_helper->is_null(ref_field_idx)) {
+        uint64_t origin_value;
+        char *src = read_helper->cell_ptr(ref_field_idx);
+        switch (ref_column->type()) {
+            case OLAP_FIELD_TYPE_TINYINT:
+                if (*(int8_t *) src < 0) {
+                    LOG(WARNING) << "The input: " << *(int8_t *) src
+                                 << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
+                    return false;
+                }
+                origin_value = *(int8_t *) src;
+                break;
+            case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+                origin_value = *(uint8_t *) src;
+                break;
+            case OLAP_FIELD_TYPE_SMALLINT:
+                if (*(int16_t *) src < 0) {
+                    LOG(WARNING) << "The input: " << *(int16_t *) src
+                                 << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
+                    return false;
+                }
+                origin_value = *(int16_t *) src;
+                break;
+            case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+                origin_value = *(uint16_t *) src;
+                break;
+            case OLAP_FIELD_TYPE_INT:
+                if (*(int32_t *) src < 0) {
+                    LOG(WARNING) << "The input: " << *(int32_t *) src
+                                 << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
+                    return false;
+                }
+                origin_value = *(int32_t *) src;
+                break;
+            case OLAP_FIELD_TYPE_UNSIGNED_INT:
+                origin_value = *(uint32_t *) src;
+                break;
+            case OLAP_FIELD_TYPE_BIGINT:
+                if (*(int64_t *) src < 0) {
+                    LOG(WARNING) << "The input: " << *(int64_t *) src
+                                 << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
+                    return false;
+                }
+                origin_value = *(int64_t *) src;
+                break;
+            case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+                origin_value = *(uint64_t *) src;
+                break;
+            default:
+                LOG(WARNING) << "the column type which was altered from was unsupported."
+                             << " from_type="
+                             << ref_column->type();
+                return false;
+        }
+        bitmap.add(origin_value);
+    }
+    char *buf = reinterpret_cast<char *>(mem_pool->allocate(bitmap.getSizeInBytes()));
+    Slice dst(buf, bitmap.getSizeInBytes());
+    bitmap.write(dst.data);
+    write_helper->set_field_content(field_idx, reinterpret_cast<char *>(&dst), mem_pool);
+    return true;
+}
+
+bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* ref_column,
+              int field_idx, int ref_field_idx, MemPool* mem_pool) {
+    write_helper->set_not_null(field_idx);
+    HyperLogLog hll;
+    if (!read_helper->is_null(ref_field_idx)) {
+        Slice src;
+        if (ref_column->type() != OLAP_FIELD_TYPE_VARCHAR) {
+            src.data = read_helper->cell_ptr(ref_field_idx);
+            src.size = ref_column->length();
+        } else {
+            src = *reinterpret_cast<Slice *>(read_helper->cell_ptr(ref_field_idx));
+        }
+        uint64_t hash_value = HashUtil::murmur_hash64A(src.data, src.size, HashUtil::MURMUR_SEED);
+        hll.update(hash_value);
+    }
+    std::string buf;
+    buf.resize(hll.max_serialized_size());
+    buf.resize(hll.serialize((uint8_t *) buf.c_str()));
+    Slice dst(buf);
+    write_helper->set_field_content(field_idx, reinterpret_cast<char *>(&dst), mem_pool);
+    return true;
+}
+
+bool count(RowCursor* read_helper, RowCursor* write_helper, TabletColumn* ref_column,
+           int field_idx, int ref_field_idx, MemPool* mem_pool) {
+    write_helper->set_not_null(field_idx);
+    int64_t count = read_helper->is_null(field_idx) ? 0 : 1;
+    write_helper->set_field_content(field_idx, (char*)&count, mem_pool);
+    return true;
+}
+
 bool RowBlockChanger::change_row_block(
         const RowBlock* ref_block,
         int32_t data_version,
@@ -261,87 +360,28 @@ bool RowBlockChanger::change_row_block(
 
         if (_schema_mapping[i].ref_column >= 0) {
             if (!_schema_mapping[i].materialized_function.empty()) {
+                bool (*_do_materialized_transform) (RowCursor*, RowCursor*, const TabletColumn&, int, int, MemPool* );
+                if (_schema_mapping[i].materialized_function == "to_bitmap") {
+                    _do_materialized_transform = to_bitmap;
+                } else if (_schema_mapping[i].materialized_function == "hll_hash") {
+                    _do_materialized_transform = hll_hash;
+                } else if (_schema_mapping[i].materialized_function == "count") {
+                    _do_materialized_transform = count;
+                } else {
+                    LOG(WARNING) << "error materialized view function : " << _schema_mapping[i].materialized_function;
+                    return false;
+                }
                 VLOG(3) << "_schema_mapping[" << i << "].materialized_function : " << _schema_mapping[i].materialized_function;
-                // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // 不需要的row，每次处理到这个row时就跳过
+                    // No need row, need to be filter
                     if (need_filter_data && is_data_left_vec[row_index] == 0) {
                         continue;
                     }
-
-                    // 指定新的要写入的row index（不同于读的row_index）
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
 
-                    if (_schema_mapping[i].materialized_function == "to_bitmap") {
-                        write_helper.set_not_null(i);
-                        BitmapValue bitmap;
-                        if (!read_helper.is_null(ref_column)) {
-                            uint64_t origin_value;
-                            char *src = read_helper.cell_ptr(ref_column);
-                            switch (ref_block->tablet_schema().column(ref_column).type()) {
-                                case OLAP_FIELD_TYPE_TINYINT:
-                                    origin_value = *(int8_t *) src;
-                                    break;
-                                case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
-                                    origin_value = *(uint8_t *) src;
-                                    break;
-                                case OLAP_FIELD_TYPE_SMALLINT:
-                                    origin_value = *(int16_t *) src;
-                                    break;
-                                case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
-                                    origin_value = *(uint16_t *) src;
-                                    break;
-                                case OLAP_FIELD_TYPE_INT:
-                                    origin_value = *(int32_t *) src;
-                                    break;
-                                case OLAP_FIELD_TYPE_UNSIGNED_INT:
-                                    origin_value = *(uint32_t *) src;
-                                    break;
-                                case OLAP_FIELD_TYPE_BIGINT:
-                                    origin_value = *(int64_t *) src;
-                                    break;
-                                case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
-                                    origin_value = *(uint64_t *) src;
-                                    break;
-                                default:
-                                    LOG(WARNING) << "the column type which was altered from was unsupported."
-                                                 << " from_type="
-                                                 << ref_block->tablet_schema().column(ref_column).type();
-                                    return false;
-                            }
-                            if (origin_value < 0) {
-                                LOG(WARNING) << "The input: " << origin_value
-                                             << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
-                                return false;
-                            }
-                            bitmap.add(origin_value);
-                        }
-                        char *buf = reinterpret_cast<char *>(mem_pool->allocate(bitmap.getSizeInBytes()));
-                        Slice dst(buf, bitmap.getSizeInBytes());
-                        bitmap.write(dst.data);
-                        write_helper.set_field_content(i, reinterpret_cast<char *>(&dst), mem_pool);
-                    } else if (_schema_mapping[i].materialized_function == "hll_hash") {
-                        write_helper.set_not_null(i);
-                        HyperLogLog hll;
-                        if (!read_helper.is_null(ref_column)) {
-                            Slice src;
-                            if (ref_block->tablet_schema().column(ref_column).type() != OLAP_FIELD_TYPE_VARCHAR) {
-                                src.data = read_helper.cell_ptr(ref_column);
-                                src.size = ref_block->tablet_schema().column(ref_column).length();
-                            } else {
-                                src = *reinterpret_cast<Slice *>(read_helper.cell_ptr(ref_column));
-                            }
-                            uint64_t hash_value = HashUtil::murmur_hash64A(src.data, src.size, HashUtil::MURMUR_SEED);
-                            hll.update(hash_value);
-                        }
-                        std::string buf;
-                        buf.resize(hll.max_serialized_size());
-                        buf.resize(hll.serialize((uint8_t *) buf.c_str()));
-                        Slice dst(buf);
-                        write_helper.set_field_content(i, reinterpret_cast<char *>(&dst), mem_pool);
-                    }
+                    _do_materialized_transform(&read_helper, &write_helper, ref_block->tablet_schema().column(ref_column), i, _schema_mapping[i].ref_column, mem_pool);
                 }
                 continue;
             }
@@ -1468,7 +1508,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
                 AlterMaterializedViewParam mvParams;
                 mvParams.column_name = item.column_name;
                 mvParams.origin_column_name = item.origin_column_name;
-                mvParams.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
+                mvParams.mv_expr = item.mv_expr;
                 sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mvParams));
             }
         }
@@ -1518,7 +1558,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     bool sc_sorting = false;
     bool sc_directly = false;
 
-    const std::map<std::string, AlterMaterializedViewParam> materialized_function_map;
+    const std::unordered_map<std::string, AlterMaterializedViewParam> materialized_function_map;
     if (OLAP_SUCCESS != (res = _parse_request(base_tablet,
                                               new_tablet,
                                               &rb_changer,
@@ -1875,8 +1915,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
                                                RowBlockChanger* rb_changer,
                                                bool* sc_sorting,
                                                bool* sc_directly,
-                                               const std::map<std::string, AlterMaterializedViewParam>& materialized_function_map
-                                               ) {
+                                               const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map) {
     OLAPStatus res = OLAP_SUCCESS;
 
     // set column mapping
