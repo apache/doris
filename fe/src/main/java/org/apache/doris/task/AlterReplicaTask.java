@@ -20,7 +20,9 @@ package org.apache.doris.task;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
@@ -120,7 +122,14 @@ public class AlterReplicaTask extends AgentTask {
                 List<SlotRef> slots = Lists.newArrayList();
                 expr.getValue().collect(SlotRef.class, slots);
                 Preconditions.checkState(slots.size() == 1);
-                TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName(), expr.getValue().treeToThrift());
+                TAlterMaterializedViewParam mvParam = null;
+                if (expr.getValue() instanceof FunctionCallExpr) {
+                    mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName());
+                    mvParam.setMv_expr(((FunctionCallExpr) expr.getValue()).getFnName().getFunction());
+                } else if (expr.getValue() instanceof CaseExpr) {
+                    mvParam = new TAlterMaterializedViewParam(expr.getKey(), slots.get(0).getColumnName());
+                    mvParam.setMv_expr("count");
+                }
                 req.addToMaterialized_view_params(mvParam);
             }
         }

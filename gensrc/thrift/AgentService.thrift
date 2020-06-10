@@ -110,7 +110,7 @@ struct TAlterTabletReqV2 {
 struct TAlterMaterializedViewParam {
     1: required string column_name
     2: required string origin_column_name
-    3: required Exprs.TExpr mv_expr
+    3: optional string mv_expr
 }
 
 struct TClusterInfo {
