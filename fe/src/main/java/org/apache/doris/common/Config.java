@@ -674,10 +674,6 @@ public class Config extends ConfigBase {
      * Maximal number of connections per FE.
      */
     @ConfField public static int qe_max_connection = 1024;
-    /*
-     * Maximal number of connections per user, per FE.
-     */
-    @ConfField public static int max_conn_per_user = 100;
 
     /*
      * Maximal number of thread in connection-scheduler-pool.
