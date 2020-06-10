@@ -2964,6 +2964,9 @@ public class Catalog {
         } else if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
             createEsTable(db, stmt);
             return;
+        } else if (engineName.equalsIgnoreCase("hive")) {
+            createHiveTable(db, stmt);
+            return;
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
@@ -3908,6 +3911,18 @@ public class Catalog {
         return;
     }
 
+    private void createHiveTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+        List<Column> columns = stmt.getColumns();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
+        HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
+        hiveTable.setComment(stmt.getComment());
+        if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+    }
+
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
@@ -3925,7 +3940,7 @@ public class Catalog {
         // 1.2 other table type
         sb.append("CREATE ");
         if (table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
-                || table.getType() == TableType.BROKER) {
+                || table.getType() == TableType.BROKER || table.getType() == TableType.HIVE) {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
@@ -4097,6 +4112,17 @@ public class Catalog {
             sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isDocValueScanEnable()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\"\n");
             sb.append(")");
+        } else if (table.getType() == TableType.HIVE) {
+            HiveTable hiveTable = (HiveTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
+            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
+            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
+            sb.append("\n)");
         }
         sb.append(";");
 

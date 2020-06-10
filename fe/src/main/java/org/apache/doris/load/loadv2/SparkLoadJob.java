@@ -58,9 +58,6 @@ import java.util.Set;
 public class SparkLoadJob extends BulkLoadJob {
     private static final Logger LOG = LogManager.getLogger(SparkLoadJob.class);
 
-    // for global dict
-    public static final String BITMAP_DATA_PROPERTY = "bitmap_data";
-
     // --- members below need persist ---
     // create from resourceDesc when job created
     private SparkResource sparkResource;
@@ -75,10 +72,6 @@ public class SparkLoadJob extends BulkLoadJob {
     private Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
 
     // --- members below not persist ---
-    // temporary use
-    // one SparkLoadJob has only one table to load
-    // hivedb.table for global dict
-    private String hiveTableName = "";
     private ResourceDesc resourceDesc;
     // for spark standalone
     private SparkAppHandle sparkAppHandle;
@@ -107,23 +100,12 @@ public class SparkLoadJob extends BulkLoadJob {
         jobType = EtlJobType.SPARK;
     }
 
-    public String getHiveTableName() {
-        return hiveTableName;
-    }
-
     @Override
     protected void setJobProperties(Map<String, String> properties) throws DdlException {
         super.setJobProperties(properties);
 
         // set spark resource and broker desc
         setResourceInfo();
-
-        // global dict
-        if (properties != null) {
-            if (properties.containsKey(BITMAP_DATA_PROPERTY)) {
-                hiveTableName = properties.get(BITMAP_DATA_PROPERTY);
-            }
-        }
     }
 
     /**
@@ -190,7 +172,6 @@ public class SparkLoadJob extends BulkLoadJob {
                 }
             }
             // clear job infos that not persist
-            hiveTableName = "";
             sparkAppHandle = null;
             resourceDesc = null;
             tableToLoadPartitions.clear();
