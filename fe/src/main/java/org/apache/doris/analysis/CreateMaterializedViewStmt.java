@@ -114,14 +114,17 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeSelectClause();
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
-            throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:" + selectStmt.getWhereClause().toSql());
+            throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
+                    + selectStmt.getWhereClause().toSql());
         }
         if (selectStmt.getHavingPred() != null) {
-            throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:" + selectStmt.getHavingPred().toSql());
+            throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
+                    + selectStmt.getHavingPred().toSql());
         }
         analyzeOrderByClause();
         if (selectStmt.getLimit() != -1) {
-            throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:" + " limit " + selectStmt.getLimit());
+            throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
+                    + " limit " + selectStmt.getLimit());
         }
     }
 
@@ -146,7 +149,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             SelectListItem selectListItem = selectList.getItems().get(i);
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)) {
-                throw new AnalysisException("The materialized view only support the single column or function expr. " + "Error column: " + selectListItemExpr.toSql());
+                throw new AnalysisException("The materialized view only support the single column or function expr. "
+                        + "Error column: " + selectListItemExpr.toSql());
             }
             if (selectListItem.getExpr() instanceof SlotRef) {
                 if (meetAggregate) {
@@ -166,8 +170,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 String functionName = functionCallExpr.getFnName().getFunction();
                 Expr defineExpr = null;
                 // TODO(ml): support REPLACE, REPLACE_IF_NOT_NULL only for aggregate table, HLL_UNION, BITMAP_UNION
-                if (!functionName.equalsIgnoreCase("sum") && !functionName.equalsIgnoreCase("min") && !functionName.equalsIgnoreCase("max")) {
-                    throw new AnalysisException("The materialized view only support the sum, min and max aggregate " + "function. Error function: " + functionCallExpr.toSqlImpl());
+                if (!functionName.equalsIgnoreCase("sum")
+                        && !functionName.equalsIgnoreCase("min")
+                        && !functionName.equalsIgnoreCase("max")) {
+                    throw new AnalysisException("The materialized view only support the sum, min and max aggregate "
+                            + "function. Error function: " + functionCallExpr.toSqlImpl());
                 }
 
                 Preconditions.checkState(functionCallExpr.getChildren().size() == 1);
@@ -178,7 +185,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 } else if (functionChild0 instanceof CastExpr && (functionChild0.getChild(0) instanceof SlotRef)) {
                     slotRef = (SlotRef) functionChild0.getChild(0);
                 } else {
-                    throw new AnalysisException("The children of aggregate function only support one original column. " + "Error function: " + functionCallExpr.toSqlImpl());
+                    throw new AnalysisException("The children of aggregate function only support one original column. "
+                            + "Error function: " + functionCallExpr.toSqlImpl());
                 }
                 meetAggregate = true;
                 // check duplicate column
