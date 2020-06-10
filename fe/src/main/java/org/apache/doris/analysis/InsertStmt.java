@@ -33,6 +33,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -461,7 +462,7 @@ public class InsertStmt extends DdlStmt {
          * origColIdx2MVColumn has 1 element: "3, __doris_materialized_view_bitmap_union_C"
          * will be used in as a mapping from queryStmt.getResultExprs() to targetColumns define expr
          */
-        Map<Integer, Column> origColIdx2MVColumn = Maps.newHashMap();
+        List<Pair<Integer, Column>>  origColIdx2MVColumn = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {
             if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX)) {
                 SlotRef refColumn = column.getRefColumn();
@@ -471,7 +472,7 @@ public class InsertStmt extends DdlStmt {
                 String origName = refColumn.getColumnName();
                 for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
                     if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
-                        origColIdx2MVColumn.put(originColumnIdx, column);
+                        origColIdx2MVColumn.add(new Pair<>(originColumnIdx, column));
                         targetColumns.add(column);
                         break;
                     }
@@ -534,7 +535,9 @@ public class InsertStmt extends DdlStmt {
             }
 
             if (!origColIdx2MVColumn.isEmpty()) {
-                origColIdx2MVColumn.forEach((origColIdx, mvColumn) -> {
+                origColIdx2MVColumn.forEach(entry -> {
+                    Integer origColIdx = entry.first;
+                    Column mvColumn = entry.second;
                     //substitute define expr slot with select statement result expr
                     ExprSubstitutionMap smap = new ExprSubstitutionMap();
                     smap.getLhs().add(mvColumn.getRefColumn());
@@ -567,8 +570,8 @@ public class InsertStmt extends DdlStmt {
                 for (Integer idx : origColIdxsForShadowCols) {
                     queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
                 }
-                for (Integer idx : origColIdx2MVColumn.keySet()) {
-                    queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
+                for (Pair<Integer, Column> entry : origColIdx2MVColumn) {
+                    queryStmt.getColLabels().add(queryStmt.getColLabels().get(entry.first));
                 }
             }
         }
@@ -587,7 +590,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
-            int rowIdx, List<Integer> origColIdxsForShadowCols, Map<Integer, Column> origColIdx2MVColumn) throws AnalysisException {
+            int rowIdx, List<Integer> origColIdxsForShadowCols, List<Pair<Integer, Column>> origColIdx2MVColumn) throws AnalysisException {
         // 1. check number of fields if equal with first row
         // targetColumns contains some shadow columns, which is added by system,
         // so we should minus this
@@ -643,11 +646,11 @@ public class InsertStmt extends DdlStmt {
             ArrayList<Expr> extentedRow = Lists.newArrayList();
             extentedRow.addAll(row);
 
-            for (Map.Entry<Integer, Column> entry : origColIdx2MVColumn.entrySet()) {
+            for (Pair<Integer, Column> entry : origColIdx2MVColumn) {
                 ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                smap.getLhs().add(entry.getValue().getRefColumn());
-                smap.getRhs().add(extentedRow.get(entry.getKey()));
-                extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.getValue().getDefineExpr()), smap, analyzer, false).get(0));
+                smap.getLhs().add(entry.second.getRefColumn());
+                smap.getRhs().add(extentedRow.get(entry.first));
+                extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0));
             }
             row = extentedRow;
             rows.set(rowIdx, row);
