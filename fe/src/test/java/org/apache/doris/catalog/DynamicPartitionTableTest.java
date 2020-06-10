@@ -396,7 +396,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.prefix\" = \"p\"\n" +
                 ");";
         expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Invalid properties: dynamic_partition.time_zone");
+        expectedException.expectMessage("errCode = 2, detailMessage = Unknown or incorrect time zone: 'invalid'");
         createTable(createOlapTblStmt);
     }
 }
