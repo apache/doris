@@ -1968,10 +1968,10 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
             column_mapping->materialized_function = mvParam.mv_expr;
             std::string origin_column_name = mvParam.origin_column_name;
             int32_t column_index = base_tablet->field_index(origin_column_name);
-            if (column_index >= 0) {
+            //if (column_index >= 0) {
                 column_mapping->ref_column = column_index;
                 continue;
-            }
+            //}
         }
 
         int32_t column_index = base_tablet->field_index(column_name);

@@ -193,10 +193,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         defineExpr = new CaseExpr(null,
                                 Lists.newArrayList(new CaseWhenClause(new IsNullPredicate(slots.get(0), false), new IntLiteral(0, Type.BIGINT))),
                                 new IntLiteral(1, Type.BIGINT));
-                        mvFunc = "count_" +  ((SlotRef) slots.get(0)).getColumnName();
+                        mvFunc = ((SlotRef) slots.get(0)).getColumnName();
                     } else {
                         defineExpr = new IntLiteral(1, Type.BIGINT);
-                        mvFunc = "count(*)";
+                        mvFunc = "star";
                     }
 
                     meetAggregate = true;
