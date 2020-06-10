@@ -353,10 +353,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     long rollupTabletId = rollupTablet.getId();
                     long baseTabletId = tabletIdMap.get(rollupTabletId);
 
-                    Map<String, Expr> defileExprs = Maps.newHashMap();
+                    Map<String, Expr> defineExprs = Maps.newHashMap();
                     for (Column column : rollupSchema) {
                         if (column.getDefineExpr() != null) {
-                            defileExprs.put(column.getName(), column.getDefineExpr());
+                            defineExprs.put(column.getName(), column.getDefineExpr());
                         }
                     }
 
@@ -367,7 +367,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 rollupIndexId, baseIndexId,
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
-                                visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP, defileExprs);
+                                visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP, defineExprs);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
