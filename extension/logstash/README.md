@@ -17,5 +17,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-[使用文档](https://github.com/apache/incubator-doris/blob/master/docs/zh-CN/extending-doris/logstash.md)
+1. How to build
+
+	`gem build logstash-output-doris.gemspec`
+
+2. How to use
+
+	`http://doris.incubator.apache.org/master/en/extending-doris/logstash.html`
+	`http://doris.incubator.apache.org/master/zh-CN/extending-doris/logstash.html`
 
