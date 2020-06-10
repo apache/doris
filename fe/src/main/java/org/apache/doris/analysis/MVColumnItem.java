@@ -31,6 +31,7 @@ public class MVColumnItem {
     private AggregateType aggregationType;
     private boolean isAggregationTypeImplicit;
     private Expr defineExpr;
+    private String materializedViewFunc;
 
     public MVColumnItem(String name) {
         this.name = name;
@@ -67,5 +68,13 @@ public class MVColumnItem {
 
     public void setDefineExpr(Expr defineExpr) {
         this.defineExpr = defineExpr;
+    }
+
+    public String getMaterializedViewFunc() {
+        return materializedViewFunc;
+    }
+
+    public void setMaterializedViewFunc(String materializedViewFunc) {
+        this.materializedViewFunc = materializedViewFunc;
     }
 }

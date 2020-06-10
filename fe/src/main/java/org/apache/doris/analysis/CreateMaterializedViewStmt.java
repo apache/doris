@@ -181,7 +181,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 }
                 */
 
+                //(FIXME) FOR TEST
                 if (functionName.equalsIgnoreCase("count")) {
+                    String mvFunc;
                     if (functionCallExpr.getChildren().size() == 1) {
                         defineExpr = functionCallExpr.getChild(0);
                         List<Expr> slots = new ArrayList<>();
@@ -191,12 +193,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         defineExpr = new CaseExpr(null,
                                 Lists.newArrayList(new CaseWhenClause(new IsNullPredicate(slots.get(0), false), new IntLiteral(0, Type.BIGINT))),
                                 new IntLiteral(1, Type.BIGINT));
+                        mvFunc = "count_" +  ((SlotRef) slots.get(0)).getColumnName();
                     } else {
                         defineExpr = new IntLiteral(1, Type.BIGINT);
+                        mvFunc = "count(*)";
                     }
 
                     meetAggregate = true;
-                    String columnName = MATERIALIZED_VIEW_NAME_PRFIX + functionName;
+                    String columnName = MATERIALIZED_VIEW_NAME_PRFIX + functionName + "_" + mvFunc;
                     if (!mvColumnNameSet.add(columnName)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                     }
@@ -207,6 +211,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                     mvColumnItem.setAggregationType(AggregateType.valueOf("SUM"), false);
                     mvColumnItem.setDefineExpr(defineExpr);
+                    mvColumnItem.setMaterializedViewFunc(mvFunc);
                     mvColumnItemList.add(mvColumnItem);
                     continue;
                 }
@@ -214,7 +219,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 Preconditions.checkState(functionCallExpr.getChildren().size() == 1);
                 Expr functionChild0 = functionCallExpr.getChild(0);
 
-               //(FIXME) FOR TEST
                 if (functionName.equalsIgnoreCase("bitmap_union") || functionName.equalsIgnoreCase("hll_union")) {
                     Preconditions.checkState(functionChild0.getChildren().size() == 1);
                     defineExpr = functionChild0;
@@ -238,14 +242,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                     mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
                     mvColumnItem.setDefineExpr(defineExpr);
+                    mvColumnItem.setMaterializedViewFunc(((FunctionCallExpr) defineExpr).getFn().functionName());
                     mvColumnItemList.add(mvColumnItem);
                     continue;
                 }
-
-
-
-
-
 
                 SlotRef slotRef;
                 if (functionChild0 instanceof SlotRef) {
