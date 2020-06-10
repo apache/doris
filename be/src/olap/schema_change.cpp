@@ -197,10 +197,9 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
         uint64_t origin_value;
         char *src = read_helper->cell_ptr(ref_field_idx);
         switch (ref_column.type()) {
-            case OLAP_FIELD_TYPE_TINYINT: {
-            }
+            case OLAP_FIELD_TYPE_TINYINT:
                 if (*(int8_t *) src < 0) {
-                    LOG(WARNING) << "The input: " << origin_value
+                    LOG(WARNING) << "The input: " << *(int8_t *) src
                                  << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
                     return false;
                 }
@@ -211,33 +210,33 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
                 break;
             case OLAP_FIELD_TYPE_SMALLINT:
                 if (*(int16_t *) src < 0) {
-                    LOG(WARNING) << "The input: " << origin_value
+                    LOG(WARNING) << "The input: " << *(int16_t *) src
                                  << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
                     return false;
                 }
-                origin_value = *(int8_t *) src;
+                origin_value = *(int16_t *) src;
                 break;
             case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
                 origin_value = *(uint16_t *) src;
                 break;
             case OLAP_FIELD_TYPE_INT:
                 if (*(int32_t *) src < 0) {
-                    LOG(WARNING) << "The input: " << origin_value
+                    LOG(WARNING) << "The input: " << *(int32_t *) src
                                  << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
                     return false;
                 }
-                origin_value = *(int8_t *) src;
+                origin_value = *(int32_t *) src;
                 break;
             case OLAP_FIELD_TYPE_UNSIGNED_INT:
                 origin_value = *(uint32_t *) src;
                 break;
             case OLAP_FIELD_TYPE_BIGINT:
                 if (*(int64_t *) src < 0) {
-                    LOG(WARNING) << "The input: " << origin_value
+                    LOG(WARNING) << "The input: " << *(int64_t *) src
                                  << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
                     return false;
                 }
-                origin_value = *(int8_t *) src;
+                origin_value = *(int64_t *) src;
                 break;
             case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
                 origin_value = *(uint64_t *) src;
@@ -254,6 +253,7 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
     Slice dst(buf, bitmap.getSizeInBytes());
     bitmap.write(dst.data);
     write_helper->set_field_content(field_idx, reinterpret_cast<char *>(&dst), mem_pool);
+    return true;
 }
 
 bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
@@ -276,6 +276,7 @@ bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColum
     buf.resize(hll.serialize((uint8_t *) buf.c_str()));
     Slice dst(buf);
     write_helper->set_field_content(field_idx, reinterpret_cast<char *>(&dst), mem_pool);
+    return true;
 }
 
 bool count_star(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
@@ -283,6 +284,7 @@ bool count_star(RowCursor* read_helper, RowCursor* write_helper, const TabletCol
     write_helper->set_not_null(field_idx);
     int count = 1;
     write_helper->set_field_content(field_idx, (char*)&count, mem_pool);
+    return true;
 }
 
 bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
@@ -295,6 +297,7 @@ bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& 
         count = 1;
     }
     write_helper->set_field_content(field_idx, (char*)&count, mem_pool);
+    return true;
 }
 
 bool RowBlockChanger::change_row_block(

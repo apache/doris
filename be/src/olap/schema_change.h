@@ -41,13 +41,13 @@ class RowBlock;
 class RowCursor;
 
 
-static bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
+bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
         int field_idx, int ref_field_idx, MemPool* mem_pool);
-static bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
+bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
         int field_idx, int ref_field_idx, MemPool* mem_pool);
-static bool count_star(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
+bool count_star(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
         int field_idx, int ref_field_idx, MemPool* mem_pool);
-static bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
+bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
         int field_idx, int ref_field_idx, MemPool* mem_pool);
 
 class RowBlockChanger {
