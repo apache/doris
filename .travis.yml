@@ -13,16 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+services:
+  - docker
+before_install:
+  - docker pull apachedoris/doris-dev:build-env-1.2
+  - docker run -it -v /home/travis/build/wanpengfei-git/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
 
 
-#jobs:
-#  include:
-#    - stage: "fe build"
-#      name: "fe build"
-#      script: ./build.sh --fe
-language: java 
+jobs:
+  include:
+    - stage: build
+      # parallel be and fe build
+      script: ./build.sh 
 
-# S: Build Lifecycle
-  
-script: ./run-ut.sh 
-      
+    - stage: unittest
+      # parallel be and fe unittest
+      script: ./run-ut.sh
+      script: ./run-fe-ut.sh
+
+    
