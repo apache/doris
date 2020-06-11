@@ -71,7 +71,7 @@ under the License.
     │   └── zh-CN
     │       └──extending-doris
     │          └──third-party-udf
-    │             ├── udf simple 使用手册
+    │             ├── udf-simple-manual.md
  
     ``` 
 
@@ -80,7 +80,7 @@ under the License.
     │   └── en
     │       └──extending-doris
     │          └──third-party-udf
-    │             ├── udf simple manual
+    │             ├── udf-simple-manual.md
     ```
 
 2. 将两个使用手册的文件，加入中文和英文的 sidebar 中。
@@ -92,7 +92,7 @@ under the License.
         directoryPath: "third-party-udf/",
         children:
         [
-            "udf simple 使用手册",
+            "udf-simple-manual",
         ],
     },
     ```
@@ -104,7 +104,7 @@ under the License.
         directoryPath: "third-party-udf/",
         children:
         [
-            "udf simple manual",
+            "udf-simple-manual",
         ],
     },
 

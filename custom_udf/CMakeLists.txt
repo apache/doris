@@ -45,8 +45,8 @@ set(OUTPUT_DIR "${BASE_DIR}/output")
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.2")
-        message(FATAL_ERROR "Need GCC version at least 4.8.2")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
+        message(FATAL_ERROR "Need GCC version at least 7.3.0")
     endif()
 
     if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER "7.3.0")
@@ -70,6 +70,7 @@ include_directories($ENV{DORIS_HOME}/output/udf/include)
 add_library(udf STATIC IMPORTED)
 set_target_properties(udf PROPERTIES IMPORTED_LOCATION $ENV{DORIS_HOME}/output/udf/lib/libDorisUdf.a)
 
+# Add the subdirector of new UDF in here
 add_subdirectory(${SRC_DIR}/udf_samples)
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR})

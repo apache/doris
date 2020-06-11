@@ -72,7 +72,8 @@ The user manual needs to include: UDF function definition description, applicabl
     │   └── zh-CN
     │       └──extending-doris
     │          └──third-party-udf
-    │             ├── udf simple 使用手册
+    │             ├── udf-simple-manual.md
+
 
     ```
 
@@ -81,7 +82,8 @@ The user manual needs to include: UDF function definition description, applicabl
     │   └── en
     │       └──extending-doris
     │          └──third-party-udf
-    │             ├── udf simple manual
+    │             ├── udf-simple-manual.md
+
     ```
 
 2. Add the two manual files to the sidebar in Chinese and English.
@@ -93,7 +95,7 @@ The user manual needs to include: UDF function definition description, applicabl
         directoryPath: "third-party-udf/",
         children:
         [
-            "udf simple 使用手册",
+            "udf-simple-manual",
         ],
     },
     ```
@@ -105,7 +107,7 @@ The user manual needs to include: UDF function definition description, applicabl
         directoryPath: "third-party-udf/",
         children:
         [
-            "udf simple manual",
+            "udf-simple-manual",
         ],
     },
 
