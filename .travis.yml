@@ -18,6 +18,7 @@ services:
 before_install:
   - docker pull apachedoris/doris-dev:build-env-1.2
   - docker run -it -v /home/travis/build/wanpengfei-git/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
+  - docker run -it /bin/sh -c "cd /root/incubator-doris; ./build.sh" 
 
 
 jobs:
@@ -29,6 +30,6 @@ jobs:
     - stage: unittest
       # parallel be and fe unittest
       script: ./run-ut.sh
-      script: ./run-fe-ut.sh
+    - script: ./run-fe-ut.sh
 
     
