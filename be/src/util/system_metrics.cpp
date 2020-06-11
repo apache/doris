@@ -317,8 +317,12 @@ void SystemMetrics::_install_net_metrics(MetricRegistry* registry,
 
 void SystemMetrics::_install_snmp_metrics(MetricRegistry* registry) {
     _snmp_metrics.reset(new SnmpMetrics());
-    registry->register_metric("tcp_in_errs", &_snmp_metrics->tcp_in_errs);
-    registry->register_metric("tcp_retrans_segs", &_snmp_metrics->tcp_retrans_segs);
+#define REGISTER_SNMP_METRIC(name) \
+        registry->register_metric("snmp", \
+                                  MetricLabels().add("name", #name), \
+                                  &_snmp_metrics->name)
+    REGISTER_SNMP_METRIC(tcp_in_errs);
+    REGISTER_SNMP_METRIC(tcp_retrans_segs);
 }
 
 void SystemMetrics::_update_net_metrics() {
