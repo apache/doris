@@ -103,7 +103,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             channel.reset(new LoadChannel(load_id, job_max_memory,
-                                          job_timeout_s, _mem_tracker.get()));
+                                          job_timeout_s, _mem_tracker));
             _load_channels.insert({load_id, channel});
         }
     }

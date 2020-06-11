@@ -137,7 +137,7 @@ private:
     size_t _limit = 0;
     uint8_t _block_status = DEL_PARTIAL_SATISFIED;
 
-    std::unique_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
     // 由于内部持有内存资源，所以这里禁止拷贝和赋值
     DISALLOW_COPY_AND_ASSIGN(RowBlock);

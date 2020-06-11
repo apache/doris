@@ -38,7 +38,7 @@ namespace doris {
 
 class BrokerScannerTest : public testing::Test {
 public:
-    BrokerScannerTest() : _runtime_state(TQueryGlobals()) {
+    BrokerScannerTest() : _tracker(new MemTracker()), _runtime_state(TQueryGlobals()) {
         init();
         _profile = _runtime_state.runtime_profile();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
@@ -59,7 +59,7 @@ private:
     void init_desc_table();
     void init_params();
 
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     RuntimeState _runtime_state;
     RuntimeProfile* _profile;
     ObjectPool _obj_pool;
@@ -361,7 +361,7 @@ TEST_F(BrokerScannerTest, normal) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(&_tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -413,8 +413,7 @@ TEST_F(BrokerScannerTest, normal2) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -460,8 +459,7 @@ TEST_F(BrokerScannerTest, normal3) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -508,8 +506,7 @@ TEST_F(BrokerScannerTest, normal4) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -540,8 +537,7 @@ TEST_F(BrokerScannerTest, normal5) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // end of file
@@ -565,8 +561,7 @@ TEST_F(BrokerScannerTest, normal6) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 4,5,6
@@ -597,8 +592,7 @@ TEST_F(BrokerScannerTest, normal7) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // end of file
@@ -622,8 +616,7 @@ TEST_F(BrokerScannerTest, normal8) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 4,5,6
@@ -654,8 +647,7 @@ TEST_F(BrokerScannerTest, normal9) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemTracker tracker;
-    MemPool tuple_pool(&tracker);
+    MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // end of file

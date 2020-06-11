@@ -56,7 +56,7 @@ class OlapTableSchemaParam;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, MemTracker* mem_tracker);
+    TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker);
 
     ~TabletsChannel();
 
@@ -123,7 +123,7 @@ private:
 
     std::unordered_set<int64_t> _partition_ids;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
 };

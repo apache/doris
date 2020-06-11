@@ -30,29 +30,24 @@
 
 namespace doris {
 
-EsHttpScanner::EsHttpScanner(
-            RuntimeState* state,
-            RuntimeProfile* profile,
-            TupleId tuple_id,
-            const std::map<std::string, std::string>& properties,
-            const std::vector<ExprContext*>& conjunct_ctxs,
-            EsScanCounter* counter,
-            bool doc_value_mode) :
-        _state(state),
-        _profile(profile),
-        _tuple_id(tuple_id),
-        _properties(properties),
-        _conjunct_ctxs(conjunct_ctxs),
-        _next_range(0),
-        _line_eof(false),
-        _batch_eof(false),
+EsHttpScanner::EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
+                             const std::map<std::string, std::string>& properties,
+                             const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
+                             bool doc_value_mode)
+        : _state(state),
+          _profile(profile),
+          _tuple_id(tuple_id),
+          _properties(properties),
+          _conjunct_ctxs(conjunct_ctxs),
+          _next_range(0),
+          _line_eof(false),
+          _batch_eof(false),
 #if BE_TEST
         _mem_tracker(new MemTracker()),
-        _mem_pool(_mem_tracker.get()),
-#else 
+#else
         _mem_tracker(new MemTracker(-1, "EsHttp Scanner", state->instance_mem_tracker())),
-        _mem_pool(_state->instance_mem_tracker()),
 #endif
+        _mem_pool(_mem_tracker.get()),
         _tuple_desc(nullptr),
         _counter(counter),
         _es_reader(nullptr),

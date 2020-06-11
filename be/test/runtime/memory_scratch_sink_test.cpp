@@ -67,7 +67,6 @@ public:
 
     ~MemoryScratchSinkTest() {
         delete _state;
-        delete _mem_tracker;
         delete _exec_env->_result_queue_mgr;
         delete _exec_env->_thread_mgr;
         delete _exec_env->_buffer_reservation;
@@ -102,7 +101,7 @@ private:
     TPlanNode _tnode;
     RowDescriptor* _row_desc = nullptr;
     TMemoryScratchSink _tsink;
-    MemTracker *_mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
     DescriptorTbl* _desc_tbl = nullptr;
     std::vector<TExpr> _exprs;
 };

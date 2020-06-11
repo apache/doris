@@ -162,17 +162,15 @@ public:
     ExecEnv* exec_env() {
         return _exec_env;
     }
-    std::vector<MemTracker*>* mem_trackers() {
-        return &_mem_trackers;
+    const std::vector<std::shared_ptr<MemTracker>>& mem_trackers() {
+        return _mem_trackers;
     }
-    MemTracker* fragment_mem_tracker() {
+   std::shared_ptr<MemTracker> fragment_mem_tracker() {
         return _fragment_mem_tracker;
     }
-    MemTracker* instance_mem_tracker() { {
-        return _instance_mem_tracker.get(); }
-    }
-    MemTracker* query_mem_tracker() { {
-        return _query_mem_tracker.get(); }
+
+    std::shared_ptr<MemTracker> instance_mem_tracker() {
+        return _instance_mem_tracker;
     }
     ThreadResourceMgr::ResourcePool* resource_pool() {
         return _resource_pool;
@@ -226,10 +224,10 @@ public:
         int buffer_size, RuntimeProfile* profile);
 
     // Sets the fragment memory limit and adds it to _mem_trackers
-    void set_fragment_mem_tracker(MemTracker* limit) {
-        DCHECK(_fragment_mem_tracker == NULL);
-        _fragment_mem_tracker = limit;
-        _mem_trackers.push_back(limit);
+    void set_fragment_mem_tracker(std::shared_ptr<MemTracker> tracker) {
+        DCHECK(_fragment_mem_tracker == nullptr);
+        _fragment_mem_tracker = tracker;
+        _mem_trackers.push_back(tracker);
     }
 
     // Appends error to the _error_log if there is space
@@ -552,17 +550,17 @@ private:
     ThreadResourceMgr::ResourcePool* _resource_pool;
 
     // all mem limits that apply to this query
-    std::vector<MemTracker*> _mem_trackers;
+    std::vector<std::shared_ptr<MemTracker>> _mem_trackers;
 
     // Fragment memory limit.  Also contained in _mem_trackers
-    MemTracker* _fragment_mem_tracker;
+    std::shared_ptr<MemTracker> _fragment_mem_tracker;
 
     // MemTracker that is shared by all fragment instances running on this host.
     // The query mem tracker must be released after the _instance_mem_tracker.
-    boost::shared_ptr<MemTracker> _query_mem_tracker;
+    std::shared_ptr<MemTracker> _query_mem_tracker;
 
     // Memory usage of this fragment instance
-    boost::scoped_ptr<MemTracker> _instance_mem_tracker;
+    std::shared_ptr<MemTracker> _instance_mem_tracker;
 
     // if true, execution should stop with a CANCELLED status
     bool _is_cancelled;

@@ -29,7 +29,7 @@ namespace doris {
 
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key, MemTracker* mem_tracker):
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker):
         _key(key), _state(kInitialized), _closed_senders(64) {
     _mem_tracker.reset(new MemTracker(-1, "tablets channel", mem_tracker));
     static std::once_flag once_flag;
@@ -235,7 +235,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.slots = index_slots;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&request, _mem_tracker.get(),  &writer);
+        auto st = DeltaWriter::open(&request, _mem_tracker,  &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

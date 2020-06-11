@@ -57,7 +57,7 @@ Status MysqlTableSink::init(const TDataSink& t_sink) {
 Status MysqlTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker.get()));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
     std::stringstream title;
     title << "MysqlTableSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile

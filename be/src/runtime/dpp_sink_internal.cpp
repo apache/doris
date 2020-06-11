@@ -70,11 +70,9 @@ Status RollupSchema::from_thrift(
 }
 
 Status RollupSchema::prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, MemTracker* mem_tracker) {
-    RETURN_IF_ERROR(Expr::prepare(
-            _key_ctxs, state, row_desc, mem_tracker));
-    RETURN_IF_ERROR(Expr::prepare(
-            _value_ctxs, state, row_desc, mem_tracker));
+        RuntimeState* state, const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& mem_tracker) {
+    RETURN_IF_ERROR(Expr::prepare(_key_ctxs, state, row_desc, mem_tracker));
+    RETURN_IF_ERROR(Expr::prepare(_value_ctxs, state, row_desc, mem_tracker));
     return Status::OK();
 }
 
@@ -224,11 +222,10 @@ Status PartitionInfo::from_thrift(
     return Status::OK();
 }
 
-Status PartitionInfo::prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, MemTracker* mem_tracker) {
+Status PartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                              const std::shared_ptr<MemTracker>& mem_tracker) {
     if (_distributed_expr_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::prepare(
-                _distributed_expr_ctxs, state, row_desc, mem_tracker));
+        RETURN_IF_ERROR(Expr::prepare(_distributed_expr_ctxs, state, row_desc, mem_tracker));
     }
     return Status::OK();
 }

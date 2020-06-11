@@ -343,7 +343,7 @@ private:
     std::vector<Cache::Handle*> _cache_handle;
     const FileHeader<ColumnDataHeaderMessage>* _file_header;
 
-    std::unique_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
 
     StorageByteBuffer* _shared_buffer;

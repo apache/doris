@@ -118,8 +118,8 @@ BufferPool::BufferPool(int64_t min_buffer_len, int64_t buffer_bytes_limit,
 
 BufferPool::~BufferPool() {}
 
-Status BufferPool::RegisterClient(const string& name, //TmpFileMgr::FileGroup* file_group,
-    ReservationTracker* parent_reservation, MemTracker* mem_tracker,
+Status BufferPool::RegisterClient(const string& name,
+    ReservationTracker* parent_reservation, const std::shared_ptr<MemTracker>& mem_tracker,
     int64_t reservation_limit, RuntimeProfile* profile, ClientHandle* client) {
   DCHECK(!client->is_registered());
   DCHECK(parent_reservation != NULL);
@@ -375,7 +375,7 @@ void BufferPool::SubReservation::Close() {
 }
 
 BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group,
-    const string& name, ReservationTracker* parent_reservation, MemTracker* mem_tracker,
+    const string& name, ReservationTracker* parent_reservation, const std::shared_ptr<MemTracker>& mem_tracker,
     int64_t reservation_limit, RuntimeProfile* profile)
   : pool_(pool),
     //file_group_(file_group),
@@ -386,7 +386,7 @@ BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group
   // Set up a child profile with buffer pool info.
   RuntimeProfile* child_profile = profile->create_child("Buffer pool", true, true);
   reservation_.InitChildTracker(
-      child_profile, parent_reservation, mem_tracker, reservation_limit);
+      child_profile, parent_reservation, mem_tracker.get(), reservation_limit);
   counters_.alloc_time = ADD_TIMER(child_profile, "AllocTime");
   counters_.cumulative_allocations =
       ADD_COUNTER(child_profile, "CumulativeAllocations", TUnit::UNIT);

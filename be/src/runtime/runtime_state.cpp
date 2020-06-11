@@ -155,23 +155,14 @@ RuntimeState::~RuntimeState() {
     }
 
 #ifndef BE_TEST
+    // TODO: cleanup this comment
     // _query_mem_tracker must be valid as long as _instance_mem_tracker is so
     // delete _instance_mem_tracker first.
     // LogUsage() walks the MemTracker tree top-down when the memory limit is exceeded.
     // Break the link between the instance_mem_tracker and its parent (_query_mem_tracker)
     // before the _instance_mem_tracker and its children are destroyed.
-    if (_instance_mem_tracker.get() != NULL) {
-        // May be NULL if InitMemTrackers() is not called, for example from tests.
-        _instance_mem_tracker->unregister_from_parent();
-        _instance_mem_tracker->close();
-    }
 
     _instance_mem_tracker.reset();
-   
-    if (_query_mem_tracker.get() != NULL) {
-        _query_mem_tracker->unregister_from_parent();
-        _query_mem_tracker->close();
-    }
     _query_mem_tracker.reset();
 #endif
 }
@@ -236,9 +227,9 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     mem_tracker_counter->set(bytes_limit);
 
     _query_mem_tracker.reset(
-            new MemTracker(bytes_limit, runtime_profile()->name(), _exec_env->process_mem_tracker()));
+            new MemTracker(bytes_limit, std::string("RuntimeState: query ") + runtime_profile()->name(), _exec_env->process_mem_tracker()));
     _instance_mem_tracker.reset(
-            new MemTracker(&_profile, -1, runtime_profile()->name(), _query_mem_tracker.get()));
+            new MemTracker(&_profile, -1, std::string("RuntimeState: instance ") + runtime_profile()->name(), _query_mem_tracker));
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
@@ -250,9 +241,9 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 
     RETURN_IF_ERROR(init_buffer_poolstate());
 
-    _initial_reservations = _obj_pool->add(new InitialReservations(_obj_pool.get(),
-                      _buffer_reservation, _query_mem_tracker.get(), 
-                      _query_options.initial_reservation_total_claims));
+    _initial_reservations = _obj_pool->add(
+            new InitialReservations(_obj_pool.get(), _buffer_reservation, _query_mem_tracker,
+                                    _query_options.initial_reservation_total_claims));
     RETURN_IF_ERROR(
         _initial_reservations->Init(_query_id, min_reservation()));
     DCHECK_EQ(0, _initial_reservation_refcnt.load());
@@ -273,7 +264,7 @@ Status RuntimeState::init_instance_mem_tracker() {
 
 Status RuntimeState::init_buffer_poolstate() {
   ExecEnv* exec_env = ExecEnv::GetInstance();
-  int64_t mem_limit = _query_mem_tracker->lowest_limit();
+  int64_t mem_limit = _query_mem_tracker->GetLowestLimit(MemLimit::HARD);
   int64_t max_reservation;
   if (query_options().__isset.buffer_pool_limit
       && query_options().buffer_pool_limit > 0) {
@@ -303,7 +294,7 @@ Status RuntimeState::create_block_mgr() {
     if (block_mgr_limit < 0) {
         block_mgr_limit = std::numeric_limits<int64_t>::max();
     }
-    RETURN_IF_ERROR(BufferedBlockMgr2::create(this, _query_mem_tracker.get(),
+    RETURN_IF_ERROR(BufferedBlockMgr2::create(this, _query_mem_tracker,
             runtime_profile(), _exec_env->tmp_file_mgr(),
             block_mgr_limit, _exec_env->disk_io_mgr()->max_read_buffer_size(), &_block_mgr2));
     return Status::OK();

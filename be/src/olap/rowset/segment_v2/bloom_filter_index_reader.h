@@ -72,7 +72,8 @@ public:
     explicit BloomFilterIndexIterator(BloomFilterIndexReader* reader)
         : _reader(reader),
           _bloom_filter_iter(reader->_bloom_filter_reader.get()),
-          _pool(new MemPool(&_tracker)) {
+          _tracker(new MemTracker()),
+          _pool(new MemPool(_tracker.get())) {
     }
 
     // Read bloom filter at the given ordinal into `bf`.
@@ -85,7 +86,7 @@ public:
 private:
     BloomFilterIndexReader* _reader;
     IndexedColumnIterator _bloom_filter_iter;
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 };
 

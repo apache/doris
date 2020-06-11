@@ -35,7 +35,7 @@ SelectNode::SelectNode(
 Status SelectNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _child_row_batch.reset(
-        new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
+        new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
     return Status::OK();
 }
 

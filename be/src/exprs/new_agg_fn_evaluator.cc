@@ -89,7 +89,7 @@ typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
 const int DEFAULT_MULTI_DISTINCT_COUNT_STRING_BUFFER_SIZE = 1024;
 
-NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, MemTracker* tracker, bool is_clone)
+NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, std::shared_ptr<MemTracker> tracker, bool is_clone)
   : _total_mem_consumption(0),
     _accumulated_mem_consumption(0), 
     is_clone_(is_clone),
@@ -100,7 +100,7 @@ NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, Mem
 
 NewAggFnEvaluator::~NewAggFnEvaluator() {
   if (UNLIKELY(_total_mem_consumption > 0)) {
-      _mem_tracker->release(_total_mem_consumption);
+      _mem_tracker->Release(_total_mem_consumption);
   }
   DCHECK(closed_);
 }
@@ -115,7 +115,7 @@ const TypeDescriptor& NewAggFnEvaluator::intermediate_type() const {
 
 Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, ObjectPool* pool,
                   MemPool* mem_pool, NewAggFnEvaluator** result,
-                  MemTracker* tracker, const RowDescriptor& row_desc) {
+                  std::shared_ptr<MemTracker> tracker, const RowDescriptor& row_desc) {
   *result = nullptr;
 
   // Create a new AggFn evaluator.
@@ -169,7 +169,7 @@ cleanup:
 
 Status NewAggFnEvaluator::Create(const vector<AggFn*>& agg_fns, RuntimeState* state,
     ObjectPool* pool, MemPool* mem_pool, vector<NewAggFnEvaluator*>* evals,
-    MemTracker* tracker, const RowDescriptor& row_desc) {
+    std::shared_ptr<MemTracker> tracker, const RowDescriptor& row_desc) {
   for (const AggFn* agg_fn : agg_fns) {
     NewAggFnEvaluator* agg_fn_eval;
     RETURN_IF_ERROR(NewAggFnEvaluator::Create(*agg_fn, state, pool, mem_pool, 

@@ -330,7 +330,7 @@ private:
     size_t _num_rows;
     std::vector<TabletColumn>* _short_key_columns;
 
-    std::unique_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
     DISALLOW_COPY_AND_ASSIGN(MemIndex);
 };

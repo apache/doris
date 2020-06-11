@@ -336,7 +336,7 @@ class BufferedTupleStream3 {
   /// process. If the current unused reservation is not sufficient to pin the stream in
   /// memory, this will try to increase the reservation. If that fails, 'got_rows' is set
   /// to false.
-  Status GetRows(MemTracker* tracker, boost::scoped_ptr<RowBatch>* batch,
+  Status GetRows(const std::shared_ptr<MemTracker>& tracker, boost::scoped_ptr<RowBatch>* batch,
       bool* got_rows) WARN_UNUSED_RESULT;
 
   /// Must be called once at the end to cleanup all resources. If 'batch' is non-NULL,

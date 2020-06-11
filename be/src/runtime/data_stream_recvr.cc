@@ -242,7 +242,7 @@ void DataStreamRecvr::SenderQueue::add_batch(
         // Note: if this function makes a row batch, the batch *must* be added
         // to _batch_queue. It is not valid to create the row batch and destroy
         // it in this thread.
-        batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker());
+        batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker().get());
     }
    
     VLOG_ROW << "added #rows=" << batch->num_rows()
@@ -352,7 +352,7 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
 }
 
 DataStreamRecvr::DataStreamRecvr(
-        DataStreamMgr* stream_mgr, MemTracker* parent_tracker,
+        DataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, bool is_merging, 
         int total_buffer_limit, RuntimeProfile* profile, 
@@ -427,8 +427,7 @@ void DataStreamRecvr::close() {
     _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());
     _mgr = NULL;
     _merger.reset();
-    _mem_tracker->close();
-//    _mem_tracker->unregister_from_parent();
+    // TODO: Maybe shared tracker doesn't need to be reset manually
     _mem_tracker.reset();
 }
 

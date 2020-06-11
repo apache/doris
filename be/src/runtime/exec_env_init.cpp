@@ -80,7 +80,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _extdatasource_client_cache = new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
-    _mem_tracker = nullptr;
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
     _thread_pool = new PriorityThreadPool(
@@ -178,7 +177,7 @@ Status ExecEnv::_init_mem_tracker() {
         return Status::InternalError(ss.str());
     }
 
-    _mem_tracker = new MemTracker(bytes_limit);
+    _mem_tracker.reset(new MemTracker(bytes_limit, "ExecEnv root", MemTracker::GetRootTracker()));
 
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
@@ -224,7 +223,6 @@ void ExecEnv::_destory() {
     delete _thread_pool;
     delete _thread_mgr;
     delete _pool_mem_trackers;
-    delete _mem_tracker;
     delete _broker_client_cache;
     delete _extdatasource_client_cache;
     delete _frontend_client_cache;

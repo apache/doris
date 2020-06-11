@@ -159,7 +159,7 @@ public:
 
 private:
     std::unique_ptr<RowsetWriter> _alpha_rowset_writer;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
 };
 

@@ -216,7 +216,7 @@ public:
 
     ColumnWriter *_column_writer;
     ColumnReader *_column_reader;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<ColumnVector> _col_vector;
 

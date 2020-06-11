@@ -62,8 +62,8 @@ public:
         status = bf_page_decoder.seek_to_position_in_page(0);
         ASSERT_TRUE(status.ok());
 
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         Slice* values = reinterpret_cast<Slice*>(pool.allocate(sizeof(Slice)));
         ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, nullptr, 2, &pool);
         ColumnBlockView column_block_view(&block);
