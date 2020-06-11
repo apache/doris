@@ -31,12 +31,10 @@ import org.apache.doris.qe.QueryDetail;
 public class QueryDetailQueue {
     private static Map<String, QueryDetail> runningQueries = Maps.newHashMap();
     private static LinkedList<QueryDetail> totalQueries = new LinkedList<QueryDetail>();
-    private static int queryNumber = 0;
     private static int queryCapacity = 10000;
 
     public static synchronized void addOrUpdateQueryDetail(QueryDetail queryDetail) {
         if (runningQueries.get(queryDetail.getQueryId()) == null) {
-            queryNumber++;
             runningQueries.put(queryDetail.getQueryId(), queryDetail);
             totalQueries.add(queryDetail);
         } else {
@@ -44,7 +42,7 @@ public class QueryDetailQueue {
             qDetail.setLatency(queryDetail.getLatency());
             qDetail.setState(queryDetail.getState());
         }
-        if (queryNumber > queryCapacity) {
+        if (totalQueries.size() > queryCapacity) {
             QueryDetail qDetail = totalQueries.remove();
             runningQueries.remove(qDetail.getQueryId());
         }
@@ -66,7 +64,6 @@ public class QueryDetailQueue {
             QueryDetail qDetail = totalQueries.remove();
             runningQueries.remove(qDetail.getQueryId());
         }
-        queryNumber = 0;
         return results; 
     }
 };
