@@ -186,7 +186,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                         for (int i = 0; i < tabletIds.size(); i++) {
                             long tabletId = tabletIds.get(i);
                             TabletMeta tabletMeta = tabletMetaList.get(i);
-                            if (tabletMeta == null) {
+                            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
                                 continue;
                             }
                             long partitionId = tabletMeta.getPartitionId();

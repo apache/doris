@@ -373,7 +373,7 @@ public class DatabaseTransactionMgr {
         List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
         for (int i = 0; i < tabletMetaList.size(); i++) {
             TabletMeta tabletMeta = tabletMetaList.get(i);
-            if (tabletMeta == null) {
+            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
                 continue;
             }
             long tabletId = tabletIds.get(i);

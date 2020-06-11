@@ -379,7 +379,7 @@ public class MasterImpl {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
                     long tabletId = tabletIds.get(i);
                     Replica replica = findRelatedReplica(olapTable, partition,
-                            backendId, tabletId, tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE);
+                            backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
                         deleteJob.addFinishedReplica(pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
@@ -406,7 +406,7 @@ public class MasterImpl {
         // the check replica will failed
         // should use tabletid not pushTabletid because in rollup state, the push tabletid != tabletid
         // and tablet meta will not contain rollupindex's schema hash
-        if (tabletMeta == null) {
+        if (tabletMeta == null || tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
             // rollup may be dropped
             throw new MetaNotFoundException("tablet " + tabletId + " does not exist");
         }
@@ -540,7 +540,7 @@ public class MasterImpl {
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 TabletMeta tabletMeta = tabletMetaList.get(i);
                 TTabletInfo tTabletInfo = finishTabletInfos.get(i);
-                long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
+                long indexId = tabletMeta.getIndexId();
                 ReplicaPersistInfo info = updateReplicaInfo(olapTable, partition,
                         backendId, pushIndexId, indexId,
                         tTabletInfo, pushState);

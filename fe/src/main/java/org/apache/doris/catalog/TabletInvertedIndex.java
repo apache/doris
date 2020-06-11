@@ -59,6 +59,9 @@ public class TabletInvertedIndex {
 
     public static final int NOT_EXIST_VALUE = -1;
 
+    public static final TabletMeta NOT_EXIST_TABLET_META = new TabletMeta(NOT_EXIST_VALUE, NOT_EXIST_VALUE,
+            NOT_EXIST_VALUE, NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD);
+
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     // tablet id -> tablet meta
@@ -276,7 +279,7 @@ public class TabletInvertedIndex {
         readLock();
         try {
             for (Long tabletId : tabletIdList) {
-                tabletMetaList.add(tabletMetaMap.get(tabletId));
+                tabletMetaList.add(tabletMetaMap.getOrDefault(tabletId, NOT_EXIST_TABLET_META));
             }
             return tabletMetaList;
         } finally {

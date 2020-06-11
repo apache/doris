@@ -392,7 +392,7 @@ public class ReportHandler extends Daemon {
                 List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
                 for (int i = 0; i < tabletMetaList.size(); i++) {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
-                    if (tabletMeta == null) {
+                    if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
                         continue;
                     }
                     long tabletId = tabletIds.get(i);
@@ -408,7 +408,7 @@ public class ReportHandler extends Daemon {
                         continue;
                     }
 
-                    long indexId = tabletMeta.getPartitionId();
+                    long indexId = tabletMeta.getIndexId();
                     MaterializedIndex index = partition.getIndex(indexId);
                     if (index == null) {
                         continue;
@@ -521,7 +521,7 @@ public class ReportHandler extends Daemon {
                 List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
                 for (int i = 0; i < tabletMetaList.size(); i++) {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
-                    if (tabletMeta == null) {
+                    if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
                         continue;
                     }
                     long tabletId = tabletIds.get(i);
@@ -729,7 +729,7 @@ public class ReportHandler extends Daemon {
                 long tabletId = tabletIds.get(i);
                 TabletMeta tabletMeta = tabletMetaList.get(i);
                 // always get old schema hash(as effective one)
-                int effectiveSchemaHash = tabletMeta != null ? tabletMeta.getOldSchemaHash() : TabletInvertedIndex.NOT_EXIST_VALUE;
+                int effectiveSchemaHash = tabletMeta.getOldSchemaHash();
                 StorageMediaMigrationTask task = new StorageMediaMigrationTask(backendId, tabletId,
                         effectiveSchemaHash, storageMedium);
                 batchTask.addTask(task);
@@ -783,7 +783,7 @@ public class ReportHandler extends Daemon {
                     List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
                     for (int i = 0; i < tabletMetaList.size(); i++) {
                         TabletMeta tabletMeta = tabletMetaList.get(i);
-                        if (tabletMeta == null) {
+                        if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
                             continue;
                         }
                         long tabletId = tabletIds.get(i);
