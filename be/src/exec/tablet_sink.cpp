@@ -789,7 +789,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
         std::stringstream ss; // error message
         for (int i = 0; row_valid && i < _output_tuple_desc->slots().size(); ++i) {
             SlotDescriptor* desc = _output_tuple_desc->slots()[i];
-            if (tuple->is_null(desc->null_indicator_offset())) {
+            if (desc->is_nullable() && tuple->is_null(desc->null_indicator_offset())) {
                 if (desc->type().type == TYPE_OBJECT) {
                     ss << "null is not allowed for bitmap column, column_name: " << desc->col_name();
                     row_valid = false;
