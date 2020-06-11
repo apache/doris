@@ -55,6 +55,7 @@ public class DynamicPartitionUtilTest {
 
     private static Calendar getCalendarWithDate(String dateStr) throws ParseException {
         SimpleDateFormat sdf = new SimpleDateFormat(FORMAT);
+        sdf.setTimeZone(TimeUtils.getDefaultTimeZone());
         Calendar calendar = Calendar.getInstance(TimeUtils.getDefaultTimeZone());
         calendar.getTimeZone();
         Date date = sdf.parse(dateStr);

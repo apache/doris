@@ -333,7 +333,9 @@ public class DynamicPartitionUtil {
             formattedDateStr = formattedDateStr.substring(0, 8);
             Calendar calendar = Calendar.getInstance(tz);
             try {
-                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(formattedDateStr));
+                SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd");
+                dateFormat.setTimeZone(tz);
+                calendar.setTime(dateFormat.parse(formattedDateStr));
             } catch (ParseException e) {
                 LOG.warn("Format dynamic partition name error. Error={}", e.getMessage());
                 return formattedDateStr;
