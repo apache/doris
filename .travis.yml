@@ -13,42 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-language: node_js
-# nodejs版本
-node_js: 
-    - '14'
-
-# Travis-CI Caching
-cache:
-  directories:
-    - docs/node_modules
-
+language: java 
 
 # S: Build Lifecycle
-install:
-  - cd docs && npm install
-
-before_script:
-  - export PR=https://api.github.com/repos/$TRAVIS_REPO_SLUG/pulls/$TRAVIS_PULL_REQUEST
-  - export BRANCH=$(if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then echo $TRAVIS_BRANCH; else echo `curl -s $PR | jq -r .head.ref`; fi)
-  - find ./ -name "*.md" -exec sed -i -e 's/!\[\(.*\)\][(]\(.*\)[)]/<img \:src=\"$withBase\('\''\2'\''\)\" alt=\"\1\">/g' {} \;
-  - rm -rf site-repo
   
 script:
-  - npm run build
-
-after_script:
-  - if [ "$TRAVIS_EVENT_TYPE" != "push" ]; then exit 0; fi
-  - git config user.name "${GIT_NAME}"
-  - git config user.email "${GIT_EMAIL}"
-  - git clone https://${SITE_REPO} site-repo
-  - cd site-repo
-  - git checkout ${SITE_BRANCH}
-  - mkdir -p ${BRANCH} && rm -rf ${BRANCH}/*
-  - cp -r ../.vuepress/dist/* ./${BRANCH}/
-  - git add .
-  - git commit -am "Auto Build"
-  - git push --verbose "https://${SITE_PUSH_TOKEN}@${SITE_REPO}" ${SITE_BRANCH}:${SITE_BRANCH}
+  - sh build.sh --fe 
 
 branches:
   only:
