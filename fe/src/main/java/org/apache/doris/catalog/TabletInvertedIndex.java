@@ -40,6 +40,7 @@ import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -271,7 +272,7 @@ public class TabletInvertedIndex {
     }
 
     public List<TabletMeta> getTabletMetaList(List<Long> tabletIdList) {
-        List<TabletMeta> tabletMetaList = Lists.newArrayList();
+        List<TabletMeta> tabletMetaList = new ArrayList<>(tabletIdList.size());
         readLock();
         try {
             for (Long tabletId : tabletIdList) {
