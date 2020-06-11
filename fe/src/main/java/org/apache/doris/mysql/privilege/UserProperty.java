@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ResourceGroup;
 import org.apache.doris.catalog.ResourceType;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
