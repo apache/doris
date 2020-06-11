@@ -19,8 +19,8 @@
 ##############################################################
 # This script is used to compile UDF 
 # Usage:
-#    sh build.sh        build udf without clean.
-#    sh build.sh -clean --udf clean previous output and build.
+#    sh build-custom-udf.sh            build udf without clean.
+#    sh build-custom-udf.sh -clean     clean previous output and build.
 #
 ##############################################################
 
@@ -48,13 +48,11 @@ usage() {
   echo "
 Usage: $0 <options>
   Optional options:
-     --udf              build custom UDF
      --clean            clean and build target
 
   Eg.
-    $0                                       build UDF without clean
-    $0 --udf                                 build UDF without clean
-    $0 --udf --clean                         clean and build UDF
+    $0                                 build UDF without clean
+    $0 --clean                         clean and build UDF
   "
   exit 1
 }
@@ -63,7 +61,6 @@ OPTS=$(getopt \
   -n $0 \
   -o '' \
   -o 'h' \
-  -l 'udf' \
   -l 'clean' \
   -l 'help' \
   -- "$@")
@@ -74,19 +71,16 @@ fi
 
 eval set -- "$OPTS"
 
-BUILD_UDF=
-CLEAN=
+BUILD_UDF=1
+CLEAN=0
 HELP=0
 if [ $# == 1 ] ; then
-    # defuat
-    BUILD_UDF=1
+    # default
     CLEAN=0
 else
-    BUILD_UDF=0
     CLEAN=0
     while true; do
         case "$1" in
-            --udf) BUILD_UDF=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
@@ -101,13 +95,7 @@ if [[ ${HELP} -eq 1 ]]; then
     exit
 fi
 
-if [ ${CLEAN} -eq 1 -a ${BUILD_UDF} -eq 0 ]; then
-    echo "--clean can not be specified without --udf"
-    exit 1
-fi
-
 echo "Get params:
-    BUILD_UDF    -- $BUILD_UDF
     CLEAN       -- $CLEAN
 "
 
