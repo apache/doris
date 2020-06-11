@@ -31,7 +31,16 @@ under the License.
 该文档主要介绍 FE 的相关监控项。
 
 ## 查看监控项
-（TODO）
+
+FE 的监控项可以通过以下方式访问：
+
+`http://fe_host:fe_http_port/metrics`
+
+默认显示为 [Prometheus](https://prometheus.io/) 格式。
+
+通过以下接口可以获取 Json 格式的监控项：
+
+`http://fe_host:fe_http_port/metrics?type=agent`
 
 ## 监控项列表
 

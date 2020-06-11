@@ -31,7 +31,16 @@ under the License.
 This document mainly introduces the monitor metrics of BE.
 
 ## View Metrics
-（TODO）
+
+BE metrics can be viewed by visiting:
+
+`http://be_host:be_webserver_port/metrics`
+
+The default format is of [Prometheus](https://prometheus.io/).
+
+You can get Json format by visiting:
+
+`http://be_host:be_webserver_port/metrics?type=agent`
 
 ## Metrics List
 

@@ -31,7 +31,16 @@ under the License.
 该文档主要介绍 BE 的相关监控项。
 
 ## 查看监控项
-（TODO）
+
+BE 的监控项可以通过以下方式访问：
+
+`http://be_host:be_webserver_port/metrics`
+
+默认显示为 [Prometheus](https://prometheus.io/) 格式。
+
+通过以下接口可以获取 Json 格式的监控项：
+
+`http://be_host:be_webserver_port/metrics?type=agent`
 
 ## 监控项列表
 

@@ -31,7 +31,16 @@ under the License.
 This document mainly introduces the monitor metrics of FE.
 
 ## View Metrics
-（TODO）
+
+FE metrics can be viewed by visiting:
+
+`http://fe_host:fe_http_port/metrics`
+
+The default format is of [Prometheus](https://prometheus.io/).
+
+You can get Json format by visiting:
+
+`http://fe_host:fe_http_port/metrics?type=agent`
 
 ## Metrics List
 
