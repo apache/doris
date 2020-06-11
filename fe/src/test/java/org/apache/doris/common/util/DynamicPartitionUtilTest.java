@@ -56,6 +56,7 @@ public class DynamicPartitionUtilTest {
     private static Calendar getCalendarWithDate(String dateStr) throws ParseException {
         SimpleDateFormat sdf = new SimpleDateFormat(FORMAT);
         Calendar calendar = Calendar.getInstance(TimeUtils.getDefaultTimeZone());
+        calendar.getTimeZone();
         Date date = sdf.parse(dateStr);
         calendar.setTime(date);
         return calendar;
@@ -64,7 +65,6 @@ public class DynamicPartitionUtilTest {
     @Test
     public void testGetPartitionRangeString() throws ParseException {
         // TimeUnit: DAY
-        
         // 1. 2020-05-25, offset -7
         DynamicPartitionProperty property = new DynamicPartitionProperty(getDynamProp("DAY", -3, 3, -1, -1));
         String res = DynamicPartitionUtil.getPartitionRangeString(property, getCalendarWithDate("2020-05-25"), -7,

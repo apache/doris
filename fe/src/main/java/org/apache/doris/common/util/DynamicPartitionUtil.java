@@ -374,7 +374,7 @@ public class DynamicPartitionUtil {
      */
     private static String getPartitionRangeOfDay(Calendar current, int offset, TimeZone tz, String format) {
         current.add(Calendar.DATE, offset);
-        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+        return getFormattedTimeWithoutHourMinuteSecond(current, tz, format);
     }
 
     /*
@@ -397,7 +397,7 @@ public class DynamicPartitionUtil {
         // SUNDAY will return 1, we will set it to 7, and make MONDAY to 1, and so on
         day = (day == 1 ? 7 : day - 1);
         current.add(Calendar.DATE, (startOf.dayOfWeek - day));
-        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+        return getFormattedTimeWithoutHourMinuteSecond(current, tz, format);
     }
 
     /*
@@ -423,14 +423,15 @@ public class DynamicPartitionUtil {
         }
         current.add(Calendar.MONTH, realOffset);
         current.set(Calendar.DATE, startOf.day);
-        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+        return getFormattedTimeWithoutHourMinuteSecond(current, tz, format);
     }
 
-    private static String getFormattedTimeWithoutHourMinuteSecond(Calendar calendar, String format) {
+    private static String getFormattedTimeWithoutHourMinuteSecond(Calendar calendar, TimeZone tz, String format) {
         calendar.set(Calendar.HOUR_OF_DAY, 0);
         calendar.set(Calendar.MINUTE, 0);
         calendar.set(Calendar.SECOND, 0);
         SimpleDateFormat dateFormat = new SimpleDateFormat(format);
+        dateFormat.setTimeZone(tz);
         return dateFormat.format(calendar.getTime());
     }
 
