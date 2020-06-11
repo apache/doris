@@ -463,8 +463,8 @@ public:
         return _query_options.disable_stream_preaggregations;
     }
 
-    bool disable_spill() const {
-        return !_query_options.enable_spilling;
+    bool enable_spill() const {
+        return _query_options.enable_spilling;
     }
 
      // the following getters are only valid after Prepare()
