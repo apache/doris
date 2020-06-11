@@ -17,8 +17,7 @@ services:
   - docker
 before_install:
   - docker pull apachedoris/doris-dev:build-env-1.2
-  - docker run -it -v /home/travis/build/wanpengfei-git/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
-  - docker run -it /bin/sh -c "cd /root/incubator-doris; ./build.sh" 
+  - docker run -it -v /home/travis/build/wanpengfei-git/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2 -c "cd /root/incubator-doris; echo 100"
 
 
 jobs:
