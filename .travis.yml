@@ -13,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+
+#jobs:
+#  include:
+#    - stage: "fe build"
+#      name: "fe build"
+#      script: ./build.sh --fe
 language: java 
 
 # S: Build Lifecycle
   
-script:
-  - sh build.sh --fe 
-
-branches:
-  only:
-    - master
-    - /^branch-.*$/
+script: ./build.sh --fe 
+      
