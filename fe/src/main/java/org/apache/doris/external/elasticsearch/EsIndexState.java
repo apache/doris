@@ -17,15 +17,15 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import com.google.common.collect.Maps;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.thrift.TNetworkAddress;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 public class EsIndexState {
 
