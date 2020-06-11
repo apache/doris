@@ -37,7 +37,7 @@ before_script:
 script:
   - npm run build
 
-after_script:
+after_success:
   - if [ "$TRAVIS_EVENT_TYPE" != "push" ]; then exit 0; fi
   - git config user.name "${GIT_NAME}"
   - git config user.email "${GIT_EMAIL}"
