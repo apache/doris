@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -334,39 +333,6 @@ public class SelectStmt extends QueryStmt {
         this.tableAliasGenerator = tableAliasGenerator;
     }
 
-    private void checkFromHiveTable(Analyzer analyzer) throws AnalysisException {
-        for (TableRef tblRef : fromClause_) {
-            if (!(tblRef instanceof BaseTableRef)) {
-                continue;
-            }
-
-            TableName tableName = tblRef.getName();
-            String dbName = tableName.getDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                dbName = analyzer.getDefaultDb();
-            } else {
-                dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
-            }
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-
-            Database db = analyzer.getCatalog().getDb(dbName);
-            if (db == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-            }
-
-            String tblName = tableName.getTbl();
-            Table table = db.getTable(tblName);
-            if (table == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
-            }
-            if (table.getType() == TableType.HIVE) {
-                throw new AnalysisException("Query from hive table is not supported, table: " + tblName);
-            }
-        }
-    }
-
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) {
             return;
@@ -375,8 +341,6 @@ public class SelectStmt extends QueryStmt {
 
         fromClause_.setNeedToSql(needToSql);
         fromClause_.analyze(analyzer);
-        // TODO: remove when query from hive table is supported
-        checkFromHiveTable(analyzer);
 
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
