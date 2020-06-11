@@ -3914,7 +3914,7 @@ public class Catalog {
     private void createHiveTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
         List<Column> columns = stmt.getColumns();
-        long tableId = Catalog.getCurrentCatalog().getNextId();
+        long tableId = getNextId();
         HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
         hiveTable.setComment(stmt.getComment());
         if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists())) {
