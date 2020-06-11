@@ -17,10 +17,11 @@ services:
   - docker
 before_install:
   - docker pull apachedoris/doris-dev:build-env-1.2
-  - docker run -d --name build apachedoris/doris-dev -v /home/travis/build/wanpengfei-git/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
+  #- docker run -d apachedoris/doris-dev:build-env-1.2 -v /home/travis/build/wanpengfei-git/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
+  - docker run -d  -v /Users/wanpengfei/doris/incubator-doris:/root/incubator-doris apachedoris/doris-dev:build-env-1.2 bash -c  "cd /root/incubator-doris; sh build.sh"
 
-script:
-  - docker exec build bash /root/build.sh
+#script:
+#  - docker exec apachedoris/doris-dev:build-env-1.2 bash /root/incubator-doris/build.sh
 #jobs:
 #  include:
 #    - stage: build
