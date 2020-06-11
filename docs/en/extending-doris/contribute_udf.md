@@ -45,7 +45,7 @@ If you are not sure whether the UDF function you wrote is universal, you can sen
 
 ## Source code
 
-The placement path should be under `custom_udf/src/my_udf`. Here with udf_samples, first create a new folder under the `custom_udf/src/` path and store the original code.
+Create a folder to store UDF functions under `custom_udf/src/`, and store the source code and CMAKE files here. The source code to be contributed should include: `.h`, `.cpp`, `CMakeFile.txt`. Taking udf_samples as an example here, first create a new folder under the `custom_udf/src/` path and store the source code.
 
 ```
 
@@ -60,6 +60,10 @@ The placement path should be under `custom_udf/src/my_udf`. Here with udf_sample
     │           └── udf_sample.h
 
 ```
+
+1. CMakeLists.txt
+
+     After the user's CMakeLists are placed here, a few changes are required. Just remove `include udf` and `udf lib`. The reason for the removal is that it has been declared in the custom_udf level CMake file.
 
 ## manual
 

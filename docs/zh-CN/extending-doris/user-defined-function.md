@@ -47,6 +47,16 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 创建对应的头文件、CPP文件，在CPP文件中实现你需要的逻辑。CPP文件中的实现函数格式与UDF的对应关系。
 
+用户可以把自己的 source code 统一放在一个文件夹下。这里以 udf_sample 为例，目录结构如下：
+
+```
+└── udf_samples
+  ├── uda_sample.cpp
+  ├── uda_sample.h
+  ├── udf_sample.cpp
+  └── udf_sample.h
+```
+
 #### 非可变参数
 
 对于非可变参数的UDF，那么两者之间的对应关系很直接。
@@ -83,33 +93,14 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 |Varchar|StringVal|
 |Decimal|DecimalVal|
 
-### 编写完成后的目录结构
-
-这里以 udf_sample 为例, 在 src dir 下面创建一个 `udf_samples` 目录用于存放 source code.
-
-```
-
-├── be
-├── custom_udf
-│   ├── CMakeLists.txt
-│   ├── build_custom_udf.sh
-│   └── src
-│       └── udf_samples
-│           ├── CMakeLists.txt
-│           ├── uda_sample.cpp
-│           ├── uda_sample.h
-│           ├── udf_sample.cpp
-│           └── udf_sample.h
-
-```
 
 ## 编译 UDF 函数
 
-由于用户自己实现的 function 中依赖了 Doris 的 udf , 所以在编译 UDF 函数的时候首先对 Doris 进行编译。然后再编译用户自己实现的 UDF 即可。
+    由于用户自己实现的 function 中依赖了 Doris 的 udf , 所以在编译 UDF 函数的时候首先对 Doris 进行编译。然后再编译用户自己实现的 UDF 即可。
 
 ### 编译Doris
 
-在Doris根目录下执行`sh build.sh`就会在`output/udf/`生成对应`headers|libs`
+在Doris根目录下执行 `sh build.sh` 就会在 `output/udf/` 生成对应 `headers|libs`
 
 ```
 ├── output
@@ -122,77 +113,124 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 ```
 
-### 编写自定义 UDF 的 CMakeLists.txt
+### 编写 UDF 编译文件
 
-1. 在 `custom_udf/CMakeLists.txt` 下增加对自定义 UDF 的编译。以 udf_samples 为例
+1. 准备 third_party 
+
+    third_party 文件夹主要用于存放用户 UDF 函数依赖的第三方库，包括头文件及静态库。其中必须包含的是 `udf.h` 和 `libDorisUdf.a` 这两个文件。
+    
+    这里以 udf_sample 为例, 在 用户自己 `udf_samples` 目录用于存放 source code。在同级目录下再创建一个 `third_party` 文件夹用于存放上一步生成的依赖静态库。目录结构如下：
 
     ```
-    ├── be
-    ├── custom_udf
-    │   ├── CMakeLists.txt
-    │   └── src
-
-    
-    custom_udf/CMakeLists.txt
-    ...
-    add_subdirectory(${SRC_DIR}/udf_samples)
-    ...
+    ├── third_party
+    │ │── include
+    │ │ └── udf.h
+    │ └── lib
+    │   └── libDorisUdf.a
+    └── udf_samples
 
     ```
 
-2. 在自定义 UDF 中增加依赖。以 udf_samples 为例，
+   `udf.h` 是 UDF 函数必须依赖的头文件。原始存放路径为 `doris/be/src/udf/udf.h`。 用户需要将 Doris 工程中的这个头文件拷贝到自己的 `third_party` 的 include 文件夹下。
 
-    由于 udf_samples 中的代码都没有依赖任何其他库，则不需要声明。
-    
-    如果代码中依赖了比如 Doris UDF 中对 `StringVal` 的函数，则需要声明依赖了 udf。修改 `udf_samples/CMakeFiles.txt`:
+   `libDorisUdf.a`  是 UDF 函数必须依赖的静态库。在前面编译 BE 步骤的产出，编译完成后该文件存放在 `doris/output/udf/lib/libDorisUdf.a`。用户需要将该文件拷贝到自己的 `third_party` 的 lib 文件夹下。
+
+    *注意：静态库只有完成 BE 编译后才会生成。
+
+2. 准备编译 UDF 的 CMakeFiles.txt
+
+    CMakeFiles.txt 用于声明 UDF 函数如何进行编译。存放在源码文件夹下，与用户代码平级。这里以 `udf_samples` 为例目录结构如下:
 
     ```
-    ├── be
-    ├── custom_udf
-    │   ├── CMakeLists.txt
-    │   └── src
-    │       └── udf_samples
-    │           ├── CMakeLists.txt
+    ├── third_party
+    └── udf_samples
+      ├── CMakeLists.txt
+      ├── uda_sample.cpp
+      ├── uda_sample.h
+      ├── udf_sample.cpp
+      └── udf_sample.h
+    ```
+
+    + 需要显示声明引用 `libDorisUdf.a` 
+    + 声明 `udf.h` 头文件位置
+
+
+    以 udf_sample 为例    
     
-    custom_udf/src/udf_samples/CMakeFiles.txt
-    ...
-    target_link_libraries(udfsample
+    ```
+    # Include udf
+    include_directories(third_party/include)    
+
+    # Set all libraries
+    add_library(udf STATIC IMPORTED)
+    set_target_properties(udf PROPERTIES IMPORTED_LOCATION third_party/lib/libDorisUdf.a)
+
+    # where to put generated libraries
+    set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+
+    # where to put generated binaries
+    set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+
+    add_library(udfsample SHARED udf_sample.cpp)
+        target_link_libraries(udfsample
         udf
         -static-libstdc++
         -static-libgcc
-    )    
-    ...
+    )
 
+    add_library(udasample SHARED uda_sample.cpp)
+        target_link_libraries(udasample
+        udf
+        -static-libstdc++
+        -static-libgcc
+    )
     ```
+
+    如果用户的 UDF 函数还依赖了其他的三方库，则需要声明include，lib，并在 `add_library` 中增加依赖。
+
+所有文件准备齐后完整的目录结构如下：
+
+```
+    ├── third_party
+    │ │── include
+    │ │ └── udf.h
+    │ └── lib
+    │   └── libDorisUdf.a
+    └── udf_samples
+      ├── CMakeLists.txt
+      ├── uda_sample.cpp
+      ├── uda_sample.h
+      ├── udf_sample.cpp
+      └── udf_sample.h
+```
+
+准备好上述文件就可以直接编译 UDF 了
 
 ### 执行编译
 
-运行 custom_udf 下的 `build_custom_udf.sh`
+在 udf_samples 文件夹下创建一个 build 文件夹，用于存放编译产出。
+
+在 build 文件夹下运行命令 `cmake ../` 生成Makefile，并执行 make 就会生成对应动态库。
 
 ```
-├── be
-├── custom_udf
-│   ├── build_custom_udf.sh
-
-build_custom_udf.sh --udf --clean
-
+├── third_party
+├── build
+└── udf_samples
 ```
-
-这个编译脚本如果默认不传入任何参数，则直接编译并且不 clean。如果需要 clean 后再编译则需要加上参数 `--udf --clean`
 
 ### 编译结果
 
-编译完成后的动态链接库被放在了 `output/custom_udf/` 下，以 udf_samples 为例，目录结构如下：
+编译完成后的动态链接库被放在了 `build/src/` 下，以 udf_samples 为例，目录结构如下：
 
 ```
 
-├── output
-│   ├── be
-│   ├── custom_udf
-│   │   └── lib
-│   │       └── udf_samples
-│   │           ├── libudasample.so
-│   │           └── libudfsample.so
+├── third_party
+├── build
+│ └── src
+│    └── udf_samples
+│      ├── libudasample.so
+│      └── libudfsample.so
+└── udf_samples
 
 ```
 

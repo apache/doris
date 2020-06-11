@@ -45,7 +45,7 @@ under the License.
 
 ## 源代码
     
-    待贡献的源代码应该包含: `.h` , `.cpp`, `CMakeFile.txt`。存放路径应该在 `custom_udf/src/my_udf` 下。这里以 udf_samples 为例，首先在 `custom_udf/src/` 路径下创建一个新的文件夹，并存放源码。
+    在 `custom_udf/src/` 下创建一个存放 UDF 函数的文件夹，并将源码和 CMAKE  文件存放在此处。待贡献的源代码应该包含: `.h` , `.cpp`, `CMakeFile.txt`。这里以 udf_samples 为例，首先在 `custom_udf/src/` 路径下创建一个新的文件夹，并存放源码。
 
 ```
     ├── custom_udf
@@ -59,6 +59,10 @@ under the License.
     │           └── udf_sample.h
 
 ```
+
+1. CMakeLists.txt
+
+    用户的 CMakeLists 放在此处后，需要进行少量更改。去掉 `include udf` 和 `udf lib` 即可。去掉的原因是，在 custom_udf 层级的 CMake 文件中，已经声明了。
 
 ## 使用手册
 
