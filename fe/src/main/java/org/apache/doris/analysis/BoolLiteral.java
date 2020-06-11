@@ -40,9 +40,9 @@ public class BoolLiteral extends LiteralExpr {
 
     public BoolLiteral(String value) throws AnalysisException {
         this.type = Type.BOOLEAN;
-        if (value.toLowerCase().equals("true")) {
+        if (value.toLowerCase().equals("true") || value.equals("1")) {
             this.value = true;
-        } else if (value.toLowerCase().equals("false")) {
+        } else if (value.toLowerCase().equals("false") || value.equals("0")) {
             this.value = false;
         } else {
             throw new AnalysisException("Invalid BOOLEAN literal: " + value);

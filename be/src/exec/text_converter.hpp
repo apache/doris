@@ -83,8 +83,10 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
     }
 
     case TYPE_BOOLEAN:
+        LOG(INFO) << data  << ":" << len;
         *reinterpret_cast<bool*>(slot) =
             StringParser::string_to_bool(data, len, &parse_result);
+        LOG(INFO) << "data:" << data << " length:" << len << " convert to bool is " << parse_result ;
         break;
 
     case TYPE_TINYINT:
