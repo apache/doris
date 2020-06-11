@@ -15,32 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
 #include <iostream>
 #include <set>
 #include <sstream>
+#include <string>
+
 #include <boost/filesystem.hpp>
 #include <gflags/gflags.h>
 
 #include "common/status.h"
-#include "util/file_utils.h"
+#include "env/env.h" 
 #include "gen_cpp/olap_file.pb.h"
-#include "olap/options.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "gutil/strings/numbers.h"
+#include "gutil/strings/split.h"
+#include "gutil/strings/substitute.h"
+#include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
-#include "olap/tablet_meta_manager.h"
 #include "olap/olap_define.h"
+#include "olap/options.h"
+#include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
-#include "json2pb/pb_to_json.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "env/env.h" 
+#include "util/file_utils.h"
 
 using boost::filesystem::path;
 using doris::DataDir;
