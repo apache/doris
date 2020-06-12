@@ -791,10 +791,7 @@ TEST_F(TestColumn, ConvertIntToBitmap) {
     mv_row_cursor.init(mv_tablet_schema);
     mutable_block.get_row(0, &mv_row_cursor);
 
-    char* cell_ptr = mv_row_cursor.cell_ptr(1);
-
     auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
-    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst_slice->data);
     BitmapValue bitmapValue(dst_slice->data);
     ASSERT_EQ(bitmapValue.cardinality(), 1);
 }

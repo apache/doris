@@ -1507,8 +1507,29 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
                 mv_param.column_name = item.column_name;
-                mv_param.origin_column_name = item.origin_column_name;
-                mv_param.mv_expr = item.mv_expr;
+                /*
+                 * origin_column_name is always be set now,
+                 * but origin_column_name may be not set in some materialized view function. eg:count(1)
+                */
+                if (item.__isset.origin_column_name) {
+                    mv_param.origin_column_name = item.origin_column_name;
+                }
+
+                /*
+                * TODO(lhy)
+                * Building the materialized view function for schema_change here based on defineExpr.
+                * This is a trick because the current storage layer does not support expression evaluation.
+                * We can refactor this part of the code until the uniform expression evaluates the logic.
+                * count distinct materialized view will set mv_expr with to_bitmap or hll_hash.
+                * count materialized view will set mv_expr with count.
+                */
+                if (item.__isset.mv_expr) {
+                    if (item.mv_expr.nodes[0].node_type == TExprNodeType::FUNCTION_CALL) {
+                        mv_param.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
+                    } else if (item.mv_expr.nodes[0].node_type == TExprNodeType::CASE_EXPR) {
+                        mv_param.mv_expr = "count";
+                    }
+                }
                 sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mv_param));
             }
         }

@@ -119,23 +119,9 @@ public class AlterReplicaTask extends AgentTask {
             for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
                 List<SlotRef> slots = Lists.newArrayList();
                 entry.getValue().collect(SlotRef.class, slots);
-
-                /*
-                 * TODO(lhy)
-                 * Building the materialized view function for schema_change here based on defineExpr.
-                 * This is a trick because the current storage layer does not support expression evaluation.
-                 * We can refactor this part of the code until the uniform expression evaluates the logic.
-                 * count distinct materialized view will set mv_expr with to_bitmap or hll_hash.
-                 * count materialized view will set mv_expr with count.
-                 */
-                TAlterMaterializedViewParam mvParam = null;
-                if (entry.getValue() instanceof FunctionCallExpr) {
-                    mvParam = new TAlterMaterializedViewParam(entry.getKey(), slots.get(0).getColumnName());
-                    mvParam.setMv_expr(((FunctionCallExpr) entry.getValue()).getFnName().getFunction());
-                } else if (entry.getValue() instanceof CaseExpr) {
-                    mvParam = new TAlterMaterializedViewParam(entry.getKey(), slots.get(0).getColumnName());
-                    mvParam.setMv_expr("count");
-                }
+                TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(entry.getKey());
+                mvParam.setOrigin_column_name(slots.get(0).getColumnName());
+                mvParam.setMv_expr(entry.getValue().treeToThrift());
                 req.addToMaterialized_view_params(mvParam);
             }
         }
