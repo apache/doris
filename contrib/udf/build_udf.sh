@@ -19,8 +19,8 @@
 ##############################################################
 # This script is used to compile UDF 
 # Usage:
-#    sh build-custom-udf.sh            build udf without clean.
-#    sh build-custom-udf.sh -clean     clean previous output and build.
+#    sh build-udf.sh             build udf without clean.
+#    sh build-udf.sh --clean     clean previous output and build.
 #
 ##############################################################
 
@@ -29,17 +29,11 @@ set -eo pipefail
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
-export DORIS_HOME=$(dirname "$PWD")
+export UDF_HOME=${ROOT}
+export DORIS_HOME=$(cd ../..; printf %s "$PWD")
 echo ${DORIS_HOME}
-export CUSTOM_UDF_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
-
-# build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    ${DORIS_THIRDPARTY}/build-thirdparty.sh
-fi
 
 PARALLEL=$[$(nproc)/4+1]
 
@@ -99,7 +93,7 @@ echo "Get params:
     CLEAN       -- $CLEAN
 "
 
-cd ${CUSTOM_UDF_HOME}
+cd ${UDF_HOME}
 # Clean and build UDF
 if [ ${BUILD_UDF} -eq 1 ] ; then
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
@@ -107,14 +101,14 @@ if [ ${BUILD_UDF} -eq 1 ] ; then
     CMAKE_BUILD_DIR=${CUSTOM_UDF_HOME}/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
         rm -rf $CMAKE_BUILD_DIR
-        rm -rf ${CUSTOM_UDF_HOME}/output/
+        rm -rf ${UDF_HOME}/output/
     fi
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
     ${CMAKE_CMD} -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ../
     make -j${PARALLEL} VERBOSE=1
     make install
-    cd ${CUSTOM_UDF_HOME}
+    cd ${UDF_HOME}
 fi
 
 # Clean and prepare output dir
@@ -123,11 +117,11 @@ mkdir -p ${DORIS_OUTPUT}
 
 #Copy UDF
 if [ ${BUILD_UDF} -eq 1 ]; then
-    install -d ${DORIS_OUTPUT}/custom_udf/lib
+    install -d ${DORIS_OUTPUT}/contrib/udf/lib
     for dir in $(ls ${CMAKE_BUILD_DIR}/src)
     do
-      mkdir -p ${DORIS_OUTPUT}/custom_udf/lib/$dir
-      cp -r -p ${CMAKE_BUILD_DIR}/src/$dir/*.so ${DORIS_OUTPUT}/custom_udf/lib/$dir/
+      mkdir -p ${DORIS_OUTPUT}/contrib/udf/lib/$dir
+      cp -r -p ${CMAKE_BUILD_DIR}/src/$dir/*.so ${DORIS_OUTPUT}/contrib/udf/lib/$dir/
     done
 fi
 

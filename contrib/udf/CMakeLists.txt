@@ -26,7 +26,7 @@ else()
     message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
 endif()
 
-project(doris)
+project(doris_udf)
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
