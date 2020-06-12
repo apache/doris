@@ -20,9 +20,12 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.thrift.TNetworkAddress;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -44,7 +47,43 @@ public class EsIndexState {
         this.partitionDesc = null;
         this.partitionKey = null;
     }
-
+    
+    /**
+     * Parse shardRoutings from the json
+     * @param indexName indexName(alias or really name)
+     * @param shardLocation the return value of _search_shards
+     * @return shardRoutings is used for searching
+     */
+    public static EsIndexState fromShardLocation(String indexName, String shardLocation) {
+        EsIndexState indexState = new EsIndexState(indexName);
+        JSONObject jsonObject = new JSONObject(shardLocation);
+        JSONObject nodesMap = jsonObject.getJSONObject("nodes");
+        JSONArray shards = jsonObject.getJSONArray("shards");
+        int length = shards.length();
+        for (int i = 0; i < length; i++) {
+            List<EsShardRouting> singleShardRouting = Lists.newArrayList();
+            JSONArray shardsArray = shards.getJSONArray(i);
+            int arrayLength = shardsArray.length();
+            for (int j = 0; j < arrayLength; j++) {
+                JSONObject shard = shardsArray.getJSONObject(j);
+                String shardState = shard.getString("state");
+                if ("STARTED".equalsIgnoreCase(shardState) || "RELOCATING".equalsIgnoreCase(shardState)) {
+                    try {
+                        singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState, String.valueOf(i), shard, nodesMap));
+                    } catch (Exception e) {
+                        LOG.info(
+                                "errors while parse shard routing from json [{}], ignore this shard",
+                                shard, e);
+                    }
+                }
+            }
+            if (singleShardRouting.isEmpty()) {
+                LOG.warn("could not find a healthy allocation for [{}][{}]", indexName, i);
+            }
+            indexState.addShardRouting(i, singleShardRouting);
+        }
+        return indexState;
+    }
 
     public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo) {
         for (Map.Entry<Integer, List<EsShardRouting>> entry : shardRoutings.entrySet()) {

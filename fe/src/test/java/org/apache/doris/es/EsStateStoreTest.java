@@ -27,7 +27,7 @@ import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.external.elasticsearch.EsFieldInfo;
+import org.apache.doris.external.elasticsearch.EsFieldInfos;
 import org.apache.doris.external.elasticsearch.EsIndexState;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsStateStore;
@@ -53,6 +53,7 @@ public class EsStateStoreTest {
     private static FakeCatalog fakeCatalog;
     private static Catalog masterCatalog;
     private static String mappingsStr = "";
+    private static String es7MappingsStr = "";
     private static String searchShardsStr = "";
     private EsStateStore esStateStore;
     private EsRestClient fakeClient;
@@ -70,6 +71,7 @@ public class EsStateStoreTest {
         // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         FakeCatalog.setCatalog(masterCatalog);
         mappingsStr = loadJsonFromFile("data/es/mappings.json");
+        es7MappingsStr = loadJsonFromFile("data/es/es7_mappings.json");
         searchShardsStr = loadJsonFromFile("data/es/search_shards.json");
     }
     
@@ -80,15 +82,29 @@ public class EsStateStoreTest {
     }
     
     @Test
-    public void testSetEsTableContext() {
+    public void testSetEsTableContext() throws Exception {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
                 .getDb(CatalogTestUtil.testDb1)
                 .getTable(CatalogTestUtil.testEsTableId1);
-        JSONObject properties = fakeClient.parseProperties(mappingsStr, esTable.getMappingType());
-        EsFieldInfo fieldInfo = fakeClient.getFieldInfo(esTable.getFullSchema(), properties);
-        esStateStore.setEsTableContext(fieldInfo, esTable);
+        // es5
+        EsFieldInfos fieldInfos = EsFieldInfos.fromMapping(esTable.getFullSchema(), esTable.getIndexName(), mappingsStr, esTable.getMappingType());
+        esStateStore.setEsTableContext(fieldInfos, esTable);
         assertEquals("userId.keyword", esTable.fieldsContext().get("userId"));
         assertEquals("userId.keyword", esTable.docValueContext().get("userId"));
+        // es7
+        EsFieldInfos fieldInfos7 = EsFieldInfos.fromMapping(esTable.getFullSchema(), esTable.getIndexName(), es7MappingsStr, "");
+        assertEquals("userId.keyword", fieldInfos7.getFieldsContext().get("userId"));
+        assertEquals("userId.keyword", fieldInfos7.getDocValueContext().get("userId"));
+        
+    }
+    
+    @Test(expected = ExternalDataSourceException.class)
+    public void testSetErrorType() throws Exception {
+        EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
+                .getDb(CatalogTestUtil.testDb1)
+                .getTable(CatalogTestUtil.testEsTableId1);
+        // error type
+        EsFieldInfos.fromMapping(esTable.getFullSchema(), esTable.getIndexName(), mappingsStr, "errorType");
     }
     
     @Test
@@ -96,7 +112,7 @@ public class EsStateStoreTest {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
                 .getDb(CatalogTestUtil.testDb1)
                 .getTable(CatalogTestUtil.testEsTableId1);
-        EsIndexState esIndexState = fakeClient.parseIndexState(esTable.getIndexName(), searchShardsStr);
+        EsIndexState esIndexState = EsIndexState.fromShardLocation(esTable.getIndexName(), searchShardsStr);
         EsTableState esTableState = esStateStore.setPartitionInfo(esTable, esIndexState);
         assertNotNull(esTableState);
         assertEquals(1, esTableState.getUnPartitionedIndexStates().size());

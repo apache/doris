@@ -20,7 +20,6 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.common.AnalysisException;
 import org.json.JSONObject;
 
@@ -82,60 +81,5 @@ public class EsUtil {
         } else {
             return null;
         }
-    }
-    
-    public static String getFetchField(JSONObject fieldObject, String colName) {
-        String fieldType = fieldObject.optString("type");
-        // string-type field used keyword type to generate predicate
-        // if text field type seen, we should use the `field` keyword type?
-        if ("text".equals(fieldType)) {
-            JSONObject fieldsObject = fieldObject.optJSONObject("fields");
-            if (fieldsObject != null) {
-                for (String key : fieldsObject.keySet()) {
-                    JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                    // just for text type
-                    if ("keyword".equals(innerTypeObject.optString("type"))) {
-                        return colName + "." + key;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-    
-    public static String getDocValueField(JSONObject fieldObject, String colName) {
-        String fieldType = fieldObject.optString("type");
-        String docValueField = null;
-        if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
-            JSONObject fieldsObject = fieldObject.optJSONObject("fields");
-            if (fieldsObject != null) {
-                for (String key : fieldsObject.keySet()) {
-                    JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(
-                            innerTypeObject.optString("type"))) {
-                        continue;
-                    }
-                    if (innerTypeObject.has("doc_values")) {
-                        boolean docValue = innerTypeObject.getBoolean("doc_values");
-                        if (docValue) {
-                            docValueField = colName;
-                        }
-                    } else {
-                        // a : {c : {}} -> a -> a.c
-                        docValueField = colName + "." + key;
-                    }
-                }
-            }
-            return docValueField;
-        }
-        // set doc_value = false manually
-        if (fieldObject.has("doc_values")) {
-            boolean docValue = fieldObject.optBoolean("doc_values");
-            if (!docValue) {
-                return docValueField;
-            }
-        }
-        docValueField = colName;
-        return docValueField;
     }
 }

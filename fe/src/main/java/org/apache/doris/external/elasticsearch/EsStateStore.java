@@ -80,11 +80,11 @@ public class EsStateStore extends MasterDaemon {
                 EsRestClient client = esClients.get(esTable.getId());
                 
                 if (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable()) {
-                    EsFieldInfo fieldInfo = client.getFieldInfo(esTable.getIndexName(), esTable.getMappingType(), esTable.getFullSchema());
-                    if (fieldInfo == null) {
+                    EsFieldInfos fieldInfos = client.getFieldInfo(esTable.getIndexName(), esTable.getMappingType(), esTable.getFullSchema());
+                    if (fieldInfos == null) {
                         continue;
                     }
-                    setEsTableContext(fieldInfo, esTable);
+                    setEsTableContext(fieldInfos, esTable);
                 }
                 
                 EsIndexState esIndexState = client.getIndexState(esTable.getIndexName());
@@ -128,7 +128,7 @@ public class EsStateStore extends MasterDaemon {
     }
     
     // Configure keyword and doc_values by mapping
-    public void setEsTableContext(EsFieldInfo fieldInfo, EsTable esTable) {
+    public void setEsTableContext(EsFieldInfos fieldInfos, EsTable esTable) {
         // we build the doc value context for fields maybe used for scanning
         // "properties": {
         //      "city": {
@@ -142,11 +142,11 @@ public class EsStateStore extends MasterDaemon {
         //    }
         // then the docvalue context provided the mapping between the select field and real request field :
         // {"city": "city.raw"}
-        if (esTable.isKeywordSniffEnable() && fieldInfo.getFetchFields() != null) {
-            esTable.addFetchField(fieldInfo.getFetchFields());
+        if (esTable.isKeywordSniffEnable() && fieldInfos.getFieldsContext() != null) {
+            esTable.addFetchField(fieldInfos.getFieldsContext());
         }
-        if (esTable.isDocValueScanEnable() && fieldInfo.getDocValueFields() != null) {
-            esTable.addDocValueField(fieldInfo.getDocValueFields());
+        if (esTable.isDocValueScanEnable() && fieldInfos.getDocValueContext() != null) {
+            esTable.addDocValueField(fieldInfos.getDocValueContext());
         }
     }
     
@@ -203,5 +203,4 @@ public class EsStateStore extends MasterDaemon {
         }
         return esTableState;
     }
-    
 }

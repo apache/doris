@@ -18,9 +18,6 @@
 package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.Column;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpHeaders;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,12 +26,9 @@ import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.map.DeserializationConfig;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -97,111 +91,23 @@ public class EsRestClient {
         return nodesMap;
     }
     
-    public EsFieldInfo getFieldInfo(String indexName, String mappingType, List<Column> colList) throws Exception {
+    public EsFieldInfos getFieldInfo(String indexName, String mappingType, List<Column> colList) throws Exception {
         String path = indexName + "/_mapping";
         String indexMapping = execute(path);
         if (indexMapping == null) {
-            throw new Exception( "index[" + indexName + "] _mapping not found for the Elasticsearch Cluster");
+            throw new ExternalDataSourceException( "index[" + indexName + "] _mapping not found for the Elasticsearch Cluster");
         }
-        return getFieldInfo(colList, parseProperties(indexMapping, mappingType));
+        return EsFieldInfos.fromMapping(colList, indexName, indexMapping, mappingType);
     }
-    
-    @VisibleForTesting
-    public EsFieldInfo getFieldInfo(List<Column> colList, JSONObject properties) {
-        if (properties == null) {
-            return null;
-        }
-        Map<String, String> fetchFieldMap = new HashMap<>();
-        Map<String, String> docValueFieldMap = new HashMap<>();
-        for (Column col : colList) {
-            String colName = col.getName();
-            if (!properties.has(colName)) {
-                continue;
-            }
-            JSONObject fieldObject = properties.optJSONObject(colName);
-            String fetchField = EsUtil.getFetchField(fieldObject, colName);
-            if (StringUtils.isNotEmpty(fetchField)) {
-                fetchFieldMap.put(colName, fetchField);
-            }
-            String docValueField = EsUtil.getDocValueField(fieldObject, colName);
-            if (StringUtils.isNotEmpty(docValueField)) {
-                docValueFieldMap.put(colName, docValueField);
-            }
-        }
-        return new EsFieldInfo(fetchFieldMap, docValueFieldMap);
-    }
-    
-    @VisibleForTesting
-    public JSONObject parseProperties(String indexMapping, String mappingType) {
-        JSONObject jsonObject = new JSONObject(indexMapping);
-        // the indexName use alias takes the first mapping
-        Iterator<String> keys = jsonObject.keys();
-        String docKey = keys.next();
-        JSONObject docData = jsonObject.optJSONObject(docKey);
-        JSONObject mappings = docData.optJSONObject("mappings");
-        JSONObject rootSchema = mappings.optJSONObject(mappingType);
-        return rootSchema.optJSONObject("properties");
-    }
+
     
     public EsIndexState getIndexState(String indexName) throws Exception {
         String path = indexName + "/_search_shards";
         String shardLocation = execute(path);
         if (shardLocation == null) {
-            throw new Exception( "index[" + indexName + "] _search_shards not found for the Elasticsearch Cluster");
+            throw new ExternalDataSourceException( "index[" + indexName + "] _search_shards not found for the Elasticsearch Cluster");
         }
-        return parseIndexState(indexName, shardLocation);
-    }
-    
-    @VisibleForTesting
-    public EsIndexState parseIndexState(String indexName, String shardLocation) {
-        EsIndexState indexState = new EsIndexState(indexName);
-        JSONObject jsonObject = new JSONObject(shardLocation);
-        JSONObject nodesMap = jsonObject.getJSONObject("nodes");
-        JSONArray shards = jsonObject.getJSONArray("shards");
-        int length = shards.length();
-        for (int i = 0; i < length; i++) {
-            List<EsShardRouting> singleShardRouting = Lists.newArrayList();
-            JSONArray shardsArray = shards.getJSONArray(i);
-            int arrayLength = shardsArray.length();
-            for (int j = 0; j < arrayLength; j++) {
-                JSONObject shard = shardsArray.getJSONObject(j);
-                String shardState = shard.getString("state");
-                if ("STARTED".equalsIgnoreCase(shardState) ||
-                        "RELOCATING".equalsIgnoreCase(shardState)) {
-                    try {
-                        singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState,
-                                String.valueOf(i), shard, nodesMap));
-                    } catch (Exception e) {
-                        LOG.info(
-                                "errors while parse shard routing from json [{}], ignore this shard",
-                                shard, e);
-                    }
-                }
-            }
-            if (singleShardRouting.isEmpty()) {
-                LOG.warn("could not find a healthy allocation for [{}][{}]", indexName, i);
-            }
-            indexState.addShardRouting(i, singleShardRouting);
-        }
-        return indexState;
-    }
-    
-    /**
-     * Get the Elasticsearch cluster version
-     *
-     * @return
-     */
-    public EsMajorVersion version () throws Exception {
-        Map<String, String> versionMap = get("/", "version");
-        
-        EsMajorVersion majorVersion;
-        try {
-            majorVersion = EsMajorVersion.parse(versionMap.get("version"));
-        } catch (Exception e) {
-            LOG.warn("detect es version failure on node [{}]", currentNode);
-            return EsMajorVersion.V_5_X;
-        }
-        return majorVersion;
+        return EsIndexState.fromShardLocation(indexName, shardLocation);
     }
     
     /**
@@ -210,7 +116,7 @@ public class EsRestClient {
      * @param path the path must not leading with '/'
      * @return response
      */
-    private String execute (String path) throws Exception {
+    private String execute(String path) throws Exception {
         int retrySize = nodes.length;
         Exception scratchExceptionForThrow = null;
         for (int i = 0; i < retrySize; i++) {
@@ -268,5 +174,4 @@ public class EsRestClient {
         }
         return (T) (key != null ? map.get(key) : map);
     }
-    
 }
