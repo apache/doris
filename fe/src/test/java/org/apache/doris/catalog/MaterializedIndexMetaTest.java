@@ -61,7 +61,7 @@ public class MaterializedIndexMetaTest {
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX + "bitmap_" + "k1";
+        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + "to_bitmap_" + "k1";
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", Type.TINYINT, true, null, true, "1", "abc"));
         schema.add(new Column("k2", Type.SMALLINT, true, null, true, "1", "debug"));
@@ -89,7 +89,7 @@ public class MaterializedIndexMetaTest {
         out.close();
 
         List<MVColumnItem> itemList = Lists.newArrayList();
-        MVColumnItem item = new MVColumnItem(mvColumnName);
+        MVColumnItem item = new MVColumnItem(mvColumnName, Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
         params.add(param1);

@@ -18,10 +18,10 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -30,9 +30,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -47,7 +48,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -70,16 +70,17 @@ public class MaterializedViewSelector {
     private final Analyzer analyzer;
 
     /**
-     * The key of following maps is table name.
+     * The key of following maps is table id.
      * The value of following maps is column names.
      * `columnNamesInPredicates` means that the column names in where clause.
      * And so on.
      */
-    private Map<String, Set<String>> columnNamesInPredicates = Maps.newHashMap();
+    private Map<Long, Set<String>> columnNamesInPredicates = Maps.newHashMap();
     private boolean isSPJQuery;
-    private Map<String, Set<String>> columnNamesInGrouping = Maps.newHashMap();
-    private Map<String, Set<AggregatedColumn>> aggregateColumnsInQuery = Maps.newHashMap();
-    private Map<String, Set<String>> columnNamesInQueryOutput = Maps.newHashMap();
+    private Map<Long, Set<String>> columnNamesInGrouping = Maps.newHashMap();
+    private Map<Long, Set<FunctionCallExpr>> aggColumnsInQuery = Maps.newHashMap();
+    //    private Map<String, Set<AggregatedColumn>> aggregateColumnsInQuery = Maps.newHashMap();
+    private Map<Long, Set<String>> columnNamesInQueryOutput = Maps.newHashMap();
 
     private boolean disableSPJGView;
     private String reasonOfDisable;
@@ -107,28 +108,30 @@ public class MaterializedViewSelector {
         long start = System.currentTimeMillis();
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
+        if (candidateIndexIdToSchema.keySet().size() == 0) {
+            return null;
+        }
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
         LOG.debug("The best materialized view is {} for scan node {} in query {}, cost {}",
                  bestIndexId, scanNode.getId(), selectStmt.toSql(), (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
     }
 
-    private Map<Long, List<Column>> predicates(OlapScanNode scanNode) {
+    private Map<Long, List<Column>> predicates(OlapScanNode scanNode) throws AnalysisException {
         // Step1: all of predicates is compensating predicates
         Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta = scanNode.getOlapTable().getVisibleIndexIdToMeta();
         OlapTable table = scanNode.getOlapTable();
         Preconditions.checkState(table != null);
-        String tableName = table.getName();
+        long tableId = table.getId();
         // Step2: check all columns in compensating predicates are available in the view output
-        checkCompensatingPredicates(columnNamesInPredicates.get(tableName), candidateIndexIdToMeta);
+        checkCompensatingPredicates(columnNamesInPredicates.get(tableId), candidateIndexIdToMeta);
         // Step3: group by list in query is the subset of group by list in view or view contains no aggregation
-        checkGrouping(columnNamesInGrouping.get(tableName), candidateIndexIdToMeta);
+        checkGrouping(columnNamesInGrouping.get(tableId), candidateIndexIdToMeta);
         // Step4: aggregation functions are available in the view output
-        checkAggregationFunction(aggregateColumnsInQuery.get(tableName), candidateIndexIdToMeta);
+        checkAggregationFunction(aggColumnsInQuery.get(tableId), candidateIndexIdToMeta);
         // Step5: columns required to compute output expr are available in the view output
-        checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToMeta);
+        checkOutputColumns(columnNamesInQueryOutput.get(tableId), candidateIndexIdToMeta);
         // Step6: if table type is aggregate and the candidateIndexIdToSchema is empty,
         if ((table.getKeysType() == KeysType.AGG_KEYS || table.getKeysType() == KeysType.UNIQUE_KEYS)
                 && candidateIndexIdToMeta.size() == 0) {
@@ -149,7 +152,7 @@ public class MaterializedViewSelector {
              */
             compensateCandidateIndex(candidateIndexIdToMeta, scanNode.getOlapTable().getVisibleIndexIdToMeta(),
                             table);
-            checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToMeta);
+            checkOutputColumns(columnNamesInQueryOutput.get(tableId), candidateIndexIdToMeta);
         }
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : candidateIndexIdToMeta.entrySet()) {
@@ -332,18 +335,15 @@ public class MaterializedViewSelector {
                           + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
-    private void checkAggregationFunction(Set<AggregatedColumn> aggregatedColumnsInQueryOutput,
-            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) {
+    private void checkAggregationFunction(Set<FunctionCallExpr> aggregatedColumnsInQueryOutput,
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) throws AnalysisException {
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
-            List<AggregatedColumn> indexAggregatedColumns = Lists.newArrayList();
-            List<Column> candidateIndexSchema = entry.getValue().getSchema();
-            candidateIndexSchema.stream().filter(column -> column.isAggregated())
-                    .forEach(column -> indexAggregatedColumns.add(
-                            new AggregatedColumn(column.getName(), column.getAggregationType().name())));
+            MaterializedIndexMeta candidateIndexMeta = entry.getValue();
+            List<FunctionCallExpr> indexAggColumnExpsList = mvAggColumnsToExprList(candidateIndexMeta);
             // When the candidate index is SPJ type, it passes the verification directly
-            if (indexAggregatedColumns.size() == 0) {
+            if (indexAggColumnExpsList.size() == 0 && candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS) {
                 continue;
             }
             // When the query is SPJ type but the candidate index is SPJG type, it will not pass directly.
@@ -360,7 +360,7 @@ public class MaterializedViewSelector {
                 continue;
             }
             // The aggregated columns in query output must be subset of the aggregated columns in view
-            if (!indexAggregatedColumns.containsAll(aggregatedColumnsInQueryOutput)) {
+            if (!aggFunctionsMatchAggColumns(aggregatedColumnsInQueryOutput, indexAggColumnExpsList)) {
                 iterator.remove();
             }
         }
@@ -368,8 +368,8 @@ public class MaterializedViewSelector {
                           + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
-    private void checkOutputColumns(Set<String> columnNamesInQueryOutput, Map<Long, MaterializedIndexMeta>
-            candidateIndexIdToMeta) {
+    private void checkOutputColumns(Set<String> columnNamesInQueryOutput,
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) {
         if (columnNamesInQueryOutput == null) {
             return;
         }
@@ -379,7 +379,7 @@ public class MaterializedViewSelector {
             Set<String> indexColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             List<Column> candidateIndexSchema = entry.getValue().getSchema();
             candidateIndexSchema.stream().forEach(column -> indexColumnNames.add(column.getName()));
-            // The aggregated columns in query output must be subset of the aggregated columns in view
+            // The columns in query output must be subset of the columns in SPJ view
             if (!indexColumnNames.containsAll(columnNamesInQueryOutput)) {
                 iterator.remove();
             }
@@ -407,13 +407,13 @@ public class MaterializedViewSelector {
         // Step1: compute the columns in compensating predicates
         Expr whereClause = selectStmt.getWhereClause();
         if (whereClause != null) {
-            whereClause.getTableNameToColumnNames(columnNamesInPredicates);
+            whereClause.getTableIdToColumnNames(columnNamesInPredicates);
         }
         for (TableRef tableRef : selectStmt.getTableRefs()) {
             if (tableRef.getOnClause() == null) {
                 continue;
             }
-            tableRef.getOnClause().getTableNameToColumnNames(columnNamesInPredicates);
+            tableRef.getOnClause().getTableIdToColumnNames(columnNamesInPredicates);
         }
 
         if (selectStmt.getAggInfo() == null) {
@@ -423,96 +423,79 @@ public class MaterializedViewSelector {
             if (selectStmt.getAggInfo().getGroupingExprs() != null) {
                 List<Expr> groupingExprs = selectStmt.getAggInfo().getGroupingExprs();
                 for (Expr expr : groupingExprs) {
-                    expr.getTableNameToColumnNames(columnNamesInGrouping);
+                    expr.getTableIdToColumnNames(columnNamesInGrouping);
                 }
             }
             // Step3: compute the aggregation function
             for (FunctionCallExpr aggExpr : selectStmt.getAggInfo().getAggregateExprs()) {
-                // Only sum, min, max function could appear in materialized views.
-                // The number of children in these functions is one.
-                if (aggExpr.getChildren().size() != 1) {
-                    reasonOfDisable = "aggExpr has more than one child";
+                Map<Long, Set<String>> tableIdToAggColumnNames = Maps.newHashMap();
+                aggExpr.getTableIdToColumnNames(tableIdToAggColumnNames);
+                // count(*): tableIdToAggColumnNames is empty which must forbidden the SPJG MV.
+                // TODO(ml): support count(*)
+                if (tableIdToAggColumnNames.size() != 1) {
+                    reasonOfDisable = "aggExpr[" + aggExpr.debugString() + "] should involved only one column";
                     disableSPJGView = true;
                     break;
                 }
-                Expr aggChild0 = aggExpr.getChild(0);
-                if (aggChild0 instanceof SlotRef) {
-                    SlotRef slotRef = (SlotRef) aggChild0;
-                    Table table = slotRef.getDesc().getParent().getTable();
-                    /* If this column come from subquery, the parent table will be null
-                     * For example: select k1 from (select name as k1 from tableA) A
-                     * The parent table of k1 column in outer query is null.
-                     */
-                    if (table == null) {
-                        continue;
-                    }
-                    Preconditions.checkState(slotRef.getColumnName() != null);
-                    addAggregatedColumn(slotRef.getColumnName(), aggExpr.getFnName().getFunction(),
-                                        table.getName());
-                } else if ((aggChild0 instanceof CastExpr) && (aggChild0.getChild(0) instanceof SlotRef)) {
-                    SlotRef slotRef = (SlotRef) aggChild0.getChild(0);
-                    Table table = slotRef.getDesc().getParent().getTable();
-                    /*
-                     * Same as above
-                     */
-                    if (table == null) {
-                        continue;
-                    }
-                    Preconditions.checkState(slotRef.getColumnName() != null);
-                    addAggregatedColumn(slotRef.getColumnName(), aggExpr.getFnName().getFunction(),
-                                        table.getName());
-                } else {
-                    reasonOfDisable = "aggExpr.getChild(0)[" + aggExpr.getChild(0).debugString()
-                            + "] is not SlotRef or CastExpr|CaseExpr";
-                    disableSPJGView = true;
-                    break;
-                }
+                addAggColumnInQuery(tableIdToAggColumnNames.keySet().stream().findFirst().get(), aggExpr);
                 // TODO(ml): select rollup by case expr
             }
         }
 
         // Step4: compute the output column
         // ISSUE-3174: all of columns which belong to top tuple should be considered in selector.
-        List<TupleId> topTupleIds = selectStmt.getTableRefIdsWithoutInlineView();
-        for (TupleId tupleId : topTupleIds) {
+        List<TupleId> tupleIds = selectStmt.getTableRefIdsWithoutInlineView();
+        for (TupleId tupleId : tupleIds) {
             TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
-            tupleDescriptor.getTableNameToColumnNames(columnNamesInQueryOutput);
+            tupleDescriptor.getTableIdToColumnNames(columnNamesInQueryOutput);
 
         }
     }
 
-    private void addAggregatedColumn(String columnName, String functionName, String tableName) {
-        AggregatedColumn newAggregatedColumn = new AggregatedColumn(columnName, functionName);
-        Set<AggregatedColumn> aggregatedColumns = aggregateColumnsInQuery.computeIfAbsent(tableName, k -> Sets.newHashSet());
-        aggregatedColumns.add(newAggregatedColumn);
+    private void addAggColumnInQuery(Long tableId, FunctionCallExpr fnExpr) {
+        Set<FunctionCallExpr> aggColumns = aggColumnsInQuery.get(tableId);
+        if (aggColumns == null) {
+            aggColumns = Sets.newHashSet();
+            aggColumnsInQuery.put(tableId, aggColumns);
+        }
+        aggColumns.add(fnExpr);
     }
 
-    class AggregatedColumn {
-        private String columnName;
-        private String aggFunctionName;
-
-        public AggregatedColumn(String columnName, String aggFunctionName) {
-            this.columnName = columnName;
-            this.aggFunctionName = aggFunctionName;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (obj == this) {
-                return true;
+    private boolean aggFunctionsMatchAggColumns(Set<FunctionCallExpr> queryExprList,
+            List<FunctionCallExpr> mvColumnExprList) throws AnalysisException {
+        for (Expr queryExpr : queryExprList) {
+            boolean match = false;
+            for (Expr mvColumnExpr : mvColumnExprList) {
+                if (MVExprEquivalent.mvExprEqual(queryExpr, mvColumnExpr)) {
+                    match = true;
+                    break;
+                }
             }
-            if (!(obj instanceof AggregatedColumn)) {
+
+            if (!match) {
                 return false;
             }
-            AggregatedColumn input = (AggregatedColumn) obj;
-            return this.columnName.equalsIgnoreCase(input.columnName)
-                    && this.aggFunctionName.equalsIgnoreCase(input.aggFunctionName);
         }
+        return true;
+    }
 
-        @Override
-        public int hashCode() {
-            return Objects.hash(this.columnName, this.aggFunctionName);
+    private List<FunctionCallExpr> mvAggColumnsToExprList(MaterializedIndexMeta mvMeta) {
+        List<FunctionCallExpr> result = Lists.newArrayList();
+        List<Column> schema = mvMeta.getSchema();
+        for (Column column : schema) {
+            if (!column.isAggregated()) {
+                continue;
+            }
+            SlotRef slotRef = new SlotRef(null, column.getName());
+            // This slot desc is only used to temporarily store column that will be used in subsequent MVExprRewriter.
+            SlotDescriptor slotDescriptor = new SlotDescriptor(null, null);
+            slotDescriptor.setColumn(column);
+            slotRef.setDesc(slotDescriptor);
+            FunctionCallExpr fnExpr = new FunctionCallExpr(column.getAggregationType().name(),
+                    Lists.newArrayList(slotRef));
+            result.add(fnExpr);
         }
+        return result;
     }
 
     public class BestIndexInfo {

@@ -49,7 +49,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
@@ -57,8 +56,8 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -69,6 +68,7 @@ import org.apache.doris.qe.QueryDetail;
 import org.apache.doris.qe.QueryDetailQueue;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TExplainLevel;
@@ -371,8 +371,7 @@ public class StmtExecutor {
     }
 
     // Analyze one statement to structure in memory.
-    public void analyze(TQueryOptions tQueryOptions) throws AnalysisException, UserException,
-                                               NotImplementedException {
+    public void analyze(TQueryOptions tQueryOptions) throws UserException {
         LOG.info("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(), context.getForwardedStmtId());
 
         // parsedStmt may already by set when constructing this StmtExecutor();
@@ -440,59 +439,10 @@ public class StmtExecutor {
 
             lock(dbs);
             try {
-                parsedStmt.analyze(analyzer);
-                if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-                    boolean isExplain = parsedStmt.isExplain();
-                    boolean isVerbose = parsedStmt.isVerbose();
-                    // Apply expr and subquery rewrites.
-                    boolean reAnalyze = false;
-
-                    ExprRewriter rewriter = analyzer.getExprRewriter();
-                    rewriter.reset();
-                    parsedStmt.rewriteExprs(rewriter);
-                    reAnalyze = rewriter.changed();
-                    if (analyzer.containSubquery()) {
-                        parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
-                        reAnalyze = true;
-                    }
-                    if (reAnalyze) {
-                        // The rewrites should have no user-visible effect. Remember the original result
-                        // types and column labels to restore them after the rewritten stmt has been
-                        // reset() and re-analyzed.
-                        List<Type> origResultTypes = Lists.newArrayList();
-                        for (Expr e: parsedStmt.getResultExprs()) {
-                            origResultTypes.add(e.getType());
-                        }
-                        List<String> origColLabels =
-                                Lists.newArrayList(parsedStmt.getColLabels());
-
-                        // Re-analyze the stmt with a new analyzer.
-                        analyzer = new Analyzer(context.getCatalog(), context);
-
-                        // query re-analyze
-                        parsedStmt.reset();
-                        parsedStmt.analyze(analyzer);
-
-                        // Restore the original result types and column labels.
-                        parsedStmt.castResultExprs(origResultTypes);
-                        parsedStmt.setColLabels(origColLabels);
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
-                        }
-                        if (isExplain) parsedStmt.setIsExplain(isExplain, isVerbose);
-                    }
-                }
-
-                // create plan
-                planner = new Planner();
-                if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-                    planner.plan(parsedStmt, analyzer, tQueryOptions);
-                } else {
-                    planner.plan(((CreateTableAsSelectStmt) parsedStmt).getInsertStmt(),
-                            analyzer, new TQueryOptions());
-                }
-                // TODO(zc):
-                // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
+                analyzeAndGenerateQueryPlan(tQueryOptions);
+            } catch (MVSelectFailedException e) {
+                resetAnalyzerAndStmt();
+                analyzeAndGenerateQueryPlan(tQueryOptions);
             } catch (UserException e) {
                 throw e;
             } catch (Exception e) {
@@ -511,6 +461,68 @@ public class StmtExecutor {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
+    }
+
+    private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
+        parsedStmt.analyze(analyzer);
+        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+            boolean isExplain = parsedStmt.isExplain();
+            boolean isVerbose = parsedStmt.isVerbose();
+            // Apply expr and subquery rewrites.
+            boolean reAnalyze = false;
+
+            ExprRewriter rewriter = analyzer.getExprRewriter();
+            rewriter.reset();
+            parsedStmt.rewriteExprs(rewriter);
+            reAnalyze = rewriter.changed();
+            if (analyzer.containSubquery()) {
+                parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
+                reAnalyze = true;
+            }
+            if (reAnalyze) {
+                // The rewrites should have no user-visible effect. Remember the original result
+                // types and column labels to restore them after the rewritten stmt has been
+                // reset() and re-analyzed.
+                List<Type> origResultTypes = Lists.newArrayList();
+                for (Expr e: parsedStmt.getResultExprs()) {
+                    origResultTypes.add(e.getType());
+                }
+                List<String> origColLabels =
+                        Lists.newArrayList(parsedStmt.getColLabels());
+
+                // Re-analyze the stmt with a new analyzer.
+                analyzer = new Analyzer(context.getCatalog(), context);
+
+                // query re-analyze
+                parsedStmt.reset();
+                parsedStmt.analyze(analyzer);
+
+                // Restore the original result types and column labels.
+                parsedStmt.castResultExprs(origResultTypes);
+                parsedStmt.setColLabels(origColLabels);
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
+                }
+                if (isExplain) parsedStmt.setIsExplain(isExplain, isVerbose);
+            }
+        }
+
+        // create plan
+        planner = new Planner();
+        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+            planner.plan(parsedStmt, analyzer, tQueryOptions);
+        } else {
+            planner.plan(((CreateTableAsSelectStmt) parsedStmt).getInsertStmt(),
+                    analyzer, new TQueryOptions());
+        }
+        // TODO(zc):
+        // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
+    }
+
+    private void resetAnalyzerAndStmt() {
+        analyzer = new Analyzer(context.getCatalog(), context);
+
+        parsedStmt.reset();
     }
 
     // Because this is called by other thread

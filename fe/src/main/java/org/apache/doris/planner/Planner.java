@@ -28,6 +28,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -162,7 +163,10 @@ public class Planner {
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
         // materialized view selector
-        singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
+        boolean selectFailed = singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
+        if (selectFailed) {
+            throw new MVSelectFailedException("Failed to select materialize view");
+        }
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);

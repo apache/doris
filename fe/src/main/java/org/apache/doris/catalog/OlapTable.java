@@ -346,6 +346,17 @@ public class OlapTable extends Table {
         return partition.getMaterializedIndices(IndexExtState.VISIBLE);
     }
 
+    public Column getVisibleColumn(String columnName) {
+        for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
+            for (Column column : meta.getSchema()) {
+                if (column.getName().equalsIgnoreCase(columnName)) {
+                    return column;
+                }
+            }
+        }
+        return null;
+    }
+
     // this is only for schema change.
     public void renameIndexForSchemaChange(String name, String newName) {
         long idxId = indexNameToId.remove(name);

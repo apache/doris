@@ -505,10 +505,10 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equals("count") && fnParams.isDistinct()) {
-            // Treat COUNT(DISTINCT ...) special because of how we do the rewrite.
+            // Treat COUNT(DISTINCT ...) special because of how we do the equal.
             // There is no version of COUNT() that takes more than 1 argument but after
-            // the rewrite, we only need count(*).
-            // TODO: fix how we rewrite count distinct.
+            // the equal, we only need count(*).
+            // TODO: fix how we equal count distinct.
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[0],
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();

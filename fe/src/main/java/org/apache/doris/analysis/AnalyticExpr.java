@@ -87,7 +87,7 @@ public class AnalyticExpr extends Expr {
     private static String SUM = "SUM";
     private static String COUNT = "COUNT";
 
-    // Internal function used to implement FIRST_VALUE with a window rewrite and
+    // Internal function used to implement FIRST_VALUE with a window equal and
     // additional null handling in the backend.
     public static String FIRST_VALUE_REWRITE = "FIRST_VALUE_REWRITE";
 
@@ -241,7 +241,7 @@ public class AnalyticExpr extends Expr {
      * percent_rank(), cume_dist() and ntile()
      *
      * Returns a new Expr if the analytic expr is rewritten, returns null if it's not one
-     * that we want to rewrite.
+     * that we want to equal.
      */
     public static Expr rewrite(AnalyticExpr analyticExpr) {
         Function fn = analyticExpr.getFnCall().getFn();

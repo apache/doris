@@ -177,7 +177,7 @@ public class MaterializedViewHandlerTest {
                                     @Injectable OlapTable olapTable) {
         final String mvName = "mv1";
         final String mvColumnName = "mv_k1";
-        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName);
+        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, Type.BIGINT);
         new Expectations() {
             {
                 olapTable.hasMaterializedIndex(mvName);
@@ -206,7 +206,7 @@ public class MaterializedViewHandlerTest {
         final String mvName = "mv1";
         final String columnName = "mv_k1";
         Column baseColumn = new Column(columnName, Type.INT, false, AggregateType.SUM, "", "");
-        MVColumnItem mvColumnItem = new MVColumnItem(columnName);
+        MVColumnItem mvColumnItem = new MVColumnItem(columnName, Type.BIGINT);
         mvColumnItem.setIsKey(true);
         mvColumnItem.setAggregationType(null, false);
         new Expectations() {
@@ -239,7 +239,7 @@ public class MaterializedViewHandlerTest {
         final String mvName = "mv1";
         final String columnName1 = "k1";
         Column baseColumn1 = new Column(columnName1, Type.VARCHAR, false, AggregateType.NONE, "", "");
-        MVColumnItem mvColumnItem = new MVColumnItem(columnName1);
+        MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
         mvColumnItem.setIsKey(true);
         mvColumnItem.setAggregationType(null, false);
         new Expectations() {

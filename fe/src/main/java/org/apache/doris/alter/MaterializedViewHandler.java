@@ -42,7 +42,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -422,60 +421,46 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.hasMaterializedIndex(addMVClause.getMVName())) {
             throw new DdlException("Materialized view[" + addMVClause.getMVName() + "] already exists");
         }
-        // check if rollup columns are valid
-        // a. all columns should exist in base rollup schema
-        // b. For aggregate table, mv columns with aggregate function should be same as base schema
-        // c. For aggregate table, the column which is the key of base table should be the key of mv as well.
+        // check if mv columns are valid
+        // a. Aggregate or Unique table:
+        //     1. For aggregate table, mv columns with aggregate function should be same as base schema
+        //     2. For aggregate table, the column which is the key of base table should be the key of mv as well.
+        // b. Duplicate table:
+        //     1. Columns resolved by semantics are legal
         // update mv columns
         List<MVColumnItem> mvColumnItemList = addMVClause.getMVColumnItemList();
         List<Column> newMVColumns = Lists.newArrayList();
         int numOfKeys = 0;
-        for (MVColumnItem mvColumnItem : mvColumnItemList) {
-            String mvColumnName = mvColumnItem.getName();
-            Column baseColumn = olapTable.getColumn(mvColumnName);
-            if (baseColumn == null) {
-                throw new DdlException("Column[" + mvColumnName + "] does not exist");
-            }
-            if (mvColumnItem.isKey()) {
-                ++numOfKeys;
-            }
-            AggregateType baseAggregationType = baseColumn.getAggregationType();
-            AggregateType mvAggregationType = mvColumnItem.getAggregationType();
-            if (olapTable.getKeysType().isAggregationFamily()) {
+        if (olapTable.getKeysType().isAggregationFamily()) {
+            for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                String mvColumnName = mvColumnItem.getName();
+                Column baseColumn = olapTable.getColumn(mvColumnName);
+                if (mvColumnItem.isKey()) {
+                    ++numOfKeys;
+                }
+                Preconditions.checkNotNull(baseColumn, "Column[" + mvColumnName + "] does not exist");
+                AggregateType baseAggregationType = baseColumn.getAggregationType();
+                AggregateType mvAggregationType = mvColumnItem.getAggregationType();
                 if (baseColumn.isKey() && !mvColumnItem.isKey()) {
                     throw new DdlException("The column[" + mvColumnName + "] must be the key of materialized view");
                 }
                 if (baseAggregationType != mvAggregationType) {
-                    throw new DdlException("The aggregation type of column[" + mvColumnName + "] must be same as "
-                                                   + "the aggregate type of base column in aggregate table");
+                    throw new DdlException(
+                            "The aggregation type of column[" + mvColumnName + "] must be same as the aggregate " +
+                                    "type of base column in aggregate table");
                 }
-                if (baseAggregationType != null && baseAggregationType.isReplaceFamily()
-                        && olapTable.getKeysNum() != numOfKeys) {
-                    throw new DdlException("The materialized view should contain all keys of base table if there is a"
-                                                   + " REPLACE value");
+                if (baseAggregationType != null && baseAggregationType.isReplaceFamily() && olapTable
+                        .getKeysNum() != numOfKeys) {
+                    throw new DdlException(
+                            "The materialized view should contain all keys of base table if there is a" + " REPLACE "
+                                    + "value");
                 }
+                newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
-            if (olapTable.getKeysType() == KeysType.DUP_KEYS && mvAggregationType != null
-                    && mvAggregationType.isReplaceFamily()) {
-                throw new DdlException("The aggregation type of REPLACE AND REPLACE IF NOT NULL is forbidden in "
-                                               + "duplicate table");
+        } else {
+            for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
-            Column newMVColumn = new Column(baseColumn);
-            newMVColumn.setIsKey(mvColumnItem.isKey());
-            newMVColumn.setAggregationType(mvAggregationType, mvColumnItem.isAggregationTypeImplicit());
-            if (mvColumnItem.getDefineExpr() != null) {
-                if (mvAggregationType.equals(AggregateType.BITMAP_UNION)) {
-                    newMVColumn.setType(Type.BITMAP);
-                } else if (mvAggregationType.equals(AggregateType.HLL_UNION)){
-                    newMVColumn.setType(Type.HLL);
-                } else {
-                    throw new DdlException("The define expr of column is only support bitmap_union or hll_union");
-                }
-                newMVColumn.setIsKey(false);
-                newMVColumn.setIsAllowNull(false);
-                newMVColumn.setDefineExpr(mvColumnItem.getDefineExpr());
-            }
-            newMVColumns.add(newMVColumn);
         }
         return newMVColumns;
     }

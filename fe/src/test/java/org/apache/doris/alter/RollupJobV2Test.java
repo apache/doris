@@ -377,7 +377,7 @@ public class RollupJobV2Test {
         
         short keysCount = 1;
         List<Column> columns = Lists.newArrayList();
-        String mvColumnName =CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX + "bitmap_" + "c1";
+        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + "to_bitmap_" + "c1";
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
         RollupJobV2 rollupJobV2 = new RollupJobV2(1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, 1, 1,
@@ -393,7 +393,7 @@ public class RollupJobV2Test {
 
         List<MVColumnItem> itemList = Lists.newArrayList();
         MVColumnItem item = new MVColumnItem(
-                mvColumnName);
+                mvColumnName, Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
         params.add(param1);

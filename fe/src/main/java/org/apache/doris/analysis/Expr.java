@@ -1110,10 +1110,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    public void getTableNameToColumnNames(Map<String, Set<String>> tableNameToColumnNames) {
-        Preconditions.checkState(tableNameToColumnNames != null);
+    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
+        Preconditions.checkState(tableIdToColumnNames != null);
         for (Expr child : children) {
-            child.getTableNameToColumnNames(tableNameToColumnNames);
+            child.getTableIdToColumnNames(tableIdToColumnNames);
         }
     }
 

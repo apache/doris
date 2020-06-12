@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -103,10 +104,22 @@ public class SlotRef extends Expr {
         return desc.getId();
     }
 
+    public Column getColumn() {
+        if (desc == null) {
+            return null;
+        } else {
+            return desc.getColumn();
+        }
+    }
+
     // NOTE: this is used to set tblName to null,
     // so we can to get the only column name when calling toSql
     public void setTblName(TableName name) {
         this.tblName = name;
+    }
+
+    public void setDesc(SlotDescriptor desc) {
+        this.desc = desc;
     }
 
     @Override
@@ -186,6 +199,15 @@ public class SlotRef extends Expr {
     }
 
     public TableName getTableName() {
+        Preconditions.checkState(isAnalyzed);
+        Preconditions.checkNotNull(desc);
+        if (tblName == null) {
+            Preconditions.checkNotNull(desc.getParent());
+            if (desc.getParent().getRef() == null) {
+                return null;
+            }
+            return desc.getParent().getRef().getName();
+        }
         return tblName;
     }
 
@@ -273,14 +295,14 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void getTableNameToColumnNames(Map<String, Set<String>> tupleDescToColumnNames) {
+    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         Preconditions.checkState(desc != null);
         if (!desc.isMaterialized()) {
             return;
         }
         if (col == null) {
             for (Expr expr : desc.getSourceExprs()) {
-                expr.getTableNameToColumnNames(tupleDescToColumnNames);
+                expr.getTableIdToColumnNames(tableIdToColumnNames);
             }
         } else {
             Table table = desc.getParent().getTable();
@@ -288,14 +310,20 @@ public class SlotRef extends Expr {
                 // Maybe this column comes from inline view.
                 return;
             }
-            String tableName = table.getName();
-            Set<String> columnNames = tupleDescToColumnNames.get(tableName);
+            Long tableId = table.getId();
+            Set<String> columnNames = tableIdToColumnNames.get(tableId);
             if (columnNames == null) {
                 columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                tupleDescToColumnNames.put(tableName, columnNames);
+                tableIdToColumnNames.put(tableId, columnNames);
             }
             columnNames.add(desc.getColumn().getName());
         }
+    }
+
+    public Table getTable() {
+        Preconditions.checkState(desc != null);
+        Table table = desc.getParent().getTable();
+        return table;
     }
 
     public String getColumnName() {

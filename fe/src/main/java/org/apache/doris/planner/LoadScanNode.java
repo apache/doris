@@ -51,7 +51,7 @@ public abstract class LoadScanNode extends ScanNode {
         }
 
         // substitute SlotRef in filter expression
-        // where expr must be rewrite first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
+        // where expr must be equal first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
         whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
         List<SlotRef> slots = Lists.newArrayList();
         whereExpr.collect(SlotRef.class, slots);

@@ -115,8 +115,8 @@ public abstract class Predicate extends Expr {
                 // and all SingleColumnPredicate will be rewritten as "column on the left and the constant on the right".
                 // So usually the right child is constant.
                 //
-                // But if there is a subquery in where clause, the planner will rewrite the subquery to join.
-                // During the rewrite, some auxiliary BinaryPredicate will be automatically generated,
+                // But if there is a subquery in where clause, the planner will equal the subquery to join.
+                // During the equal, some auxiliary BinaryPredicate will be automatically generated,
                 // and these BinaryPredicates will not go through ExprRewriteRule.
                 // As a result, these BinaryPredicates may be as "column on the right and the constant on the left".
                 // Example can be found in QueryPlanTest.java -> testJoinPredicateTransitivityWithSubqueryInWhereClause().

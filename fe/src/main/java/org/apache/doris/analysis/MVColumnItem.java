@@ -19,6 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.DdlException;
+
+import com.google.common.base.Preconditions;
 
 /**
  * This is a result of semantic analysis for AddMaterializedViewClause.
@@ -35,8 +40,18 @@ public class MVColumnItem {
     private boolean isAggregationTypeImplicit;
     private Expr defineExpr;
 
-    public MVColumnItem(String name) {
+    public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
+            Expr defineExpr) {
         this.name = name;
+        this.type = type;
+        this.aggregationType = aggregateType;
+        this.isAggregationTypeImplicit = isAggregationTypeImplicit;
+        this.defineExpr = defineExpr;
+    }
+
+    public MVColumnItem(String name, Type type) {
+        this.name = name;
+        this.type = type;
     }
 
     public String getName() {
@@ -78,5 +93,20 @@ public class MVColumnItem {
 
     public void setDefineExpr(Expr defineExpr) {
         this.defineExpr = defineExpr;
+    }
+
+    public Column toMVColumn(OlapTable olapTable) throws DdlException {
+        Column baseColumn = olapTable.getColumn(name);
+        if (baseColumn == null) {
+            Preconditions.checkNotNull(defineExpr != null);
+            Column result = new Column(name, type, isKey, aggregationType, ColumnDef.DefaultValue.ZERO, "");
+            result.setDefineExpr(defineExpr);
+            return result;
+        } else {
+            Column result = new Column(baseColumn);
+            result.setIsKey(isKey);
+            result.setAggregationType(aggregationType, isAggregationTypeImplicit);
+            return result;
+        }
     }
 }

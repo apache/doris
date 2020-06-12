@@ -40,6 +40,12 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
+import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
+import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
+import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
+import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
+import org.apache.doris.rewrite.mvrewrite.NDVToHll;
+import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -235,6 +241,8 @@ public class Analyzer {
         // Expr rewriter for normalizing and rewriting expressions.
         private final ExprRewriter exprRewriter_;
 
+        private final ExprRewriter mvExprRewriter;
+
         public GlobalState(Catalog catalog, ConnectContext context) {
             this.catalog = catalog;
             this.context = context;
@@ -248,6 +256,15 @@ public class Analyzer {
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules);
+            // init mv rewriter
+            List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
+            mvRewriteRules.add(ToBitmapToSlotRefRule.INSTANCE);
+            mvRewriteRules.add(CountDistinctToBitmapOrHLLRule.INSTANCE);
+            mvRewriteRules.add(CountDistinctToBitmap.INSTANCE);
+            mvRewriteRules.add(NDVToHll.INSTANCE);
+            mvRewriteRules.add(HLLHashToSlotRefRule.INSTANCE);
+            mvRewriteRules.add(CountFieldToSum.INSTANCE);
+            mvExprRewriter = new ExprRewriter(mvRewriteRules);
         }
     };
     private final GlobalState globalState;
@@ -510,6 +527,8 @@ public class Analyzer {
     }
 
     public ExprRewriter getExprRewriter() { return globalState.exprRewriter_; }
+
+    public ExprRewriter getMVExprRewriter() { return globalState.mvExprRewriter; }
 
     /**
      * Return descriptor of registered table/alias.
