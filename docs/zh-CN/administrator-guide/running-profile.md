@@ -187,7 +187,7 @@ OLAP_SCAN_NODE (id=0):(Active: 4.050ms, non-child: 35.68%)
    - VectorPredEvalTime: 0.000ns    # 向量化条件过滤操作的耗时。
 ```
 
-* V2 格式中关于行数的一些说明
+* Profile 中关于行数的一些说明
 
     在 Profile 中和行数相关的指标有：
     
@@ -199,6 +199,10 @@ OLAP_SCAN_NODE (id=0):(Active: 4.050ms, non-child: 35.68%)
     * RawRowsRead
     * RowsRead
     * RowsReturned
+
+    一个查询中的谓词条件会分别在存储引擎和 Scanner 中进行过滤。以上指标中，`Rows***Filtered` 这组指标描述了在存储引擎中被过滤的行数。后三个指标描述了在 Scanner 中被处理的行数。
+
+    以下仅针对 Segment V2 格式数据读取的流程进行说明。Segment V1 格式中，这些指标的含义略有不同。
 
     当读取一个 V2 格式的 Segment 时，首先会根据 Key range（前缀key组成的查询范围）进行一次过滤，过滤掉的行数记录在 `RowsKeyRangeFiltered` 中。之后，再利用 Bitmap 索引过滤数据，过滤掉的行数记录在 `RowsBitmapIndexFiltered` 中。之后，再利用 BloomFilter 索引过滤数据，记录在 `RowsBloomFilterFiltered` 中。`RowsBloomFilterFiltered` 的值是 Segment 的总行数（而不是Bitmap索引过滤后的行数）和经过 BloomFilter 过滤后剩余行数的差值，因此 BloomFilter 过滤掉的数据可能会和 Bitmap 过滤掉的数据有重叠。
 

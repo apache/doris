@@ -181,9 +181,9 @@ OLAP_SCAN_NODE (id=0): (Active: 4.050ms, non-child: 35.68%)
    -VectorPredEvalTime: 0.000ns # Time consuming of vectorized conditional filtering operation.
 ```
 
-* Some notes on the number of rows in V2 format
+* Some notes on the number of rows in Profile
 
-    The indicators related to the number of rows in the Profile are:
+    The metrics related to the number of rows in the Profile are:
     
     * RowsKeyRangeFiltered
     * RowsBitmapIndexFiltered
@@ -193,6 +193,10 @@ OLAP_SCAN_NODE (id=0): (Active: 4.050ms, non-child: 35.68%)
     * RawRowsRead
     * RowsRead
     * RowsReturned
+
+    The predicate conditions in a query are filtered in the storage engine and Scanner respectively. Among the above indicators, the group of metrics `Rows***Filtered` describes the number of rows filtered in the storage engine. The last three metrics describe the number of lines processed in Scanner.
+    
+    The following only describes the process of reading data in Segment V2 format. In the Segment V1 format, the meaning of these metrics are slightly different.
 
     When reading a V2 format segment, it will first filter based on the Key range (the query range composed of the prefix key), and the number of filtered lines is recorded in `RowsKeyRangeFiltered`. After that, the data is filtered using the Bitmap index, and the filtered rows are recorded in `RowsBitmapIndexFiltered`. After that, the data is filtered using the BloomFilter index and recorded in `RowsBloomFilterFiltered`. The value of `RowsBloomFilterFiltered` is the difference between the total number of rows in the Segment (not the number of rows after being filtered by the Bitmap index) and the number of remaining rows after BloomFilter filtering, so the data filtered by BloomFilter may overlap with the data filtered by Bitmap.
 
