@@ -1505,11 +1505,11 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         sc_params.delete_handler = delete_handler;
         if (request.__isset.materialized_view_params) {
             for (auto item : request.materialized_view_params) {
-                AlterMaterializedViewParam mvParams;
-                mvParams.column_name = item.column_name;
-                mvParams.origin_column_name = item.origin_column_name;
-                mvParams.mv_expr = item.mv_expr;
-                sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mvParams));
+                AlterMaterializedViewParam mv_param;
+                mv_param.column_name = item.column_name;
+                mv_param.origin_column_name = item.origin_column_name;
+                mv_param.mv_expr = item.mv_expr;
+                sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mv_param));
             }
         }
 
@@ -1949,6 +1949,11 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
             if (column_index >= 0) {
                 column_mapping->ref_column = column_index;
                 continue;
+            } else {
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name
+                             << " referenced_column=" << column_index << "]";
+                return OLAP_ERR_CE_CMD_PARAMS_ERROR;
             }
         }
 
@@ -1956,11 +1961,6 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
-        } else {
-            LOG(WARNING) << "referenced column was missing. "
-                         << "[column=" << column_name
-                         << " referenced_column=" << column_index << "]";
-            return OLAP_ERR_CE_CMD_PARAMS_ERROR;
         }
 
         // 新加列走这里

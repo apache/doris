@@ -16,7 +16,6 @@
 // under the License.
 
 package org.apache.doris.task;
-
 import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.CaseExpr;
