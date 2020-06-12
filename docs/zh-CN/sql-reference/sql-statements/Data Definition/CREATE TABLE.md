@@ -111,7 +111,7 @@ under the License.
         当前仅支持BITMAP索引， BITMAP索引仅支持应用于单列
 
 3. ENGINE 类型
-    默认为 olap。可选 mysql, broker
+    默认为 olap。可选 mysql, broker, hive
     1) 如果是 mysql，则需要在 properties 提供以下信息：
 
 ```
@@ -626,7 +626,7 @@ under the License.
     (
       k1 TINYINT,
       k2 VARCHAR(50),
-      v2 INT
+      v INT
     )
     ENGINE=hive
     PROPERTIES
