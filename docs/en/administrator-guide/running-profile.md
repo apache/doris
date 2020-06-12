@@ -137,7 +137,6 @@ The profile of a typical `OLAP_SCAN_NODE` is as follows. Some indicators will ha
 
 ```
 OLAP_SCAN_NODE (id=0): (Active: 4.050ms, non-child: 35.68%)
-   -BitmapIndexFilterCount: 0   # Number of rows filtered by bitmap index
    -BitmapIndexFilterTimer: 0.000ns # Time consuming to filter data using bitmap index.
    -BlockConvertTime: 7.433ms   # Time consuming to convert a vectorized block into a row structure RowBlock. Vectorized Block is VectorizedRowBatch in V1, and RowBlockV2 in V2.
    -BlockFetchTime: 36.934ms    # Rowset Reader time to get Block.
@@ -157,6 +156,7 @@ OLAP_SCAN_NODE (id=0): (Active: 4.050ms, non-child: 35.68%)
    -PerReadThreadRawHdfsThroughput: 0.00 /sec   # meaningless
    -RawRowsRead: 141.71K    # The number of raw rows read in the storage engine. See below for details.
    -ReaderInitTime: 16.515ms    # OlapScanner time to initialize Reader. V1 includes the time to form MergeHeap. V2 includes the time to generate Iterators at all levels and read the first block.
+   -RowsBitmapFiltered: 0   # Number of rows filtered by bitmap index
    -RowsBloomFilterFiltered: 0  # In V2 only, the number of rows filtered by the BloomFilter index.
    -RowsDelFiltered: 0  # V1 indicates the number of rows filtered according to the delete condition. V2 also includes the number of rows filtered by BloomFilter and some predicate conditions.
    -RowsPushedCondFiltered: 0   # Filter the conditions based on the predicate passed down, such as the condition passed from BuildTable to ProbeTable in Join calculation. This value is inaccurate because if the filtering effect is poor, it will not be filtered.

@@ -143,7 +143,6 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 
 ```
 OLAP_SCAN_NODE (id=0):(Active: 4.050ms, non-child: 35.68%)
-   - BitmapIndexFilterCount: 0  # 利用 bitmap 索引过滤掉的行数。
    - BitmapIndexFilterTimer: 0.000ns    # 利用 bitmap 索引过滤数据的耗时。
    - BlockConvertTime: 7.433ms  # 将向量化Block转换为行结构的 RowBlock 的耗时。向量化 Block 在 V1 中为 VectorizedRowBatch，V2中为 RowBlockV2。
    - BlockFetchTime: 36.934ms   # Rowset Reader 获取 Block 的时间。
@@ -163,6 +162,7 @@ OLAP_SCAN_NODE (id=0):(Active: 4.050ms, non-child: 35.68%)
    - PerReadThreadRawHdfsThroughput: 0.00 /sec  # 无意义
    - RawRowsRead: 141.71K   # 存储引擎中读取的原始行数。详情见下文。
    - ReaderInitTime: 16.515ms   # OlapScanner 初始化 Reader 的时间。V1 中包括组建 MergeHeap 的时间。V2 中包括生成各级 Iterator 并读取第一组Block的时间。
+   - RowsBitmapFiltered: 0  # 利用 bitmap 索引过滤掉的行数。
    - RowsBloomFilterFiltered: 0 # 仅 V2 中，通过 BloomFilter 索引过滤掉的行数。
    - RowsDelFiltered: 0     # V1 中表示根据 delete 条件过滤掉的行数。V2 中还包括通过 BloomFilter 和部分谓词条件过滤掉的行数。
    - RowsPushedCondFiltered: 0  # 根据传递下推的谓词过滤掉的条件，比如 Join 计算中从 BuildTable 传递给 ProbeTable 的条件。该数值不准确，因为如果过滤效果差，就不再过滤了。
