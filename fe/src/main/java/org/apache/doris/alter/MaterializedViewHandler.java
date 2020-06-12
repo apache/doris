@@ -593,7 +593,7 @@ public class MaterializedViewHandler extends AlterHandler {
                     column.setIsKey(true);
                 }
                 if (theBeginIndexOfValue == 0) {
-                    throw new DdlException("The first column could not be float or double, use decimal instead.");
+                    throw new DdlException("The first column could not be float or double");
                 }
                 // Supplement value of MV columns
                 for (; theBeginIndexOfValue < rollupSchema.size(); theBeginIndexOfValue++) {
