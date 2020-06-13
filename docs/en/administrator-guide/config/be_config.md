@@ -51,6 +51,31 @@ This document mainly introduces the relevant configuration items of BE.
 
 ### `base_compaction_num_threads_per_disk`
 
+### base_compaction_trace_threshold
+
+* Type: int32
+* Description: Threshold to logging base compaction's trace information, in seconds
+* Default value: 10
+
+Base compaction is a long time cost background task, this configuration is the threshold to logging trace information. Trace information in log file looks like:
+
+```
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
+0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
+0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
+0610 11:23:03.729029 (+    66us) base_compaction.cpp:44] rowsets picked
+0610 11:24:51.784439 (+108055410us) compaction.cpp:46] got concurrency lock and start to do compaction
+0610 11:24:51.784818 (+   379us) compaction.cpp:74] prepare finished
+0610 11:26:33.359265 (+101574447us) compaction.cpp:87] merge rowsets finished
+0610 11:26:33.484481 (+125216us) compaction.cpp:102] output rowset built
+0610 11:26:33.484482 (+     1us) compaction.cpp:106] check correctness finished
+0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
+0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
+0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
+Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
+```
+
 ### `base_compaction_write_mbytes_per_sec`
 
 ### `base_cumulative_delta_ratio`
@@ -114,6 +139,14 @@ User can set this configuration to a larger value to get better QPS performance.
 ### `cumulative_compaction_num_threads_per_disk`
 
 ### `cumulative_compaction_skip_window_seconds`
+
+### cumulative_compaction_trace_threshold
+
+* Type: int32
+* Description: Threshold to logging cumulative compaction's trace information, in seconds
+* Default value: 10
+
+Similar to `base_compaction_trace_threshold`.
 
 ### `default_num_rows_per_column_file_block`
 
