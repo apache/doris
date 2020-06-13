@@ -201,10 +201,6 @@ public:
     // on first use.
     Status create_codegen();
 
-    BufferedBlockMgr* block_mgr() {
-        DCHECK(_block_mgr.get() != NULL);
-        return _block_mgr.get();
-    }
     BufferedBlockMgr2* block_mgr2() {
         DCHECK(_block_mgr2.get() != NULL);
         return _block_mgr2.get();
@@ -467,6 +463,10 @@ public:
         return _query_options.disable_stream_preaggregations;
     }
 
+    bool enable_spill() const {
+        return _query_options.enable_spilling;
+    }
+
      // the following getters are only valid after Prepare()
     InitialReservations* initial_reservations() const { 
         return _initial_reservations; 
@@ -495,10 +495,6 @@ private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
 
-    // Use a custom block manager for the query for testing purposes.
-    void set_block_mgr(const boost::shared_ptr<BufferedBlockMgr>& block_mgr) {
-        _block_mgr = block_mgr;
-    }
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const boost::shared_ptr<BufferedBlockMgr2>& block_mgr) {
         _block_mgr2 = block_mgr;
@@ -580,7 +576,6 @@ private:
     // BufferedBlockMgr object used to allocate and manage blocks of input data in memory
     // with a fixed memory budget.
     // The block mgr is shared by all fragments for this query.
-    boost::shared_ptr<BufferedBlockMgr> _block_mgr;
     boost::shared_ptr<BufferedBlockMgr2> _block_mgr2;
 
     // This is the node id of the root node for this plan fragment. This is used as the

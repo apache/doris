@@ -507,6 +507,7 @@ public class SessionVariable implements Serializable, Writable {
         if (maxPushdownConditionsPerColumn > -1) {
             tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
         }
+        tResult.setEnable_spilling(enableSpilling);
         return tResult;
     }
 
