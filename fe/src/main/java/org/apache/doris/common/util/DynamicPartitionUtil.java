@@ -46,6 +46,9 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.Month;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
@@ -153,6 +156,7 @@ public class DynamicPartitionUtil {
             return false;
         }
         return properties.containsKey(DynamicPartitionProperty.TIME_UNIT) ||
+                properties.containsKey(DynamicPartitionProperty.TIME_ZONE) ||
                 properties.containsKey(DynamicPartitionProperty.START) ||
                 properties.containsKey(DynamicPartitionProperty.END) ||
                 properties.containsKey(DynamicPartitionProperty.PREFIX) ||
@@ -172,11 +176,13 @@ public class DynamicPartitionUtil {
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
         String start = properties.get(DynamicPartitionProperty.START);
+        String timeZone = properties.get(DynamicPartitionProperty.TIME_ZONE);
         String end = properties.get(DynamicPartitionProperty.END);
         String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         if (!((Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
+                Strings.isNullOrEmpty(timeZone) &&
                 Strings.isNullOrEmpty(prefix) &&
                 Strings.isNullOrEmpty(start) &&
                 Strings.isNullOrEmpty(end) &&
@@ -198,6 +204,9 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(buckets)) {
                 throw new DdlException("Must assign dynamic_partition.buckets properties");
+            }
+            if (Strings.isNullOrEmpty(timeZone)) {
+                properties.put(DynamicPartitionProperty.TIME_ZONE, ZoneId.systemDefault().toString());
             }
         }
         return true;
@@ -267,6 +276,13 @@ public class DynamicPartitionUtil {
             checkStartDayOfWeek(val);
             properties.remove(DynamicPartitionProperty.START_DAY_OF_WEEK);
             analyzedProperties.put(DynamicPartitionProperty.START_DAY_OF_WEEK, val);
+        }
+
+        if (properties.containsKey(DynamicPartitionProperty.TIME_ZONE)) {
+            String val = properties.get(DynamicPartitionProperty.TIME_ZONE);
+            TimeUtils.checkTimeZoneValidAndStandardize(val);
+            properties.remove(DynamicPartitionProperty.TIME_ZONE);
+            analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
         return analyzedProperties;
     }
@@ -350,20 +366,19 @@ public class DynamicPartitionUtil {
 
     // return the partition range date string formatted as yyyy-MM-dd[ HH:mm::ss]
     // TODO: support HOUR and YEAR
-    public static String getPartitionRangeString(DynamicPartitionProperty property, Calendar current,
+    public static String getPartitionRangeString(DynamicPartitionProperty property, ZonedDateTime current,
             int offset, String format) {
         String timeUnit = property.getTimeUnit();
-        TimeZone tz = property.getTimeZone();
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return getPartitionRangeOfDay(current, offset, tz, format);
+            return getPartitionRangeOfDay(current, offset, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), tz, format);
+            return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
         } else { // MONTH
-            return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), tz, format);
+            return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
         }
     }
     
-    /*
+    /**
      * return formatted string of partition range in DAY granularity.
      * offset: The offset from the current day. 0 means current day, 1 means tomorrow, -1 means yesterday.
      * format: the format of the return date string.
@@ -372,12 +387,11 @@ public class DynamicPartitionUtil {
      *  Today is 2020-05-24, offset = -1
      *  It will return 2020-05-23
      */
-    private static String getPartitionRangeOfDay(Calendar current, int offset, TimeZone tz, String format) {
-        current.add(Calendar.DATE, offset);
-        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+    private static String getPartitionRangeOfDay(ZonedDateTime current, int offset, String format) {
+        return getFormattedTimeWithoutHourMinuteSecond(current.plusDays(offset), format);
     }
 
-    /*
+    /**
      * return formatted string of partition range in WEEK granularity.
      * offset: The offset from the current week. 0 means current week, 1 means next week, -1 means last week.
      * startOf: Define the start day of each week. 1 means MONDAY, 7 means SUNDAY.
@@ -387,20 +401,17 @@ public class DynamicPartitionUtil {
      *  Today is 2020-05-24, offset = -1, startOf.dayOfWeek = 3
      *  It will return 2020-05-20  (Wednesday of last week)
      */
-    private static String getPartitionRangeOfWeek(Calendar current, int offset, StartOfDate startOf, TimeZone tz,
-            String format) {
+    private static String getPartitionRangeOfWeek(ZonedDateTime current, int offset, StartOfDate startOf, String format) {
         Preconditions.checkArgument(startOf.isStartOfWeek());
         // 1. get the offset week
-        current.add(Calendar.WEEK_OF_YEAR, offset);
+        ZonedDateTime offsetWeek = current.plusWeeks(offset);
         // 2. get the date of `startOf` week
-        int day = current.get(Calendar.DAY_OF_WEEK);
-        // SUNDAY will return 1, we will set it to 7, and make MONDAY to 1, and so on
-        day = (day == 1 ? 7 : day - 1);
-        current.add(Calendar.DATE, (startOf.dayOfWeek - day));
-        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+        int day = offsetWeek.getDayOfWeek().getValue();
+        ZonedDateTime resultTime = offsetWeek.plusDays(startOf.dayOfWeek - day);
+        return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
     }
 
-    /*
+    /**
      * return formatted string of partition range in MONTH granularity.
      * offset: The offset from the current month. 0 means current month, 1 means next month, -1 means last month.
      * startOf: Define the start date of each month. 1 means start on the 1st of every month.
@@ -410,28 +421,23 @@ public class DynamicPartitionUtil {
      *  Today is 2020-05-24, offset = 1, startOf.month = 3
      *  It will return 2020-06-03 
      */
-    private static String getPartitionRangeOfMonth(Calendar current, int offset, StartOfDate startOf, TimeZone tz,
-            String format) {
+    private static String getPartitionRangeOfMonth(ZonedDateTime current, int offset, StartOfDate startOf, String format) {
         Preconditions.checkArgument(startOf.isStartOfMonth());
         // 1. Get the offset date.
         int realOffset = offset;
-        int currentDay = current.get(Calendar.DATE);
+        int currentDay = current.getDayOfMonth();
         if (currentDay < startOf.day) {
             // eg: today is 2020-05-20, `startOf.day` is 25, and offset is 0.
             // we should return 2020-04-25, which is the last month.
             realOffset -= 1;
         }
-        current.add(Calendar.MONTH, realOffset);
-        current.set(Calendar.DATE, startOf.day);
-        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+        ZonedDateTime resultTime = current.plusMonths(realOffset).withDayOfMonth(startOf.day);
+        return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
     }
 
-    private static String getFormattedTimeWithoutHourMinuteSecond(Calendar calendar, String format) {
-        calendar.set(Calendar.HOUR_OF_DAY, 0);
-        calendar.set(Calendar.MINUTE, 0);
-        calendar.set(Calendar.SECOND, 0);
-        SimpleDateFormat dateFormat = new SimpleDateFormat(format);
-        return dateFormat.format(calendar.getTime());
+    private static String getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime zonedDateTime, String format) {
+        ZonedDateTime timeWithoutHourMinuteSecond = zonedDateTime.withHour(0).withMinute(0).withSecond(0);
+        return DateTimeFormatter.ofPattern(format).format(timeWithoutHourMinuteSecond);
     }
 
     public static int estimateReplicateNum(OlapTable table) {
@@ -446,7 +452,7 @@ public class DynamicPartitionUtil {
         return replicateNum;
     }
 
-    /*
+    /**
      * Used to indicate the start date.
      * Taking the year as the granularity, it can indicate the month and day as the start date.
      * Taking the month as the granularity, it can indicate the date of as the start date.
