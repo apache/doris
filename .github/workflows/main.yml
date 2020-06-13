@@ -28,6 +28,12 @@ jobs:
       
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
+      
+      - name: run C++ check style
+        uses: coleaeason/actions-uncrustify@v1
+        
+      - name: run java check style
+        run: axel-op/googlejavaformat-action@v3.1.0
         
       - name : test
         run: echo $GITHUB_WORKSPACE
