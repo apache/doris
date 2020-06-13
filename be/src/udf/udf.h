@@ -644,7 +644,7 @@ struct StringVal : public AnyVal {
             return false;
         }
 
-        return ptr == other.ptr || memcmp(ptr, other.ptr, len) == 0;
+        return len == 0 || ptr == other.ptr || memcmp(ptr, other.ptr, len) == 0;
     }
 
     bool operator!=(const StringVal& other) const {
