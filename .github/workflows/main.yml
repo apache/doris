@@ -29,13 +29,17 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
 
+      # dock path map the code path
+      - name: path map
+        run:  docker run -d apachedoris/doris-dev:build-env-1.2 -v $GITHUB_WORKSPACE/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
+      
       # Runs a single command using the runners shell
       - name: Run BE build
-        run:  sh build.sh --be
+        run:  docker run -d -c "cd /root/incubator-doris; sh build.sh --be"
 
       # Runs a set of commands using the runners shell
       - name: Run FE build
-        run:  sh build.sh --fe
+        run:  docker run -d -c "cd /root/incubator-doris; sh build.sh --fe"
        
       
  
