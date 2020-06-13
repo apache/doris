@@ -25,11 +25,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/runtime")
 
 set(RUNTIME_FILES
     broker_mgr.cpp
-    buffered_block_mgr.cpp
-    buffered_tuple_stream.cpp
-    buffered_tuple_stream_ir.cpp
     buffer_control_block.cpp
-    merge_sorter.cpp
     client_cache.cpp
     data_stream_mgr.cpp
     data_stream_sender.cpp

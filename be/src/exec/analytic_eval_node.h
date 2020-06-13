@@ -21,8 +21,9 @@
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
 //#include "exprs/expr_context.h"
-#include "runtime/buffered_block_mgr.h"
-#include "runtime/buffered_tuple_stream.h"
+#include "runtime/buffered_block_mgr2.h"
+#include "runtime/buffered_tuple_stream2.inline.h"
+#include "runtime/buffered_tuple_stream2.h"
 #include "runtime/tuple.h"
 #include "thrift/protocol/TDebugProtocol.h"
 
@@ -307,7 +308,7 @@ private:
     boost::scoped_ptr<RowBatch> _curr_child_batch;
 
     // Block manager client used by _input_stream. Not owned.
-    //  BufferedBlockMgr::Client* client_;
+    BufferedBlockMgr2::Client* client_;
 
     // Buffers input rows added in process_child_batch() until enough rows are able to
     // be returned by get_next_output_batch(), in which case row batches are returned from
@@ -317,7 +318,7 @@ private:
     // buffered data exceeds the available memory in the underlying BufferedBlockMgr,
     // _input_stream is unpinned (i.e., possibly spilled to disk if necessary).
     // TODO: Consider re-pinning unpinned streams when possible.
-    boost::scoped_ptr<BufferedTupleStream> _input_stream;
+    boost::scoped_ptr<BufferedTupleStream2> _input_stream;
 
     // Pool used for O(1) allocations that live until close.
     boost::scoped_ptr<MemPool> _mem_pool;
