@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.util.Iterator;
@@ -35,9 +36,11 @@ public class QueryDetailQueue {
 
     public static synchronized void addOrUpdateQueryDetail(QueryDetail queryDetail) {
         if (runningQueries.get(queryDetail.getQueryId()) == null) {
+            Preconditions.checkState(queryDetail.getState() == QueryDetail.QueryMemState.RUNNING);
             runningQueries.put(queryDetail.getQueryId(), queryDetail);
             totalQueries.add(queryDetail);
         } else {
+            Preconditions.checkState(queryDetail.getState() != QueryDetail.QueryMemState.RUNNING);
             QueryDetail qDetail = runningQueries.remove(queryDetail.getQueryId());
             qDetail.setLatency(queryDetail.getLatency());
             qDetail.setState(queryDetail.getState());
@@ -59,10 +62,6 @@ public class QueryDetailQueue {
             } else {
                 pos++;
             }
-        }
-        for (int i = 0; i < pos; ++i) {
-            QueryDetail qDetail = totalQueries.remove();
-            runningQueries.remove(qDetail.getQueryId());
         }
         return results; 
     }
