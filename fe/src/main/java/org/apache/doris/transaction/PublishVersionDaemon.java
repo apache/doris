@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
@@ -181,8 +182,14 @@ public class PublishVersionDaemon extends MasterDaemon {
                         // current we don't have partition to tablet map in FE, so here we use an inefficient way.
                         // TODO(cmy): this is inefficient, but just keep it simple. will change it later.
                         List<Long> tabletIds = tabletInvertedIndex.getTabletIdsByBackendId(unfinishedTask.getBackendId());
-                        for (long tabletId : tabletIds) {
-                            long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
+                        List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
+                        for (int i = 0; i < tabletIds.size(); i++) {
+                            long tabletId = tabletIds.get(i);
+                            TabletMeta tabletMeta = tabletMetaList.get(i);
+                            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                                continue;
+                            }
+                            long partitionId = tabletMeta.getPartitionId();
                             if (errorPartitionIds.contains(partitionId)) {
                                 Replica replica = tabletInvertedIndex.getReplica(tabletId,
                                                                                  unfinishedTask.getBackendId());
