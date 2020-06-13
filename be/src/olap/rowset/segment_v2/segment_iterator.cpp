@@ -166,7 +166,9 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
         RowRanges::ranges_union(result_ranges, row_range, &result_ranges);
     }
     // pre-condition: _row_ranges == [0, num_rows)
+    size_t pre_size = _row_bitmap.cardinality();
     _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
+    _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
     DorisMetrics::instance()->segment_rows_by_short_key.increment(_row_bitmap.cardinality());
 
     return Status::OK();
@@ -301,7 +303,7 @@ Status SegmentIterator::_apply_bitmap_index() {
         }
     }
     _col_predicates = std::move(remaining_predicates);
-    _opts.stats->bitmap_index_filter_count += (input_rows - _row_bitmap.cardinality());
+    _opts.stats->rows_bitmap_index_filtered += (input_rows - _row_bitmap.cardinality());
     return Status::OK();
 }
 

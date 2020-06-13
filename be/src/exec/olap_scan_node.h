@@ -271,6 +271,7 @@ private:
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_seek_counter = nullptr;
