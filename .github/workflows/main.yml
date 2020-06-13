@@ -34,10 +34,10 @@ jobs:
 
       # dock path map the code path
       - name: path map
-        run:  docker run -d  -v $GITHUB_WORKSPACE:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
+        run:  docker run -t  -v $GITHUB_WORKSPACE:/root/incubator-doris apachedoris/doris-dev:build-env-1.2 
       # Runs a single command using the runners shell
       - name: Run BE build
-        run:  docker exec bash -c "cd /root/incubator-doris; sh build.sh --be"
+        run:  docker exec -t bash -c "cd /root/incubator-doris; sh build.sh --be"
 
       # Runs a set of commands using the runners shell
       - name: Run FE build
