@@ -24,7 +24,7 @@ jobs:
     
       # pull docker image && run
       - name: use docker image
-        run:  docker://apachedoris/doris-dev:build-env-1.2
+        run:  docker pull apachedoris/doris-dev:build-env-1.2
       
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
