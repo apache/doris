@@ -469,13 +469,14 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
+    COUNTER_UPDATE(_parent->_key_range_filtered_counter, _reader->stats().rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
 
     COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
 
-    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().bitmap_index_filter_count);
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().rows_bitmap_index_filtered);
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 

@@ -114,10 +114,10 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 }
 
 OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     // read next input block
     _input_block->clear();
     {
-        SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
         auto s = _iterator->next_batch(_input_block.get());
         if (!s.ok()) {
             if (s.is_end_of_file()) {
