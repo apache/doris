@@ -32,8 +32,14 @@ jobs:
       - name: run C++ check style
         uses: coleaeason/actions-uncrustify@v1
         
+      - uses: actions/setup-java@v1
+        with: 
+              java-version: "11"   
+
       - name: run java check style
-        run: axel-op/googlejavaformat-action@v3.1.0
+        uses: axel-op/googlejavaformat-action@v3.1.0
+        with:
+          skipCommit: true
         
       - name : test
         run: echo $GITHUB_WORKSPACE
