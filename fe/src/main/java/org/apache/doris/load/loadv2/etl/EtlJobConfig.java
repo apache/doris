@@ -243,12 +243,17 @@ public class EtlJobConfig implements Serializable {
         }
     }
 
-    public static enum ConfigVersion {
+    public enum ConfigVersion {
         V1
     }
 
-    public static enum FilePatternVersion {
+    public enum FilePatternVersion {
         V1
+    }
+
+    public enum SourceType {
+        FILE,
+        HIVE
     }
 
     public static class EtlTable implements Serializable {
@@ -454,6 +459,8 @@ public class EtlJobConfig implements Serializable {
     }
 
     public static class EtlFileGroup implements Serializable {
+        @SerializedName(value = "sourceType")
+        public SourceType sourceType = SourceType.FILE;
         @SerializedName(value = "filePaths")
         public List<String> filePaths;
         @SerializedName(value = "fileFieldNames")
@@ -474,12 +481,17 @@ public class EtlJobConfig implements Serializable {
         public String where;
         @SerializedName(value = "partitions")
         public List<Long> partitions;
-        @SerializedName(value = "hiveTableName")
-        public String hiveTableName;
+        @SerializedName(value = "hiveDbTableName")
+        public String hiveDbTableName;
+        @SerializedName(value = "hiveTableProperties")
+        public Map<String, String> hiveTableProperties;
 
-        public EtlFileGroup(List<String> filePaths, List<String> fileFieldNames, List<String> columnsFromPath,
-                            String columnSeparator, String lineDelimiter, boolean isNegative, String fileFormat,
-                            Map<String, EtlColumnMapping> columnMappings, String where, List<Long> partitions) {
+        // for data infile path
+        public EtlFileGroup(SourceType sourceType, List<String> filePaths, List<String> fileFieldNames,
+                            List<String> columnsFromPath, String columnSeparator, String lineDelimiter,
+                            boolean isNegative, String fileFormat, Map<String, EtlColumnMapping> columnMappings,
+                            String where, List<Long> partitions) {
+            this.sourceType = sourceType;
             this.filePaths = filePaths;
             this.fileFieldNames = fileFieldNames;
             this.columnsFromPath = columnsFromPath;
@@ -492,10 +504,24 @@ public class EtlJobConfig implements Serializable {
             this.partitions = partitions;
         }
 
+        // for data from table
+        public EtlFileGroup(SourceType sourceType, String hiveDbTableName, Map<String, String> hiveTableProperties,
+                            boolean isNegative, Map<String, EtlColumnMapping> columnMappings,
+                            String where, List<Long> partitions) {
+            this.sourceType = sourceType;
+            this.hiveDbTableName = hiveDbTableName;
+            this.hiveTableProperties = hiveTableProperties;
+            this.isNegative = isNegative;
+            this.columnMappings = columnMappings;
+            this.where = where;
+            this.partitions = partitions;
+        }
+
         @Override
         public String toString() {
             return "EtlFileGroup{" +
-                    "filePaths=" + filePaths +
+                    "sourceType=" + sourceType +
+                    ", filePaths=" + filePaths +
                     ", fileFieldNames=" + fileFieldNames +
                     ", columnsFromPath=" + columnsFromPath +
                     ", columnSeparator='" + columnSeparator + '\'' +
@@ -505,7 +531,8 @@ public class EtlJobConfig implements Serializable {
                     ", columnMappings=" + columnMappings +
                     ", where='" + where + '\'' +
                     ", partitions=" + partitions +
-                    ", hiveTableName='" + hiveTableName + '\'' +
+                    ", hiveDbTableName='" + hiveDbTableName + '\'' +
+                    ", hiveTableProperties=" + hiveTableProperties +
                     '}';
         }
     }
