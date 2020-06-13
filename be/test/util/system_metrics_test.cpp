@@ -225,9 +225,9 @@ TEST_F(SystemMetricsTest, normal) {
         ASSERT_STREQ("19520", fd_metric->to_string().c_str());
 
         // net snmp
-        Metric* tcp_retrans_segs = registry.get_metric("tcp_retrans_segs");
+        Metric* tcp_retrans_segs = registry.get_metric("snmp", MetricLabels().add("name", "tcp_retrans_segs"));
         ASSERT_TRUE(tcp_retrans_segs != nullptr);
-        Metric* tcp_in_errs = registry.get_metric("tcp_in_errs");
+        Metric* tcp_in_errs = registry.get_metric("snmp", MetricLabels().add("name","tcp_in_errs"));
         ASSERT_TRUE(tcp_in_errs != nullptr);
         ASSERT_STREQ("826271", tcp_retrans_segs->to_string().c_str());
         ASSERT_STREQ("12712", tcp_in_errs->to_string().c_str());
