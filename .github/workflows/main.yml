@@ -39,6 +39,9 @@ jobs:
       
       - name: time sleep
         run:  sleep 10
+      
+      - name: test1
+        run:  docker ps
         
       - name: Run BE build
         run:  docker exec doris-env bash -c "cd /root/incubator-doris; sh build.sh --be"
