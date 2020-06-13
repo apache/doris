@@ -48,7 +48,7 @@ mysql> set is_report_success=true;
 ```
 
 After executing the corresponding SQL statement, we can see the report information of the corresponding SQL statement on the FE web page like the picture below.
-![image.png](https://upload-images.jianshu.io/upload_images/8552201-f5308be377dc4d90.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+![image.png](/images/running_profile.png)
 
 The latest  **100 statements** executed will be listed here. We can view detailed statistics of RunningProfile.
 ```
@@ -68,7 +68,7 @@ Query:
 Here is a detailed list of  ```query ID, execution time, execution statement``` and other summary information. The next step is to print the details of each fragment collected from be.
  ```
     Fragment 0:
-      Instance 9664061c57e84404-85ae111b8ba7e83d (host=TNetworkAddress(hostname:10.144.192.47, port:9060)):(Active: 10s270ms, % non-child: 0.14%)
+      Instance 9664061c57e84404-85ae111b8ba7e83d (host=TNetworkAddress(hostname:192.168.0.1, port:9060)):(Active: 10s270ms, % non-child: 0.14%)
          - MemoryLimit: 2.00 GB
          - BytesReceived: 168.08 KB
          - PeakUsedReservation: 0.00 
@@ -95,8 +95,20 @@ There are many statistical information collected at BE.  so we list the correspo
    - MemoryLimit: Memory limit at query
    - PeakMemoryUsage: Peak memory usage
    - RowsProduced: Number of rows that process
-   - BytesReceived: Size of bytes received by network
-   - DeserializeRowBatchTimer: Time consuming to receive data deserialization
+
+#### `BlockMgr`
+  - BlocksCreated: Number of Block be created by BlockMgr
+  - BlocksRecycled: Number of Block be recycled by BlockMgr
+  - BytesWritten: How many bytes be writen to spill to disk
+  - MaxBlockSize: Max size of one Block
+  - TotalReadBlockTime: Total time read block from disk
+
+#### `DataStreamRecvr`
+  - BytesReceived: Size of bytes received by network
+  - DataArrivalWaitTime: Total waiting time of sender to push data 
+  - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
+  - DeserializeRowBatchTimer: Time consuming to receive data deserialization
+  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full，wait time of sender
 
 #### `DataStreamSender`
  - BytesSent: Total bytes data sent

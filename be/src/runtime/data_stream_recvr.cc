@@ -146,10 +146,9 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
         VLOG_ROW << "wait arrival fragment_instance_id=" << _recvr->fragment_instance_id()
             << " node=" << _recvr->dest_node_id();
         // Don't count time spent waiting on the sender as active time.
-        // CANCEL_SAFE_SCOPED_TIMER(_recvr->_data_arrival_timer, &_is_cancelled);
-        // CANCEL_SAFE_SCOPED_TIMER(
-        //         _received_first_batch ? NULL : _recvr->_first_batch_wait_total_timer,
-        //         &_is_cancelled);
+        CANCEL_SAFE_SCOPED_TIMER(_recvr->_data_arrival_timer, &_is_cancelled);
+        CANCEL_SAFE_SCOPED_TIMER(_received_first_batch ? NULL : _recvr->_first_batch_wait_total_timer,
+                &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
 
@@ -180,6 +179,11 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
         auto done = _pending_closures.front();
         done->Run();
         _pending_closures.pop_front();
+
+        auto clock = _recvr->_closere_clock_map.at(done);
+        clock.stop();
+        _recvr->_buffer_full_total_timer->update(clock.elapsed_time());
+        _recvr->_closere_clock_map.erase(done);
     }
 
     return Status::OK();
@@ -248,6 +252,10 @@ void DataStreamRecvr::SenderQueue::add_batch(
     _batch_queue.emplace_back(batch_size, batch);
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(batch_size)) {
+        MonotonicStopWatch monotonicStopWatch;
+        monotonicStopWatch.start();
+        _recvr->_closere_clock_map.insert(std::make_pair(*done, monotonicStopWatch));
+
         DCHECK(*done != nullptr);
         _pending_closures.push_back(*done);
         *done = nullptr;
@@ -386,10 +394,8 @@ DataStreamRecvr::DataStreamRecvr(
     //     ADD_TIME_SERIES_COUNTER(_profile, "BytesReceived", _bytes_received_counter);
     _deserialize_row_batch_timer =
         ADD_TIMER(_profile, "DeserializeRowBatchTimer");
-    _buffer_full_wall_timer = ADD_TIMER(_profile, "SendersBlockedTimer");
+    _data_arrival_timer = ADD_TIMER(_profile, "DataArrivalWaitTime");
     _buffer_full_total_timer = ADD_TIMER(_profile, "SendersBlockedTotalTimer(*)");
-    // _data_arrival_timer = _profile->inactive_timer();
-    // TODO: Now we don't use this counter. Delete or Fixed ?
     _first_batch_wait_total_timer = ADD_TIMER(_profile, "FirstBatchArrivalWaitTime");
 }
 
