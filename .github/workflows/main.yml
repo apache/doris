@@ -37,11 +37,11 @@ jobs:
         run:  docker run -d  -v $GITHUB_WORKSPACE:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
       # Runs a single command using the runners shell
       - name: Run BE build
-        run:  docker run -it bash -c "cd /root/incubator-doris; sh build.sh --be"
+        run:  docker exec bash -c "cd /root/incubator-doris; sh build.sh --be"
 
       # Runs a set of commands using the runners shell
       - name: Run FE build
-        run:  docker run -it bash -c "cd /root/incubator-doris; sh build.sh --fe"
+        run:  docker exec bash -c "cd /root/incubator-doris; sh build.sh --fe"
        
       
  
