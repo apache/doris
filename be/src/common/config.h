@@ -284,6 +284,10 @@ namespace config {
     // This config can be set to 0, which means to forbid any compaction, for some special cases.
     CONF_Int32(max_compaction_concurrency, "-1");
 
+    // Threshold to logging compaction trace, in seconds.
+    CONF_mInt32(base_compaction_trace_threshold, "10");
+    CONF_mInt32(cumulative_compaction_trace_threshold, "2");
+
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
     // Number of webserver workers
