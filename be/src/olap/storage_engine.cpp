@@ -53,9 +53,11 @@
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/fs/file_block_manager.h"
 #include "util/time.h"
+#include "util/trace.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/file_utils.h"
+#include "util/scoped_cleanup.h"
 #include "agent/cgroups_mgr.h"
 
 using apache::thrift::ThriftDebugString;
@@ -506,11 +508,22 @@ void StorageEngine::_start_clean_fd_cache() {
 }
 
 void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
+    scoped_refptr<Trace> trace(new Trace);
+    MonotonicStopWatch watch;
+    watch.start();
+    SCOPED_CLEANUP({
+        if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+            LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+        }
+    });
+    ADOPT_TRACE(trace.get());
+    TRACE("start to perform cumulative compaction");
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, data_dir);
     if (best_tablet == nullptr) {
         return;
     }
+    TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
     DorisMetrics::instance()->cumulative_compaction_request_total.increment(1);
     CumulativeCompaction cumulative_compaction(best_tablet);
@@ -529,11 +542,22 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
 }
 
 void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
+    scoped_refptr<Trace> trace(new Trace);
+    MonotonicStopWatch watch;
+    watch.start();
+    SCOPED_CLEANUP({
+        if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+            LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+        }
+    });
+    ADOPT_TRACE(trace.get());
+    TRACE("start to perform base compaction");
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
             CompactionType::BASE_COMPACTION, data_dir);
     if (best_tablet == nullptr) {
         return;
     }
+    TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
     DorisMetrics::instance()->base_compaction_request_total.increment(1);
     BaseCompaction base_compaction(best_tablet);
