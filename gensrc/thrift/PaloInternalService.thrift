@@ -136,6 +136,8 @@ struct TQueryOptions {
   // see BE config `max_pushdown_conditions_per_column` for details
   // if set, this will overwrite the BE config.
   30: optional i32 max_pushdown_conditions_per_column
+  // whether enable spilling to disk
+  31: optional bool enable_spilling = false;
 }
     
 
