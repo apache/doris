@@ -40,11 +40,11 @@ jobs:
       - name: test1
         run: docker ps 
       - name: Run BE build
-        run:  docker exec -i doris-env bash -c "cd /root/incubator-doris; sh build.sh --be"
+        run:  docker exec doris-env bash -c "cd /root/incubator-doris; sh build.sh --be"
 
       # Runs a set of commands using the runners shell
       - name: Run FE build
-        run:  docker exec -i doris-env bash -c "cd /root/incubator-doris; sh build.sh --fe"
+        run:  docker exec doris-env bash -c "cd /root/incubator-doris; sh build.sh --fe"
        
       
  
