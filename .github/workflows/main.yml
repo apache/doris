@@ -38,7 +38,7 @@ jobs:
       # Runs a single command using the runners shell
       
       - name: time sleep
-        run:  sleep 10
+        run:  sleep 5
       
       - name: test1
         run:  docker ps
