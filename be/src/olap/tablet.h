@@ -69,6 +69,14 @@ public:
     inline const int64_t cumulative_layer_point() const;
     inline void set_cumulative_layer_point(int64_t new_point);
 
+    inline const int64_t latest_read_version() const { return _latest_read_version; }
+    // update the _latest_read_version only if version is larger than current saved value.
+    // in other word, _latest_read_version is strictly increasing.
+    inline void update_latest_read_version(int64_t version) {
+        int64_t expected = _latest_read_version.load();
+        while (version > expected && !_latest_read_version.compare_exchange_weak(expected, version)) {}
+    }
+
     inline size_t tablet_footprint(); // disk space occupied by tablet
     inline size_t num_rows();
     inline int version_count() const;
@@ -202,8 +210,8 @@ public:
 
     TabletInfo get_tablet_info() const;
 
-    void pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
-                                                         std::vector<RowsetSharedPtr>* candidate_rowsets);
+    void pick_candicate_rowsets_to_cumulative_compaction(
+            std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
     void calculate_cumulative_point();
@@ -282,6 +290,9 @@ private:
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
+    // save the maximum read version specified in the read request.
+    std::atomic<int64_t> _latest_read_version;
+
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
@@ -309,7 +320,6 @@ inline const int64_t Tablet::cumulative_layer_point() const {
 inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
-
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.

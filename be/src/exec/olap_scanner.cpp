@@ -111,6 +111,7 @@ Status OlapScanner::_prepare(
                 << ", res=" << acquire_reader_st << ", backend=" << BackendOptions::get_localhost();
                 return Status::InternalError(ss.str().c_str());
             }
+            _tablet->update_latest_read_version(_version);
         }
     }
 

@@ -50,6 +50,9 @@ OLAPStatus CumulativeCompaction::compact() {
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
 
+    // 3. check some limitation about the input rowsets
+    RETURN_NOT_OK(_check_limitation());
+
     // 3. do cumulative compaction, merge rowsets
     RETURN_NOT_OK(do_compaction());
     TRACE("compaction finished");
@@ -73,8 +76,7 @@ OLAPStatus CumulativeCompaction::compact() {
 
 OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    _tablet->pick_candicate_rowsets_to_cumulative_compaction(
-        config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
+    _tablet->pick_candicate_rowsets_to_cumulative_compaction(&candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
@@ -174,6 +176,38 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus CumulativeCompaction::_check_limitation() {
+    CHECK(!_input_rowsets.empty());
+
+    if (_input_rowsets.size() == 1) {
+        // always allow to compact only one rowset.
+        // because it will never lead to errors such as OLAP_ERR_VERSION_ALREADY_MERGED
+        return OLAP_SUCCESS;
+    }
+
+    // the _input_rowsets is already sorted by version here.
+    // iterate it from begin to last, only select rowsets  if one of the following conditions meet:
+    // 1. rowset's end version <= latest read version. This is to avoid -230 error
+    // 2. The difference between the creation time of rowset and the current time is greater than
+    //    config::cumulative_compaction_skip_window_seconds. This is to avoid accumulating too many versions.
+    // See https://github.com/apache/incubator-doris/issues/3859 for details
+    int64_t now = UnixSeconds();
+    std::vector<RowsetSharedPtr> transient_rowsets;
+    for (auto rowset : _input_rowsets) {
+        if (rowset->end_version() <= _tablet->latest_read_version()
+            || rowset->creation_time() + config::cumulative_compaction_skip_window_seconds < now) {
+            transient_rowsets.push_back(rowset);
+        } else {
+            break;
+        }
+    }
+    if (transient_rowsets.empty()) {
+        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
+    }
+    _input_rowsets = transient_rowsets;
     return OLAP_SUCCESS;
 }
 

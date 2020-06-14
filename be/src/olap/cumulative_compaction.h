@@ -43,6 +43,10 @@ protected:
     }
 
 private:
+    // check some limitation after calling pick_rowsets_to_compact.
+    // This may modify the input rowsets.
+    OLAPStatus _check_limitation();
+
     int64_t _cumulative_rowset_size_threshold;
 
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);

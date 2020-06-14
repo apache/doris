@@ -60,7 +60,8 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         _last_base_compaction_failure_millis(0),
         _last_cumu_compaction_success_millis(0),
         _last_base_compaction_success_millis(0),
-        _cumulative_point(kInvalidCumulativePoint) {
+        _cumulative_point(kInvalidCumulativePoint),
+        _latest_read_version(0) {
     _rs_graph.construct_rowset_graph(_tablet_meta->all_rs_metas());
 }
 
@@ -852,12 +853,11 @@ TabletInfo Tablet::get_tablet_info() const {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
 
-void Tablet::pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
-                                                             std::vector<RowsetSharedPtr>* candidate_rowsets) {
-    int64_t now = UnixSeconds();
+void Tablet::pick_candicate_rowsets_to_cumulative_compaction(
+        std::vector<RowsetSharedPtr>* candidate_rowsets) {
     ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
-        if (it.first.first >= _cumulative_point && (it.second->creation_time() + skip_window_sec < now)) {
+        if (it.first.first >= _cumulative_point) {
             candidate_rowsets->push_back(it.second);
         }
     }
@@ -910,6 +910,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
     format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
     base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base success time", base_success_value, root.GetAllocator());
+    root.AddMember("latest read version", _latest_read_version.load(), root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
