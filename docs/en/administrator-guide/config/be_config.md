@@ -54,7 +54,7 @@ This document mainly introduces the relevant configuration items of BE.
 ### `base_compaction_trace_threshold`
 
 * Type: int32
-* Description: Threshold to logging base compaction's trace information, in seconds
+* Description: Threshold to logging base compaction's trace information, in seconds. If the time taken for a base compaction exceeds the configuration, trace information will be printed.
 * Default value: 10
 
 Base compaction is a long time cost background task, this configuration is the threshold to logging trace information. Trace information in log file looks like:

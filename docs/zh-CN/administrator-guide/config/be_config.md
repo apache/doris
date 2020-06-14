@@ -54,7 +54,7 @@ under the License.
 ### `base_compaction_trace_threshold`
 
 * 类型：int32
-* 描述：打印base compaction的trace信息的阈值，单位秒
+* 描述：打印base compaction的trace信息的阈值，单位秒。如果一个 base compaction 的耗时超过了该配置，则会打印 trace 信息。
 * 默认值：10
 
 base compaction是一个耗时较长的后台操作，为了跟踪其运行信息，可以调整这个阈值参数来控制trace日志的打印。打印信息如下：
