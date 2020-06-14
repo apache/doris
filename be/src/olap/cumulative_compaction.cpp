@@ -52,21 +52,21 @@ OLAPStatus CumulativeCompaction::compact() {
     // 3. check some limitation about the input rowsets
     RETURN_NOT_OK(_check_limitation());
 
-    // 3. do cumulative compaction, merge rowsets
+    // 4. do cumulative compaction, merge rowsets
     RETURN_NOT_OK(do_compaction());
     TRACE("compaction finished");
 
-    // 4. set state to success
+    // 5. set state to success
     _state = CompactionState::SUCCESS;
 
-    // 5. set cumulative point
+    // 6. set cumulative point
     _tablet->set_cumulative_layer_point(_input_rowsets.back()->end_version() + 1);
     
-    // 6. garbage collect input rowsets after cumulative compaction 
+    // 7. garbage collect input rowsets after cumulative compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
     TRACE("unused rowsets have been moved to GC queue");
 
-    // 7. add metric to cumulative compaction
+    // 8. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total.increment(_input_rowsets_size);
 
