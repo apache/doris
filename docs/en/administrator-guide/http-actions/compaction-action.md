@@ -58,6 +58,7 @@ If the tablet exists, the result is returned in JSON format:
     "last base failure time": "2019-12-16 18:13:23.320",
     "last cumu success time": "2019-12-16 18:12:15.110",
     "last base success time": "2019-12-16 18:11:50.780",
+    "latest read version": 50
     "rowsets": [
         "[0-48] 10 DATA OVERLAPPING",
         "[49-49] 2 DATA OVERLAPPING",
@@ -67,12 +68,15 @@ If the tablet exists, the result is returned in JSON format:
 }
 ```
 
+* The URL can also be obtained directly from the `CompactionStatus` field in the `SHOW TABLET` command result.
+
 Explanation of results:
 
 * cumulative point: The version boundary between base and cumulative compaction. Versions before (excluding) points are handled by base compaction. Versions after (inclusive) are handled by cumulative compaction.
 * last cumulative failure time: The time when the last cumulative compaction failed. After 10 minutes by default, cumulative compaction is attempted on the this tablet again.
 * last base failure time: The time when the last base compaction failed. After 10 minutes by default, base compaction is attempted on the this tablet again.
 * rowsets: The current rowsets collection of this tablet. [0-48] means a rowset with version 0-48. The second number is the number of segments in a rowset. The `DELETE` indicates the delete version. `OVERLAPPING` and `NONOVERLAPPING` indicates whether data between segments is overlap.
+* latest read version: new attribute added in version 0.13. Represents the largest version of the tablet that has been queried. Compaction logic will try to avoid merging version data after this version. For specific instructions, please refer to the parameter description of `cumulative_compaction_skip_window_seconds` in [BE Configuration Item] (../config/be_config.md).
 
 ### Examples
 
