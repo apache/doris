@@ -266,7 +266,6 @@ namespace config {
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
     CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
     CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
-    CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
     // CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
     // cumulative compaction skips recently published deltas in order to prevent
     // compacting a version that might be queried (in case the query planning phase took some time).

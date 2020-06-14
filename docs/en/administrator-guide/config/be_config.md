@@ -51,7 +51,7 @@ This document mainly introduces the relevant configuration items of BE.
 
 ### `base_compaction_num_threads_per_disk`
 
-### base_compaction_trace_threshold
+### `base_compaction_trace_threshold`
 
 * Type: int32
 * Description: Threshold to logging base compaction's trace information, in seconds
@@ -132,15 +132,18 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `create_tablet_worker_count`
 
-### `cumulative_compaction_budgeted_bytes`
-
 ### `cumulative_compaction_check_interval_seconds`
 
 ### `cumulative_compaction_num_threads_per_disk`
 
 ### `cumulative_compaction_skip_window_seconds`
 
-### cumulative_compaction_trace_threshold
+* Type: int32
+* Description: This config will control Cumulative Compaction to skip the newly generated data version in the most recent period. The default is 30. The unit is second. It means that Cumulative Compaction will not select the data version that was just generated in the last 30 seconds to merge. This config is mainly to mitigate the `-230` error in the query. This error indicates that the specified read version has been merged during the query. If the `-230` error occurs frequently during the query, you can consider increasing this value. However, increasing this value may also result in a backlog of data versions, thereby reducing data reading efficiency.
+* Default value: 30
+* Special instructions: in version 0.13. Doris has improved Cumulative Compaction's logic for selecting the data version. While referring to this configuration, it will also refer to `last read version`, which is the current maximum version which has been read by query. (This value can be obtained through [Compaction Action](../http-actions/compaction-action.md)). In the new version, if a table is read more frequently (such as at least once a minute), you can consider increasing this value (such as 300 seconds) to further reduce the probability of `-230` error.
+
+### `cumulative_compaction_trace_threshold`
 
 * Type: int32
 * Description: Threshold to logging cumulative compaction's trace information, in seconds

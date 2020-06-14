@@ -51,6 +51,31 @@ under the License.
 
 ### `base_compaction_num_threads_per_disk`
 
+### `base_compaction_trace_threshold`
+
+* 类型：int32
+* 描述：打印base compaction的trace信息的阈值，单位秒
+* 默认值：10
+
+base compaction是一个耗时较长的后台操作，为了跟踪其运行信息，可以调整这个阈值参数来控制trace日志的打印。打印信息如下：
+
+```
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
+0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
+0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
+0610 11:23:03.729029 (+    66us) base_compaction.cpp:44] rowsets picked
+0610 11:24:51.784439 (+108055410us) compaction.cpp:46] got concurrency lock and start to do compaction
+0610 11:24:51.784818 (+   379us) compaction.cpp:74] prepare finished
+0610 11:26:33.359265 (+101574447us) compaction.cpp:87] merge rowsets finished
+0610 11:26:33.484481 (+125216us) compaction.cpp:102] output rowset built
+0610 11:26:33.484482 (+     1us) compaction.cpp:106] check correctness finished
+0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
+0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
+0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
+Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
+```
+
 ### `base_compaction_write_mbytes_per_sec`
 
 ### `base_cumulative_delta_ratio`
@@ -105,13 +130,24 @@ under the License.
 
 ### `create_tablet_worker_count`
 
-### `cumulative_compaction_budgeted_bytes`
-
 ### `cumulative_compaction_check_interval_seconds`
 
 ### `cumulative_compaction_num_threads_per_disk`
 
 ### `cumulative_compaction_skip_window_seconds`
+
+* 类型：int32
+* 描述：该参数会控制 Cumulative Compaction 跳过最近一段时间内新生成的数据版本。默认为 30。单位为秒。表示 Cumulative Compaction 不会选择最近30秒内刚生成的数据版本进行合并。该参数主要为了缓解查询中出现的 `-230` 错误。该错误表示在查询过程中，指定读取的版本已经被合并。如果查询过程中频繁出现 `-230` 错误，则可以考虑增大该数值。但增大该数值，同时也可能导致数据版本的积压，从而降低数据读取效率。
+* 默认值：30
+* 特殊说明：在 0.13 版本中。Doris 对 Cumulative Compaction 选择数据版本的逻辑进行了改进。在参考该配置的同时，也会参考 `last read version`，即当前最大读取版本。（该数值可以通过 [Compaction Action](../http-actions/compaction-action.md) 获取）。在新版本中，如果对一个表的读取较为频繁（如至少1分钟一次），则可以考虑增大该数值（如 300 秒），以进一步降低 `-230` 的发生概率。
+
+### `cumulative_compaction_trace_threshold`
+
+* 类型：int32
+* 描述：打印cumulative compaction的trace信息的阈值，单位秒
+* 默认值：2
+
+与 `base_compaction_trace_threshold` 类似。
 
 ### `default_num_rows_per_column_file_block`
 
@@ -443,7 +479,7 @@ under the License.
 
 ### `write_buffer_size`
 
-### ignore_load_tablet_failure
+### `ignore_load_tablet_failure`
 
 * 类型：布尔
 * 描述：用来决定在有tablet 加载失败的情况下是否忽略错误，继续启动be
@@ -460,36 +496,5 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 1. tablet 信息不可修复，在确保其他副本正常的情况下，可以通过 `meta_tool` 工具将错误的tablet删除。
 2. 将 `ignore_load_tablet_failure` 设置为 true，则 BE 会忽略这些错误的 tablet，正常启动。
 
-### base_compaction_trace_threshold
 
-* 类型：int32
-* 描述：打印base compaction的trace信息的阈值，单位秒
-* 默认值：10
-
-base compaction是一个耗时较长的后台操作，为了跟踪其运行信息，可以调整这个阈值参数来控制trace日志的打印。打印信息如下：
-
-```
-W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
-0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
-0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
-0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
-0610 11:23:03.729029 (+    66us) base_compaction.cpp:44] rowsets picked
-0610 11:24:51.784439 (+108055410us) compaction.cpp:46] got concurrency lock and start to do compaction
-0610 11:24:51.784818 (+   379us) compaction.cpp:74] prepare finished
-0610 11:26:33.359265 (+101574447us) compaction.cpp:87] merge rowsets finished
-0610 11:26:33.484481 (+125216us) compaction.cpp:102] output rowset built
-0610 11:26:33.484482 (+     1us) compaction.cpp:106] check correctness finished
-0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
-0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
-0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
-Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
-```
-
-### cumulative_compaction_trace_threshold
-
-* 类型：int32
-* 描述：打印cumulative compaction的trace信息的阈值，单位秒
-* 默认值：2
-
-与base_compaction_trace_threshold类似。
 

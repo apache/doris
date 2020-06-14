@@ -23,8 +23,7 @@
 namespace doris {
 
 CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
-    : Compaction(tablet),
-      _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes)
+    : Compaction(tablet)
 { }
 
 CumulativeCompaction::~CumulativeCompaction() { }
