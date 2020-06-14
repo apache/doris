@@ -188,7 +188,7 @@ OLAPStatus CumulativeCompaction::_check_limitation() {
     }
 
     // the _input_rowsets is already sorted by version here.
-    // iterate it from begin to last, only select rowsets  if one of the following conditions meet:
+    // iterate it from begin to last, only select rowsets if one of the following conditions meet:
     // 1. rowset's end version <= latest read version. This is to avoid -230 error
     // 2. The difference between the creation time of rowset and the current time is greater than
     //    config::cumulative_compaction_skip_window_seconds. This is to avoid accumulating too many versions.

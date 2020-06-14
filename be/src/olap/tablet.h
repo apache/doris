@@ -290,7 +290,7 @@ private:
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
-    // save the maximum read version specified in the read request.
+    // save the current largest read version which has been read by query
     std::atomic<int64_t> _latest_read_version;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
