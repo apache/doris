@@ -552,7 +552,7 @@ void ExecNode::try_do_aggregate_serde_improve() {
 void ExecNode::init_runtime_profile(const std::string& name) {
     std::stringstream ss;
     ss << name << " (id=" << _id << ")";
-    _runtime_profile.reset(new RuntimeProfile(_pool, ss.str()));
+    _runtime_profile.reset(new RuntimeProfile(ss.str()));
     _runtime_profile->set_metadata(_id);
 }
 

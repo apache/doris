@@ -51,10 +51,10 @@ RuntimeState::RuntimeState(
         const TUniqueId& fragment_instance_id,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env) :
+            _profile("Fragment " + print_id(fragment_instance_id)),
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
-            _profile(_obj_pool.get(), "Fragment " + print_id(fragment_instance_id)),
             _fragment_mem_tracker(NULL),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
@@ -76,12 +76,11 @@ RuntimeState::RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env) :
+            _profile("Fragment " + print_id(fragment_params.params.fragment_instance_id)),
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
             _query_id(fragment_params.params.query_id),
-            _profile(_obj_pool.get(),
-                    "Fragment " + print_id(fragment_params.params.fragment_instance_id)),
             _fragment_mem_tracker(NULL),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
@@ -100,10 +99,10 @@ RuntimeState::RuntimeState(
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
-    : _obj_pool(new ObjectPool()),
+    : _profile("<unnamed>"),
+      _obj_pool(new ObjectPool()),
       _data_stream_recvrs_pool(new ObjectPool()),
       _unreported_error_idx(0),
-      _profile(_obj_pool.get(), "<unnamed>"),
       _is_cancelled(false),
       _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
