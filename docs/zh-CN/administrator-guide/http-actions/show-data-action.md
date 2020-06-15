@@ -1,7 +1,7 @@
 ---
 {
     "title": "SHOW DATA",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
@@ -25,12 +25,11 @@ under the License.
 -->
 
 # SHOW DATA
-## description
    
-    获取当前集群占用的总空间大小
+获取当前集群占用的总空间大小
 
-    URI: http://fe_host:fe_http_port/api/show_data
+```
+curl -X GET http://fe_host:fe_http_port/api/show_data
+```
 
-## example
-
-    curl "http://hostname:8088/api/show_data"
+返回值就是集群的总数据大小

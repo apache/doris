@@ -25,12 +25,11 @@ under the License.
 -->
 
 # SHOW DATA
-## description
    
-    To all size occupied by cluster
+To all size occupied by cluster
 
-    URI: http://fe_host:fe_http_port/api/show_data
+```
+curl -X GET http://fe_host:fe_http_port/api/show_data
+```
 
-## example
-
-    curl "http://hostname:8088/api/show_data"
+The return value is the total size of the cluster

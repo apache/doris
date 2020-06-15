@@ -1,7 +1,7 @@
 ---
 {
     "title": "CONNECTION",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
@@ -25,12 +25,18 @@ under the License.
 -->
 
 # CONNECTION
-## description
    
-    通过connection_id, 获取当前连接的query_id
+通过connection_id, 获取当前连接的query_id
 
-    URI: http://fe_host:fe_http_port/api/connection?connection_id=123
+```
+curl -X GET http://fe_host:fe_http_port/api/connection?connection_id=123
+```
 
-## example
+如果connection_id不存在，直接返回404 NOT FOUND错误
 
-    curl "http://hostname:8088/api/connection?connection_id=123"
+如果connection_id存在，会返回当前connectiond_id上一个进行的query_id
+```
+{
+    "query_id" : 9133b7efa92a44c8-8ed4b44772ec2a0c
+}
+```

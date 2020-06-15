@@ -25,12 +25,18 @@ under the License.
 -->
 
 # CONNECTION
-## description
-   
-    To get current query_id from connection
 
-    URI: http://fe_host:fe_http_port/api/connection?connection_id=123
+To get current query_id from connection
 
-## example
+```
+curl -X GET http://fe_host:fe_http_port/api/connection?connection_id=123
+```
 
-    curl "http://hostname:8088/api/connection?connection_id=123"
+If connection_id does not exist, return 404 NOT FOUND ERROR
+
+If connection_id exists, return last query_id belongs to connection_id
+```
+{
+    "query_id" : 9133b7efa92a44c8-8ed4b44772ec2a0c
+}
+```
