@@ -95,7 +95,7 @@ public class RuntimeProfileTest {
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
         Assert.assertEquals(builder.toString(), 
-                "profileName:\n  key: value4\n  key3: value3\n");
+                "profileName:\n   - key: value4\n   - key3: value3\n");
     }
     
     @Test

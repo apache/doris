@@ -204,7 +204,7 @@ public class RuntimeProfile {
         
         // 2. info String
         for (String key : this.infoStringsDisplayOrder) {
-            builder.append(prefix).append("  ").append(key).append(": ")
+            builder.append(prefix).append("   - ").append(key).append(": ")
                 .append(this.infoStrings.get(key)).append("\n");
         }
         

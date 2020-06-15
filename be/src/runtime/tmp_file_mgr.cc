@@ -119,7 +119,7 @@ Status TmpFileMgr::init_custom(
     }
 
     DCHECK(metrics != NULL);
-    _num_active_scratch_dirs_metric.reset(new IntGauge(MetricUnit::NUMBER));
+    _num_active_scratch_dirs_metric.reset(new IntGauge(MetricUnit::NOUNIT));
     metrics->register_metric("active_scratch_dirs", _num_active_scratch_dirs_metric.get());
     //_active_scratch_dirs_metric = metrics->register_metric(new SetMetric<std::string>(
     //        TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST,
