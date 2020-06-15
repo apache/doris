@@ -55,6 +55,9 @@ jobs:
       - name: Run BE build
         run:  docker exec doris-env bash -c "cd /root/incubator-doris; sh build.sh --be"
 
+      - name: test2
+        run: docker ps
+        
       # Runs a set of commands using the runners shell
       - name: Run FE build
         run:  docker run --name doris-env bash -c "cd /root/incubator-doris; sh build.sh --fe"
