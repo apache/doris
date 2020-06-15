@@ -19,16 +19,25 @@
  #- docker run -d apachedoris/doris-dev:build-env-1.2 -v /home/travis/build/wanpengfei-git/incubator-doris/:/root/incubator-doris apachedoris/doris-dev:build-env-1.2
 #  - docker run -d  -v /Users/wanpengfei/doris/incubator-doris:/root/incubator-doris apachedoris/doris-dev:build-env-1.2 bash -c  "cd /root/incubator-doris; sh build.sh --fe"
 
+
+# install sys dependency
+install:
+  - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev lsb_release mlocate
+  - export REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
+  - sh thirdparty/build-thirdparty.sh
+
 matrix:
   include:
     - language: c++ 
       script:
         - sh build.sh --be 
+        - sh run-ut.sh
 
     - language: java 
       jdk: oraclejdk8
       script:
         - sh build.sh --fe 
+        - sh run-ut-fe.sh
 
 
 
