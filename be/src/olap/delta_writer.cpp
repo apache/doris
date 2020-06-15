@@ -32,10 +32,16 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWr
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine) :
-        _req(*req), _tablet(nullptr), _cur_rowset(nullptr), _new_rowset(nullptr),
-        _new_tablet(nullptr), _rowset_writer(nullptr), _tablet_schema(nullptr),
-        _delta_written_success(false), _storage_engine(storage_engine) {
+DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine)
+        : _req(*req),
+          _tablet(nullptr),
+          _cur_rowset(nullptr),
+          _new_rowset(nullptr),
+          _new_tablet(nullptr),
+          _rowset_writer(nullptr),
+          _tablet_schema(nullptr),
+          _delta_written_success(false),
+          _storage_engine(storage_engine) {
     _mem_tracker.reset(new MemTracker(-1, "delta writer", parent));
 }
 
@@ -56,8 +62,8 @@ DeltaWriter::~DeltaWriter() {
     }
 
     if (_tablet != nullptr) {
-        _tablet->data_dir()->remove_pending_ids(
-                ROWSET_ID_PREFIX + _rowset_writer->rowset_id().to_string());
+        _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
+                                                _rowset_writer->rowset_id().to_string());
     }
 }
 
@@ -105,7 +111,7 @@ OLAPStatus DeltaWriter::init() {
                 TSchemaHash new_schema_hash = alter_task->related_schema_hash();
                 LOG(INFO) << "load with schema change. "
                           << "old_tablet_id=" << _tablet->tablet_id() << ", "
-                          << ", old_schema_hash=" << _tablet->schema_hash() <<  ", "
+                          << ", old_schema_hash=" << _tablet->schema_hash() << ", "
                           << ", new_tablet_id=" << new_tablet_id << ", "
                           << ", new_schema_hash=" << new_schema_hash << ", "
                           << ", transaction_id=" << _req.txn_id;
@@ -145,7 +151,9 @@ OLAPStatus DeltaWriter::init() {
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
     _tablet_schema = &(_tablet->tablet_schema());
-    _schema.reset(new Schema(*_tablet_schema));
+    auto schema = new Schema();
+    RETURN_NOT_OK(schema->init(*_tablet_schema));
+    _schema.reset(schema);
     _reset_mem_table();
 
     // create flush handler
@@ -179,8 +187,9 @@ OLAPStatus DeltaWriter::_flush_memtable_async() {
 OLAPStatus DeltaWriter::flush_memtable_and_wait() {
     if (mem_consumption() == _mem_table->memory_usage()) {
         // equal means there is no memtable in flush queue, just flush this memtable
-        VLOG(3) << "flush memtable to reduce mem consumption. memtable size: " << _mem_table->memory_usage()
-                << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
+        VLOG(3) << "flush memtable to reduce mem consumption. memtable size: "
+                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
+                << ", load id: " << print_id(_req.load_id);
         RETURN_NOT_OK(_flush_memtable_async());
         _reset_mem_table();
     } else {
@@ -214,7 +223,8 @@ OLAPStatus DeltaWriter::close() {
 }
 
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
-    DCHECK(_is_init) << "delta writer is supposed be to initialized before close_wait() being called";
+    DCHECK(_is_init)
+            << "delta writer is supposed be to initialized before close_wait() being called";
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
     DCHECK_EQ(_mem_tracker->consumption(), 0);
@@ -236,7 +246,8 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     if (_new_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
         SchemaChangeHandler schema_change;
-        res = schema_change.schema_version_convert(_tablet, _new_tablet, &_cur_rowset, &_new_rowset);
+        res = schema_change.schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
+                                                   &_new_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
                          << "res: " << res << ", "
@@ -244,8 +255,8 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
             return res;
         }
 
-        res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _new_tablet, _req.txn_id,
-            _req.load_id, _new_rowset, false);
+        res = _storage_engine->txn_manager()->commit_txn(
+                _req.partition_id, _new_tablet, _req.txn_id, _req.load_id, _new_rowset, false);
 
         if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             LOG(WARNING) << "Failed to save pending rowset. rowset_id:" << _new_rowset->rowset_id();

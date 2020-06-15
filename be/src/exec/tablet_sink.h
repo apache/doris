@@ -271,7 +271,7 @@ private:
 
 // Write data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
-// When you call OlapTableSink::send(), you will be the productor who products pending batches.
+// When you call OlapTableSink::send(), you will be the producer who products pending batches.
 // Join the consumer thread in close().
 class OlapTableSink : public DataSink {
 public:
@@ -306,7 +306,7 @@ private:
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
-    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the productor
+    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
 private:
@@ -336,7 +336,7 @@ private:
     bool _need_validate_data = false;
 
     // number of senders used to insert into OlapTable, if we only support single node insert,
-    // all data from select should collectted and then send to OlapTable.
+    // all data from select should collected and then send to OlapTable.
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;

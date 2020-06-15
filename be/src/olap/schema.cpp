@@ -43,13 +43,12 @@ void Schema::_copy_from(const Schema& other) {
     // TODO(lingbin): really need clone?
     _cols.resize(other._cols.size(), nullptr);
     for (auto cid : _col_ids) {
-        _cols[cid] =  other._cols[cid]->clone();
+        _cols[cid] = other._cols[cid]->clone();
     }
 }
 
-void Schema::_init(const std::vector<TabletColumn>& cols,
-                   const std::vector<ColumnId>& col_ids,
-                   size_t num_key_columns) {
+OLAPStatus Schema::_init(const std::vector<TabletColumn>& cols,
+                         const std::vector<ColumnId>& col_ids, size_t num_key_columns) {
     _col_ids = col_ids;
     _num_key_columns = num_key_columns;
 
@@ -58,11 +57,15 @@ void Schema::_init(const std::vector<TabletColumn>& cols,
 
     size_t offset = 0;
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
-    for (int cid = 0; cid < cols.size(); ++cid) {
+    for (size_t cid = 0; cid < cols.size(); ++cid) {
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
-        _cols[cid] = FieldFactory::create(cols[cid]);
+        auto field = FieldFactory::create(cols[cid]);
+        if (field == nullptr) {
+            return OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID;
+        }
+        _cols[cid] = field;
 
         _col_offsets[cid] = offset;
         // Plus 1 byte for null byte
@@ -70,10 +73,10 @@ void Schema::_init(const std::vector<TabletColumn>& cols,
     }
 
     _schema_size = offset;
+    return OLAP_SUCCESS;
 }
 
-void Schema::_init(const std::vector<const Field*>& cols,
-                   const std::vector<ColumnId>& col_ids,
+void Schema::_init(const std::vector<const Field*>& cols, const std::vector<ColumnId>& col_ids,
                    size_t num_key_columns) {
     _col_ids = col_ids;
     _num_key_columns = num_key_columns;
@@ -104,5 +107,4 @@ Schema::~Schema() {
         delete col;
     }
 }
-
 }
