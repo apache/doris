@@ -43,7 +43,8 @@ Doris-On-ES将Doris的分布式查询规划能力和ES(Elasticsearch)的全文�
 * DataNode：ES的数据存储与计算节点
 * MasterNode：ES的Master节点，管理元数据、节点、数据分布等
 * scroll：ES内置的数据集游标特性，用来对数据进行流式扫描和过滤
-* doc_value: ES/Lucene 中字段的列式存储定义
+* _source: 导入时传入的原始JSON格式文档内容
+* doc_values: ES/Lucene 中字段的列式存储定义
 * keyword: 字符串类型字段，ES/Lucene不会对文本内容进行分词处理
 * text: 字符串类型字段，ES/Lucene会对文本内容进行分词处理，分词器需要用户指定，默认为standard英文分词器
 
@@ -237,7 +238,7 @@ PROPERTIES (
 
 参数 | 说明
 ---|---
-**enable\_keyword\_sniff** | 是否对ES中字符串类型分词类型(**text**) `fields` 进行探测，获取额外的未分词(**keyword**)字段名
+**enable\_keyword\_sniff** | 是否对ES中字符串类型分词类型(**text**) `fields` 进行探测，获取额外的未分词(**keyword**)字段名(multi-fields机制)
 
 在ES中可以不建立index直接进行数据导入，这时候ES会自动创建一个新的索引，针对字符串类型的字段ES会创建一个既有`text`类型的字段又有`keyword`类型的字段，这就是ES的multi fields特性，mapping如下：
 
@@ -252,7 +253,7 @@ PROPERTIES (
    }
 }
 ```
-对k4进行条件过滤时比如=，Doris On ES会将查询转换为ES的TermQuery，
+对k4进行条件过滤时比如=，Doris On ES会将查询转换为ES的TermQuery
 
 SQL过滤条件：
 
@@ -326,7 +327,7 @@ POST /_analyze
 
 ### 查询用法
 
-完成在Doris中建立ES外表后，除了无法使用Doris中的数据模型(rollup、预聚合、物化视图等)外，其他并无区别
+完成在Doris中建立ES外表后，除了无法使用Doris中的数据模型(rollup、预聚合、物化视图等)外并无区别
 
 #### 基本查询
 
@@ -342,7 +343,7 @@ match查询：
 ```
 select * from es_table where esquery(k4, '{
         "match": {
-           "k4": "doris on elasticsearch"
+           "k4": "doris on es"
         }
     }');
 ```
@@ -464,7 +465,8 @@ select * from es_table where esquery(k4, ' {
 
 4. 聚合操作是否可以下推
 
-   目前Doris On ES不支持聚合操作如sum, avg, min/max 等下推给ES，计算方式是批量流式的从ES获取所有满足条件的文档，然后在Doris中进行计算
+   目前Doris On ES不支持聚合操作如sum, avg, min/max 等下推，计算方式是批量流式的从ES获取所有满足条件的文档，然后在Doris中进行计算
    
 5. 日期类型字段的过滤条件无法下推
    
+   日期类型的字段因为时间格式的问题，大多数情况下都不不会下推；对于日期类型的过滤可以采用字符串形式，日期格式需要和ES中保持完全一致
