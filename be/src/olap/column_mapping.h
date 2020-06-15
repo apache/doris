@@ -31,6 +31,8 @@ struct ColumnMapping {
     int32_t ref_column;
     // normally for default value. stores values for filters
     WrapperField* default_value;
+    // materialize view transform function used in schema change
+    std::string materialized_function;
 };
 
 typedef std::vector<ColumnMapping> SchemaMapping;
