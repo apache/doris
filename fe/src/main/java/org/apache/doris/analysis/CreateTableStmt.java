@@ -284,7 +284,7 @@ public class CreateTableStmt extends DdlStmt {
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
                     for (ColumnDef columnDef : columnDefs) {
-                        keyLength += columnDef.getType().getStorageLayoutBytes();
+                        keyLength += columnDef.getType().getIndexSize();
                         if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
                                 || keyLength > FeConstants.shortkey_maxsize_bytes) {
                             if (keysColumnNames.size() == 0
