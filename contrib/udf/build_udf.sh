@@ -98,7 +98,7 @@ cd ${UDF_HOME}
 if [ ${BUILD_UDF} -eq 1 ] ; then
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
     echo "Build UDF: ${CMAKE_BUILD_TYPE}"
-    CMAKE_BUILD_DIR=${CUSTOM_UDF_HOME}/build_${CMAKE_BUILD_TYPE}
+    CMAKE_BUILD_DIR=${UDF_HOME}/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
         rm -rf $CMAKE_BUILD_DIR
         rm -rf ${UDF_HOME}/output/
