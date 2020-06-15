@@ -56,16 +56,14 @@ public class QueryDetailQueue {
 
     public static synchronized List<QueryDetail> getQueryDetails(long eventTime) {
         List<QueryDetail> results = Lists.newArrayList();
-        int pos = 0;
         Iterator<QueryDetail> it = totalQueries.iterator();
         while(it.hasNext()) {
             QueryDetail queryDetail = it.next();
             if (queryDetail.getEventTime() > eventTime) {
                 results.add(queryDetail);
-            } else {
-                pos++;
             }
         }
         return results; 
     }
+
 };

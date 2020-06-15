@@ -179,6 +179,10 @@ public class Log4jConfig extends XmlConfiguration {
         strSub = new StrSubstitutor(new Interpolator(properties));
         newXmlConfTemplate = strSub.replace(newXmlConfTemplate);
 
+        System.out.println("=====");
+        System.out.println(newXmlConfTemplate);
+        System.out.println("=====");
+
         // new SimpleLog4jConfiguration with xmlConfTemplate
         ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes("UTF-8"));
         ConfigurationSource source = new ConfigurationSource(bis);
