@@ -451,8 +451,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
     static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
         dst->set_not_null();
 
-        auto *src_slice = reinterpret_cast<const Slice *>(src);
-        auto *dst_slice = reinterpret_cast<Slice *>(dst->mutable_cell_ptr());
+        auto* src_slice = reinterpret_cast<const Slice*>(src);
+        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
 
         // Because of history bug, we ingest some NULL HLL data in storage,
         // which slice data is nullptr or invalid address,
