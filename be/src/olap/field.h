@@ -467,7 +467,7 @@ public:
 
     // Hll storage data always not null
     void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool, ObjectPool* agg_pool) const override {
-        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
+        _agg_info->init(dst, (const char*)src.cell_ptr(), src.is_null(), mem_pool, agg_pool);
     }
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {

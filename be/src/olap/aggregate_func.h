@@ -449,15 +449,22 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIEL
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> {
     static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
-        DCHECK_EQ(src_null, false);
         dst->set_not_null();
 
-        auto* src_slice = reinterpret_cast<const Slice*>(src);
-        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        auto *src_slice = reinterpret_cast<const Slice *>(src);
+        auto *dst_slice = reinterpret_cast<Slice *>(dst->mutable_cell_ptr());
 
+        // Because of history bug, we ingest some NULL HLL data in storage,
+        // which slice data is nullptr or invalid address,
+        // we must handle this case to avoid process crash.
+        HyperLogLog* hll = nullptr;
+        if (src_null) {
+            hll = new HyperLogLog();
+        } else {
+            hll = new HyperLogLog(*src_slice);
+        }
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
-        auto* hll = new HyperLogLog(*src_slice);
         dst_slice->data = reinterpret_cast<char*>(hll);
 
         mem_pool->mem_tracker()->consume(sizeof(HyperLogLog));
@@ -466,7 +473,9 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
     }
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
-        DCHECK_EQ(src.is_null(), false);
+        if (src.is_null()) {
+            return;
+        }
 
         auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
         auto* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
