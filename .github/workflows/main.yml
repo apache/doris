@@ -51,7 +51,7 @@ jobs:
       # Runs a single command using the runners shell
         
       - name: Run BE build
-        run:  docker run --rm doris-env bash -c "cd /root/incubator-doris; sh build.sh --be"
+        run:  docker run doris-env bash -c "cd /root/incubator-doris; sh build.sh --be"
 
       # Runs a set of commands using the runners shell
       - name: Run FE build
