@@ -276,12 +276,12 @@ ThriftServer::ThriftServer(
             _session_handler(NULL) {
     if (metrics != NULL) {
         _metrics_enabled = true;
-        _current_connections.reset(new IntGauge(MetricUnit::NUMBER));
+        _current_connections.reset(new IntGauge(MetricUnit::CONNECTIONS));
         metrics->register_metric("thrift_current_connections", 
                                  MetricLabels().add("name", name),
                                  _current_connections.get());
 
-        _connections_total.reset(new IntCounter(MetricUnit::NUMBER));
+        _connections_total.reset(new IntCounter(MetricUnit::CONNECTIONS));
         metrics->register_metric("thrift_connections_total",
                                  MetricLabels().add("name", name),
                                  _connections_total.get());

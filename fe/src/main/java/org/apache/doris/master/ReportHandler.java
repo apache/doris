@@ -100,7 +100,7 @@ public class ReportHandler extends Daemon {
 
     public ReportHandler() {
         GaugeMetric<Long> gaugeQueueSize = new GaugeMetric<Long>(
-                "report_queue_size", MetricUnit.NUMBER, "report queue size") {
+                "report_queue_size", MetricUnit.NOUNIT, "report queue size") {
             @Override
             public Long getValue() {
                 return (long) reportQueue.size();

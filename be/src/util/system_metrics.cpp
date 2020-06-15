@@ -49,10 +49,10 @@ struct MemoryMetrics {
 };
 
 struct DiskMetrics {
-    METRIC_DEFINE_INT_LOCK_COUNTER(reads_completed, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(reads_completed, MetricUnit::OPERATIONS);
     METRIC_DEFINE_INT_LOCK_COUNTER(bytes_read, MetricUnit::BYTES);
     METRIC_DEFINE_INT_LOCK_COUNTER(read_time_ms, MetricUnit::MILLISECONDS);
-    METRIC_DEFINE_INT_LOCK_COUNTER(writes_completed, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(writes_completed, MetricUnit::OPERATIONS);
     METRIC_DEFINE_INT_LOCK_COUNTER(bytes_written, MetricUnit::BYTES);
     METRIC_DEFINE_INT_LOCK_COUNTER(write_time_ms, MetricUnit::MILLISECONDS);
     METRIC_DEFINE_INT_LOCK_COUNTER(io_time_ms, MetricUnit::MILLISECONDS);
@@ -61,9 +61,9 @@ struct DiskMetrics {
 
 struct NetMetrics {
     METRIC_DEFINE_INT_LOCK_COUNTER(receive_bytes, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_LOCK_COUNTER(receive_packets, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(receive_packets, MetricUnit::PACKETS);
     METRIC_DEFINE_INT_LOCK_COUNTER(send_bytes, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_LOCK_COUNTER(send_packets, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(send_packets, MetricUnit::PACKETS);
 };
 
 // metrics read from /proc/net/snmp
@@ -75,8 +75,8 @@ struct SnmpMetrics {
 };
 
 struct FileDescriptorMetrics {
-    METRIC_DEFINE_INT_GAUGE(fd_num_limit, MetricUnit::NUMBER);
-    METRIC_DEFINE_INT_GAUGE(fd_num_used, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_GAUGE(fd_num_limit, MetricUnit::NOUNIT);
+    METRIC_DEFINE_INT_GAUGE(fd_num_used, MetricUnit::NOUNIT);
 };
 
 SystemMetrics::SystemMetrics() {
