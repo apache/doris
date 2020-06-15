@@ -89,6 +89,14 @@ module.exports = [
           "multi-tenant",
           "tablet-meta-tool",
           "tablet-repair-and-balance",
+          {
+            title: "Metrics",
+            directoryPath: "monitor-metrics/",
+            children: [
+              "fe-metrics",
+              "be-metrics",
+            ],
+          },
         ],
         sidebarDepth: 2,
       },

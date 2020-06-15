@@ -66,6 +66,14 @@ struct NetMetrics {
     METRIC_DEFINE_INT_LOCK_COUNTER(send_packets, MetricUnit::NUMBER);
 };
 
+// metrics read from /proc/net/snmp
+struct SnmpMetrics {
+    // The number of all problematic TCP packets received
+    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_in_errs, MetricUnit::NUMBER);
+    // All TCP packets retransmitted
+    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_retrans_segs, MetricUnit::NUMBER);
+};
+
 struct FileDescriptorMetrics {
     METRIC_DEFINE_INT_GAUGE(fd_num_limit, MetricUnit::NUMBER);
     METRIC_DEFINE_INT_GAUGE(fd_num_used, MetricUnit::NUMBER);
@@ -103,6 +111,7 @@ void SystemMetrics::install(MetricRegistry* registry,
     _install_disk_metrics(registry, disk_devices);
     _install_net_metrics(registry, network_interfaces);
     _install_fd_metrics(registry);
+    _install_snmp_metrics(registry);
     _registry = registry;
 }
 
@@ -112,6 +121,7 @@ void SystemMetrics::update() {
     _update_disk_metrics();
     _update_net_metrics();
     _update_fd_metrics();
+    _update_snmp_metrics();
 }
 
 void SystemMetrics::_install_cpu_metrics(MetricRegistry* registry) {
@@ -129,6 +139,7 @@ const char* k_ut_stat_path;
 const char* k_ut_diskstats_path;
 const char* k_ut_net_dev_path;
 const char* k_ut_fd_path;
+const char* k_ut_net_snmp_path;
 #endif
 
 void SystemMetrics::_update_cpu_metrics() {
@@ -304,6 +315,16 @@ void SystemMetrics::_install_net_metrics(MetricRegistry* registry,
     }
 }
 
+void SystemMetrics::_install_snmp_metrics(MetricRegistry* registry) {
+    _snmp_metrics.reset(new SnmpMetrics());
+#define REGISTER_SNMP_METRIC(name) \
+        registry->register_metric("snmp", \
+                                  MetricLabels().add("name", #name), \
+                                  &_snmp_metrics->name)
+    REGISTER_SNMP_METRIC(tcp_in_errs);
+    REGISTER_SNMP_METRIC(tcp_retrans_segs);
+}
+
 void SystemMetrics::_update_net_metrics() {
 #ifdef BE_TEST
     // to mock proc
@@ -391,6 +412,65 @@ void SystemMetrics::_update_net_metrics() {
         it->second->send_bytes.set_value(send_bytes);
         it->second->send_packets.set_value(send_packets);
     }
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
+    }
+    fclose(fp);
+}
+
+void SystemMetrics::_update_snmp_metrics() {
+#ifdef BE_TEST
+    // to mock proc
+    FILE* fp = fopen(k_ut_net_snmp_path, "r");
+#else
+    FILE* fp = fopen("/proc/net/snmp", "r");
+#endif
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open /proc/net/snmp failed, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
+        return;
+    }
+
+    // We only care about Tcp lines, so skip other lines in front of Tcp line
+    int res = 0;
+    while ((res = getline(&_line_ptr, &_line_buf_size, fp)) > 0) {
+        if (strstr(_line_ptr, "Tcp") != nullptr) {
+            break;
+        }
+    }
+    if (res <= 0) {
+        char buf[64];
+        LOG(WARNING) << "failed to skip lines of /proc/net/snmp, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
+        fclose(fp);
+        return;
+    }
+
+    // skip the Tcp header line
+    // Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+    if (getline(&_line_ptr, &_line_buf_size, fp) < 0) {
+        char buf[64];
+        LOG(WARNING) << "failed to skip Tcp header line of /proc/net/snmp, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
+        fclose(fp);
+        return;
+    }
+
+    // metric line looks like:
+    // Tcp: 1 200 120000 -1 47849374 38601877 3353843 2320314 276 1033354613 1166025166 825439 12694 23238924 0
+    int64_t retrans_segs = 0;
+    int64_t in_errs = 0;
+    sscanf(_line_ptr,
+            "Tcp: %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d"
+            " %" PRId64 " %" PRId64 " %*d %*d",
+            &retrans_segs, &in_errs);
+
+    _snmp_metrics->tcp_retrans_segs.set_value(retrans_segs);
+    _snmp_metrics->tcp_in_errs.set_value(in_errs);
+
     if (ferror(fp) != 0) {
         char buf[64];
         LOG(WARNING) << "getline failed, errno=" << errno
