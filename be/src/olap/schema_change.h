@@ -45,7 +45,7 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
         int field_idx, int ref_field_idx, MemPool* mem_pool);
 bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
         int field_idx, int ref_field_idx, MemPool* mem_pool);
-bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
+bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
         int field_idx, int ref_field_idx, MemPool* mem_pool);
 
 class RowBlockChanger {

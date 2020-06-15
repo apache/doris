@@ -279,7 +279,7 @@ bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColum
     return true;
 }
 
-bool count(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
+bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
            int field_idx, int ref_field_idx, MemPool* mem_pool) {
     write_helper->set_not_null(field_idx);
     int64_t count = read_helper->is_null(field_idx) ? 0 : 1;
@@ -366,7 +366,7 @@ bool RowBlockChanger::change_row_block(
                 } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                     _do_materialized_transform = hll_hash;
                 } else if (_schema_mapping[i].materialized_function == "count") {
-                    _do_materialized_transform = count;
+                    _do_materialized_transform = count_field;
                 } else {
                     LOG(WARNING) << "error materialized view function : " << _schema_mapping[i].materialized_function;
                     return false;
@@ -1527,7 +1527,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
                     if (item.mv_expr.nodes[0].node_type == TExprNodeType::FUNCTION_CALL) {
                         mv_param.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
                     } else if (item.mv_expr.nodes[0].node_type == TExprNodeType::CASE_EXPR) {
-                        mv_param.mv_expr = "count";
+                        mv_param.mv_expr = "count_field";
                     }
                 }
                 sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mv_param));
