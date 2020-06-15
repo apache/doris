@@ -64,6 +64,8 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.qe.QueryDetail;
+import org.apache.doris.qe.QueryDetailQueue;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
@@ -223,6 +225,10 @@ public class StmtExecutor {
 
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+
+        // set query id
+        UUID uuid = UUID.randomUUID();
+        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
         try {
             // analyze this query
             analyze(context.getSessionVariable().toThrift());
@@ -340,7 +346,6 @@ public class StmtExecutor {
         profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
-        System.out.println(builder.toString());
         ProfileManager.getInstance().pushProfile(profile);
     }
 
@@ -559,9 +564,14 @@ public class StmtExecutor {
         context.getMysqlChannel().reset();
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
 
-        // assign query id before explain query return
-        UUID uuid = UUID.randomUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
+                                                  DebugUtil.printId(context.queryId()),
+                                                  context.getStartTime(), -1, -1,
+                                                  QueryDetail.QueryMemState.RUNNING,
+                                                  context.getDatabase(),
+                                                  originStmt.originStmt);
+        context.setQueryDetail(queryDetail);
+        QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);

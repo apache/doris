@@ -42,6 +42,7 @@ import org.apache.doris.http.meta.MetaService.VersionAction;
 import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.http.rest.CancelStreamLoad;
 import org.apache.doris.http.rest.CheckDecommissionAction;
+import org.apache.doris.http.rest.ConnectionAction;
 import org.apache.doris.http.rest.GetDdlStmtAction;
 import org.apache.doris.http.rest.GetLoadInfoAction;
 import org.apache.doris.http.rest.GetLogFileAction;
@@ -58,8 +59,11 @@ import org.apache.doris.http.rest.MultiDesc;
 import org.apache.doris.http.rest.MultiList;
 import org.apache.doris.http.rest.MultiStart;
 import org.apache.doris.http.rest.MultiUnload;
+import org.apache.doris.http.rest.ProfileAction;
+import org.apache.doris.http.rest.QueryDetailAction;
 import org.apache.doris.http.rest.RowCountAction;
 import org.apache.doris.http.rest.SetConfigAction;
+import org.apache.doris.http.rest.ShowDataAction;
 import org.apache.doris.http.rest.ShowMetaInfoAction;
 import org.apache.doris.http.rest.ShowProcAction;
 import org.apache.doris.http.rest.ShowRuntimeInfoAction;
@@ -152,6 +156,10 @@ public class HttpServer {
         ColocateMetaService.BucketSeqAction.registerAction(controller);
         ColocateMetaService.ColocateMetaAction.registerAction(controller);
         ColocateMetaService.MarkGroupStableAction.registerAction(controller);
+        ProfileAction.registerAction(controller);
+        QueryDetailAction.registerAction(controller);
+        ConnectionAction.registerAction(controller);
+        ShowDataAction.registerAction(controller);
 
         // meta service action
         File imageDir = MetaHelper.getMasterImageDir();

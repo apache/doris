@@ -54,8 +54,13 @@ enum class MetricUnit {
     SECONDS,
     BYTES,
     ROWS,
-    NUMBER,
     PERCENT,
+    REQUESTS,
+    OPERATIONS,
+    BLOCKS,
+    ROWSETS,
+    CONNECTIONS,
+    PACKETS,
     NOUNIT
 };
 
