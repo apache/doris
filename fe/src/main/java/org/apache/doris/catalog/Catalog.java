@@ -4886,7 +4886,7 @@ public class Catalog {
                 Column column = indexColumns.get(i);
                 shortKeySizeByte += column.getOlapColumnIndexSize();
                 if (shortKeySizeByte > FeConstants.shortkey_maxsize_bytes) {
-                    if (column.getDataType() == PrimitiveType.VARCHAR) {
+                    if (column.getDataType().isCharFamily()) {
                         ++shortKeyColumnCount;
                     }
                     break;
@@ -4894,7 +4894,7 @@ public class Catalog {
                 if (column.getType().isFloatingPointType()) {
                     break;
                 }
-                if (column.getDataType() == PrimitiveType.VARCHAR) {
+                if (column.getDataType().isCharFamily()) {
                     ++shortKeyColumnCount;
                     break;
                 }

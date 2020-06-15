@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -288,7 +287,7 @@ public class CreateTableStmt extends DdlStmt {
                         if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
                                 || keyLength > FeConstants.shortkey_maxsize_bytes) {
                             if (keysColumnNames.size() == 0
-                                    && columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                                    && columnDef.getType().getPrimitiveType().isCharFamily()) {
                                 keysColumnNames.add(columnDef.getName());
                             }
                             break;
@@ -296,7 +295,7 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getType().isFloatingPointType()) {
                             break;
                         }
-                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                        if (columnDef.getType().getPrimitiveType().isCharFamily()) {
                             keysColumnNames.add(columnDef.getName());
                             break;
                         }

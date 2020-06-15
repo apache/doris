@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -300,7 +299,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 keySizeByte += column.getType().getIndexSize();
                 if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
                         || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
-                    if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                    if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType().isCharFamily()) {
                         column.setIsKey(true);
                         theBeginIndexOfValue++;
                     }
@@ -309,7 +308,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (column.getType().isFloatingPointType()) {
                     break;
                 }
-                if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                if (column.getType().getPrimitiveType().isCharFamily()) {
                     column.setIsKey(true);
                     theBeginIndexOfValue++;
                     break;

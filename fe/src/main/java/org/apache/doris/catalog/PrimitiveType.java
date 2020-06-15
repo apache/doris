@@ -17,15 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import java.util.List;
-
 import org.apache.doris.mysql.MysqlColType;
 import org.apache.doris.thrift.TPrimitiveType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public enum PrimitiveType {
     INVALID_TYPE("INVALID_TYPE", -1, TPrimitiveType.INVALID_TYPE),
@@ -669,6 +669,10 @@ public enum PrimitiveType {
 
     public boolean isStringType() {
         return (this == VARCHAR || this == CHAR || this == HLL);
+    }
+
+    public boolean isCharFamily() {
+        return (this == VARCHAR || this == CHAR);
     }
 
     public boolean isIntegerType() {
