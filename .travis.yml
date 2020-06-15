@@ -22,7 +22,7 @@
 
 # install sys dependency
 install:
-  - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev lsb_release mlocate
+  - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev lsb-release mlocate
   - export REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
   - sh thirdparty/build-thirdparty.sh
 
