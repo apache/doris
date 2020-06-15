@@ -34,7 +34,7 @@ matrix:
         - sh run-ut.sh
 
     - language: java 
-      jdk: oraclejdk8
+      jdk: openjdk8 
       script:
         - sh build.sh --fe 
         - sh run-ut-fe.sh
