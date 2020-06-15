@@ -58,13 +58,9 @@ public:
      */
     void add_sub_column(TabletColumn& sub_column);
 
-    OLAPStatus add_struct_field(const std::string& field_name, TabletColumn& tablet_column) {
-        OLAPStatus sc_status = add_sub_column(tablet_column);
-        if (sc_status != OLAP_SUCCESS) {
-            return sc_status;
-        }
+    void add_struct_field(const std::string& field_name, TabletColumn& tablet_column) {
+        add_sub_column(tablet_column);
         _field_names.push_back(field_name);
-        return OLAP_SUCCESS;
     }
     uint32_t get_subtype_count() const {
         return _sub_column_count;

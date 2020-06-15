@@ -280,13 +280,14 @@ void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
-        std::unique_ptr<RandomAccessFile> rfile;
-        st = Env::Default()->new_random_access_file(fname, &rfile);
+        std::unique_ptr<fs::ReadableBlock> rblock;
+        fs::BlockManager* block_manager = fs::fs_util::block_mgr_for_ut();
+        st = block_manager->open_block(fname, &rblock);
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
-        iter_opts.file = rfile.get();
+        iter_opts.rblock = rblock.get();
         st = iter->init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read
