@@ -154,7 +154,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
 
     // reader
     {
-        Schema schema(tablet_schema);
+	Schema schema;
+        schema.init(tablet_schema);
         OlapReaderStatistics stats;
         // scan all rows
         {
@@ -298,7 +299,8 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
         {
             // lazy enabled when predicate is subset of returned columns:
             // select c1, c2 where c2 = 30;
-            Schema read_schema(tablet_schema);
+	    Schema read_schema;
+            read_schema.init(tablet_schema);
             unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(1, 30));
             const vector<ColumnPredicate*> predicates = {predicate.get()};
 
@@ -321,7 +323,8 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
         {
             // lazy disabled when all return columns have predicates:
             // select c1, c2 where c1 = 10 and c2 = 100;
-            Schema read_schema(tablet_schema);
+	    Schema read_schema;
+            read_schema.init(tablet_schema);
             unique_ptr<ColumnPredicate> p0(new EqualPredicate<int32_t>(0, 10));
             unique_ptr<ColumnPredicate> p1(new EqualPredicate<int32_t>(1, 100));
             const vector<ColumnPredicate*> predicates = {p0.get(), p1.get()};
@@ -346,7 +349,8 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             // lazy disabled when no predicate:
             // select c2
             vector<ColumnId> read_cols = {1};
-            Schema read_schema(tablet_schema.columns(), read_cols);
+            Schema read_schema;
+            read_schema.init(tablet_schema.columns(), read_cols);
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -374,7 +378,8 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
         {
             // lazy disabled when all predicates are removed by bitmap index:
             // select c1, c2 where c2 = 30;
-            Schema read_schema(tablet_schema);
+            Schema read_schema;
+            read_schema.init(tablet_schema);
             unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 20));
             const vector<ColumnPredicate*> predicates = { predicate.get() };
 
@@ -430,7 +435,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
     // reader with condition
     {
-        Schema schema(tablet_schema);
+        Schema schema;
+        schema.init(tablet_schema);
         OlapReaderStatistics stats;
         // test empty segment iterator
         {
@@ -660,7 +666,8 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         std::shared_ptr<Segment> segment;
         build_segment(SegmentWriterOptions(), build_schema, query_schema, 4096, DefaultIntGenerator, &segment);
 
-        Schema schema(query_schema);
+        Schema schema;
+        schema.init(query_schema);
         OlapReaderStatistics stats;
         // scan all rows
         {
@@ -709,7 +716,8 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         std::shared_ptr<Segment> segment;
         build_segment(SegmentWriterOptions(), build_schema, query_schema, 4096, DefaultIntGenerator, &segment);
 
-        Schema schema(query_schema);
+        Schema schema;
+        schema.init(query_schema);
         OlapReaderStatistics stats;
         // scan all rows
         {
@@ -809,7 +817,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
         st = Segment::open(fname, 0, tablet_schema.get(), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
-        Schema schema(*tablet_schema);
+        Schema schema;
+        schema.init(*tablet_schema);
         OlapReaderStatistics stats;
         // scan all rows
         {
@@ -999,7 +1008,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
     ASSERT_TRUE(column_contains_index(segment->footer().columns(1), BITMAP_INDEX));
 
     {
-        Schema schema(tablet_schema);
+        Schema schema;
+        schema.init(tablet_schema);
 
         // test where v1=10
         {

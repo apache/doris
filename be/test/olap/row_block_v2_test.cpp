@@ -84,7 +84,8 @@ void init_tablet_schema(TabletSchema* tablet_schema, bool is_nullable) {
 TEST_F(TestRowBlockV2, test_convert) {
     TabletSchema tablet_schema;
     init_tablet_schema(&tablet_schema, true);
-    Schema schema(tablet_schema);
+    Schema schema;
+    schema.init(tablet_schema);
     RowBlockV2 input_block(schema, 1024);
     RowBlock output_block(&tablet_schema);
     RowBlockInfo block_info;

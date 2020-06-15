@@ -501,6 +501,7 @@ public:
         if (aggregate_info == nullptr) {
             LOG(WARNING) << "failed to get aggregate info with aggregation type=" << column.aggregation()
                          << " column type=" << column.type();
+	    return nullptr;
         }
         switch (column.aggregation()) {
             case OLAP_FIELD_AGGREGATION_NONE:

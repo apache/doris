@@ -198,7 +198,8 @@ TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) { \
     SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
                  "REPLACE", 1, false, true, &tablet_schema); \
     int size = 10; \
-    Schema schema(tablet_schema); \
+    Schema schema; \
+    schema.init(tablet_schema); \
     RowBlockV2 block(schema, size); \
     std::set<TYPE> values; \
     values.insert(4); \
@@ -228,7 +229,8 @@ TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) { \
     TabletSchema tablet_schema2; \
     SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
                  "REPLACE", 1, true, true, &tablet_schema2); \
-    Schema schema2(tablet_schema2); \
+    Schema schema2; \
+    schema2.init(tablet_schema2); \
     RowBlockV2 block2(schema2, size); \
     ColumnBlock column2 = block2.column_block(0); \
     for (int i = 0; i < size; ++i) { \
