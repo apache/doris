@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 
 /**
