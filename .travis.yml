@@ -24,20 +24,20 @@
 install:
   - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev lsb-release mlocate
   - export REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
-  - sh thirdparty/build-thirdparty.sh
+  - cd $TRAVIS_BUILD_DIR/; sh thirdparty/build-thirdparty.sh
 
 matrix:
   include:
     - language: c++ 
       script:
-        - sh build.sh --be 
-        - sh run-ut.sh
+        - cd $TRAVIS_BUILD_DIR; sh build.sh --be 
+        - cd $TRAVIS_BUILD_DIR; sh run-ut.sh
 
     - language: java 
       jdk: openjdk8 
       script:
-        - sh build.sh --fe 
-        - sh run-ut-fe.sh
+        - cd $TRAVIS_BUILD_DIR; sh build.sh --fe 
+        - cd $TRAVIS_BUILD_DIR; sh run-ut-fe.sh
 
 
 
