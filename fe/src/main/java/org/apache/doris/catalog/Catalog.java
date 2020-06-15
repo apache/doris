@@ -4894,7 +4894,7 @@ public class Catalog {
                 if (column.getType().isFloatingPointType()) {
                     break;
                 }
-                if (column.getDataType().isCharFamily()) {
+                if (column.getDataType() == PrimitiveType.VARCHAR) {
                     ++shortKeyColumnCount;
                     break;
                 }

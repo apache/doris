@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -308,7 +309,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (column.getType().isFloatingPointType()) {
                     break;
                 }
-                if (column.getType().getPrimitiveType().isCharFamily()) {
+                if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
                     column.setIsKey(true);
                     theBeginIndexOfValue++;
                     break;
