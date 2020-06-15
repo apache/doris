@@ -26,8 +26,7 @@ under the License.
 
 # Doris On ES
 
-Doris-On-ES not only take advantage of
- Doris's distributed query planning capability but also ES (Elastic search)'s full-text search capability, provide a more complete OLAP scenario solution:
+Doris-On-ES not only take advantage of Doris's distributed query planning capability but also ES (Elastic search)'s full-text search capability, provide a more complete OLAP scenario solution:
 
 1. Multi-index Distributed Join Query in ES
 2. Joint Query of Tables in Doris and ES, More Complex Full-Text Retrieval and Filtering
