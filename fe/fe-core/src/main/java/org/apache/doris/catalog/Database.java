@@ -422,13 +422,13 @@ public class Database extends MetaObject implements Writable {
      * @param tableType
      * @return
      */
-    public Table getTableOrThrowException(String tableName, TableType tableType) throws UserException {
+    public Table getTableOrThrowException(String tableName, TableType tableType) throws MetaNotFoundException {
         Table table = nameToTable.get(tableName);
         if(table == null) {
             throw new MetaNotFoundException("unknown table, table=" + tableName);
         }
         if (table.getType() != tableType) {
-            throw new UserException("table type is not " + tableType + ", table=" + tableName + "type=" + table.getClass());
+            throw new MetaNotFoundException("table type is not " + tableType + ", table=" + tableName + "type=" + table.getClass());
         }
         return table;
     }
@@ -449,13 +449,13 @@ public class Database extends MetaObject implements Writable {
      * @param tableType
      * @return
      */
-    public Table getTableOrThrowException(long tableId, TableType tableType) throws UserException {
+    public Table getTableOrThrowException(long tableId, TableType tableType) throws MetaNotFoundException {
         Table table = idToTable.get(tableId);
         if(table == null) {
             throw new MetaNotFoundException("unknown table, tableId=" + tableId);
         }
         if (table.getType() != tableType) {
-            throw new UserException("table type is not " + tableType + ", type=" + table.getClass());
+            throw new MetaNotFoundException("table type is not " + tableType + ", type=" + table.getClass());
         }
         return table;
     }

@@ -91,7 +91,7 @@ public class Alter {
     }
 
     public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
-            throws DdlException, AnalysisException {
+            throws DdlException, AnalysisException, MetaNotFoundException {
         String tableName = stmt.getBaseIndexName();
         // check db
         String dbName = stmt.getDBName();
@@ -104,11 +104,7 @@ public class Alter {
         // check db quota
         db.checkQuota();
 
-        Table table = db.getTable(tableName);
-        if (table.getType() != TableType.OLAP) {
-            throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
-        }
-        OlapTable olapTable = (OlapTable) table;
+        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
 
         olapTable.writeLock();
         try {
@@ -129,30 +125,9 @@ public class Alter {
         }
 
         String tableName = stmt.getTableName().getTbl();
-        Table table = db.getTable(tableName);
-        // if table exists
-        if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-        }
-        // check table type
-        if (table.getType() != TableType.OLAP) {
-            throw new DdlException("Do not support non-OLAP table [" + tableName + "] when drop materialized view");
-        }
-
-        OlapTable olapTable = (OlapTable) table;
-        olapTable.writeLock();
-        try {
-            // check table state
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
-                        + "Do not allow doing DROP ops");
-            }
-            // drop materialized view
-            ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
-
-        } finally {
-            olapTable.writeUnlock();
-        }
+        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
+        // drop materialized view
+        ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -244,21 +219,25 @@ public class Alter {
     public void processAlterTable(AlterTableStmt stmt) throws UserException {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
+        String tableName = dbTableName.getTbl();
         final String clusterName = stmt.getClusterName();
 
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
+        Table table = db.getTable(tableName);
         List<AlterClause> alterClauses = Lists.newArrayList();
-
         // some operations will take long time to process, need to be done outside the table lock
         boolean needProcessOutsideTableLock = false;
-        String tableName = dbTableName.getTbl();
-
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+        // check conflict alter ops first
+        alterClauses = stmt.getOps();
+        AlterOperations currentAlterOps = new AlterOperations();
+        currentAlterOps.checkConflict(alterClauses);
+        // check cluster capacity and db quota, only need to check once.
+        if (currentAlterOps.needCheckCapacity()) {
+            Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
+            db.checkQuota();
         }
 
         table.writeLock();
@@ -279,20 +258,9 @@ public class Alter {
 
             OlapTable olapTable = (OlapTable) table;
             stmt.rewriteAlterClause(olapTable);
-
-            // check conflict alter ops first
-            alterClauses = stmt.getOps();
-            AlterOperations currentAlterOps = new AlterOperations();
-            currentAlterOps.checkConflict(alterClauses);
-
-            // check cluster capacity and db quota, only need to check once.
-            if (currentAlterOps.needCheckCapacity()) {
-                Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
-                db.checkQuota();
-            }
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException(
-                        "Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
+                        "Table[" + olapTable.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
 
             if (currentAlterOps.hasSchemaChangeOp()) {
@@ -362,8 +330,7 @@ public class Alter {
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsInMemoryMeta(
                         db, tableName, partitionNames, properties);
-
-                OlapTable olapTable = (OlapTable) db.getTable(tableName);
+                OlapTable olapTable = (OlapTable) table;
                 olapTable.writeLock();
                 try {
                     modifyPartitionsProperty(db, olapTable, partitionNames, properties);
@@ -471,17 +438,12 @@ public class Alter {
         }
 
         String tableName = dbTableName.getTbl();
-        db.writeLock();
-        try {
-            Table table = db.getTableOrThrowException(tableName, TableType.VIEW);
-            View view = (View) table;
-            modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
-        } finally {
-            db.writeUnlock();
-        }
+        View view = (View) db.getTableOrThrowException(tableName, TableType.VIEW);
+        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode, List<Column> newFullSchema) throws DdlException {
+        db.writeLock();
         view.writeLock();
         try {
             view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
@@ -491,17 +453,17 @@ public class Alter {
                 throw new DdlException("failed to init view stmt", e);
             }
             view.setNewFullSchema(newFullSchema);
+            String viewName = view.getName();
+            db.dropTable(viewName);
+            db.createTable(view);
+
+            AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, newFullSchema, sqlMode);
+            Catalog.getCurrentCatalog().getEditLog().logModifyViewDef(alterViewInfo);
+            LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
             view.writeUnlock();
+            db.writeUnlock();
         }
-
-        String viewName = view.getName();
-        db.dropTable(viewName);
-        db.createTable(view);
-
-        AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, newFullSchema, sqlMode);
-        Catalog.getCurrentCatalog().getEditLog().logModifyViewDef(alterViewInfo);
-        LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
     }
 
     public void replayModifyViewDef(AlterViewInfo alterViewInfo) throws DdlException {
@@ -511,9 +473,10 @@ public class Alter {
         List<Column> newFullSchema = alterViewInfo.getNewFullSchema();
 
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        View view = (View) db.getTable(tableId);
         db.writeLock();
+        view.writeLock();
         try {
-            View view = (View) db.getTable(tableId);
             String viewName = view.getName();
             view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
             try {
@@ -528,6 +491,7 @@ public class Alter {
 
             LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
+            view.writeUnlock();
             db.writeUnlock();
         }
     }

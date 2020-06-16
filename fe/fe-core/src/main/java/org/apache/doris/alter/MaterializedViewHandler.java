@@ -734,6 +734,12 @@ public class MaterializedViewHandler extends AlterHandler {
         Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
         olapTable.writeLock();
         try {
+            // check table state
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL. "
+                        + "Do not allow doing DROP ops");
+            }
+
             String mvName = dropMaterializedViewStmt.getMvName();
             // Step1: check drop mv index operation
             checkDropMaterializedView(mvName, olapTable);

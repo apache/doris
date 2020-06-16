@@ -5055,19 +5055,19 @@ public class Catalog {
      * used for handling AlterTableStmt (for client is the ALTER TABLE command).
      * including SchemaChangeHandler and RollupHandler
      */
-    public void alterTable(AlterTableStmt stmt) throws DdlException, UserException {
+    public void alterTable(AlterTableStmt stmt) throws UserException {
         this.alter.processAlterTable(stmt);
     }
 
     /**
      * used for handling AlterViewStmt (the ALTER VIEW command).
      */
-    public void alterView(AlterViewStmt stmt) throws DdlException, UserException {
+    public void alterView(AlterViewStmt stmt) throws UserException {
         this.alter.processAlterView(stmt, ConnectContext.get());
     }
 
     public void createMaterializedView(CreateMaterializedViewStmt stmt)
-            throws AnalysisException, DdlException {
+            throws AnalysisException, DdlException, MetaNotFoundException {
         this.alter.processCreateMaterializedView(stmt);
     }
 
