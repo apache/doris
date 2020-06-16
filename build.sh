@@ -26,7 +26,7 @@
 # compiled and installed correctly.
 ##############################################################
 
-set -eo pipefail
+set -e pipefail
 
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
