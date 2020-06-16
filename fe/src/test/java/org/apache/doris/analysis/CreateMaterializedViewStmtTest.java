@@ -585,24 +585,20 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 slotRef4.getColumnName();
                 result = columnName4;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList(slotRef1, slotRef2, slotRef3, slotRef4);
-                slotRef1.getType().getStorageLayoutBytes();
-                result = 35;
+                slotRef1.getType().getIndexSize();
+                result = 34;
                 slotRef1.getType().getPrimitiveType();
                 result = PrimitiveType.INT;
-                slotRef2.getType().getStorageLayoutBytes();
-                result = 2;
+                slotRef2.getType().getIndexSize();
+                result = 1;
                 slotRef2.getType().getPrimitiveType();
                 result = PrimitiveType.INT;
-                slotRef3.getType().getStorageLayoutBytes();
-                result = 3;
+                slotRef3.getType().getIndexSize();
+                result = 1;
                 slotRef3.getType().getPrimitiveType();
                 result = PrimitiveType.INT;
-                slotRef4.getType().getStorageLayoutBytes();
+                slotRef4.getType().getIndexSize();
                 result = 4;
-                slotRef4.getType().getPrimitiveType();
-                result = PrimitiveType.INT;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
             }
