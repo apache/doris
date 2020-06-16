@@ -505,7 +505,7 @@ private:
     static const int DEFAULT_BATCH_SIZE = 2048;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
-    // _obj_pool. And some of object in _obj_pool will use profile when deconstructing.
+    // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
 
     DescriptorTbl* _desc_tbl;
