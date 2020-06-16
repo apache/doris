@@ -685,6 +685,18 @@ build_cctz() {
     make -j$PARALLEL && make install
 }
 
+#mustache
+build_mustache() {
+    check_if_source_exist $MUSTACHE_SOURCE
+    cd $TP_SOURCE_DIR/$MUSTACHE_SOURCE
+    export PREFIX=$TP_INSTALL_DIR
+    # We add $PREFIX/include for boost and $PREFIX_COMMON/include for rapidjson.
+    ${CXX:-g++} $EXTRA_CXXFLAGS -I$PREFIX/include -I$PREFIX_COMMON/include -O3 -DNDEBUG -fPIC -c "mustache.cc"
+    ar rs libmustache.a mustache.o
+    cp libmustache.a $PREFIX/lib/
+    cp mustache.h $PREFIX/include/
+}
+
 # See https://github.com/apache/incubator-doris/issues/2910
 # LLVM related codes have already be removed in master, so there is
 # no need to build llvm tool here.
@@ -721,5 +733,6 @@ build_bitshuffle
 build_croaringbitmap
 build_orc
 build_cctz
+build_mustache
 
 echo "Finihsed to build all thirdparties"
