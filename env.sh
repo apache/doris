@@ -52,6 +52,8 @@ fi
 # set GCC HOME
 if [[ -z ${DORIS_GCC_HOME} ]]; then
     export DORIS_GCC_HOME=$(dirname `which gcc`)/..
+    echo "GCC home:"
+    echo $DORIS_GCC_HOME
 fi
 
 gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpfullversion -dumpversion`
