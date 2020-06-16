@@ -127,7 +127,7 @@ PROPERTIES (
 
 The following parameters are accepted by ES table:
 
-参数 | 说明
+Parameter | Description
 ---|---
 **hosts** | ES Cluster Connection Address, maybe one or more node, load-balance is also accepted
 **index** | the related ES index name
@@ -136,7 +136,7 @@ The following parameters are accepted by ES table:
 **password** | password for the user
 
 * For clusters before 7.x, please pay attention to choosing the correct type when building the table
-* The authentication method only supports Http Bastic authentication, and the fully open source ES cluster user and password do not need to be specified，Need to ensure that the user has access to /_cluster/state and other path permissions and read permissions to index
+* The authentication method only supports Http Bastic authentication, need to ensure that this user has access to: /\_cluster/state/, \_nodes/http and other paths and index read permissions;The cluster has not turned on security authentication, and the user name and password do not need to be set
 * The column names in the Doris table need to exactly match the field names in the ES, and the field types should be as consistent as possible
 *  **ENGINE** must be: **Elasticsearch**
 
@@ -196,7 +196,7 @@ PROPERTIES (
 );
 ```
 
-Parameter Description：
+Parameter Description:
 
 Parameter | Description
 ---|---
@@ -237,9 +237,9 @@ PROPERTIES (
 );
 ```
 
-参数说明：
+Parameter Description：
 
-参数 | 说明
+Parameter | Description
 ---|---
 **enable\_keyword\_sniff** | Whether to detect the string type (**text**) `fields` in ES to obtain additional not analyzed (**keyword**) field name(multi-fields mechanism)
 
@@ -339,9 +339,8 @@ After create the ES external table in Doris, there is no difference except that 
 select * from es_table where k1 > 1000 and k3 ='term' or k4 like 'fu*z_'
 ```
 
-#### Extended esquery SQL grammar
-The first column name parameter of `esquery` is used to associate `index`, the second parameter is the JSON expression of the basic `Query DSL`, and the curly bracket `{}` is used to include `root` of json. There is and can only be one key of json, such as mat. Ch, geo_shape, bool, etc.
-
+#### Extended esquery(field, QueryDSL)
+Through the `esquery(field, QueryDSL)` function, some queries that cannot be expressed in sql, such as match_phrase, geoshape, etc., are pushed down to the ES for filtering. The first column name parameter of `esquery` is used to associate the `index`, the second This parameter is the basic JSON expression of ES's `Query DSL`, which is contained in curly braces `{}`, and there can be only one root key of json, such as match_phrase, geo_shape, bool, etc.
 Match query:
 
 ```

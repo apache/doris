@@ -134,7 +134,7 @@ PROPERTIES (
 **password** | 对应用户的密码信息
 
 * ES 7.x之前的集群请注意在建表的时候选择正确的**索引类型type**
-* 认证方式仅支持Http Bastic认证，完全开源的ES集群用户和密码不需要指定，需要确保该用户有访问: /\_cluster/state/、\_nodes/http等路径权限和对index的读权限
+* 认证方式目前仅支持Http Bastic认证，并且需要确保该用户有访问: /\_cluster/state/、\_nodes/http等路径和index的读权限; 集群未开启安全认证，用户名和密码不需要设置
 * Doris表中的列名需要和ES中的字段名完全匹配，字段类型应该保持一致
 *  **ENGINE**必须是 **Elasticsearch**
 
@@ -335,14 +335,14 @@ POST /_analyze
 select * from es_table where k1 > 1000 and k3 ='term' or k4 like 'fu*z_'
 ```
 
-#### 扩展的esquery
-通过`esquery`函数将一些无法用sql表述的ES query如match、geoshape等下推给ES进行过滤处理，`esquery`的第一个列名参数用于关联`index`，第二个参数是ES的基本`Query DSL`的json表述，使用花括号`{}`包含，json的`root key`有且只能有一个，如match、geo_shape、bool等
+#### 扩展的esquery(field, QueryDSL)
+通过`esquery(field, QueryDSL)`函数将一些无法用sql表述的query如match_phrase、geoshape等下推给ES进行过滤处理，`esquery`的第一个列名参数用于关联`index`，第二个参数是ES的基本`Query DSL`的json表述，使用花括号`{}`包含，json的`root key`有且只能有一个，如match_phrase、geo_shape、bool等
 
-match查询：
+match_phrase查询：
 
 ```
 select * from es_table where esquery(k4, '{
-        "match": {
+        "match_phrase": {
            "k4": "doris on es"
         }
     }');
@@ -469,4 +469,4 @@ select * from es_table where esquery(k4, ' {
    
 5. 日期类型字段的过滤条件无法下推
    
-   日期类型的字段因为时间格式的问题，大多数情况下都不不会下推；对于日期类型的过滤可以采用字符串形式，日期格式需要和ES中保持完全一致
+   日期类型的字段因为时间格式的问题，大多数情况下都不会下推；对于日期类型的过滤可以采用字符串形式，日期格式需要和ES中保持完全一致
