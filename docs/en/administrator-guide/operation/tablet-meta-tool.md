@@ -133,12 +133,12 @@ This command is to view the old file-based management PB format Tablet Meta, and
 Command:
 
 ```
-./lib/meta_tool --operation=show_meta --root_path=/path/to/root_path --pb_header_path=path
+./lib/meta_tool --operation=how_meta --root_path=/path/to/root_path --pb_header_path=path
 ```
 
-### Segment Footer in Pb format
+### Segment meta in Pb format
 
-This command is to view the SegmentV2 PB format SegmentFooterPB, and to display SegmentFooterPB in JSON format.
+This command is to view the PB format segment meta, and to display segment meta in JSON format.
 
 Command:
 
