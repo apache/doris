@@ -34,6 +34,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -42,6 +43,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -198,9 +200,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
+        OlapTable tbl = null;
+        try {
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         tbl.readLock();
@@ -336,10 +340,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
 
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
+        OlapTable tbl = null;
+        try {
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
+
         tbl.readLock();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -408,9 +415,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
 
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
+        OlapTable tbl = null;
+        try {
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         if (!rollupBatchTask.isFinished()) {
