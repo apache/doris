@@ -117,7 +117,7 @@ public class DeleteHandler implements Writable {
         UNKNOWN
     }
 
-    public void process(DeleteStmt stmt) throws DdlException, QueryStateException {
+    public void process(DeleteStmt stmt) throws DdlException, QueryStateException, MetaNotFoundException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
         String partitionName = stmt.getPartitionName();
@@ -131,15 +131,7 @@ public class DeleteHandler implements Writable {
         try {
             MarkedCountDownLatch<Long, Long> countDownLatch;
             long transactionId = -1;
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table does not exist. name: " + tableName);
-            }
-
-            if (table.getType() != Table.TableType.OLAP) {
-                throw new DdlException("Not olap type table. type: " + table.getType().name());
-            }
-
+            Table table = db.getTableOrThrowException(tableName, Table.TableType.OLAP);
             table.readLock();
             try {
                 OlapTable olapTable = (OlapTable) table;

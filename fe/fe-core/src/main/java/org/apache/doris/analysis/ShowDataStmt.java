@@ -78,7 +78,7 @@ public class ShowDataStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
@@ -181,16 +181,7 @@ public class ShowDataStmt extends ShowStmt {
                         tableName);
             }
 
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-            }
-
-            if (table.getType() != TableType.OLAP) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
-            }
-
-            OlapTable olapTable = (OlapTable) table;
+            OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
             int i = 0;
             long totalSize = 0;
             long totalReplicaCount = 0;
