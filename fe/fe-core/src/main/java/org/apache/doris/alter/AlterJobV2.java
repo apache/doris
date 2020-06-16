@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -187,9 +189,11 @@ public abstract class AlterJobV2 implements Writable {
     * return false if table is not stable.
     */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
+        OlapTable tbl = null;
+        try {
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),

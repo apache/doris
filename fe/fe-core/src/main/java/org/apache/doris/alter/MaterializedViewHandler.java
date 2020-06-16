@@ -226,8 +226,12 @@ public class MaterializedViewHandler extends AlterHandler {
         Map<String, RollupJobV2> rollupNameJobMap = new LinkedHashMap<>();
         // save job id for log
         Set<Long> logJobIdSet = new HashSet<>();
-
+        olapTable.writeLock();
         try {
+            if (olapTable.existTempPartitions()) {
+                throw new DdlException("Can not alter table when there are temp partitions in table");
+            }
+
             // 1 check and make rollup job
             for (AlterClause alterClause : alterClauses) {
                 AddRollupClause addRollupClause = (AddRollupClause) alterClause;
@@ -269,6 +273,20 @@ public class MaterializedViewHandler extends AlterHandler {
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());
             }
+
+            // set table' state to ROLLUP before adding rollup jobs.
+            // so that when the AlterHandler thread run the jobs, it will see the expected table's state.
+            // ATTN: This order is not mandatory, because database lock will protect us,
+            // but this order is more reasonable
+            olapTable.setState(OlapTableState.ROLLUP);
+            // 2 batch submit rollup job
+            List<AlterJobV2> rollupJobV2List = new ArrayList<>(rollupNameJobMap.values());
+            batchAddAlterJobV2(rollupJobV2List);
+
+            BatchAlterJobPersistInfo batchAlterJobV2 = new BatchAlterJobPersistInfo(rollupJobV2List);
+            Catalog.getCurrentCatalog().getEditLog().logBatchAlterJob(batchAlterJobV2);
+            LOG.info("finished to create materialized view job: {}", logJobIdSet);
+
         } catch (Exception e) {
             // remove tablet which has already inserted into TabletInvertedIndex
             TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
@@ -280,20 +298,9 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
             throw e;
+        } finally {
+            olapTable.writeUnlock();
         }
-
-        // set table' state to ROLLUP before adding rollup jobs.
-        // so that when the AlterHandler thread run the jobs, it will see the expected table's state.
-        // ATTN: This order is not mandatory, because database lock will protect us,
-        // but this order is more reasonable
-        olapTable.setState(OlapTableState.ROLLUP);
-        // 2 batch submit rollup job
-        List<AlterJobV2> rollupJobV2List = new ArrayList<>(rollupNameJobMap.values());
-        batchAddAlterJobV2(rollupJobV2List);
-
-        BatchAlterJobPersistInfo batchAlterJobV2 = new BatchAlterJobPersistInfo(rollupJobV2List);
-        Catalog.getCurrentCatalog().getEditLog().logBatchAlterJob(batchAlterJobV2);
-        LOG.info("finished to create materialized view job: {}", logJobIdSet);
     }
 
     /**
@@ -701,6 +708,10 @@ public class MaterializedViewHandler extends AlterHandler {
             throws DdlException, MetaNotFoundException {
         olapTable.writeLock();
         try {
+            if (olapTable.existTempPartitions()) {
+                throw new DdlException("Can not alter table when there are temp partitions in table");
+            }
+
             // check drop rollup index operation
             for (AlterClause alterClause : dropRollupClauses) {
                 DropRollupClause dropRollupClause = (DropRollupClause) alterClause;
@@ -871,6 +882,8 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         OlapTable tbl = (OlapTable) db.getTable(tableId);
         if (tbl == null) {
+            LOG.warn("table {} has been dropped when changing table status after rollup job done",
+                    tableId);
             return;
         }
         tbl.writeLock();
@@ -1145,11 +1158,6 @@ public class MaterializedViewHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
-
-        if (olapTable.existTempPartitions()) {
-            throw new DdlException("Can not alter table when there are temp partitions in table");
-        }
-
         Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();
         if (alterClauseOptional.isPresent()) {
             if (alterClauseOptional.get() instanceof AddRollupClause) {
@@ -1178,14 +1186,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
         AlterJob rollupJob = null;
         List<AlterJobV2> rollupJobV2List = new ArrayList<>();
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
         }
-        if (!(table instanceof OlapTable)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
-        }
-        OlapTable olapTable = (OlapTable) table;
         olapTable.writeLock();
         try {
             if (olapTable.getState() != OlapTableState.ROLLUP) {
