@@ -1103,14 +1103,14 @@ public class SchemaChangeJob extends AlterJob {
                 jobInfo.add(tbl.getName()); // table name
                 jobInfo.add(TimeUtils.longToTimeString(createTime));
                 jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-                jobInfo.add(FeConstants.NullString); // index name
-                jobInfo.add(FeConstants.NullString); // index id
-                jobInfo.add(FeConstants.NullString); // origin id
-                jobInfo.add(FeConstants.NullString); // schema version
+                jobInfo.add(FeConstants.null_string); // index name
+                jobInfo.add(FeConstants.null_string); // index id
+                jobInfo.add(FeConstants.null_string); // origin id
+                jobInfo.add(FeConstants.null_string); // schema version
                 jobInfo.add(-1); // transaction id
                 jobInfo.add(state.name()); // job state
                 jobInfo.add(cancelMsg);
-                jobInfo.add(FeConstants.NullString); // progress
+                jobInfo.add(FeConstants.null_string); // progress
                 jobInfo.add(Config.alter_table_timeout_second); // timeout
                 jobInfos.add(jobInfo);
                 return;
@@ -1169,7 +1169,7 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(tbl.getName());
             jobInfo.add(TimeUtils.longToTimeString(createTime));
             jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-            jobInfo.add(tbl.getIndexNameById(indexId) == null ? FeConstants.NullString : tbl.getIndexNameById(indexId)); // index name
+            jobInfo.add(tbl.getIndexNameById(indexId) == null ? FeConstants.null_string : tbl.getIndexNameById(indexId)); // index name
             jobInfo.add(indexId);
             jobInfo.add(indexId); // origin index id
             // index schema version and schema hash
@@ -1178,9 +1178,9 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(state.name()); // job state
             jobInfo.add(cancelMsg);
             if (state == JobState.RUNNING) {
-                jobInfo.add(indexProgress.get(indexId) == null ? FeConstants.NullString : indexProgress.get(indexId)); // progress
+                jobInfo.add(indexProgress.get(indexId) == null ? FeConstants.null_string : indexProgress.get(indexId)); // progress
             } else {
-                jobInfo.add(FeConstants.NullString);
+                jobInfo.add(FeConstants.null_string);
             }
             jobInfo.add(Config.alter_table_timeout_second);
 

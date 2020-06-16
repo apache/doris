@@ -143,7 +143,7 @@ public class RoleManager implements Writable {
                 }
             }
             if (!hasGlobal) {
-                info.add(FeConstants.NullString);
+                info.add(FeConstants.null_string);
             }
 
             // db
@@ -154,7 +154,7 @@ public class RoleManager implements Writable {
                 }
             }
             if (tmp.isEmpty()) {
-                info.add(FeConstants.NullString);
+                info.add(FeConstants.null_string);
             } else {
                 info.add(Joiner.on("; ").join(tmp));
             }
@@ -168,7 +168,7 @@ public class RoleManager implements Writable {
                 }
             }
             if (tmp.isEmpty()) {
-                info.add(FeConstants.NullString);
+                info.add(FeConstants.null_string);
             } else {
                 info.add(Joiner.on("; ").join(tmp));
             }
@@ -181,7 +181,7 @@ public class RoleManager implements Writable {
                 }
             }
             if (tmp.isEmpty()) {
-                info.add(FeConstants.NullString);
+                info.add(FeConstants.null_string);
             } else {
                 info.add(Joiner.on("; ").join(tmp));
             }

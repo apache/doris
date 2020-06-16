@@ -205,7 +205,7 @@ public class ExportMgr {
                     ExportFailMsg failMsg = job.getFailMsg();
                     jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
                 } else {
-                    jobInfo.add(FeConstants.NullString);
+                    jobInfo.add(FeConstants.null_string);
                 }
 
                 exportJobInfos.add(jobInfo);

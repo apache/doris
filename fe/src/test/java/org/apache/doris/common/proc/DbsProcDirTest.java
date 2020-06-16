@@ -187,8 +187,8 @@ public class DbsProcDirTest {
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
                             result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 GB", FeConstants.NullString, "1073741824"));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 GB", FeConstants.NullString, "1073741824"));
+        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 GB", FeConstants.null_string, "1073741824"));
+        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 GB", FeConstants.null_string, "1073741824"));
         Assert.assertEquals(rows, result.getRows());
     }
 

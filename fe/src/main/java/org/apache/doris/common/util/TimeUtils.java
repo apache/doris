@@ -139,7 +139,7 @@ public class TimeUtils {
 
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp <= 0L) {
-            return FeConstants.NullString;
+            return FeConstants.null_string;
         }
         return dateFormat.format(new Date(timeStamp));
     }

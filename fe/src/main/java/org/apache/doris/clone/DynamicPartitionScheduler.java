@@ -73,7 +73,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     public static final String CREATE_PARTITION_MSG = "createPartitionMsg";
     public static final String DROP_PARTITION_MSG = "dropPartitionMsg";
 
-    private final String DEFAULT_RUNTIME_VALUE = FeConstants.NullString;
+    private final String DEFAULT_RUNTIME_VALUE = FeConstants.null_string;
 
     private Map<String, Map<String, String>> runtimeInfos = Maps.newConcurrentMap();
     private Set<Pair<Long, Long>> dynamicPartitionTableInfo = Sets.newConcurrentHashSet();

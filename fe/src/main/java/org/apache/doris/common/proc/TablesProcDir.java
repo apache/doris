@@ -99,7 +99,7 @@ public class TablesProcDir implements ProcDirInterface {
 
                 int partitionNum = 1;
                 long replicaCount = 0;
-                String partitionKey = FeConstants.NullString;
+                String partitionKey = FeConstants.null_string;
                 if (table.getType() == TableType.OLAP) {
                     OlapTable olapTable = (OlapTable) table;
                     if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
@@ -126,10 +126,10 @@ public class TablesProcDir implements ProcDirInterface {
                 } else {
                     tableInfo.add(table.getId());
                     tableInfo.add(table.getName());
-                    tableInfo.add(FeConstants.NullString);
+                    tableInfo.add(FeConstants.null_string);
                     tableInfo.add(partitionKey);
                     tableInfo.add(partitionNum);
-                    tableInfo.add(FeConstants.NullString);
+                    tableInfo.add(FeConstants.null_string);
                     tableInfo.add(table.getType());
                 }
 

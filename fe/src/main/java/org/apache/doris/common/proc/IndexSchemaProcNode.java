@@ -72,7 +72,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),
                                                  column.getDefaultValue() == null
-                                                         ? FeConstants.NullString : column.getDefaultValue(),
+                                                         ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
             result.addRow(rowList);
         }

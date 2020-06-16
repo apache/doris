@@ -1004,7 +1004,7 @@ public class RollupJob extends AlterJob {
             Preconditions.checkState(unfinishedReplicaNum <= totalReplicaNum);
             jobInfo.add(((totalReplicaNum - unfinishedReplicaNum) * 100 / totalReplicaNum) + "%");
         } else {
-            jobInfo.add(FeConstants.NullString);
+            jobInfo.add(FeConstants.null_string);
         }
         jobInfo.add(Config.alter_table_timeout_second);
 

@@ -716,7 +716,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             // etl info
             if (loadingStatus.getCounters().size() == 0) {
-                jobInfo.add(FeConstants.NullString);
+                jobInfo.add(FeConstants.null_string);
             } else {
                 jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadingStatus.getCounters()));
             }
@@ -727,7 +727,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             // error msg
             if (failMsg == null) {
-                jobInfo.add(FeConstants.NullString);
+                jobInfo.add(FeConstants.null_string);
             } else {
                 jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
             }

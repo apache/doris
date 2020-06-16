@@ -1888,7 +1888,7 @@ public class Load {
                 // etl info
                 EtlStatus status = loadJob.getEtlJobStatus();
                 if (status == null || status.getState() == TEtlState.CANCELLED) {
-                    jobInfo.add(FeConstants.NullString);
+                    jobInfo.add(FeConstants.null_string);
                 } else {
                     Map<String, String> counters = status.getCounters();
                     List<String> info = Lists.newArrayList();
@@ -1902,7 +1902,7 @@ public class Load {
                         }
                     } // end for counters
                     if (info.isEmpty()) {
-                        jobInfo.add(FeConstants.NullString);
+                        jobInfo.add(FeConstants.null_string);
                     } else {
                         jobInfo.add(StringUtils.join(info, "; "));
                     }
@@ -1918,7 +1918,7 @@ public class Load {
                     FailMsg failMsg = loadJob.getFailMsg();
                     jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
                 } else {
-                    jobInfo.add(FeConstants.NullString);
+                    jobInfo.add(FeConstants.null_string);
                 }
 
                 // create time

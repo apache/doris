@@ -176,7 +176,7 @@ public class DescribeStmt extends ShowStmt {
                                                              column.isAllowNull() ? "Yes" : "No",
                                                              ((Boolean) column.isKey()).toString(),
                                                              column.getDefaultValue() == null
-                                                                     ? FeConstants.NullString : column.getDefaultValue(),
+                                                                     ? FeConstants.null_string : column.getDefaultValue(),
                                                              extraStr);
 
                             if (j == 0) {

@@ -931,7 +931,7 @@ public class ShowExecutor {
                 int limit = 100;
                 while (reader.ready() && limit > 0) {
                     String line = reader.readLine();
-                    rows.add(Lists.newArrayList("-1", FeConstants.NullString, line));
+                    rows.add(Lists.newArrayList("-1", FeConstants.null_string, line));
                     limit--;
                 }
             }

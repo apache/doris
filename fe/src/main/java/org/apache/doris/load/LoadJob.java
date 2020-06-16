@@ -436,7 +436,7 @@ public class LoadJob implements Writable {
         if (etlJobType == EtlJobType.HADOOP) {
             return ((HadoopEtlJobInfo) etlJobInfo).getCluster();
         }
-        return FeConstants.NullString;
+        return FeConstants.null_string;
     }
 
     public DppConfig getHadoopDppConfig() {

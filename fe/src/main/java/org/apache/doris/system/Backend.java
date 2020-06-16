@@ -648,7 +648,7 @@ public class Backend implements Writable {
      *     status.newItem = xxx;
      */
     public class BackendStatus {
-        public String lastSuccessReportTabletsTime = FeConstants.NullString;
+        public String lastSuccessReportTabletsTime = FeConstants.null_string;
     }
 }
 

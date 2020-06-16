@@ -53,5 +53,5 @@ public class FeConstants {
     public static int meta_version = FeMetaVersion.VERSION_CURRENT;
 
     // use \N to indicate NULL
-    public static String NullString = "\\N";
+    public static String null_string = "\\N";
 }

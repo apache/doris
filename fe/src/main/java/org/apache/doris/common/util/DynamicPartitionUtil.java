@@ -490,7 +490,7 @@ public class DynamicPartitionUtil {
             } else if (isStartOfYear()) {
                 return Month.of(month) + " " + Util.ordinal(day);
             } else {
-                return FeConstants.NullString;
+                return FeConstants.null_string;
             }
         }
 

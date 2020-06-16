@@ -970,8 +970,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         List<String> result = Lists.newArrayList();
         result.add(String.valueOf(tabletId));
         result.add(type.name());
-        result.add(storageMedium == null ? FeConstants.NullString : storageMedium.name());
-        result.add(tabletStatus == null ? FeConstants.NullString : tabletStatus.name());
+        result.add(storageMedium == null ? FeConstants.null_string : storageMedium.name());
+        result.add(tabletStatus == null ? FeConstants.null_string : tabletStatus.name());
         result.add(state.name());
         result.add(origPriority.name());
         result.add(dynamicPriority.name());
@@ -984,7 +984,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(TimeUtils.longToTimeString(lastSchedTime));
         result.add(TimeUtils.longToTimeString(lastVisitedTime));
         result.add(TimeUtils.longToTimeString(finishedTime));
-        result.add(copyTimeMs > 0 ? String.valueOf(copySize / copyTimeMs / 1000.0) : FeConstants.NullString);
+        result.add(copyTimeMs > 0 ? String.valueOf(copySize / copyTimeMs / 1000.0) : FeConstants.null_string);
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
         result.add(TimeUtils.longToTimeString(lastAdjustPrioTime));

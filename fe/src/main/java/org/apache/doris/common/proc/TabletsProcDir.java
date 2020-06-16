@@ -76,7 +76,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // replica id
                     tabletInfo.add(-1); // backend id
                     tabletInfo.add(-1); // schema hash
-                    tabletInfo.add(FeConstants.NullString); // host name
+                    tabletInfo.add(FeConstants.null_string); // host name
                     tabletInfo.add(-1); // version
                     tabletInfo.add(-1); // version hash
                     tabletInfo.add(-1); // lst success version
@@ -86,14 +86,14 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // lst failed time
                     tabletInfo.add(-1); // data size
                     tabletInfo.add(-1); // row count
-                    tabletInfo.add(FeConstants.NullString); // state
+                    tabletInfo.add(FeConstants.null_string); // state
                     tabletInfo.add(-1); // lst consistency check time
                     tabletInfo.add(-1); // check version
                     tabletInfo.add(-1); // check version hash
                     tabletInfo.add(-1); // version count
                     tabletInfo.add(-1); // path hash
-                    tabletInfo.add(FeConstants.NullString); // meta url
-                    tabletInfo.add(FeConstants.NullString); // compaction status
+                    tabletInfo.add(FeConstants.null_string); // meta url
+                    tabletInfo.add(FeConstants.null_string); // compaction status
 
                     tabletInfos.add(tabletInfo);
                 } else {

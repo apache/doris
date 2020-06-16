@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 public class EtlStatus implements Writable {
-    public static final String DEFAULT_TRACKING_URL = FeConstants.NullString;
+    public static final String DEFAULT_TRACKING_URL = FeConstants.null_string;
     
     private TEtlState state;
     private String trackingUrl;
