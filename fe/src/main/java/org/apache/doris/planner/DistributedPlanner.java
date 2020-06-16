@@ -294,6 +294,11 @@ public class DistributedPlanner {
         // broadcast: send the rightChildFragment's output to each node executing
         // the leftChildFragment; the cost across all nodes is proportional to the
         // total amount of data sent
+
+        // NOTICE(cmy): for now, only MysqlScanNode and OlapScanNode has Cardinality. And MysqlScanNode's Cardinality
+        // is always 0. Other ScanNode's cardinality is -1, so they won't be able the calculate the cost of
+        // join normally and result in both "broadcastCost" and "partitionCost" be 0. And this will lead
+        // to a SHUFFLE join.
         PlanNode rhsTree = rightChildFragment.getPlanRoot();
         long rhsDataSize = 0;
         long broadcastCost = 0;
