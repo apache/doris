@@ -295,7 +295,7 @@ public class DistributedPlanner {
         // the leftChildFragment; the cost across all nodes is proportional to the
         // total amount of data sent
 
-        // NOTICE(cmy):
+        // NOTICE:
         // for now, only MysqlScanNode and OlapScanNode has Cardinality.
         // OlapScanNode's cardinality is calculated by row num and data size,
         // and MysqlScanNode's cardinality is always 0.
