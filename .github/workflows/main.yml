@@ -24,7 +24,7 @@ jobs:
       - name: build thirdparty
         run: |
               export REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
-              export DORIS_HOME=$TRAVIS_BUILD_DIR
+              export DORIS_HOME=$GITHUB_WORKSPACE
               cd $GITHUB_WORKSPACE/
               bash env.sh
               bash thirdparty/concurrent-build-thirdparty.sh
