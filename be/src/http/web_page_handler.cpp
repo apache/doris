@@ -19,6 +19,7 @@
 
 #include <boost/bind.hpp>
 #include <boost/mem_fn.hpp>
+#include <mustache.h>
 
 #include "common/config.h"
 #include "env/env.h"
