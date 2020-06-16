@@ -256,7 +256,7 @@ public final class MetricRepo {
     private static void initSystemMetrics() {
         // TCP retransSegs
         GaugeMetric<Long> tcpRetransSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "snmp", MetricUnit.NUMBER, "All TCP packets retransmitted") {
+                "snmp", MetricUnit.NOUNIT, "All TCP packets retransmitted") {
             @Override
             public Long getValue() {
                 return SYSTEM_METRICS.tcpRetransSegs;
@@ -267,7 +267,7 @@ public final class MetricRepo {
 
         // TCP inErrs
         GaugeMetric<Long> tpcInErrs = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "snmp", MetricUnit.NUMBER, "The number of all problematic TCP packets received") {
+                "snmp", MetricUnit.NOUNIT, "The number of all problematic TCP packets received") {
             @Override
             public Long getValue() {
                 return SYSTEM_METRICS.tcpInErrs;
