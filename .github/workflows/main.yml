@@ -35,7 +35,6 @@ jobs:
           java-version: 1.8
       
       - name: build fe
-        language: java
         run: |
           cd $GITHUB_WORKSPACE
           bash build.sh --be
