@@ -65,7 +65,7 @@ PUT test
       }
    },
    "mappings": {
-      "doc": { // ES 7.x版本之后创建索引时不需要指定type，会有一个默认且唯一的`_doc` type
+      "doc": { // There is no need to specify the type when creating indexes after ES7.x version, there is one and only type of `_doc`
          "properties": {
             "k1": {
                "type": "long"
@@ -114,7 +114,7 @@ CREATE EXTERNAL TABLE `test` (
   `k3` varchar(20) COMMENT "",
   `k4` varchar(100) COMMENT "",
   `k5` float COMMENT ""
-) ENGINE=ELASTICSEARCH // ENGINE必须是Elasticsearch
+) ENGINE=ELASTICSEARCH // ENGINE must be Elasticsearch
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test”,
