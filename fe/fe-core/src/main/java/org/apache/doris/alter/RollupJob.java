@@ -499,20 +499,15 @@ public class RollupJob extends AlterJob {
 
         // set state
         if (olapTable != null) {
-            olapTable.writeLock();
-            try {
-                Preconditions.checkState(olapTable.getId() == tableId);
-                for (Partition partition : olapTable.getPartitions()) {
-                    if (partition.getState() == PartitionState.ROLLUP) {
-                        partition.setState(PartitionState.NORMAL);
-                    }
+            Preconditions.checkState(olapTable.getId() == tableId);
+            for (Partition partition : olapTable.getPartitions()) {
+                if (partition.getState() == PartitionState.ROLLUP) {
+                    partition.setState(PartitionState.NORMAL);
                 }
+            }
 
-                if (olapTable.getState() == OlapTableState.ROLLUP) {
-                    olapTable.setState(OlapTableState.NORMAL);
-                }
-            } finally {
-                olapTable.writeUnlock();
+            if (olapTable.getState() == OlapTableState.ROLLUP) {
+                olapTable.setState(OlapTableState.NORMAL);
             }
         }
 

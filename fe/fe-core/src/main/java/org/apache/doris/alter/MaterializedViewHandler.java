@@ -1077,7 +1077,16 @@ public class MaterializedViewHandler extends AlterHandler {
             }
 
             OlapTable olapTable = (OlapTable) db.getTable(rollupJob.getTableId());
-            rollupJob.cancel(olapTable, "cancelled");
+            if (olapTable != null) {
+                olapTable.writeLock();
+            }
+            try {
+                rollupJob.cancel(olapTable, "cancelled");
+            } finally {
+                if (olapTable != null) {
+                    olapTable.writeUnlock();
+                }
+            }
             jobDone(rollupJob);
         }
 

@@ -58,10 +58,9 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -1488,7 +1487,16 @@ public class SchemaChangeHandler extends AlterHandler {
             }
 
             OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
-            alterJob.cancel(olapTable, "cancelled");
+            if (olapTable != null) {
+                olapTable.writeLock();
+            }
+            try {
+                alterJob.cancel(olapTable, "cancelled");
+            } finally {
+                if (olapTable != null) {
+                    olapTable.writeUnlock();
+                }
+            }
             jobDone(alterJob);
         }
 
@@ -1886,14 +1894,12 @@ public class SchemaChangeHandler extends AlterHandler {
         AlterJob schemaChangeJob = null;
         AlterJobV2 schemaChangeJobV2 = null;
 
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
         }
-        if (!(table instanceof OlapTable)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
-        }
-        OlapTable olapTable = (OlapTable) table;
         olapTable.writeLock();
         try {
             if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE) {

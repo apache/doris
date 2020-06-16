@@ -271,35 +271,18 @@ public abstract class AlterHandler extends MasterDaemon {
         alterJob.handleFinishedReplica(task, finishTabletInfo, reportVersion);
     }
 
-    /*
-     * cancel alter job when drop table
-     * olapTable: 
-     *      table which is being dropped
-     */
-    public void cancelWithTable(OlapTable olapTable) {
-        // make sure to hold to db write lock before calling this
-        AlterJob alterJob = getAlterJob(olapTable.getId());
-        if (alterJob == null) {
-            return;
-        }
-        alterJob.cancel(olapTable, "table is dropped");
-
-        // remove from alterJobs and add to finishedOrCancelledAlterJobs operation should be perform atomically
-        lock();
-        try {
-            alterJob = alterJobs.remove(olapTable.getId());
-            if (alterJob != null) {
-                alterJob.clear();
-                finishedOrCancelledAlterJobs.add(alterJob);
-            }
-        } finally {
-            unlock();
-        }
-    }
-
     protected void cancelInternal(AlterJob alterJob, OlapTable olapTable, String msg) {
         // cancel
-        alterJob.cancel(olapTable, msg);
+        if (olapTable != null) {
+            olapTable.writeLock();
+        }
+        try {
+            alterJob.cancel(olapTable, msg);
+        } finally {
+            if (olapTable != null) {
+                olapTable.writeUnlock();
+            }
+        }
         jobDone(alterJob);
     }
 
