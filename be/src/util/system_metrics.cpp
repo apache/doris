@@ -69,9 +69,9 @@ struct NetMetrics {
 // metrics read from /proc/net/snmp
 struct SnmpMetrics {
     // The number of all problematic TCP packets received
-    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_in_errs, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_in_errs, MetricUnit::NOUNIT);
     // All TCP packets retransmitted
-    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_retrans_segs, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_retrans_segs, MetricUnit::NOUNIT);
 };
 
 struct FileDescriptorMetrics {
