@@ -179,9 +179,7 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     public final boolean cancel(String errMsg) {
-        synchronized (this) {
-            return cancelImpl(errMsg);
-        }
+        return cancelImpl(errMsg);
     }
 
     /**

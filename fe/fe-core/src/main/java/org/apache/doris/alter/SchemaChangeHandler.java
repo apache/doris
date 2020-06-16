@@ -1506,7 +1506,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // has to remove here, because check is running every interval, it maybe finished but also in job list
             // some check will failed
             ((SchemaChangeJob) alterJob).deleteAllTableHistorySchema();
-            ((SchemaChangeJob) alterJob).finishJob();
+            alterJob.finishJob();
             jobDone(alterJob);
             Catalog.getCurrentCatalog().getEditLog().logFinishSchemaChange((SchemaChangeJob) alterJob);
         }
@@ -1572,7 +1572,13 @@ public class SchemaChangeHandler extends AlterHandler {
             if (olapTable == null) {
                 continue;
             }
-            selectedJob.getJobInfo(schemaChangeJobInfos, olapTable);
+            olapTable.readLock();
+            try {
+                selectedJob.getJobInfo(schemaChangeJobInfos, olapTable);
+            } finally {
+                olapTable.readUnlock();
+            }
+
         }
     }
 

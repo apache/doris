@@ -224,11 +224,14 @@ public class SchemaChangeJob extends AlterJob {
             return;
         }
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            LOG.warn("table[{}] does not exist in db[{}]", tableId, dbId);
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
             return;
         }
+
         olapTable.readLock();
         try {
             // drop all replicas with old schemaHash
@@ -320,10 +323,11 @@ public class SchemaChangeJob extends AlterJob {
         }
 
         batchClearAlterTask = new AgentBatchTask();
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            cancelMsg = "could not find table[" + tableId + "] in db [" + dbId + "]";
-            LOG.warn(cancelMsg);
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
             return -1;
         }
 
@@ -382,10 +386,11 @@ public class SchemaChangeJob extends AlterJob {
             return false;
         }
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            cancelMsg = "table[" + tableId + "] does not exist";
-            LOG.warn(cancelMsg);
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
             return false;
         }
 
@@ -583,11 +588,14 @@ public class SchemaChangeJob extends AlterJob {
         if (db == null) {
             throw new MetaNotFoundException("Cannot find db[" + dbId + "]");
         }
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            throw new MetaNotFoundException("Cannot find table[" + tableId + "]");
-        }
 
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return;
+        }
         olapTable.writeLock();
         try {
             Preconditions.checkState(olapTable.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -661,18 +669,18 @@ public class SchemaChangeJob extends AlterJob {
             return -1;
         }
 
-        Table table = db.getTable(tableId);
-        if (table == null) {
-            cancelMsg = String.format("table %d does not exist", tableId);
-            LOG.warn(cancelMsg);
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
             return -1;
         }
 
-        table.writeLock();
+        olapTable.writeLock();
         try {
             synchronized (this) {
                 boolean hasUnfinishedPartition = false;
-                OlapTable olapTable = (OlapTable) table;
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
                     short expectReplicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
@@ -777,7 +785,7 @@ public class SchemaChangeJob extends AlterJob {
                     }
 
                     // all table finished in this partition
-                    LOG.info("schema change finished in partition {}, table: {}", partition.getId(), table.getId());
+                    LOG.info("schema change finished in partition {}, table: {}", partition.getId(), olapTable.getId());
                 } // end for partitions
 
                 if (hasUnfinishedPartition) {
@@ -850,7 +858,7 @@ public class SchemaChangeJob extends AlterJob {
 
                 // 3. update base schema if changed
                 if (this.changedIndexIdToSchema.containsKey(olapTable.getBaseIndexId())) {
-                    table.setNewFullSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
+                    olapTable.setNewFullSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
                 }
 
                 // 4. update table bloom filter columns
@@ -862,7 +870,7 @@ public class SchemaChangeJob extends AlterJob {
                 this.transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             }
         } finally {
-            table.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         Catalog.getCurrentCatalog().getEditLog().logFinishingSchemaChange(this);
@@ -879,12 +887,14 @@ public class SchemaChangeJob extends AlterJob {
             return;
         }
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            cancelMsg = String.format("table %d does not exist", tableId);
-            LOG.warn(cancelMsg);
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
             return;
         }
+
         olapTable.writeLock();
         try {
             olapTable.setState(OlapTableState.NORMAL);
@@ -1097,6 +1107,7 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
+<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
         tbl.readLock();
         try {
             if (changedIndexIdToSchemaVersion == null) {
@@ -1123,52 +1134,68 @@ public class SchemaChangeJob extends AlterJob {
                 // in previous version, changedIndexIdToSchema is set to null
                 // when job is finished or cancelled.
                 // so if changedIndexIdToSchema == null, the job'state must be FINISHED or CANCELLED
+=======
+        if (changedIndexIdToSchemaVersion == null) {
+            // for compatibility
+            if (state == JobState.FINISHED || state == JobState.CANCELLED) {
+                List<Comparable> jobInfo = new ArrayList<Comparable>();
+                jobInfo.add(tableId); // job id
+                jobInfo.add(tbl.getName()); // table name
+                jobInfo.add(TimeUtils.longToTimeString(createTime));
+                jobInfo.add(TimeUtils.longToTimeString(finishedTime));
+                jobInfo.add("N/A"); // index name
+                jobInfo.add("N/A"); // index id
+                jobInfo.add("N/A"); // origin id
+                jobInfo.add("N/A"); // schema version
+                jobInfo.add(-1); // transaction id
+                jobInfo.add(state.name()); // job state
+                jobInfo.add(cancelMsg);
+                jobInfo.add("N/A"); // progress
+                jobInfo.add(Config.alter_table_timeout_second); // timeout
+                jobInfos.add(jobInfo);
+>>>>>>> fix SchemaChangeJobV2:fe/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
                 return;
             }
 
-            Map<Long, String> indexProgress = new HashMap<Long, String>();
-            Map<Long, String> indexState = new HashMap<Long, String>();
+            // in previous version, changedIndexIdToSchema is set to null
+            // when job is finished or cancelled.
+            // so if changedIndexIdToSchema == null, the job'state must be FINISHED or CANCELLED
+            return;
+        }
 
-            // calc progress and state for each table
-            for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
-                if (tbl.getIndexNameById(indexId) == null) {
-                    // this index may be dropped, and this should be a FINISHED job, just use a dummy info to show
-                    indexState.put(indexId, IndexState.NORMAL.name());
-                    indexProgress.put(indexId, "100%");
-                } else {
-                    int totalReplicaNum = 0;
-                    int finishedReplicaNum = 0;
-                    String idxState = IndexState.NORMAL.name();
-                    for (Partition partition : tbl.getPartitions()) {
-                        MaterializedIndex index = partition.getIndex(indexId);
-                        if (state == JobState.RUNNING) {
-                            int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
-                            int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
-                            Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
-                            Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
-                                    tableFinishedReplicaNum + "/" + tableReplicaNum);
-                            totalReplicaNum += tableReplicaNum;
-                            finishedReplicaNum += tableFinishedReplicaNum;
-                        }
+        Map<Long, String> indexProgress = new HashMap<Long, String>();
+        Map<Long, String> indexState = new HashMap<Long, String>();
 
-                        if (index.getState() != IndexState.NORMAL) {
-                            idxState = index.getState().name();
-                        }
+        // calc progress and state for each table
+        for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
+            if (tbl.getIndexNameById(indexId) == null) {
+                // this index may be dropped, and this should be a FINISHED job, just use a dummy info to show
+                indexState.put(indexId, IndexState.NORMAL.name());
+                indexProgress.put(indexId, "100%");
+            } else {
+                int totalReplicaNum = 0;
+                int finishedReplicaNum = 0;
+                String idxState = IndexState.NORMAL.name();
+                for (Partition partition : tbl.getPartitions()) {
+                    MaterializedIndex index = partition.getIndex(indexId);
+                    if (state == JobState.RUNNING) {
+                        int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
+                        int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
+                        Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
+                        Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
+                                tableFinishedReplicaNum + "/" + tableReplicaNum);
+                        totalReplicaNum += tableReplicaNum;
+                        finishedReplicaNum += tableFinishedReplicaNum;
                     }
 
-                    indexState.put(indexId, idxState);
-
-                    if (Catalog.getCurrentCatalog().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
-                        indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
-                    } else {
-                        indexProgress.put(indexId, "0%");
+                    if (index.getState() != IndexState.NORMAL) {
+                        idxState = index.getState().name();
                     }
                 }
-            }
 
-            for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
-                List<Comparable> jobInfo = new ArrayList<Comparable>();
+                indexState.put(indexId, idxState);
 
+<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
                 jobInfo.add(tableId);
                 jobInfo.add(tbl.getName());
                 jobInfo.add(TimeUtils.longToTimeString(createTime));
@@ -1185,14 +1212,39 @@ public class SchemaChangeJob extends AlterJob {
                     jobInfo.add(indexProgress.get(indexId) == null ? FeConstants.null_string : indexProgress.get(indexId)); // progress
                 } else {
                     jobInfo.add(FeConstants.null_string);
+=======
+                if (Catalog.getCurrentCatalog().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
+                    indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
+                } else {
+                    indexProgress.put(indexId, "0%");
+>>>>>>> fix SchemaChangeJobV2:fe/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
                 }
-                jobInfo.add(Config.alter_table_timeout_second);
-
-                jobInfos.add(jobInfo);
-            } // end for indexIds
-        } finally {
-            tbl.readUnlock();
+            }
         }
+
+        for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
+            List<Comparable> jobInfo = new ArrayList<Comparable>();
+
+            jobInfo.add(tableId);
+            jobInfo.add(tbl.getName());
+            jobInfo.add(TimeUtils.longToTimeString(createTime));
+            jobInfo.add(TimeUtils.longToTimeString(finishedTime));
+            jobInfo.add(tbl.getIndexNameById(indexId) == null ? "N/A" : tbl.getIndexNameById(indexId)); // index name
+            jobInfo.add(indexId);
+            jobInfo.add(indexId); // origin index id
+            // index schema version and schema hash
+            jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + ":" + changedIndexIdToSchemaHash.get(indexId));
+            jobInfo.add(transactionId);
+            jobInfo.add(state.name()); // job state
+            jobInfo.add(cancelMsg);
+            if (state == JobState.RUNNING) {
+                jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
+            } else {
+                jobInfo.add("N/A");
+            }
+            jobInfo.add(Config.alter_table_timeout_second);
+            jobInfos.add(jobInfo);
+        } // end for indexIds
     }
 
     @Override

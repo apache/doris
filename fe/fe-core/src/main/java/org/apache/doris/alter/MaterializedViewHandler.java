@@ -1160,7 +1160,13 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable == null) {
                 continue;
             }
-            selectedJob.getJobInfo(rollupJobInfos, olapTable);
+            olapTable.readLock();
+            try {
+                selectedJob.getJobInfo(rollupJobInfos, olapTable);
+            } finally {
+                olapTable.readUnlock();
+            }
+
         }
     }
 

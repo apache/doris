@@ -29,6 +29,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -37,6 +38,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
@@ -216,9 +218,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
 
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
+        OlapTable tbl = null;
+        try {
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         tbl.readLock();
@@ -371,9 +375,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
 
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
+        OlapTable tbl = null;
+        try {
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         tbl.readLock();
@@ -445,11 +451,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Database " + dbId + " does not exist");
         }
 
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
+        OlapTable tbl = null;
+        try {
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
-
 
         if (!schemaChangeBatchTask.isFinished()) {
             LOG.info("schema change tasks not finished. job: {}", jobId);
@@ -467,10 +474,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
          */
-        tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            throw new AlterCancelException("Table " + tableId + " does not exist");
-        }
         tbl.writeLock();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
