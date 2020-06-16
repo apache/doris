@@ -25,7 +25,7 @@ install:
   - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev lsb-release mlocate
   - export REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
   - export DORIS_HOME=$TRAVIS_BUILD_DIR
-  - cd $TRAVIS_BUILD_DIR/; bash env.sh; bash thirdparty/build-thirdparty.sh
+  - cd $TRAVIS_BUILD_DIR/; bash env.sh; bash thirdparty/concurrent-build-thirdparty.sh
 
 matrix:
   include:
