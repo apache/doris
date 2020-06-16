@@ -30,14 +30,14 @@ matrix:
   include:
     - language: c++ 
       script:
-        - cd $TRAVIS_BUILD_DIR; sh build.sh --be 
-        - cd $TRAVIS_BUILD_DIR; sh run-ut.sh
+        - cd $TRAVIS_BUILD_DIR; bash build.sh --be 
+        - cd $TRAVIS_BUILD_DIR; bash run-ut.sh
 
     - language: java 
       jdk: openjdk8 
       script:
-        - cd $TRAVIS_BUILD_DIR; sh build.sh --fe 
-        - cd $TRAVIS_BUILD_DIR; sh run-ut-fe.sh
+        - cd $TRAVIS_BUILD_DIR; bash build.sh --fe 
+        - cd $TRAVIS_BUILD_DIR; bash run-ut-fe.sh
 
 
 
