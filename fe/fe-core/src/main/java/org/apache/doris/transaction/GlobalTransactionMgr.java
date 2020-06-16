@@ -150,9 +150,9 @@ public class GlobalTransactionMgr implements Writable {
 
     }
 
-    public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
+    public void commitTransaction(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
-        commitTransaction(dbId, transactionId, tabletCommitInfos, null);
+        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
     }
     
     /**
@@ -164,7 +164,7 @@ public class GlobalTransactionMgr implements Writable {
      * @note it is necessary to optimize the `lock` mechanism and `lock` scope resulting from wait lock long time
      * @note callers should get db.write lock before call this api
      */
-    public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
+    public void commitTransaction(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
                                   TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
@@ -173,7 +173,7 @@ public class GlobalTransactionMgr implements Writable {
         
         LOG.debug("try to commit transaction: {}", transactionId);
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.commitTransaction(transactionId, tabletCommitInfos, txnCommitAttachment);
+        dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
     }
     
     public boolean commitAndPublishTransaction(Database db, List<Table> tableList, long transactionId,
@@ -190,7 +190,7 @@ public class GlobalTransactionMgr implements Writable {
             table.writeLock();
         }
         try {
-            commitTransaction(db.getId(), transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
             for (int i = tableList.size() - 1; i >= 0; i--) {
                 tableList.get(i).writeUnlock();

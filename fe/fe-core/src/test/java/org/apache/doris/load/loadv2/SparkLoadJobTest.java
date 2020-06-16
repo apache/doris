@@ -381,8 +381,8 @@ public class SparkLoadJobTest {
                 AgentTaskExecutor.submit((AgentBatchTask) any);
                 Catalog.getCurrentGlobalTransactionMgr();
                 result = transactionMgr;
-                transactionMgr.commitTransaction(dbId, transactionId, (List<TabletCommitInfo>) any,
-                                                 (LoadJobFinalOperation) any);
+//                transactionMgr.commitTransaction(dbId, transactionId, (List<TabletCommitInfo>) any,
+//                                                 (LoadJobFinalOperation) any);
             }
         };
 

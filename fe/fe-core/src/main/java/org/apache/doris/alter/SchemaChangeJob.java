@@ -33,11 +33,9 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.ReplicaPersistInfo.ReplicaOperationType;
 import org.apache.doris.task.AgentBatchTask;
@@ -68,7 +66,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -1107,144 +1104,7 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
-<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
-        tbl.readLock();
-        try {
-            if (changedIndexIdToSchemaVersion == null) {
-                // for compatibility
-                if (state == JobState.FINISHED || state == JobState.CANCELLED) {
-                    List<Comparable> jobInfo = new ArrayList<Comparable>();
-                    jobInfo.add(tableId); // job id
-                    jobInfo.add(tbl.getName()); // table name
-                    jobInfo.add(TimeUtils.longToTimeString(createTime));
-                    jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-                    jobInfo.add(FeConstants.null_string); // index name
-                    jobInfo.add(FeConstants.null_string); // index id
-                    jobInfo.add(FeConstants.null_string); // origin id
-                    jobInfo.add(FeConstants.null_string); // schema version
-                    jobInfo.add(-1); // transaction id
-                    jobInfo.add(state.name()); // job state
-                    jobInfo.add(cancelMsg);
-                    jobInfo.add(FeConstants.null_string); // progress
-                    jobInfo.add(Config.alter_table_timeout_second); // timeout
-                    jobInfos.add(jobInfo);
-                    return;
-                }
-
-                // in previous version, changedIndexIdToSchema is set to null
-                // when job is finished or cancelled.
-                // so if changedIndexIdToSchema == null, the job'state must be FINISHED or CANCELLED
-=======
-        if (changedIndexIdToSchemaVersion == null) {
-            // for compatibility
-            if (state == JobState.FINISHED || state == JobState.CANCELLED) {
-                List<Comparable> jobInfo = new ArrayList<Comparable>();
-                jobInfo.add(tableId); // job id
-                jobInfo.add(tbl.getName()); // table name
-                jobInfo.add(TimeUtils.longToTimeString(createTime));
-                jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-                jobInfo.add("N/A"); // index name
-                jobInfo.add("N/A"); // index id
-                jobInfo.add("N/A"); // origin id
-                jobInfo.add("N/A"); // schema version
-                jobInfo.add(-1); // transaction id
-                jobInfo.add(state.name()); // job state
-                jobInfo.add(cancelMsg);
-                jobInfo.add("N/A"); // progress
-                jobInfo.add(Config.alter_table_timeout_second); // timeout
-                jobInfos.add(jobInfo);
->>>>>>> fix SchemaChangeJobV2:fe/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
-                return;
-            }
-
-            // in previous version, changedIndexIdToSchema is set to null
-            // when job is finished or cancelled.
-            // so if changedIndexIdToSchema == null, the job'state must be FINISHED or CANCELLED
-            return;
-        }
-
-        Map<Long, String> indexProgress = new HashMap<Long, String>();
-        Map<Long, String> indexState = new HashMap<Long, String>();
-
-        // calc progress and state for each table
-        for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
-            if (tbl.getIndexNameById(indexId) == null) {
-                // this index may be dropped, and this should be a FINISHED job, just use a dummy info to show
-                indexState.put(indexId, IndexState.NORMAL.name());
-                indexProgress.put(indexId, "100%");
-            } else {
-                int totalReplicaNum = 0;
-                int finishedReplicaNum = 0;
-                String idxState = IndexState.NORMAL.name();
-                for (Partition partition : tbl.getPartitions()) {
-                    MaterializedIndex index = partition.getIndex(indexId);
-                    if (state == JobState.RUNNING) {
-                        int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
-                        int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
-                        Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
-                        Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
-                                tableFinishedReplicaNum + "/" + tableReplicaNum);
-                        totalReplicaNum += tableReplicaNum;
-                        finishedReplicaNum += tableFinishedReplicaNum;
-                    }
-
-                    if (index.getState() != IndexState.NORMAL) {
-                        idxState = index.getState().name();
-                    }
-                }
-
-                indexState.put(indexId, idxState);
-
-<<<<<<< HEAD:fe/fe-core/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
-                jobInfo.add(tableId);
-                jobInfo.add(tbl.getName());
-                jobInfo.add(TimeUtils.longToTimeString(createTime));
-                jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-                jobInfo.add(tbl.getIndexNameById(indexId) == null ? FeConstants.null_string : tbl.getIndexNameById(indexId)); // index name
-                jobInfo.add(indexId);
-                jobInfo.add(indexId); // origin index id
-                // index schema version and schema hash
-                jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + ":" + changedIndexIdToSchemaHash.get(indexId));
-                jobInfo.add(transactionId);
-                jobInfo.add(state.name()); // job state
-                jobInfo.add(cancelMsg);
-                if (state == JobState.RUNNING) {
-                    jobInfo.add(indexProgress.get(indexId) == null ? FeConstants.null_string : indexProgress.get(indexId)); // progress
-                } else {
-                    jobInfo.add(FeConstants.null_string);
-=======
-                if (Catalog.getCurrentCatalog().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
-                    indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
-                } else {
-                    indexProgress.put(indexId, "0%");
->>>>>>> fix SchemaChangeJobV2:fe/src/main/java/org/apache/doris/alter/SchemaChangeJob.java
-                }
-            }
-        }
-
-        for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
-            List<Comparable> jobInfo = new ArrayList<Comparable>();
-
-            jobInfo.add(tableId);
-            jobInfo.add(tbl.getName());
-            jobInfo.add(TimeUtils.longToTimeString(createTime));
-            jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-            jobInfo.add(tbl.getIndexNameById(indexId) == null ? "N/A" : tbl.getIndexNameById(indexId)); // index name
-            jobInfo.add(indexId);
-            jobInfo.add(indexId); // origin index id
-            // index schema version and schema hash
-            jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + ":" + changedIndexIdToSchemaHash.get(indexId));
-            jobInfo.add(transactionId);
-            jobInfo.add(state.name()); // job state
-            jobInfo.add(cancelMsg);
-            if (state == JobState.RUNNING) {
-                jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
-            } else {
-                jobInfo.add("N/A");
-            }
-            jobInfo.add(Config.alter_table_timeout_second);
-            jobInfos.add(jobInfo);
-        } // end for indexIds
+        // TODO
     }
 
     @Override

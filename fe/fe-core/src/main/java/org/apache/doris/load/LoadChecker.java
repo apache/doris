@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import avro.shaded.com.google.common.collect.Lists;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -339,7 +340,7 @@ public class LoadChecker extends MasterDaemon {
                 }
                 tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
-            globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
+            globalTransactionMgr.commitTransaction(job.getDbId(), Lists.newArrayList(table), job.getTransactionId(), tabletCommitInfos);
         } catch (TabletQuorumFailedException e) {
             // wait the upper application retry
         } catch (UserException e) {

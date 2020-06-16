@@ -299,10 +299,11 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .add("msg", "Load job try to commit txn")
                     .build());
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, transactionId, commitInfos,
-                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-                            finishTimestamp, state, failMsg));
+//            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
+//                    dbId, transactionId, commitInfos,
+//                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
+//                            finishTimestamp, state, failMsg));
+            throw new UserException("");
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
