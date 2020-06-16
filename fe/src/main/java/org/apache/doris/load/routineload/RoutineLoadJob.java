@@ -924,8 +924,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
         }
 
+        routineLoadTaskInfo.setTxnStatus(txnStatus);
+
         if (state == JobState.RUNNING) {
-            routineLoadTaskInfo.setTxnStatus(txnStatus);
             if (txnStatus == TransactionStatus.ABORTED) {
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
                 Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
