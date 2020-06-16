@@ -295,8 +295,13 @@ public class DistributedPlanner {
         // the leftChildFragment; the cost across all nodes is proportional to the
         // total amount of data sent
 
-        // NOTICE(cmy): for now, only MysqlScanNode and OlapScanNode has Cardinality. And MysqlScanNode's Cardinality
-        // is always 0. Other ScanNode's cardinality is -1, so they won't be able to calculate the cost of
+        // NOTICE(cmy):
+        // for now, only MysqlScanNode and OlapScanNode has Cardinality.
+        // OlapScanNode's cardinality is calculated by row num and data size,
+        // and MysqlScanNode's cardinality is always 0.
+        // Other ScanNode's cardinality is -1.
+        //
+        // So if there are other kind of scan node in join query, it won't be able to calculate the cost of
         // join normally and result in both "broadcastCost" and "partitionCost" be 0. And this will lead
         // to a SHUFFLE join.
         PlanNode rhsTree = rightChildFragment.getPlanRoot();
