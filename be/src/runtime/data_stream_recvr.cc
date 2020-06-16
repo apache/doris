@@ -180,10 +180,10 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
         done->Run();
         _pending_closures.pop_front();
 
-        auto clock = _recvr->_closere_clock_map.at(done);
+        auto clock = _recvr->_closure_clock_map.at(done);
         clock.stop();
         _recvr->_buffer_full_total_timer->update(clock.elapsed_time());
-        _recvr->_closere_clock_map.erase(done);
+        _recvr->_closure_clock_map.erase(done);
     }
 
     return Status::OK();
@@ -254,7 +254,7 @@ void DataStreamRecvr::SenderQueue::add_batch(
     if (done != nullptr && _recvr->exceeds_limit(batch_size)) {
         MonotonicStopWatch monotonicStopWatch;
         monotonicStopWatch.start();
-        _recvr->_closere_clock_map.insert(std::make_pair(*done, monotonicStopWatch));
+        _recvr->_closure_clock_map.insert(std::make_pair(*done, monotonicStopWatch));
 
         DCHECK(*done != nullptr);
         _pending_closures.push_back(*done);
