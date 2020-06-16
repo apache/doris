@@ -1482,8 +1482,7 @@ BaseTabletSharedPtr TabletManager::_get_base_tablet_unlocked(TTabletId tablet_id
 
     VLOG(3) << "fail to get tablet. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
     // Return nullptr tablet if fail
-    BaseTabletSharedPtr tablet;
-    return tablet;
+    return nullptr;
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash) {
