@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -283,11 +284,29 @@ public class CreateTableStmt extends DdlStmt {
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
                     for (ColumnDef columnDef : columnDefs) {
-                        keyLength += columnDef.getType().getStorageLayoutBytes();
-                        if (keysColumnNames.size() < FeConstants.shortkey_max_column_count
-                                || keyLength < FeConstants.shortkey_maxsize_bytes) {
-                            keysColumnNames.add(columnDef.getName());
+                        keyLength += columnDef.getType().getIndexSize();
+                        if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
+                                || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                            if (keysColumnNames.size() == 0
+                                    && columnDef.getType().getPrimitiveType().isCharFamily()) {
+                                keysColumnNames.add(columnDef.getName());
+                            }
+                            break;
                         }
+                        if (columnDef.getType().isFloatingPointType()) {
+                            break;
+                        }
+                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                            keysColumnNames.add(columnDef.getName());
+                            break;
+                        }
+                        keysColumnNames.add(columnDef.getName());
+                    }
+                    // The OLAP table must has at least one short key and the float and double should not be short key.
+                    // So the float and double could not be the first column in OLAP table.
+                    if (keysColumnNames.isEmpty()) {
+                        throw new AnalysisException("The first column could not be float or double,"
+                                + " use decimal instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
