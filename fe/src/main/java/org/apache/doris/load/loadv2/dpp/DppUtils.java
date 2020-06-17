@@ -79,6 +79,7 @@ public class DppUtils {
             case "INT":
                 return Integer.class;
             case "DATETIME":
+                return java.sql.Timestamp.class;
             case "BIGINT":
                 return Long.class;
             case "LARGEINT":
@@ -109,6 +110,8 @@ public class DppUtils {
                 dataType = DataTypes.StringType;
                 break;
             case "TINYINT":
+                dataType = DataTypes.ByteType;
+                break;
             case "SMALLINT":
                 dataType = DataTypes.ShortType;
                 break;
@@ -158,7 +161,9 @@ public class DppUtils {
             buffer.putInt(0);
             return buffer;
         }
-        if (type.equals(DataTypes.ShortType)) {
+        if (type.equals(DataTypes.ByteType)) {
+            buffer.put((byte)o);
+        } else if (type.equals(DataTypes.ShortType)) {
             buffer.putShort((Short)o);
         } else if (type.equals(DataTypes.IntegerType)) {
             buffer.putInt((Integer) o);

@@ -139,8 +139,8 @@ public final class SparkDpp implements java.io.Serializable {
                 new EncodeDuplicateTableFunction(keyLen + 1, currentIndexMeta.columns.size() - keyLen)
                 : new EncodeAggregateTableFunction(sparkRDDAggregators, keyLen + 1);
 
-        // 2 convert dataframe to rdd
-        // TODO(wb) use rdd to avoid bitamp/hll serialize
+        // 2 convert dataframe to rdd and  encode key and value
+        // TODO(wb) use rdd to avoid bitamp/hll serialize when calculate rollup
         JavaPairRDD<List<Object>, Object[]> currentRollupRDD = dataframe.toJavaRDD().mapToPair(encodePairFunction);
 
         // 3 do aggregate
@@ -149,7 +149,7 @@ public final class SparkDpp implements java.io.Serializable {
         JavaPairRDD<List<Object>, Object[]> reduceResultRDD = isDuplicateTable ? currentRollupRDD
                 : currentRollupRDD.reduceByKey(new AggregateReduceFunction(sparkRDDAggregators), aggregateConcurrency);
 
-        // 4 repartition
+        // 4 repartition and finalize value column
         JavaRDD<Row> finalRDD = reduceResultRDD
                 .repartitionAndSortWithinPartitions(new BucketPartitioner(bucketKeyMap), new BucketComparator())
                 .map(record -> {
@@ -215,7 +215,6 @@ public final class SparkDpp implements java.io.Serializable {
                         Object columnValue = row.get(i);
                         columnObjects.add(columnValue);
                     }
-                    System.out.println();
                     Row rowWithoutBucketKey = RowFactory.create(columnObjects.toArray());
                     // if the bucket key is new, it will belong to a new tablet
                     if (lastBucketKey == null || !curBucketKey.equals(lastBucketKey)) {
@@ -272,6 +271,7 @@ public final class SparkDpp implements java.io.Serializable {
         });
     }
 
+    // TODO(wb) one shuffle to calculate the rollup in the same level
     private void processRollupTree(RollupTreeNode rootNode,
                                    Dataset<Row> rootDataframe,
                                    long tableId, EtlJobConfig.EtlTable tableMeta,
@@ -405,7 +405,7 @@ public final class SparkDpp implements java.io.Serializable {
                         return result.iterator();
                     }
                 });
-
+        // TODO(wb): using rdd instead of dataframe from here
         JavaRDD<Row> resultRdd = pairRDD.map(record -> {
                     String bucketKey = record._1;
                     List<Object> row = new ArrayList<>();
@@ -416,7 +416,6 @@ public final class SparkDpp implements java.io.Serializable {
                 }
         );
 
-        // TODO(wb): using rdd instead of dataframe from here
         StructType tableSchemaWithBucketId = DppUtils.createDstTableSchema(baseIndex.columns, true, false);
         dataframe = spark.createDataFrame(resultRdd, tableSchemaWithBucketId);
         // use bucket number as the parallel number
@@ -540,7 +539,7 @@ public final class SparkDpp implements java.io.Serializable {
         int columnSize = dataSrcColumns.size();
         List<ColumnParser> parsers = new ArrayList<>();
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
-            parsers.add(ColumnParser.create(column.columnType));
+            parsers.add(ColumnParser.create(column));
         }
         // now we first support csv file
         // TODO: support parquet file and orc file
@@ -641,6 +640,12 @@ public final class SparkDpp implements java.io.Serializable {
                 return ((Double) srcValue).longValue();
             } else if (dstClass.equals(BigInteger.class)) {
                 return new BigInteger(((Double) srcValue).toString());
+            } else if (dstClass.equals(java.sql.Date.class) || dstClass.equals(java.util.Date.class)) {
+                double srcValueDouble = (double)srcValue;
+                return convertToJavaDate((int) srcValueDouble);
+            } else if (dstClass.equals(java.sql.Timestamp.class)) {
+                double srcValueDouble = (double)srcValue;
+                return convertToJavaDatetime((long)srcValueDouble);
             } else {
                 // dst type is string
                 return srcValue.toString();
@@ -649,6 +654,31 @@ public final class SparkDpp implements java.io.Serializable {
             LOG.warn("unsupport partition key:" + srcValue);
             throw new UserException("unsupport partition key:" + srcValue);
         }
+    }
+
+    private java.sql.Timestamp convertToJavaDatetime(long src) {
+        String dateTimeStr = Long.valueOf(src).toString();
+        if (dateTimeStr.length() != 14) {
+            throw new RuntimeException("invalid input date format for SparkDpp");
+        }
+
+        String year = dateTimeStr.substring(0, 4);
+        String month = dateTimeStr.substring(4, 6);
+        String day = dateTimeStr.substring(6, 8);
+        String hour = dateTimeStr.substring(8, 10);
+        String min = dateTimeStr.substring(10, 12);
+        String sec = dateTimeStr.substring(12, 14);
+
+        return java.sql.Timestamp.valueOf(String.format("%s-%s-%s %s:%s:%s", year, month, day, hour, min, sec));
+    }
+
+    private java.sql.Date convertToJavaDate(int originDate) {
+        int day = originDate & 0x1f;
+        originDate >>= 5;
+        int month = originDate & 0x0f;
+        originDate >>= 4;
+        int year = originDate;
+        return java.sql.Date.valueOf(String.format("%04d-%02d-%02d", year, month, day));
     }
 
     private List<DorisRangePartitioner.PartitionRangeKey> createPartitionRangeKeys(
@@ -662,7 +692,6 @@ public final class SparkDpp implements java.io.Serializable {
                 startKeyColumns.add(convertPartitionKey(value, partitionKeySchema.get(i)));
             }
             partitionRangeKey.startKeys = new DppColumns(startKeyColumns);
-            ;
             if (!partition.isMaxPartition) {
                 partitionRangeKey.isMaxPartition = false;
                 List<Object> endKeyColumns = new ArrayList<>();
@@ -672,7 +701,7 @@ public final class SparkDpp implements java.io.Serializable {
                 }
                 partitionRangeKey.endKeys = new DppColumns(endKeyColumns);
             } else {
-                partitionRangeKey.isMaxPartition = false;
+                partitionRangeKey.isMaxPartition = true;
             }
             partitionRangeKeys.add(partitionRangeKey);
         }
@@ -780,8 +809,7 @@ public final class SparkDpp implements java.io.Serializable {
                     } else {
                         String taskId = etlJobConfig.outputPath.substring(etlJobConfig.outputPath.lastIndexOf("/") + 1);
                         String dorisIntermediateHiveTable = String.format(EtlJobConfig.DORIS_INTERMEDIATE_HIVE_TABLE_NAME,
-                                tableId, taskId);
-                        dorisIntermediateHiveTable = "kylin2x_test.doris_intermediate_hive_table_31105_66130"; // 3kw
+                                                                          tableId, taskId);
                         fileGroupDataframe = loadDataFromHiveTable(spark, dorisIntermediateHiveTable, baseIndex, fileGroup, dstTableSchema);
                     }
                     if (fileGroupDataframe == null) {

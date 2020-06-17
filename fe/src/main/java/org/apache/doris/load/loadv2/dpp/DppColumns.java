@@ -71,6 +71,8 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
                 cmp = ((Double)(columns.get(i))).compareTo((Double) (other.columns.get(i)));
             } else if (columns.get(i) instanceof Date) {
                 cmp = ((Date)(columns.get(i))).compareTo((Date) (other.columns.get(i)));
+            } else if (columns.get(i) instanceof java.sql.Timestamp) {
+                cmp = ((java.sql.Timestamp)columns.get(i)).compareTo((java.sql.Timestamp)other.columns.get(i));
             } else {
                 cmp = ((String)(columns.get(i))).compareTo((String) (other.columns.get(i)));
             }

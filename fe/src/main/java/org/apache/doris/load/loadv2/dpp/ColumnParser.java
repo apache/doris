@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.joda.time.DateTime;
 
 import java.io.Serializable;
@@ -25,7 +26,8 @@ import java.util.Date;
 
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
-    public static ColumnParser create(String columnType) throws UserException {
+    public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws UserException {
+        String columnType = etlColumn.columnType;
         if (columnType.equalsIgnoreCase("TINYINT")) {
             return new TinyIntParser();
         } else if (columnType.equalsIgnoreCase("SMALLINT")) {
@@ -48,7 +50,7 @@ public abstract class ColumnParser implements Serializable {
                 || columnType.equalsIgnoreCase("CHAR")
                 || columnType.equalsIgnoreCase("BITMAP")
                 || columnType.equalsIgnoreCase("HLL")) {
-            return new StringParser();
+            return new StringParser(etlColumn);
         } else {
             throw new UserException("unsupported type:" + columnType);
         }
@@ -168,8 +170,19 @@ class DatetimeParser extends ColumnParser {
 }
 
 class StringParser extends ColumnParser {
+
+    private EtlJobConfig.EtlColumn etlColumn;
+
+    public StringParser(EtlJobConfig.EtlColumn etlColumn) {
+        this.etlColumn = etlColumn;
+    }
+
     @Override
     public boolean parse(String value) {
-        return true;
+        try {
+            return value.getBytes("UTF-8").length <= etlColumn.stringLength;
+        } catch (Exception e) {
+            throw new RuntimeException("string check failed ", e);
+        }
     }
 }
