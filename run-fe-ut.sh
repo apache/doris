@@ -93,7 +93,8 @@ echo "Unit test parallel is: $FE_UT_PARALLEL"
 
 if [ ${COVERAGE} -eq 1 ]; then
     echo "Run coverage statistic"
-    ant cover-test
+    ${MVN_CMD} cobertura:cobertura
+    
 else
     if [ ${RUN} -eq 1 ]; then
         echo "Run the specified class: $1"
