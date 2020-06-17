@@ -40,7 +40,7 @@ FE 的监控项可以通过以下方式访问：
 
 通过以下接口可以获取 Json 格式的监控项：
 
-`http://fe_host:fe_http_port/metrics?type=agent`
+`http://fe_host:fe_http_port/metrics?type=json`
 
 ## 监控项列表
 
