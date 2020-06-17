@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -535,7 +536,7 @@ public class Repository implements Writable {
         info.add(String.valueOf(isReadOnly));
         info.add(location);
         info.add(storage.getBrokerName());
-        info.add(errMsg == null ? "N/A" : errMsg);
+        info.add(errMsg == null ? FeConstants.null_string : errMsg);
         return info;
     }
 
@@ -575,7 +576,7 @@ public class Repository implements Writable {
             Status st = storage.list(infoFilePath + "*", results);
             if (!st.ok()) {
                 info.add(snapshotName);
-                info.add("N/A");
+                info.add(FeConstants.null_string);
                 info.add("ERROR: Failed to get info: " + st.getErrMsg());
             } else {
                 info.add(snapshotName);
@@ -604,8 +605,8 @@ public class Repository implements Writable {
                 if (!st.ok()) {
                     info.add(snapshotName);
                     info.add(timestamp);
-                    info.add("N/A");
-                    info.add("N/A");
+                    info.add(FeConstants.null_string);
+                    info.add(FeConstants.null_string);
                     info.add("Failed to get info: " + st.getErrMsg());
                 } else {
                     try {
@@ -618,8 +619,8 @@ public class Repository implements Writable {
                     } catch (IOException e) {
                         info.add(snapshotName);
                         info.add(timestamp);
-                        info.add("N/A");
-                        info.add("N/A");
+                        info.add(FeConstants.null_string);
+                        info.add(FeConstants.null_string);
                         info.add("Failed to read info from local file: " + e.getMessage());
                     }
                 }

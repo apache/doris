@@ -47,6 +47,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
@@ -854,7 +855,7 @@ public class StmtExecutor {
         for (List<String> row : resultSet.getResultRows()) {
             serializer.reset();
             for (String item : row) {
-                if (item == null) {
+                if (item == null || item.equals(FeConstants.null_string)) {
                     serializer.writeNull();
                 } else {
                     serializer.writeLenEncodedString(item);

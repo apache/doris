@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TEtlState;
@@ -31,7 +32,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 public class EtlStatus implements Writable {
-    public static final String DEFAULT_TRACKING_URL = "N/A";
+    public static final String DEFAULT_TRACKING_URL = FeConstants.null_string;
     
     private TEtlState state;
     private String trackingUrl;

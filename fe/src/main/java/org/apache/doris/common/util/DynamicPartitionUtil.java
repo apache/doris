@@ -34,6 +34,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Preconditions;
@@ -489,7 +490,7 @@ public class DynamicPartitionUtil {
             } else if (isStartOfYear()) {
                 return Month.of(month) + " " + Util.ordinal(day);
             } else {
-                return "N/A";
+                return FeConstants.null_string;
             }
         }
 
