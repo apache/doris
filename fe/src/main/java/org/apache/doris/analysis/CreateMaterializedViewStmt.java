@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -69,8 +70,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private String dbName;
     private KeysType mvKeysType = KeysType.DUP_KEYS;
 
-    public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt,
-                                      Map<String, String> properties) {
+    public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt, Map<String, String> properties) {
         this.mvName = mvName;
         this.selectStmt = selectStmt;
         this.properties = properties;
@@ -116,16 +116,16 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
-                                                + selectStmt.getWhereClause().toSql());
+                    + selectStmt.getWhereClause().toSql());
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
-                                                + selectStmt.getHavingPred().toSql());
+                    + selectStmt.getHavingPred().toSql());
         }
         analyzeOrderByClause();
         if (selectStmt.getLimit() != -1) {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
-                                                + " limit " + selectStmt.getLimit());
+                    + " limit " + selectStmt.getLimit());
         }
     }
 
@@ -151,7 +151,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
-                                                    + "Error column: " + selectListItemExpr.toSql());
+                        + "Error column: " + selectListItemExpr.toSql());
             }
             if (selectListItem.getExpr() instanceof SlotRef) {
                 if (meetAggregate) {
@@ -164,6 +164,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
+                mvColumnItem.setType(slotRef.getType());
                 mvColumnItemList.add(mvColumnItem);
             } else if (selectListItem.getExpr() instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItem.getExpr();
@@ -174,7 +175,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         && !functionName.equalsIgnoreCase("min")
                         && !functionName.equalsIgnoreCase("max")) {
                     throw new AnalysisException("The materialized view only support the sum, min and max aggregate "
-                                                        + "function. Error function: " + functionCallExpr.toSqlImpl());
+                            + "function. Error function: " + functionCallExpr.toSqlImpl());
                 }
 
                 Preconditions.checkState(functionCallExpr.getChildren().size() == 1);
@@ -182,13 +183,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 SlotRef slotRef;
                 if (functionChild0 instanceof SlotRef) {
                     slotRef = (SlotRef) functionChild0;
-                }
-                else if (functionChild0 instanceof CastExpr
-                        && (functionChild0.getChild(0) instanceof SlotRef)) {
+                } else if (functionChild0 instanceof CastExpr && (functionChild0.getChild(0) instanceof SlotRef)) {
                     slotRef = (SlotRef) functionChild0.getChild(0);
                 } else {
                     throw new AnalysisException("The children of aggregate function only support one original column. "
-                                                        + "Error function: " + functionCallExpr.toSqlImpl());
+                            + "Error function: " + functionCallExpr.toSqlImpl());
                 }
                 meetAggregate = true;
                 // check duplicate column
@@ -226,49 +225,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     private void analyzeOrderByClause() throws AnalysisException {
         if (selectStmt.getOrderByElements() == null) {
-            /**
-             * The keys type of Materialized view is aggregation.
-             * All of group by columns are keys of materialized view.
-             */
-            if (mvKeysType == KeysType.AGG_KEYS) {
-                for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                    if (mvColumnItem.getAggregationType() != null) {
-                        break;
-                    }
-                    mvColumnItem.setIsKey(true);
-                }
-                return;
-            }
-
-            /**
-             * There is no aggregation function in materialized view.
-             * Supplement key of MV columns
-             * For example: select k1, k2 ... kn from t1
-             * The default key columns are first 36 bytes of the columns in define order.
-             * If the number of columns in the first 36 is less than 3, the first 3 columns will be used.
-             * column: k1, k2, k3... km. The key is true.
-             * Supplement non-key of MV columns
-             * column: km... kn. The key is false, aggregation type is none, isAggregationTypeImplicit is true.
-             */
-            int keyStorageLayoutBytes = 0;
-            for (int i = 0; i < selectStmt.getResultExprs().size(); i++) {
-                MVColumnItem mvColumnItem = mvColumnItemList.get(i);
-                Expr resultColumn = selectStmt.getResultExprs().get(i);
-                keyStorageLayoutBytes += resultColumn.getType().getStorageLayoutBytes();
-                if ((i + 1) <= FeConstants.shortkey_max_column_count
-                        || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
-                    mvColumnItem.setIsKey(true);
-                } else {
-                    mvColumnItem.setAggregationType(AggregateType.NONE, true);
-                }
-            }
+            supplyOrderColumn();
             return;
         }
 
         List<OrderByElement> orderByElements = selectStmt.getOrderByElements();
         if (orderByElements.size() > mvColumnItemList.size()) {
-            throw new AnalysisException("The number of columns in order clause must be less then "
-                                                + "the number of columns in select clause");
+            throw new AnalysisException("The number of columns in order clause must be less then " + "the number of "
+                    + "columns in select clause");
         }
         if (beginIndexOfAggregation != -1 && (orderByElements.size() != (beginIndexOfAggregation))) {
             throw new AnalysisException("The key of columns in mv must be all of group by columns");
@@ -277,13 +241,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             Expr orderByElement = orderByElements.get(i).getExpr();
             if (!(orderByElement instanceof SlotRef)) {
                 throw new AnalysisException("The column in order clause must be original column without calculation. "
-                                                    + "Error column: " + orderByElement.toSql());
+                        + "Error column: " + orderByElement.toSql());
             }
             MVColumnItem mvColumnItem = mvColumnItemList.get(i);
             SlotRef slotRef = (SlotRef) orderByElement;
             if (!mvColumnItem.getName().equalsIgnoreCase(slotRef.getColumnName())) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
-                                                    + "the order of columns in select list");
+                        + "the order of columns in select list");
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
             mvColumnItem.setIsKey(true);
@@ -299,6 +263,69 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
             mvColumnItem.setAggregationType(AggregateType.NONE, true);
         }
+    }
+
+    /*
+    This function is used to supply order by columns and calculate short key count
+     */
+    private void supplyOrderColumn() throws AnalysisException {
+        /**
+         * The keys type of Materialized view is aggregation.
+         * All of group by columns are keys of materialized view.
+         */
+        if (mvKeysType == KeysType.AGG_KEYS) {
+            for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                if (mvColumnItem.getAggregationType() != null) {
+                    break;
+                }
+                mvColumnItem.setIsKey(true);
+            }
+        } else if (mvKeysType == KeysType.DUP_KEYS) {
+            /**
+             * There is no aggregation function in materialized view.
+             * Supplement key of MV columns
+             * The key is same as the short key in duplicate table
+             * For example: select k1, k2 ... kn from t1
+             * The default key columns are first 36 bytes of the columns in define order.
+             * If the number of columns in the first 36 is more than 3, the first 3 columns will be used.
+             * column: k1, k2, k3. The key is true.
+             * Supplement non-key of MV columns
+             * column: k4... kn. The key is false, aggregation type is none, isAggregationTypeImplicit is true.
+             */
+            int theBeginIndexOfValue = 0;
+            // supply key
+            int keySizeByte = 0;
+            for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
+                MVColumnItem column = mvColumnItemList.get(theBeginIndexOfValue);
+                keySizeByte += column.getType().getIndexSize();
+                if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
+                        || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
+                    if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType().isCharFamily()) {
+                        column.setIsKey(true);
+                        theBeginIndexOfValue++;
+                    }
+                    break;
+                }
+                if (column.getType().isFloatingPointType()) {
+                    break;
+                }
+                if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                    column.setIsKey(true);
+                    theBeginIndexOfValue++;
+                    break;
+                }
+                column.setIsKey(true);
+            }
+            if (theBeginIndexOfValue == 0) {
+                throw new AnalysisException("The first column could not be float or double type, use decimal instead");
+            }
+            // supply value
+            for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
+                MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
+                mvColumnItem.setAggregationType(AggregateType.NONE, true);
+            }
+        }
+
     }
 
     @Override

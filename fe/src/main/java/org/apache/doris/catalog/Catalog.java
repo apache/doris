@@ -4879,29 +4879,30 @@ public class Catalog {
              * contains at most one VARCHAR column. And if contains, it should
              * be at the last position of the short key list.
              */
-            shortKeyColumnCount = 1;
+            shortKeyColumnCount = 0;
             int shortKeySizeByte = 0;
-            Column firstColumn = indexColumns.get(0);
-            if (firstColumn.getDataType() != PrimitiveType.VARCHAR) {
-                shortKeySizeByte = firstColumn.getOlapColumnIndexSize();
-                int maxShortKeyColumnCount = Math.min(indexColumns.size(), FeConstants.shortkey_max_column_count);
-                for (int i = 1; i < maxShortKeyColumnCount; i++) {
-                    Column column = indexColumns.get(i);
-                    shortKeySizeByte += column.getOlapColumnIndexSize();
-                    if (shortKeySizeByte > FeConstants.shortkey_maxsize_bytes) {
-                        break;
-                    }
-                    if (column.getDataType() == PrimitiveType.VARCHAR) {
+            int maxShortKeyColumnCount = Math.min(indexColumns.size(), FeConstants.shortkey_max_column_count);
+            for (int i = 0; i < maxShortKeyColumnCount; i++) {
+                Column column = indexColumns.get(i);
+                shortKeySizeByte += column.getOlapColumnIndexSize();
+                if (shortKeySizeByte > FeConstants.shortkey_maxsize_bytes) {
+                    if (column.getDataType().isCharFamily()) {
                         ++shortKeyColumnCount;
-                        break;
                     }
-                    ++shortKeyColumnCount;
+                    break;
                 }
+                if (column.getType().isFloatingPointType()) {
+                    break;
+                }
+                if (column.getDataType() == PrimitiveType.VARCHAR) {
+                    ++shortKeyColumnCount;
+                    break;
+                }
+                ++shortKeyColumnCount;
             }
-            // else
-            // first column type is VARCHAR
-            // use only first column as shortKey
-            // do nothing here
+            if (shortKeyColumnCount == 0) {
+                throw new DdlException("The first column could not be float or double type, use decimal instead");
+            }
 
         } // end calc shortKeyColumnCount
 
