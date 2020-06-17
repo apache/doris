@@ -97,6 +97,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.proc.BackendsProcDir;
@@ -930,7 +931,7 @@ public class ShowExecutor {
                 int limit = 100;
                 while (reader.ready() && limit > 0) {
                     String line = reader.readLine();
-                    rows.add(Lists.newArrayList("-1", "N/A", line));
+                    rows.add(Lists.newArrayList("-1", FeConstants.null_string, line));
                     limit--;
                 }
             }

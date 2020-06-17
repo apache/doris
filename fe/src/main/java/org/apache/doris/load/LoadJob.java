@@ -28,6 +28,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -435,7 +436,7 @@ public class LoadJob implements Writable {
         if (etlJobType == EtlJobType.HADOOP) {
             return ((HadoopEtlJobInfo) etlJobInfo).getCluster();
         }
-        return "N/A";
+        return FeConstants.null_string;
     }
 
     public DppConfig getHadoopDppConfig() {
