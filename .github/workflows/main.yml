@@ -15,11 +15,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+ 
+      - name: Checkout
+        uses: actions/checkout@v2
+        
+      - name: check fe code style
+        uses: nikitasavinov/checkstyle-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workdir: $GITHUB_WORKSPACE/fe
+      
       - name: install dependency
         run: sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev lsb-release mlocate
       
       - name: checkout source code
         uses: actions/checkout@v2
+        
+      - name: Cache m2
+        id: cache m2
+        uses: actions/cache@v2
+        with:
+          path: ~/.m2/repository
+          key: 
+             ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+             ${{ runner.os }}-maven-
         
       - name: build thirdparty
         run: |
@@ -42,4 +62,26 @@ jobs:
       - name: fe ut
         run: |
           cd $GITHUB_WORKSPACE
-          bash run-ut.sh
+          bash run-fe-ut.sh
+      
+      - name: Generate fe coverage report
+        run: |
+          cd $GITHUB_WORKSPACE
+          bash run-fe-ut.sh --coverage
+          
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          file: $GITHUB_WORKSPACE/fe/target/site/cobertura/*.html
+          flags: unittests
+          name: codecov
+          
+      - name: build be
+        run: |
+          cd $GITHUB_WORKSPACE
+          bash build.sh --be
+          
+      - name: be ut
+        run: |
+          cd $GITHUB_WORKSPACE
+          bash run-ut.sh 
