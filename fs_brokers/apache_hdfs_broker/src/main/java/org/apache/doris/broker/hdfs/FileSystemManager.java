@@ -562,7 +562,9 @@ public class FileSystemManager {
                     throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
                             "end of file reached");
                 }
-                logger.debug("read buffer from input stream, buffer size:" + buf.capacity() + ", read length:" + readLength);
+				if (logger.isDebugEnable()) {
+                    logger.debug("read buffer from input stream, buffer size:" + buf.capacity() + ", read length:" + readLength);
+				}
                 return buf;
             } catch (IOException e) {
                 logger.error("errors while read data from stream", e);
