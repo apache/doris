@@ -40,7 +40,7 @@ BE 的监控项可以通过以下方式访问：
 
 通过以下接口可以获取 Json 格式的监控项：
 
-`http://be_host:be_webserver_port/metrics?type=agent`
+`http://be_host:be_webserver_port/metrics?type=json`
 
 ## 监控项列表
 
