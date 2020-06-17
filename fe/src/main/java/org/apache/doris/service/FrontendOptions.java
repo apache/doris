@@ -19,6 +19,7 @@ package org.apache.doris.service;
 
 import org.apache.doris.common.CIDR;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.NetUtils;
 
 import com.google.common.base.Strings;
@@ -101,7 +102,7 @@ public class FrontendOptions {
     }
 
     public static String getHostnameByIp(String ip) {
-        String hostName = "N/A";
+        String hostName = FeConstants.null_string;
         try {
             InetAddress address = InetAddress.getByName(ip);
             hostName = address.getHostName();

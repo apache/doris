@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.TimeUtils;
 
@@ -124,7 +125,7 @@ public class DynamicPartitionProperty {
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
             return startOfMonth.toDisplayInfo();
         } else {
-            return "N/A";
+            return FeConstants.null_string;
         }
     }
 
