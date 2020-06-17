@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -1003,7 +1004,7 @@ public class RollupJob extends AlterJob {
             Preconditions.checkState(unfinishedReplicaNum <= totalReplicaNum);
             jobInfo.add(((totalReplicaNum - unfinishedReplicaNum) * 100 / totalReplicaNum) + "%");
         } else {
-            jobInfo.add("N/A");
+            jobInfo.add(FeConstants.null_string);
         }
         jobInfo.add(Config.alter_table_timeout_second);
 

@@ -30,9 +30,9 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 
@@ -150,7 +150,7 @@ public abstract class RoutineLoadTaskInfo {
         }
 
         if (isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs) {
-            LOG.debug("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
+            LOG.info("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
                     executeStartTimeMs, timeoutMs);
             return true;
         }

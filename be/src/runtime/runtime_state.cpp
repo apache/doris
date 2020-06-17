@@ -27,7 +27,6 @@
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
 #include "exprs/timezone_db.h"
-#include "runtime/buffered_block_mgr.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_util.h"
 #include "runtime/descriptors.h"
@@ -126,7 +125,6 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
 }
 
 RuntimeState::~RuntimeState() {
-    _block_mgr.reset();
     _block_mgr2.reset();
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
@@ -297,10 +295,7 @@ Status RuntimeState::init_buffer_poolstate() {
 }
 
 Status RuntimeState::create_block_mgr() {
-    DCHECK(_block_mgr.get() == NULL);
     DCHECK(_block_mgr2.get() == NULL);
-
-    RETURN_IF_ERROR(BufferedBlockMgr::create(this, config::sorter_block_size, &_block_mgr));
 
     int64_t block_mgr_limit = _query_mem_tracker->limit();
     if (block_mgr_limit < 0) {

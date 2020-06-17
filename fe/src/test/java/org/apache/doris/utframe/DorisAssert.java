@@ -141,11 +141,15 @@ public class DorisAssert {
         }
 
         public String explainQuery() throws Exception {
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "explain " + sql);
+            return internalExecute("explain " + sql);
+        }
+
+        private String internalExecute(String sql) throws Exception {
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
             stmtExecutor.execute();
             QueryState queryState = connectContext.getState();
             if (queryState.getStateType() == QueryState.MysqlStateType.ERR) {
-                switch (queryState.getErrType()){
+                switch (queryState.getErrType()) {
                     case ANALYSIS_ERR:
                         throw new AnalysisException(queryState.getErrorMessage());
                     case OTHER_ERR:

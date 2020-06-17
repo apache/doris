@@ -70,6 +70,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -1887,7 +1888,7 @@ public class Load {
                 // etl info
                 EtlStatus status = loadJob.getEtlJobStatus();
                 if (status == null || status.getState() == TEtlState.CANCELLED) {
-                    jobInfo.add("N/A");
+                    jobInfo.add(FeConstants.null_string);
                 } else {
                     Map<String, String> counters = status.getCounters();
                     List<String> info = Lists.newArrayList();
@@ -1901,7 +1902,7 @@ public class Load {
                         }
                     } // end for counters
                     if (info.isEmpty()) {
-                        jobInfo.add("N/A");
+                        jobInfo.add(FeConstants.null_string);
                     } else {
                         jobInfo.add(StringUtils.join(info, "; "));
                     }
@@ -1917,7 +1918,7 @@ public class Load {
                     FailMsg failMsg = loadJob.getFailMsg();
                     jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
                 } else {
-                    jobInfo.add("N/A");
+                    jobInfo.add(FeConstants.null_string);
                 }
 
                 // create time

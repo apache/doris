@@ -69,7 +69,7 @@ public class ThreadPoolManager {
 
     public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
         for (String poolMetricType : poolMerticTypes) {
-            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool", MetricUnit.NUMBER, "thread_pool statistics") {
+            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool", MetricUnit.NOUNIT, "thread_pool statistics") {
                 @Override
                 public Integer getValue() {
                     String metricType = this.getLabels().get(1).getValue();

@@ -459,3 +459,37 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 1. tablet 信息不可修复，在确保其他副本正常的情况下，可以通过 `meta_tool` 工具将错误的tablet删除。
 2. 将 `ignore_load_tablet_failure` 设置为 true，则 BE 会忽略这些错误的 tablet，正常启动。
+
+### base_compaction_trace_threshold
+
+* 类型：int32
+* 描述：打印base compaction的trace信息的阈值，单位秒
+* 默认值：10
+
+base compaction是一个耗时较长的后台操作，为了跟踪其运行信息，可以调整这个阈值参数来控制trace日志的打印。打印信息如下：
+
+```
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
+0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
+0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
+0610 11:23:03.729029 (+    66us) base_compaction.cpp:44] rowsets picked
+0610 11:24:51.784439 (+108055410us) compaction.cpp:46] got concurrency lock and start to do compaction
+0610 11:24:51.784818 (+   379us) compaction.cpp:74] prepare finished
+0610 11:26:33.359265 (+101574447us) compaction.cpp:87] merge rowsets finished
+0610 11:26:33.484481 (+125216us) compaction.cpp:102] output rowset built
+0610 11:26:33.484482 (+     1us) compaction.cpp:106] check correctness finished
+0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
+0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
+0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
+Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
+```
+
+### cumulative_compaction_trace_threshold
+
+* 类型：int32
+* 描述：打印cumulative compaction的trace信息的阈值，单位秒
+* 默认值：2
+
+与base_compaction_trace_threshold类似。
+

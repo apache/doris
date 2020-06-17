@@ -33,6 +33,7 @@ import io.netty.handler.codec.http.HttpMethod;
 
 //fehost:port/metrics
 //fehost:port/metrics?type=core
+//fehost:port/metrics?type=json
 public class MetricsAction extends RestBaseAction {
 
     private static final String TYPE_PARAM = "type";
@@ -51,7 +52,7 @@ public class MetricsAction extends RestBaseAction {
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
             visitor = new SimpleCoreMetricVisitor("doris_fe");
-        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("agent")) {
+        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("json")) {
             visitor = new JsonMetricVisitor("doris_fe");
         } else {
             visitor = new PrometheusMetricVisitor("doris_fe");

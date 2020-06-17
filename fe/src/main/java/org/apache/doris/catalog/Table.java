@@ -52,7 +52,8 @@ public class Table extends MetaObject implements Writable {
         INLINE_VIEW,
         VIEW,
         BROKER,
-        ELASTICSEARCH
+        ELASTICSEARCH,
+        HIVE
     }
 
     protected long id;
@@ -179,6 +180,8 @@ public class Table extends MetaObject implements Writable {
             table = new BrokerTable();
         } else if (type == TableType.ELASTICSEARCH) {
             table = new EsTable();
+        } else if (type == TableType.HIVE) {
+            table = new HiveTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }

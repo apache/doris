@@ -86,6 +86,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.BaseParam;
@@ -96,6 +97,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.proc.BackendsProcDir;
@@ -929,7 +931,7 @@ public class ShowExecutor {
                 int limit = 100;
                 while (reader.ready() && limit > 0) {
                     String line = reader.readLine();
-                    rows.add(Lists.newArrayList("-1", "N/A", line));
+                    rows.add(Lists.newArrayList("-1", FeConstants.null_string, line));
                     limit--;
                 }
             }
@@ -1125,14 +1127,14 @@ public class ShowExecutor {
         if (showStmt.isShowSingleTablet()) {
             long tabletId = showStmt.getTabletId();
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-
-            Long dbId = invertedIndex.getDbId(tabletId);
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+            Long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String dbName = null;
-            Long tableId = invertedIndex.getTableId(tabletId);
+            Long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String tableName = null;
-            Long partitionId = invertedIndex.getPartitionId(tabletId);
+            Long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String partitionName = null;
-            Long indexId = invertedIndex.getIndexId(tabletId);
+            Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
             String indexName = null;
             Boolean isSync = true;
 

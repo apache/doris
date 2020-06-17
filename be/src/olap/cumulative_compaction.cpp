@@ -18,6 +18,7 @@
 #include "olap/cumulative_compaction.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
+#include "util/trace.h"
 
 namespace doris {
 
@@ -38,15 +39,20 @@ OLAPStatus CumulativeCompaction::compact() {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
         return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
     }
+    TRACE("got cumulative compaction lock");
 
     // 1.calculate cumulative point 
     _tablet->calculate_cumulative_point();
+    TRACE("calculated cumulative point");
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
+    TRACE("rowsets picked");
+    TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
 
     // 3. do cumulative compaction, merge rowsets
     RETURN_NOT_OK(do_compaction());
+    TRACE("compaction finished");
 
     // 4. set state to success
     _state = CompactionState::SUCCESS;
@@ -56,6 +62,7 @@ OLAPStatus CumulativeCompaction::compact() {
     
     // 6. garbage collect input rowsets after cumulative compaction 
     RETURN_NOT_OK(gc_unused_rowsets());
+    TRACE("unused rowsets have been moved to GC queue");
 
     // 7. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(_input_rowsets.size());

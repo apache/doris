@@ -20,7 +20,6 @@
 #include "exprs/agg_fn_evaluator.h"
 #include "exprs/anyval_util.h"
 
-#include "runtime/buffered_tuple_stream.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -195,9 +194,19 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(child(0)->open(state));
-    // RETURN_IF_ERROR(state->block_mgr()->RegisterClient(2, mem_tracker(), state, &client_));
-    _input_stream.reset(new BufferedTupleStream(state, child(0)->row_desc(), state->block_mgr()));
-    RETURN_IF_ERROR(_input_stream->init(runtime_profile()));
+    RETURN_IF_ERROR(state->block_mgr2()->register_client(2, mem_tracker(), state, &client_));
+    _input_stream.reset(new BufferedTupleStream2(state, child(0)->row_desc(), state->block_mgr2(), client_, false, true));
+    RETURN_IF_ERROR(_input_stream->init(id(), runtime_profile(), true));
+
+    bool got_read_buffer;
+    RETURN_IF_ERROR(_input_stream->prepare_for_read(true, &got_read_buffer));
+    if (!got_read_buffer) {
+        std::string msg("Failed to acquire initial read buffer for analytic function "
+                        "evaluation. Reducing query concurrency or increasing the memory limit may "
+                        "help this query to complete successfully.");
+        return mem_tracker()->MemLimitExceeded(state, msg, -1);
+    }
+
     DCHECK_EQ(_evaluators.size(), _fn_ctxs.size());
 
     for (int i = 0; i < _evaluators.size(); ++i) {
@@ -673,19 +682,20 @@ Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
 
         try_add_result_tuple_for_curr_row(stream_idx, row);
 
+        Status status = Status::OK();
         // Buffer the entire input row to be returned later with the analytic eval results.
-        if (UNLIKELY(!_input_stream->add_row(row))) {
+        if (UNLIKELY(!_input_stream->add_row(row, &status))) {
             // AddRow returns false if an error occurs (available via status()) or there is
             // not enough memory (status() is OK). If there isn't enough memory, we unpin
             // the stream and continue writing/reading in unpinned mode.
             // TODO: Consider re-pinning later if the output stream is fully consumed.
-            RETURN_IF_ERROR(_input_stream->status());
-            //  RETURN_IF_ERROR(_input_stream->UnpinStream());
+            RETURN_IF_ERROR(status);
+            RETURN_IF_ERROR(_input_stream->unpin_stream());
             VLOG_FILE << id() << " Unpin input stream while adding row idx=" << stream_idx;
 
-            if (!_input_stream->add_row(row)) {
+            if (!_input_stream->add_row(row, &status)) {
                 // Rows should be added in unpinned mode unless an error occurs.
-                RETURN_IF_ERROR(_input_stream->status());
+                RETURN_IF_ERROR(status);
                 DCHECK(false);
             }
         }

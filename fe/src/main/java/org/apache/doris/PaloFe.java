@@ -73,7 +73,6 @@ public class PaloFe {
         }
 
         CommandLineOptions cmdLineOpts = parseArgs(args);
-        System.out.println(cmdLineOpts.toString());
 
         try {
             // pid file

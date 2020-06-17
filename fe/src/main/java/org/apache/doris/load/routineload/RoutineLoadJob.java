@@ -924,8 +924,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
         }
 
+        routineLoadTaskInfo.setTxnStatus(txnStatus);
+
         if (state == JobState.RUNNING) {
-            routineLoadTaskInfo.setTxnStatus(txnStatus);
             if (txnStatus == TransactionStatus.ABORTED) {
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
                 Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
@@ -977,13 +978,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                              .add("current_job_state", getState())
-                              .add("desire_job_state", jobState)
-                              .add("msg", reason)
-                              .build());
-        }
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                .add("current_job_state", getState())
+                .add("desire_job_state", jobState)
+                .add("msg", reason)
+                .build());
+      
         checkStateTransform(jobState);
         switch (jobState) {
             case RUNNING:
