@@ -40,7 +40,7 @@ The default format is of [Prometheus](https://prometheus.io/).
 
 You can get Json format by visiting:
 
-`http://fe_host:fe_http_port/metrics?type=agent`
+`http://fe_host:fe_http_port/metrics?type=json`
 
 ## Metrics List
 
