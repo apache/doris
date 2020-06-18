@@ -415,7 +415,7 @@ Generally it is not recommended to increase this configuration value. An excessi
 
 ### `max_stream_load_timeout_second`
 
-This configuration is specifically used to limit timeout setting for stream load. It is to prevent that failed stream load transactions to be aborted after a long time because of the user's large timeout setting. 
+This configuration is specifically used to limit timeout setting for stream load. It is to prevent that failed stream load transactions cannot be canceled within a short time because of the user's large timeout setting. 
 
 ### `max_tolerable_backend_down_num`
 
