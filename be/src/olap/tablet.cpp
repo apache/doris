@@ -55,7 +55,6 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
 
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         BaseTablet(tablet_meta, data_dir),
-        _is_bad(false),
         _last_cumu_compaction_failure_millis(0),
         _last_base_compaction_failure_millis(0),
         _last_cumu_compaction_success_millis(0),
@@ -100,20 +99,6 @@ OLAPStatus Tablet::_init_once_action() {
     }
 
     return res;
-}
-
-OLAPStatus Tablet::init() {
-    return _init_once.call([this] { return _init_once_action(); });
-}
-
-// should save tablet meta to remote meta store
-// if it's a primary replica
-void Tablet::save_meta() {
-    auto res = _tablet_meta->save_meta(_data_dir);
-    CHECK_EQ(res, OLAP_SUCCESS) << "fail to save tablet_meta. res=" << res << ", root=" << _data_dir->path();
-    // User could directly update tablet schema by _tablet_meta,
-    // So we need to refetch schema again
-    _schema = _tablet_meta->tablet_schema();
 }
 
 OLAPStatus Tablet::revise_tablet_meta(
@@ -844,14 +829,6 @@ OLAPStatus Tablet::_contains_version(const Version& version) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::set_partition_id(int64_t partition_id) {
-    return _tablet_meta->set_partition_id(partition_id);
-}
-
-TabletInfo Tablet::get_tablet_info() const {
-    return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
-}
-
 void Tablet::pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
                                                              std::vector<RowsetSharedPtr>* candidate_rowsets) {
     int64_t now = UnixSeconds();
@@ -1045,6 +1022,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
+    tablet_info->__set_tablet_type(_tablet_meta->tablet_type() == TabletTypePB::TABLET_TYPE_DISK ?
+            TTabletType::TABLET_TYPE_DISK : TTabletType::TABLET_TYPE_MEMORY);
 }
 
 // should use this method to get a copy of current tablet meta
