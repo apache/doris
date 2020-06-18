@@ -52,11 +52,10 @@ Status BufferedReader::open() {
     if (!_reader) {
         std::stringstream ss;
         ss << "Open buffered reader failed, reader is null";
-        LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
     RETURN_IF_ERROR(_reader->open());
-    RETURN_IF_ERROR(fill());
+    RETURN_IF_ERROR(_fill());
     return Status::OK();
 }
 
@@ -82,14 +81,14 @@ Status BufferedReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
         *bytes_read = 0;
         return Status::OK();
     }
-    RETURN_IF_ERROR(read_once(position, nbytes, bytes_read, out));
+    RETURN_IF_ERROR(_read_once(position, nbytes, bytes_read, out));
     //EOF
     if (*bytes_read <= 0) {
         return Status::OK();
     }
     while (*bytes_read < nbytes) {
         int64_t len;
-        RETURN_IF_ERROR(read_once(position + *bytes_read, nbytes - *bytes_read, &len, reinterpret_cast<char*>(out) + *bytes_read));
+        RETURN_IF_ERROR(_read_once(position + *bytes_read, nbytes - *bytes_read, &len, reinterpret_cast<char*>(out) + *bytes_read));
         // EOF
         if (len <= 0) {
             break;
@@ -99,7 +98,7 @@ Status BufferedReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
     return Status::OK();
 }
 
-Status BufferedReader::read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
+Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     // requested bytes missed the local buffer
     if (position >= _buffer_limit || position < _buffer_offset) {
         // if requested length is larger than the capacity of buffer, do not
@@ -108,7 +107,7 @@ Status BufferedReader::read_once(int64_t position, int64_t nbytes, int64_t* byte
             return _reader->readat(position, nbytes, bytes_read, out);
         }
         _buffer_offset = position;
-        RETURN_IF_ERROR(fill());
+        RETURN_IF_ERROR(_fill());
         if (position >= _buffer_limit) {
             *bytes_read = 0;
             return Status::OK();
@@ -122,9 +121,10 @@ Status BufferedReader::read_once(int64_t position, int64_t nbytes, int64_t* byte
     return Status::OK();
 }
 
-Status BufferedReader::fill() {
+Status BufferedReader::_fill() {
     if (_buffer_offset >= 0) {
         int64_t bytes_read;
+        // retry for new content
         int retry_times = 1;
         do {
             // fill the buffer

@@ -25,10 +25,10 @@
 
 namespace doris {
 
-// Buffered Reader of broker
+// Buffered Reader
 class BufferedReader : public FileReader {
 public:
-    // If the reader need the file size, set it when construct BrokerReader.
+    // If the reader need the file size, set it when construct FileReader.
     // There is no other way to set the file size.
     BufferedReader(FileReader* reader);
     BufferedReader(FileReader* reader, int64_t buffer_size);
@@ -47,8 +47,8 @@ public:
     virtual bool closed() override;
 
 private:
-    Status fill();
-    Status read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out);
+    Status _fill();
+    Status _read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out);
 private:
     FileReader* _reader;
     char* _buffer;
