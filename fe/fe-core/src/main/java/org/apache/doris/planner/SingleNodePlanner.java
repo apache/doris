@@ -57,6 +57,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.optimizer.CalcitePlanner;
+import org.apache.doris.optimizer.CalciteMetaMgr;
+import org.apache.doris.optimizer.PlanNodeConverter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -64,6 +67,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.schema.SchemaPlus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -152,6 +157,31 @@ public class SingleNodePlanner {
                 ctx_.getQueryOptions().getDefault_order_by_limit());
         Preconditions.checkNotNull(singleNodePlan);
         return singleNodePlan;
+    }
+
+
+    public PlanNode  calciteCreateSingleNodePlan(String originStmt, QueryStmt queryStmt, Analyzer analyzer) throws UserException, AnalysisException {
+        if (LOG.isTraceEnabled()) {
+            LOG.trace("desctbl: " + analyzer.getDescTbl().debugString());
+        }
+        CalcitePlanner calciteplanner  = new CalcitePlanner();
+        SchemaPlus rootSchema = CalciteMetaMgr.registerRootSchema(analyzer.getDefaultDb());
+        RelNode root = calciteplanner.plan(originStmt, rootSchema);
+        PlanNodeConverter convert = new PlanNodeConverter(root, analyzer, this);
+
+        List<Expr> resultExprs = Lists.newArrayList();
+        List<String> colLables = Lists.newArrayList();
+        PlanNode node = convert.convert(resultExprs, colLables);
+        ScanNode scanNode = (ScanNode)node;
+        scanNodes.add(scanNode);
+        List<ScanNode> scanNodeList = selectStmtToScanNodes.computeIfAbsent(((SelectStmt)queryStmt).getId(), k -> Lists.newArrayList());
+        scanNodeList.add(scanNode);
+
+        queryStmt.setBaseResultExpr(resultExprs);
+        queryStmt.setResultExpr(resultExprs); // for mysql sendFields
+        queryStmt.setColLabels(colLables);
+
+        return node;
     }
 
     /**
@@ -890,7 +920,7 @@ public class SingleNodePlanner {
     }
 
     // no need to remove?
-    private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts) {
+    public PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts) {
         PartitionColumnFilter partitionColumnFilter = null;
         for (Expr expr : conjuncts) {
             if (!expr.isBound(desc.getId())) {

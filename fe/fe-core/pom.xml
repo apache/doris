@@ -420,6 +420,12 @@ under the License.
             <artifactId>RoaringBitmap</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.calcite</groupId>
+            <artifactId>calcite-core</artifactId>
+            <version>1.21.0</version>
+        </dependency>
+
         <!-- spark -->
         <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
         <dependency>

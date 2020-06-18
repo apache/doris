@@ -238,6 +238,13 @@ public abstract class QueryStmt extends StatementBase {
         return baseTblResultExprs;
     }
 
+    public void setBaseResultExpr(List<Expr> resultExprs) {
+        this.baseTblResultExprs.addAll(resultExprs);
+    }
+    public void setResultExpr(List<Expr> resultExprs) {
+        this.resultExprs.addAll(resultExprs);
+    }
+
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
     }

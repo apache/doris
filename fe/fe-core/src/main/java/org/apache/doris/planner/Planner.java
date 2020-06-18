@@ -79,6 +79,11 @@ public class Planner {
         createPlanFragments(queryStmt, analyzer, queryOptions);
     }
 
+    public void calcitePlan(String originStmt, StatementBase queryStmt, Analyzer analyzer, TQueryOptions queryOptions)
+            throws UserException{
+        CalciteCreatePlanFragments(originStmt, queryStmt, analyzer, queryOptions);
+    }
+
     /**
      */
     private void setResultExprScale(Analyzer analyzer, ArrayList<Expr> outputExprs) {
@@ -132,11 +137,79 @@ public class Planner {
         return str.toString();
     }
 
+    public void CalciteCreatePlanFragments(String originStmt, StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
+            throws UserException {
+        QueryStmt queryStmt = (QueryStmt) statement;
+
+        plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
+        singleNodePlanner = new SingleNodePlanner(plannerContext);
+        PlanNode singleNodePlan = singleNodePlanner.calciteCreateSingleNodePlan(originStmt, queryStmt, analyzer);
+        OlapScanNode scanNode = (OlapScanNode)singleNodePlan;
+
+        //setResultExprScale(analyzer, queryStmt.getResultExprs());
+
+
+        // compute mem layout *before* finalize(); finalize() may reference
+        // TupleDescriptor.avgSerializedSize
+        analyzer.getDescTbl().computeMemLayout();
+
+        //boolean selectFailed = singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
+        //if (selectFailed) {
+        //    throw new MVSelectFailedException("Failed to select materialize view");
+        //}
+        scanNode.setSelectedIndexId(scanNode.getOlapTable().getBaseIndexId());
+
+        scanNode.finalize(analyzer);
+
+        // singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
+        if (queryOptions.num_nodes == 1) {
+            // single-node execution; we're almost done
+            singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
+            fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,
+                    DataPartition.UNPARTITIONED));
+        } else {
+            // all select query are unpartitioned.
+            distributedPlanner = new DistributedPlanner(plannerContext);
+            fragments = distributedPlanner.createPlanFragments(singleNodePlan);
+        }
+
+        // Optimize the transfer of query statistic when query does't contain limit.
+        PlanFragment rootFragment = fragments.get(fragments.size() - 1);
+        QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
+        queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
+
+
+        // List<Expr> resExprs = Expr.substituteList(queryStmt.getBaseTblResultExprs(),
+        //         rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
+        rootFragment.setOutputExprs(queryStmt.getBaseTblResultExprs());
+
+        // rootFragment.setOutputExprs(exprs);
+        LOG.debug("finalize plan fragments");
+        for (PlanFragment fragment : fragments) {
+            fragment.finalize(analyzer, !queryOptions.allow_unsupported_formats);
+        }
+        Collections.reverse(fragments);
+
+        setOutfileSink(queryStmt);
+
+        if (queryStmt instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) queryStmt;
+            if (queryStmt.getSortInfo() != null || selectStmt.getAggInfo() != null) {
+                isBlockQuery = true;
+                LOG.debug("this is block query");
+            } else {
+                isBlockQuery = false;
+                LOG.debug("this isn't block query");
+            }
+        }
+
+    }
+
     /**
      * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
-    public void createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
+    public void  createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
             throws UserException {
         QueryStmt queryStmt;
         if (statement instanceof InsertStmt) {

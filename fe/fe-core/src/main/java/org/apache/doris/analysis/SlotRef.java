@@ -175,7 +175,7 @@ public class SlotRef extends Expr {
             return tblName.toSql() + "." + label + sb.toString();
         } else if (label != null) {
             return label + sb.toString();
-        } else if (desc.getSourceExprs() != null) {
+        } else if (desc.getSourceExprs() != null && desc.getSourceExprs().size() != 0) {
             if (desc.getId().asInt() != 1) {
                 sb.append("<slot " + Integer.toString(desc.getId().asInt()) + ">");
             }

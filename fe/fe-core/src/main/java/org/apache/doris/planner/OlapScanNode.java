@@ -137,6 +137,10 @@ public class OlapScanNode extends ScanNode {
         this.reasonOfPreAggregation = reason;
     }
 
+    public void setSelectedIndexId(long selectedIndexId) {
+        this.selectedIndexId = selectedIndexId;
+    }
+
     public boolean isPreAggregation() {
         return isPreAggregation;
     }

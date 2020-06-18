@@ -407,8 +407,30 @@ public class StmtExecutor {
         if (isForwardToMaster()) {
             return;
         }
-        
+
         analyzer = new Analyzer(context.getCatalog(), context);
+
+        if (context.getSessionVariable().enableCaclite() && parsedStmt instanceof SelectStmt) {
+            planner = new Planner();
+            String sql = originStmt.originStmt.toLowerCase();
+            // for MaterialView selector
+            // parsedStmt.analyze(analyzer);
+            if (parsedStmt.isExplain()) {
+                if (sql.startsWith("explain")) {
+                    sql = sql.substring(7);
+                    if (parsedStmt.isVerbose()) {
+                        sql = sql.substring(8);
+                    } 
+                } else if (sql.startsWith("describe")) {
+                    sql = sql.substring(8);
+                } else {
+                    throw new AnalysisException("the explain stmt not implement");
+                }
+            }
+            planner.calcitePlan(sql, parsedStmt, analyzer, tQueryOptions);
+            return;
+        }
+
         // Convert show statement to select statement here
         if (parsedStmt instanceof ShowStmt) {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
