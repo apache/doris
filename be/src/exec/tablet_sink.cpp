@@ -348,7 +348,7 @@ Status NodeChannel::none_of(std::initializer_list<bool> vars) {
     return st;
 }
 
-NodeChannel::clear_all_batches() {
+void NodeChannel::clear_all_batches() {
     std::lock_guard<std::mutex> lg(_pending_batches_lock);
     std::queue<AddBatchReq> empty;
     std::swap(_pending_batches, empty);
