@@ -83,8 +83,8 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
 
-    _load_info = "load_id=" + print_id(_parent->_load_id) + ", txn_id" +
-                 std::to_string(_parent->_txn_id);
+    _load_info = "load_id=" + print_id(_parent->_load_id) +
+                 ", txn_id=" + std::to_string(_parent->_txn_id);
     _name = "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
     return Status::OK();
 }
@@ -141,7 +141,7 @@ Status NodeChannel::open_wait() {
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
         _cancelled = true;
-        LOG(WARNING) << "NodeChannel add batch req rpc failed, " << print_load_info()
+        LOG(WARNING) << name() << " add batch req rpc failed, " << print_load_info()
                      << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
     });
 
@@ -160,7 +160,7 @@ Status NodeChannel::open_wait() {
                     }
                 } else {
                     _cancelled = true;
-                    LOG(WARNING) << "NodeChannel add batch req success but status isn't ok, "
+                    LOG(WARNING) << name() << " add batch req success but status isn't ok, "
                                  << print_load_info() << ", node=" << node_info()->host << ":"
                                  << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
                 }
@@ -580,7 +580,7 @@ Status OlapTableSink::open(RuntimeState* state) {
         index_channel->for_each_node_channel([&index_channel](NodeChannel* ch) {
             auto st = ch->open_wait();
             if (!st.ok()) {
-                LOG(WARNING) << "tablet open failed, " << ch->print_load_info()
+                LOG(WARNING) << ch->name() << ": tablet open failed, " << ch->print_load_info()
                              << ", node=" << ch->node_info()->host << ":"
                              << ch->node_info()->brpc_port << ", errmsg=" << st.get_error_msg();
                 index_channel->mark_as_failed(ch);
@@ -666,8 +666,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
-                index_channel->for_each_node_channel(
-                        [](NodeChannel* ch) { WARN_IF_ERROR(ch->mark_close(), ""); });
+                index_channel->for_each_node_channel([](NodeChannel* ch) { ch->mark_close(); });
             }
 
             for (auto index_channel : _channels) {
@@ -677,7 +676,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                                                       &actual_consume_ns](NodeChannel* ch) {
                     status = ch->close_wait(state);
                     if (!status.ok()) {
-                        LOG(WARNING) << "close channel failed, " << ch->print_load_info();
+                        LOG(WARNING)
+                                << ch->name() << ": close channel failed, " << ch->print_load_info()
+                                << ". error_msg=" << status.get_error_msg();
                     }
                     ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                     &mem_exceeded_block_ns, &queue_push_lock_ns,
