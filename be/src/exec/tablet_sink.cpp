@@ -248,13 +248,12 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     timer.stop();
     VLOG(1) << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
 
-    {
-        std::lock_guard<std::mutex> lg(_pending_batches_lock);
-        DCHECK(_pending_batches.empty());
-        DCHECK(_cur_batch == nullptr);
-    }
-
     if (_add_batches_finished) {
+        {
+            std::lock_guard<std::mutex> lg(_pending_batches_lock);
+            CHECK(_pending_batches.empty()) << name();
+            CHECK(_cur_batch == nullptr) << name();
+        }
         state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
                                             std::make_move_iterator(_tablet_commit_infos.begin()),
                                             std::make_move_iterator(_tablet_commit_infos.end()));
@@ -280,15 +279,6 @@ void NodeChannel::cancel() {
     closure->cntl.set_timeout_ms(_rpc_timeout_ms);
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
     request.release_id();
-
-    // Beware of the destruct sequence. RowBatches will use mem_trackers(include ancestors).
-    // Delete RowBatches here is a better choice to reduce the potential of dtor errors.
-    {
-        std::lock_guard<std::mutex> lg(_pending_batches_lock);
-        std::queue<AddBatchReq> empty;
-        std::swap(_pending_batches, empty);
-        _cur_batch.reset();
-    }
 }
 
 int NodeChannel::try_send_and_fetch_status() {
@@ -791,7 +781,8 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
             SlotDescriptor* desc = _output_tuple_desc->slots()[i];
             if (desc->is_nullable() && tuple->is_null(desc->null_indicator_offset())) {
                 if (desc->type().type == TYPE_OBJECT) {
-                    ss << "null is not allowed for bitmap column, column_name: " << desc->col_name();
+                    ss << "null is not allowed for bitmap column, column_name: "
+                       << desc->col_name();
                     row_valid = false;
                 }
                 continue;
