@@ -784,13 +784,15 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
         _server->Start(4356, &options);
     }
 
+    // ObjectPool create before RuntimeState, simulate actual situation better.
+    ObjectPool obj_pool;
+
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
-    ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;
     auto t_data_sink = get_data_sink(&tdesc_tbl);
 
