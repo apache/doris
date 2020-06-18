@@ -859,9 +859,17 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
         memcpy(str_val->ptr, "abc", str_val->len);
         batch.commit_last_row();
     }
+
+    // Channels will be cancelled internally, coz brpc returns k_add_batch_status.
     k_add_batch_status = Status::InternalError("dummy failed");
     st = sink.send(&state, &batch);
     ASSERT_TRUE(st.ok());
+
+    // Send batch multiple times, can make _cur_batch or _pending_batches(in channels) not empty.
+    // To ensure the order of releasing resource is OK.
+    sink.send(&state, &batch);
+    sink.send(&state, &batch);
+
     // close
     st = sink.close(&state, Status::OK());
     ASSERT_FALSE(st.ok());
