@@ -348,6 +348,13 @@ Status NodeChannel::none_of(std::initializer_list<bool> vars) {
     return st;
 }
 
+NodeChannel::clear_all_batches() {
+    std::lock_guard<std::mutex> lg(_pending_batches_lock);
+    std::queue<AddBatchReq> empty;
+    std::swap(_pending_batches, empty);
+    _cur_batch.reset();
+}
+
 IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
@@ -409,7 +416,15 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
     }
 }
 
-OlapTableSink::~OlapTableSink() {}
+OlapTableSink::~OlapTableSink() {
+    // We clear NodeChannels' batches here, cuz NodeChannels' batches destruction will use
+    // OlapTableSink::_mem_tracker and its parents.
+    // But their destructions are after OlapTableSink's.
+    // TODO: can be remove after all MemTrackers become shared.
+    for (auto index_channel : _channels) {
+        index_channel->for_each_node_channel([](NodeChannel* ch) { ch->clear_all_batches(); });
+    }
+}
 
 Status OlapTableSink::init(const TDataSink& t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
