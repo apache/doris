@@ -236,7 +236,7 @@ BooleanVal CastFunctions::cast_to_boolean_val(FunctionContext* ctx, const String
         ret.val = StringParser::string_to_bool(reinterpret_cast<char*>(val.ptr), val.len, &result);
         if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(ret.val) || std::isinf(ret.val))) { 
             return BooleanVal::null();
-		}
+        }
         return ret;
 }
 
