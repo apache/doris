@@ -26,6 +26,8 @@
 namespace doris {
 
 // Buffered Reader
+// Add a cache layer between the caller and the file reader to reduce the 
+// times of calls to the read function to speed up. 
 class BufferedReader : public FileReader {
 public:
     // If the reader need the file size, set it when construct FileReader.
