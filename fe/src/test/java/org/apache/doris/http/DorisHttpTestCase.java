@@ -316,10 +316,6 @@ abstract public class DorisHttpTestCase {
                 return new MaterializedViewHandler();
             }
             @Mock
-            Catalog getInstance() {
-                return catalog;
-            }
-            @Mock
             Catalog getCurrentCatalog() {
                 return catalog;
             }
