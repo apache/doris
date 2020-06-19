@@ -108,9 +108,6 @@ public:
     RuntimeProfile::Counter* materialize_tuple_timer() const {
         return _materialize_tuple_timer;
     }
-    RuntimeProfile::Counter* scan_ranges_complete_counter() const {
-        return _scan_ranges_complete_counter;
-    }
     RuntimeProfile::ThreadCounters* scanner_thread_counters() const {
         return _scanner_thread_counters;
     }
@@ -123,7 +120,6 @@ public:
     static const std::string _s_per_read_thread_throughput_counter;
     static const std::string _s_num_disks_accessed_counter;
     static const std::string _s_materialize_tuple_timer;
-    static const std::string _s_scan_ranges_complete_counter;
     static const std::string _s_scanner_thread_counters_prefix;
     static const std::string _s_scanner_thread_total_wallclock_time;
     static const std::string _s_average_io_mgr_queue_capacity;
@@ -140,7 +136,6 @@ protected:
     RuntimeProfile::Counter* _per_read_thread_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
     RuntimeProfile::Counter* _materialize_tuple_timer;  // time writing tuple slots
-    RuntimeProfile::Counter* _scan_ranges_complete_counter;
     // Aggregated scanner thread counters
     RuntimeProfile::ThreadCounters* _scanner_thread_counters;
     RuntimeProfile::Counter* _num_scanner_threads_started_counter;

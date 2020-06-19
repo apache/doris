@@ -84,6 +84,10 @@ module.exports = [
           "fe-get-log-file",
           "get-label-state",
           "restore-tablet",
+          "profile-action",
+          "connection-action",
+          "query-detail-action",
+          "show-data-action",
         ],
         sidebarDepth: 1,
       },
@@ -98,6 +102,14 @@ module.exports = [
           "tablet-meta-tool",
           "tablet-repair-and-balance",
           "tablet-restore-tool",
+          {
+            title: "监控项",
+            directoryPath: "monitor-metrics/",
+            children: [
+              "fe-metrics",
+              "be-metrics",
+            ],
+          },
         ],
         sidebarDepth: 2,
       },
@@ -107,6 +119,7 @@ module.exports = [
         children: [
           "fe_config",
           "be_config",
+          "user_property",
         ],
         sidebarDepth: 1,
       },
@@ -136,6 +149,7 @@ module.exports = [
       "plugin-development-manual",
       "user-defined-function",
       "spark-doris-connector",
+      "logstash",
     ],
   },
   {

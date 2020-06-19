@@ -154,7 +154,7 @@ public class StmtExecutorTest {
 
                 ctx.getDatabase();
                 minTimes = 0;
-                result = "testDb";
+                result = "testCluster:testDb";
 
                 ctx.getSessionVariable();
                 minTimes = 0;
@@ -665,7 +665,7 @@ public class StmtExecutorTest {
 
                 useStmt.getDatabase();
                 minTimes = 0;
-                result = "testDb";
+                result = "testCluster:testDb";
 
                 useStmt.getRedirectStatus();
                 minTimes = 0;

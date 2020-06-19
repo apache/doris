@@ -28,6 +28,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -715,7 +716,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             // etl info
             if (loadingStatus.getCounters().size() == 0) {
-                jobInfo.add("N/A");
+                jobInfo.add(FeConstants.null_string);
             } else {
                 jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadingStatus.getCounters()));
             }
@@ -726,7 +727,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             // error msg
             if (failMsg == null) {
-                jobInfo.add("N/A");
+                jobInfo.add(FeConstants.null_string);
             } else {
                 jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
             }

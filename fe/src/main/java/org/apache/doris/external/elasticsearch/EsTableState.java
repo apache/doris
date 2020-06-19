@@ -31,8 +31,8 @@ public class EsTableState {
 
     private PartitionInfo partitionInfo;
     private Map<Long, String> partitionIdToIndices;
-    private Map<String, EsIndexState> partitionedIndexStates;
-    private Map<String, EsIndexState> unPartitionedIndexStates;
+    private Map<String, EsShardPartitions> partitionedIndexStates;
+    private Map<String, EsShardPartitions> unPartitionedIndexStates;
 
     public EsTableState() {
         partitionInfo = null;
@@ -42,10 +42,10 @@ public class EsTableState {
     }
 
     public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo) {
-        for (EsIndexState indexState : partitionedIndexStates.values()) {
+        for (EsShardPartitions indexState : partitionedIndexStates.values()) {
             indexState.addHttpAddress(nodesInfo);
         }
-        for (EsIndexState indexState : unPartitionedIndexStates.values()) {
+        for (EsShardPartitions indexState : unPartitionedIndexStates.values()) {
             indexState.addHttpAddress(nodesInfo);
         }
 
@@ -73,7 +73,7 @@ public class EsTableState {
         partitionIdToIndices.put(partitionId, indexName);
     }
     
-    public void addIndexState(String indexName, EsIndexState indexState) {
+    public void addIndexState(String indexName, EsShardPartitions indexState) {
         if (indexState.getPartitionDesc() != null) {
             partitionedIndexStates.put(indexName, indexState);
         } else {
@@ -81,22 +81,22 @@ public class EsTableState {
         }
     }
 
-    public Map<String, EsIndexState> getPartitionedIndexStates() {
+    public Map<String, EsShardPartitions> getPartitionedIndexStates() {
         return partitionedIndexStates;
     }
 
-    public Map<String, EsIndexState> getUnPartitionedIndexStates() {
+    public Map<String, EsShardPartitions> getUnPartitionedIndexStates() {
         return unPartitionedIndexStates;
     }
     
-    public EsIndexState getIndexState(long partitionId) {
+    public EsShardPartitions getIndexState(long partitionId) {
         if (partitionIdToIndices.containsKey(partitionId)) {
             return partitionedIndexStates.get(partitionIdToIndices.get(partitionId));
         }
         return null;
     }
     
-    public EsIndexState getIndexState(String indexName) {
+    public EsShardPartitions getIndexState(String indexName) {
         if (partitionedIndexStates.containsKey(indexName)) {
             return partitionedIndexStates.get(indexName);
         }

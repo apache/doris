@@ -87,9 +87,9 @@ public class EsStateStore extends MasterDaemon {
                     setEsTableContext(fieldInfos, esTable);
                 }
                 
-                EsIndexState esIndexState = client.getIndexState(esTable.getIndexName());
+                EsShardPartitions esShardPartitions = client.getShardPartitions(esTable.getIndexName());
                 
-                EsTableState esTableState = setPartitionInfo(esTable, esIndexState);
+                EsTableState esTableState = setPartitionInfo(esTable, esShardPartitions);
                 if (esTableState == null) {
                     continue;
                 }
@@ -151,7 +151,7 @@ public class EsStateStore extends MasterDaemon {
     }
     
     @VisibleForTesting
-    public EsTableState setPartitionInfo(EsTable esTable, EsIndexState indexState)
+    public EsTableState setPartitionInfo(EsTable esTable, EsShardPartitions indexState)
             throws ExternalDataSourceException, DdlException {
         EsTableState esTableState = new EsTableState();
         RangePartitionInfo partitionInfo = null;
@@ -187,15 +187,15 @@ public class EsStateStore extends MasterDaemon {
         LOG.debug("add index {} to es table {}", indexState, esTable.getName());
         if (partitionInfo != null) {
             // sort the index state according to partition key and then add to range map
-            List<EsIndexState> esIndexStates = new ArrayList<>(
+            List<EsShardPartitions> esShardPartitionsList = new ArrayList<>(
                     esTableState.getPartitionedIndexStates().values());
-            esIndexStates.sort(Comparator.comparing(EsIndexState::getPartitionKey));
+            esShardPartitionsList.sort(Comparator.comparing(EsShardPartitions::getPartitionKey));
             long partitionId = 0;
-            for (EsIndexState esIndexState : esIndexStates) {
+            for (EsShardPartitions esShardPartitions : esShardPartitionsList) {
                 Range<PartitionKey> range = partitionInfo.handleNewSinglePartitionDesc(
-                        esIndexState.getPartitionDesc(), partitionId, false);
-                esTableState.addPartition(esIndexState.getIndexName(), partitionId);
-                esIndexState.setPartitionId(partitionId);
+                        esShardPartitions.getPartitionDesc(), partitionId, false);
+                esTableState.addPartition(esShardPartitions.getIndexName(), partitionId);
+                esShardPartitions.setPartitionId(partitionId);
                 ++partitionId;
                 LOG.debug("add parition to es table [{}] with range [{}]", esTable.getName(),
                         range);

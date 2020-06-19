@@ -21,6 +21,7 @@ import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -647,7 +648,7 @@ public class Backend implements Writable {
      *     status.newItem = xxx;
      */
     public class BackendStatus {
-        public String lastSuccessReportTabletsTime = "N/A";
+        public String lastSuccessReportTabletsTime = FeConstants.null_string;
     }
 }
 

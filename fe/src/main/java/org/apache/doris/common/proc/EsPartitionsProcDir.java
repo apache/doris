@@ -24,7 +24,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.external.elasticsearch.EsIndexState;
+import org.apache.doris.external.elasticsearch.EsShardPartitions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -69,30 +69,30 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                 rangePartitionInfo = (RangePartitionInfo) esTable.getEsTableState().getPartitionInfo();
             }
             Joiner joiner = Joiner.on(", ");
-            Map<String, EsIndexState> unPartitionedIndices = esTable.getEsTableState().getUnPartitionedIndexStates();
-            Map<String, EsIndexState> partitionedIndices = esTable.getEsTableState().getPartitionedIndexStates();
-            for (EsIndexState esIndexState : unPartitionedIndices.values()) {
+            Map<String, EsShardPartitions> unPartitionedIndices = esTable.getEsTableState().getUnPartitionedIndexStates();
+            Map<String, EsShardPartitions> partitionedIndices = esTable.getEsTableState().getPartitionedIndexStates();
+            for (EsShardPartitions esShardPartitions : unPartitionedIndices.values()) {
                 List<Comparable> partitionInfo = new ArrayList<Comparable>();
-                partitionInfo.add(esIndexState.getIndexName());
+                partitionInfo.add(esShardPartitions.getIndexName());
                 partitionInfo.add("-");  // partition key
                 partitionInfo.add("-");  // range
                 partitionInfo.add("-");  // dis
-                partitionInfo.add(esIndexState.getShardRoutings().size());  // shards
+                partitionInfo.add(esShardPartitions.getShardRoutings().size());  // shards
                 partitionInfo.add(1);  //  replica num
                 partitionInfos.add(partitionInfo);
             }
-            for (EsIndexState esIndexState : partitionedIndices.values()) {
+            for (EsShardPartitions esShardPartitions : partitionedIndices.values()) {
                 List<Comparable> partitionInfo = new ArrayList<Comparable>();
-                partitionInfo.add(esIndexState.getIndexName());
+                partitionInfo.add(esShardPartitions.getIndexName());
                 List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
                 List<String> colNames = new ArrayList<String>();
                 for (Column column : partitionColumns) {
                     colNames.add(column.getName());
                 }
                 partitionInfo.add(joiner.join(colNames));  // partition key
-                partitionInfo.add(rangePartitionInfo.getRange(esIndexState.getPartitionId()).toString()); // range
+                partitionInfo.add(rangePartitionInfo.getRange(esShardPartitions.getPartitionId()).toString()); // range
                 partitionInfo.add("-");  // dis
-                partitionInfo.add(esIndexState.getShardRoutings().size());  // shards
+                partitionInfo.add(esShardPartitions.getShardRoutings().size());  // shards
                 partitionInfo.add(1);  //  replica num
                 partitionInfos.add(partitionInfo);
             }

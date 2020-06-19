@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.es;
+package org.apache.doris.external.elasticsearch;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -27,14 +27,7 @@ import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.external.elasticsearch.EsFieldInfos;
-import org.apache.doris.external.elasticsearch.EsIndexState;
-import org.apache.doris.external.elasticsearch.EsRestClient;
-import org.apache.doris.external.elasticsearch.EsStateStore;
-import org.apache.doris.external.elasticsearch.EsTableState;
-import org.apache.doris.external.elasticsearch.ExternalDataSourceException;
 import org.apache.doris.meta.MetaContext;
-import org.json.JSONObject;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -112,8 +105,8 @@ public class EsStateStoreTest {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
                 .getDb(CatalogTestUtil.testDb1)
                 .getTable(CatalogTestUtil.testEsTableId1);
-        EsIndexState esIndexState = EsIndexState.fromShardLocation(esTable.getIndexName(), searchShardsStr);
-        EsTableState esTableState = esStateStore.setPartitionInfo(esTable, esIndexState);
+        EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions(esTable.getIndexName(), searchShardsStr);
+        EsTableState esTableState = esStateStore.setPartitionInfo(esTable, esShardPartitions);
         assertNotNull(esTableState);
         assertEquals(1, esTableState.getUnPartitionedIndexStates().size());
         assertEquals(5, esTableState.getIndexState("indexa").getShardRoutings().size());

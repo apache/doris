@@ -787,7 +787,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @Override
     protected void getInfo(List<List<Comparable>> infos) {
         // calc progress first. all index share the same process
-        String progress = "N/A";
+        String progress = FeConstants.null_string;
         if (jobState == JobState.RUNNING && schemaChangeBatchTask.getTaskNum() > 0) {
             progress = schemaChangeBatchTask.getFinishedTaskNum() + "/" + schemaChangeBatchTask.getTaskNum();
         }

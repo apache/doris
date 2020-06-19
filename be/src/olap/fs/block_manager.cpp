@@ -48,7 +48,5 @@ namespace fs {
 // TODO(lingbin): move it to conf later, to allow adjust dynamicaly.
 const std::string BlockManager::block_manager_preflush_control = "finalize";
 
-BlockManagerOptions::BlockManagerOptions() : read_only(false) {}
-
 } // namespace fs
 } // namespace doris

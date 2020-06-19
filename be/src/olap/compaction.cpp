@@ -19,6 +19,7 @@
 #include "olap/compaction.h"
 #include "olap/rowset/rowset_factory.h"
 #include "util/time.h"
+#include "util/trace.h"
 
 using std::vector;
 
@@ -42,6 +43,7 @@ OLAPStatus Compaction::init(int concurreny) {
 
 OLAPStatus Compaction::do_compaction() {
     _concurrency_sem.wait();
+    TRACE("got concurrency lock and start to do compaction");
     OLAPStatus st = do_compaction_impl();
     _concurrency_sem.signal();
     return st;
@@ -57,6 +59,10 @@ OLAPStatus Compaction::do_compaction_impl() {
         _input_row_num += rowset->num_rows();
         segments_num += rowset->num_segments();
     }
+    TRACE_COUNTER_INCREMENT("input_rowsets_data_size", _input_rowsets_size);
+    TRACE_COUNTER_INCREMENT("input_row_num", _input_row_num);
+    TRACE_COUNTER_INCREMENT("input_segments_num", segments_num);
+
     _output_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
@@ -65,6 +71,7 @@ OLAPStatus Compaction::do_compaction_impl() {
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
+    TRACE("prepare finished");
 
     // 2. write merged rows to output rowset
     Merger::Statistics stats;
@@ -77,6 +84,9 @@ OLAPStatus Compaction::do_compaction_impl() {
                      << "-" << _output_version.second;
         return res;
     }
+    TRACE("merge rowsets finished");
+    TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
+    TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
 
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
@@ -85,12 +95,18 @@ OLAPStatus Compaction::do_compaction_impl() {
                      << "-" << _output_version.second;
         return OLAP_ERR_MALLOC_ERROR;
     }
+    TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
+    TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
+    TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
+    TRACE("output rowset built");
 
     // 3. check correctness
     RETURN_NOT_OK(check_correctness(stats));
+    TRACE("check correctness finished");
 
     // 4. modify rowsets in memory
     modify_rowsets();
+    TRACE("modify rowsets finished");
 
     // 5. update last success compaction time
     int64_t now = UnixMillis();
@@ -98,7 +114,7 @@ OLAPStatus Compaction::do_compaction_impl() {
         _tablet->set_last_cumu_compaction_success_time(now);
     } else {
         _tablet->set_last_base_compaction_success_time(now);
-    } 
+    }
 
     LOG(INFO) << "succeed to do " << compaction_name()
               << ". tablet=" << _tablet->full_name()

@@ -136,4 +136,13 @@ api：
 ./lib/meta_tool --operation=show_meta --root_path=/path/to/root_path --pb_header_path=path
 ```
 
+### 展示 pb 格式的 Segment meta
+
+这个命令是为了查看SegmentV2 的segment meta信息，以json 形式展示出来
+
+命令：
+
+```
+./meta_tool --operation=show_segment_footer --file=/path/to/segment/file
+
 

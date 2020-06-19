@@ -144,6 +144,17 @@ public class DataDescriptionTest {
         sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('', NULL))";
         Assert.assertEquals(sql, desc.toString());
+
+        // data from table and set bitmap_dict
+        params.clear();
+        params.add(new SlotRef(null, "k2"));
+        predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
+                                        new FunctionCallExpr("bitmap_dict", params));
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
+                                   "testHiveTable", false, Lists.newArrayList(predicate), null);
+        desc.analyze("testDb");
+        sql = "DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET (`k1` = bitmap_dict(`k2`))";
+        Assert.assertEquals(sql, desc.toSql());
     }
 
     @Test(expected = AnalysisException.class)

@@ -41,7 +41,7 @@ public class EsShardRouting {
         this.nodeId = nodeId;
     }
     
-    public static EsShardRouting parseShardRoutingV55(String indexName, String shardKey, 
+    public static EsShardRouting parseShardRouting(String indexName, String shardKey,
             JSONObject shardInfo, JSONObject nodesMap) {
         String nodeId = shardInfo.getString("node");
         JSONObject nodeInfo = nodesMap.getJSONObject(nodeId);

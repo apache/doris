@@ -101,13 +101,13 @@ public class EsRestClient {
     }
 
     
-    public EsIndexState getIndexState(String indexName) throws Exception {
+    public EsShardPartitions getShardPartitions(String indexName) throws Exception {
         String path = indexName + "/_search_shards";
-        String shardLocation = execute(path);
-        if (shardLocation == null) {
+        String searchShards = execute(path);
+        if (searchShards == null) {
             throw new ExternalDataSourceException( "index[" + indexName + "] _search_shards not found for the Elasticsearch Cluster");
         }
-        return EsIndexState.fromShardLocation(indexName, shardLocation);
+        return EsShardPartitions.findShardPartitions(indexName, searchShards);
     }
     
     /**

@@ -58,6 +58,14 @@ import java.util.TreeSet;
 //          [(tmp_col1, tmp_col2, col3, ...)]
 //          [COLUMNS FROM PATH AS (col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xxx))]
+//          [where_clause]
+//
+//          DATA FROM TABLE external_hive_tbl_name
+//          [NEGATIVE]
+//          INTO TABLE tbl_name
+//          [PARTITION (p1, p2)]
+//          [SET (k1=f1(xx), k2=f2(xxx))]
+//          [where_clause]
 
 /**
  * The transform of columns should be added after the keyword named COLUMNS.
@@ -93,6 +101,8 @@ public class DataDescription {
     // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
     private final Expr whereExpr;
+
+    private final String srcTableName;
 
     // Used for mini load
     private TNetworkAddress beAddr;
@@ -141,6 +151,27 @@ public class DataDescription {
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
         this.whereExpr = whereExpr;
+        this.srcTableName = null;
+    }
+
+    // data from table external_hive_table
+    public DataDescription(String tableName,
+                           PartitionNames partitionNames,
+                           String srcTableName,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr whereExpr) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePaths = null;
+        this.fileFieldNames = null;
+        this.columnSeparator = null;
+        this.fileFormat = null;
+        this.columnsFromPath = null;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+        this.whereExpr = whereExpr;
+        this.srcTableName = srcTableName;
     }
 
     public String getTableName() {
@@ -223,6 +254,14 @@ public class DataDescription {
 
     public boolean isHadoopLoad() {
         return isHadoopLoad;
+    }
+
+    public String getSrcTableName() {
+        return srcTableName;
+    }
+
+    public boolean isLoadFromTable() {
+        return !Strings.isNullOrEmpty(srcTableName);
     }
 
     /*
@@ -530,6 +569,16 @@ public class DataDescription {
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(), tableName);
         }
+
+        // check hive table auth
+        if (isLoadFromTable()) {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
+                                                                    PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                                                    ConnectContext.get().getQualifiedUser(),
+                                                    ConnectContext.get().getRemoteIP(), srcTableName);
+            }
+        }
     }
 
     public void analyze(String fullDbName) throws AnalysisException {
@@ -538,11 +587,13 @@ public class DataDescription {
     }
 
     public void analyzeWithoutCheckPriv() throws AnalysisException {
-        if (filePaths == null || filePaths.isEmpty()) {
-            throw new AnalysisException("No file path in load statement.");
-        }
-        for (int i = 0; i < filePaths.size(); ++i) {
-            filePaths.set(i, filePaths.get(i).trim());
+        if (!isLoadFromTable()) {
+            if (filePaths == null || filePaths.isEmpty()) {
+                throw new AnalysisException("No file path in load statement.");
+            }
+            for (int i = 0; i < filePaths.size(); ++i) {
+                filePaths.set(i, filePaths.get(i).trim());
+            }
         }
 
         if (columnSeparator != null) {
@@ -601,13 +652,17 @@ public class DataDescription {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DATA INFILE (");
-        Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
-            @Override
-            public String apply(String s) {
-                return "'" + s + "'";
-            }
-        })).append(")");
+        if (isLoadFromTable()) {
+            sb.append("DATA FROM TABLE ").append(srcTableName);
+        } else {
+            sb.append("DATA INFILE (");
+            Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
+                @Override
+                public String apply(String s) {
+                    return "'" + s + "'";
+                }
+            })).append(")");
+        }
         if (isNegative) {
             sb.append(" NEGATIVE");
         }

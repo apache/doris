@@ -89,7 +89,7 @@ fi
 
 cd ${DORIS_HOME}/be/ut_build/
 
-${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON
+${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=DEBUG
 make -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then

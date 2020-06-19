@@ -26,7 +26,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.external.elasticsearch.EsIndexState;
+import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTableState;
 import org.apache.doris.system.Backend;
@@ -154,16 +154,16 @@ public class EsScanNode extends ScanNode {
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
         Collection<Long> partitionIds = partitionPrune(esTableState.getPartitionInfo()); 
-        List<EsIndexState> selectedIndex = Lists.newArrayList();
+        List<EsShardPartitions> selectedIndex = Lists.newArrayList();
         ArrayList<String> unPartitionedIndices = Lists.newArrayList();
         ArrayList<String> partitionedIndices = Lists.newArrayList();
-        for (EsIndexState esIndexState : esTableState.getUnPartitionedIndexStates().values()) {
-            selectedIndex.add(esIndexState);
-            unPartitionedIndices.add(esIndexState.getIndexName());
+        for (EsShardPartitions esShardPartitions : esTableState.getUnPartitionedIndexStates().values()) {
+            selectedIndex.add(esShardPartitions);
+            unPartitionedIndices.add(esShardPartitions.getIndexName());
         }
         if (partitionIds != null) {
             for (Long partitionId : partitionIds) {
-                EsIndexState indexState = esTableState.getIndexState(partitionId);
+                EsShardPartitions indexState = esTableState.getIndexState(partitionId);
                 selectedIndex.add(indexState);
                 partitionedIndices.add(indexState.getIndexName());
             }
@@ -176,7 +176,7 @@ public class EsScanNode extends ScanNode {
         }
         int beIndex = random.nextInt(backendList.size());
         List<TScanRangeLocations> result = Lists.newArrayList();
-        for (EsIndexState indexState : selectedIndex) {
+        for (EsShardPartitions indexState : selectedIndex) {
             for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
                 // get backends
                 Set<Backend> colocatedBes = Sets.newHashSet();

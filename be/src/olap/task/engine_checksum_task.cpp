@@ -80,13 +80,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         }
     }
 
-    // ignore float and double type considering to precision lose
     for (size_t i = 0; i < tablet->tablet_schema().num_columns(); ++i) {
-        FieldType type = tablet->tablet_schema().column(i).type();
-        if (type == OLAP_FIELD_TYPE_FLOAT || type == OLAP_FIELD_TYPE_DOUBLE) {
-            continue;
-        }
-
         reader_params.return_columns.push_back(i);
     }
 
@@ -118,8 +112,8 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
             OLAP_LOG_WARNING("fail to read in reader. [res=%d]", res);
             return res;
         }
-
-        row_checksum = hash_row(row, row_checksum);
+        // The value of checksum is independent of the sorting of data rows.
+        row_checksum ^= hash_row(row, 0);
         // the memory allocate by mem pool has been copied,
         // so we should release memory immediately
         mem_pool->clear();

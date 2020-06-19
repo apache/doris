@@ -32,6 +32,7 @@
 
 namespace doris {
 
+class BaseTablet;
 class Tablet;
 class TabletManager;
 class TabletMeta;
@@ -80,8 +81,8 @@ public:
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
-    void register_tablet(Tablet* tablet);
-    void deregister_tablet(Tablet* tablet);
+    void register_tablet(BaseTablet* tablet);
+    void deregister_tablet(BaseTablet* tablet);
     void clear_tablets(std::vector<TabletInfo>* tablet_infos);
 
     std::string get_absolute_shard_path(int64_t shard_id);

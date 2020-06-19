@@ -30,9 +30,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-public class EsIndexState {
+public class EsShardPartitions {
 
-    private static final Logger LOG = LogManager.getLogger(EsIndexState.class);
+    private static final Logger LOG = LogManager.getLogger(EsShardPartitions.class);
 
     private final String indexName;
     // shardid -> host1, host2, host3
@@ -41,7 +41,7 @@ public class EsIndexState {
     private PartitionKey partitionKey;
     private long partitionId = -1;
 
-    public EsIndexState(String indexName) {
+    public EsShardPartitions(String indexName) {
         this.indexName = indexName;
         this.shardRoutings = Maps.newHashMap();
         this.partitionDesc = null;
@@ -51,12 +51,12 @@ public class EsIndexState {
     /**
      * Parse shardRoutings from the json
      * @param indexName indexName(alias or really name)
-     * @param shardLocation the return value of _search_shards
+     * @param searchShards the return value of _search_shards
      * @return shardRoutings is used for searching
      */
-    public static EsIndexState fromShardLocation(String indexName, String shardLocation) {
-        EsIndexState indexState = new EsIndexState(indexName);
-        JSONObject jsonObject = new JSONObject(shardLocation);
+    public static EsShardPartitions findShardPartitions(String indexName, String searchShards) throws ExternalDataSourceException {
+        EsShardPartitions indexState = new EsShardPartitions(indexName);
+        JSONObject jsonObject = new JSONObject(searchShards);
         JSONObject nodesMap = jsonObject.getJSONObject("nodes");
         JSONArray shards = jsonObject.getJSONArray("shards");
         int length = shards.length();
@@ -69,11 +69,9 @@ public class EsIndexState {
                 String shardState = shard.getString("state");
                 if ("STARTED".equalsIgnoreCase(shardState) || "RELOCATING".equalsIgnoreCase(shardState)) {
                     try {
-                        singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState, String.valueOf(i), shard, nodesMap));
+                        singleShardRouting.add(EsShardRouting.parseShardRouting(shardState, String.valueOf(i), shard, nodesMap));
                     } catch (Exception e) {
-                        LOG.info(
-                                "errors while parse shard routing from json [{}], ignore this shard",
-                                shard, e);
+                        throw new ExternalDataSourceException( "index[" + indexName + "] findShardPartitions error");
                     }
                 }
             }
