@@ -93,7 +93,7 @@ There are many statistical information collected at BE.  so we list the correspo
    - AverageThreadTokens: Number of threads used to execute fragment, excluding the usage of thread pool
    - PeakReservation: Peak memory used by buffer pool
    - MemoryLimit: Memory limit at query
-   - PeakMemoryUsage: Peak memory usage
+   - PeakMemoryUsage: Peak memory usage of instance
    - RowsProduced: Number of rows that process
 
 #### `BlockMgr`
@@ -103,19 +103,22 @@ There are many statistical information collected at BE.  so we list the correspo
   - MaxBlockSize: Max size of one Block
   - TotalReadBlockTime: Total time read block from disk
 
-#### `DataStreamRecvr`
-  - BytesReceived: Size of bytes received by network
-  - DataArrivalWaitTime: Total waiting time of sender to push data 
-  - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
-  - DeserializeRowBatchTimer: Time consuming to receive data deserialization
-  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full，wait time of sender
-
 #### `DataStreamSender`
  - BytesSent: Total bytes data sent
  - IgnoreRows: Rows filtered
  - OverallThroughput: Total throughput = BytesSent / Time
  - SerializeBatchTime: Sending data serialization time
  - UncompressedRowBatchSize: Size of rowbatch before sending data compression
+
+#### `EXCHANGE_NODE`
+  - BytesReceived: Size of bytes received by network
+  - DataArrivalWaitTime: Total waiting time of sender to push data 
+  - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
+  - DeserializeRowBatchTimer: Time consuming to receive data deserialization
+  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full，wait time of sender
+  - ConvertRowBatchTime: Time taken to transfer received data to RowBatch
+  - RowsReturned: Number of receiving rows
+  - RowsReturnedRate: Rate of rows received
 
 #### `SORT_NODE`
   - InMemorySortTime: In memory sort time
