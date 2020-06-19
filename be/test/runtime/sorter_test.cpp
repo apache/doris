@@ -144,9 +144,7 @@ public:
             row_tuples.push_back(1);
             _output_row_desc = new RowDescriptor(*_desc_tbl, row_tuples, nullable_tuples);
         }
-        _runtime_profile = new RuntimeProfile(get_object_pool(), "sorter");
-        
-
+        _runtime_profile = new RuntimeProfile("sorter");
     }
     virtual ~SorterTest() {
         delete _child_row_desc;
@@ -240,7 +238,6 @@ TEST_F(SorterTest, sorter_run_asc) {
           less_than, exec_exprs.sort_tuple_slot_expr_ctxs(),
           _child_row_desc,
           _runtime_profile, _runtime_state);
-          // new RuntimeProfile(get_object_pool(), "sorter"), _runtime_state);
 
     int num_rows = 5;
     RowBatch* batch = CreateRowBatch(num_rows);
@@ -290,7 +287,6 @@ TEST_F(SorterTest, sorter_run_desc_with_quick_sort) {
           less_than, exec_exprs.sort_tuple_slot_expr_ctxs(),
           _child_row_desc,
           _runtime_profile, _runtime_state);
-          // new RuntimeProfile(get_object_pool(), "sorter"), _runtime_state);
 
     int num_rows = 5;
     RowBatch* batch = CreateRowBatch(num_rows);
@@ -332,7 +328,6 @@ TEST_F(SorterTest, sorter_run_desc) {
           less_than, exec_exprs.sort_tuple_slot_expr_ctxs(),
           _child_row_desc,
           _runtime_profile, _runtime_state);
-          // new RuntimeProfile(get_object_pool(), "sorter"), _runtime_state);
 
     int num_rows = 5;
     RowBatch* batch = CreateRowBatch(num_rows);

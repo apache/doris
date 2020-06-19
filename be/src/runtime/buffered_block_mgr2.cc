@@ -1259,7 +1259,7 @@ void BufferedBlockMgr2::init(
 
     io_mgr->register_context(&_io_request_context);
 
-    _profile.reset(new RuntimeProfile(&_obj_pool, "BlockMgr"));
+    _profile.reset(new RuntimeProfile("BlockMgr"));
     parent_profile->add_child(_profile.get(), true, NULL);
 
     _block_size_counter = ADD_COUNTER(_profile.get(), "MaxBlockSize", TUnit::BYTES);

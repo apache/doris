@@ -323,7 +323,12 @@ Status PlanFragmentExecutor::open_internal() {
     {
         SCOPED_TIMER(profile()->total_time_counter());
         collect_query_statistics();
-        Status status = _sink->close(runtime_state(), _status);
+        Status status;
+        {
+            boost::lock_guard<boost::mutex> l(_status_lock);
+            status = _status;
+        }
+        status = _sink->close(runtime_state(), status);
         RETURN_IF_ERROR(status);
     }
 
@@ -489,8 +494,7 @@ void PlanFragmentExecutor::update_status(const Status& status) {
 
     {
         boost::lock_guard<boost::mutex> l(_status_lock);
-
-        if (_status.ok()) {
+        if (!_status.ok()) {
             if (status.is_mem_limit_exceeded()) {
                 _runtime_state->set_mem_limit_exceeded(status.get_error_msg());
             }
@@ -547,7 +551,12 @@ void PlanFragmentExecutor::close() {
 
         if (_sink.get() != NULL) {
             if (_prepared) {
-                _sink->close(runtime_state(), _status);
+                Status status;
+                {
+                    boost::lock_guard<boost::mutex> l(_status_lock);
+                    status = _status;
+                }
+                _sink->close(runtime_state(), status);
             } else {
                 _sink->close(runtime_state(), Status::InternalError("prepare failed"));
             }
