@@ -449,8 +449,16 @@ void SystemMetrics::_update_snmp_metrics() {
         return;
     }
 
-    // skip the Tcp header line
+    // parse the Tcp header
     // Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+    std::vector<std::string> headers = strings::Split(_line_ptr, " ");
+    std::unordered_map<std::string, int32_t> header_map;
+    int32_t pos = 0;
+    for (auto& h : headers) {
+        header_map.emplace(h, pos++);
+    }
+
+    // read the metrics of TCP
     if (getline(&_line_ptr, &_line_buf_size, fp) < 0) {
         char buf[64];
         LOG(WARNING) << "failed to skip Tcp header line of /proc/net/snmp, errno=" << errno
