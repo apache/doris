@@ -333,6 +333,17 @@ public class LoadManager implements Writable{
                          .build());
     }
 
+    public void replayUpdateLoadJobStateInfo(LoadJob.LoadJobStateUpdateInfo info) {
+        long jobId = info.getJobId();
+        LoadJob job = idToLoadJob.get(jobId);
+        if (job == null) {
+            LOG.warn("replay update load job state failed. error: job not found, id: {}", jobId);
+            return;
+        }
+
+        job.replayUpdateStateInfo(info);
+    }
+
     public int getLoadJobNum(JobState jobState, long dbId) {
         readLock();
         try {
