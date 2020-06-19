@@ -222,6 +222,7 @@ Syntax:
         ```
 
         storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
+                                Note that when specifying storage_medium, if no SSD storage medium is set in the cluster, an error 'Failed to find enough host in all backends with storage medium is SSD|HDD' is reported.
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
