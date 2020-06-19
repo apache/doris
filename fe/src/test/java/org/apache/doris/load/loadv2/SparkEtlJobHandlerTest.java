@@ -22,6 +22,7 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -33,14 +34,16 @@ import org.apache.doris.thrift.TBrokerListResponse;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mock;
 import mockit.Mocked;
-
+import mockit.MockUp;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
@@ -227,7 +230,23 @@ public class SparkEtlJobHandlerTest {
         files.add(new TBrokerFileStatus(filePath, false, 10, false));
         response.files = files;
 
-        FsBroker fsBroker = new FsBroker("127.0.0.1", 9999);
+        FsBroker fsBroker = new FsBroker("127.0.0.1", 99999);
+
+        new MockUp<GenericPool<TPaloBrokerService.Client>>() {
+            @Mock
+            public TPaloBrokerService.Client borrowObject(TNetworkAddress address) throws Exception {
+                return client;
+            }
+
+            @Mock
+            public void returnObject(TNetworkAddress address, TPaloBrokerService.Client object) {
+            }
+
+            @Mock
+            public void invalidateObject(TNetworkAddress address, TPaloBrokerService.Client object) {
+            }
+        };
+
         new Expectations() {
             {
                 client.listPath((TBrokerListPathRequest) any);
