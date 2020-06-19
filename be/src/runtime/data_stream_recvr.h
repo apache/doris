@@ -171,7 +171,7 @@ private:
     ObjectPool _sender_queue_pool;
 
     // Runtime profile storing the counters below.
-    std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile* _profile;
 
     // Number of bytes received
     RuntimeProfile::Counter* _bytes_received_counter;

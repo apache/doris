@@ -92,7 +92,7 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
    - AverageThreadTokens: 执行Fragment使用线程数目，不包含线程池的使用情况
    - Buffer Pool PeakReservation: Buffer Pool使用的内存的峰值
    - MemoryLimit: 查询时的内存限制
-   - PeakMemoryUsage: 整个Fragment在查询时内存使用的峰值
+   - PeakMemoryUsage: 整个Instance在查询时内存使用的峰值
    - RowsProduced: 处理列的行数
 
 #### `BlockMgr`
@@ -102,19 +102,22 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
   - MaxBlockSize: 单个Block的大小
   - TotalReadBlockTime: 读Block的总耗时
 
-#### `DataStreamRecvr`
-  - BytesReceived: 通过网络接收的数据量大小
-  - DataArrivalWaitTime: 等待Sender发送数据的总时间
-  - FirstBatchArrivalWaitTime: 等待第一个batch从Sender获取的时间
-  - DeserializeRowBatchTimer: 反序列化网络数据的耗时
-  - SendersBlockedTotalTimer(*): DataStreamRecv的队列的内存被打满，Sender端等待的耗时
-
 #### `DataStreamSender`
    - BytesSent: 发送的总数据量 = 接受者 * 发送数据量
    - IgnoreRows: 过滤的行数
    - OverallThroughput: 总的吞吐量 = BytesSent / 时间
    - SerializeBatchTime: 发送数据序列化消耗的时间
    - UncompressedRowBatchSize: 发送数据压缩前的RowBatch的大小
+
+#### `EXCHANGE_NODE`
+  - BytesReceived: 通过网络接收的数据量大小
+  - DataArrivalWaitTime: 等待Sender发送数据的总时间
+  - FirstBatchArrivalWaitTime: 等待第一个batch从Sender获取的时间
+  - DeserializeRowBatchTimer: 反序列化网络数据的耗时
+  - SendersBlockedTotalTimer(*): DataStreamRecv的队列的内存被打满，Sender端等待的耗时
+  - ConvertRowBatchTime: 接收数据转为RowBatch的耗时
+  - RowsReturned: 接收行的数目
+  - RowsReturnedRate: 接收行的速率
 
 #### `SORT_NODE`
   - InMemorySortTime: 内存之中的排序耗时

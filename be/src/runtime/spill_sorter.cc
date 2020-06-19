@@ -519,6 +519,9 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
             ++*num_processed;
             ++cur_input_index;
         }
+        // There we already copy the tuple data to Block, So we need to release the mem
+        // in expr mempool to prevent memory leak
+        ExprContext::free_local_allocations(_sorter->_sort_tuple_slot_expr_ctxs);
 
         // If there are still rows left to process, get a new block for the fixed-length
         // tuples. If the run is already too long, return.
