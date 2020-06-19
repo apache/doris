@@ -67,7 +67,7 @@ Status MemoryScratchSink::prepare(RuntimeState* state) {
     std::stringstream title;
     title << "MemoryScratchSink (frag_id=" << fragment_instance_id << ")";
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), title.str()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
 
     return Status::OK();
 }
