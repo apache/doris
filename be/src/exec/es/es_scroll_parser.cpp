@@ -40,6 +40,7 @@ static const char* FIELD_HITS = "hits";
 static const char* FIELD_INNER_HITS = "hits";
 static const char* FIELD_SOURCE = "_source";
 static const char* FIELD_TOTAL = "total";
+static const char* FIELD_ID = "_id";
 
 
 // get the original json data type
@@ -294,6 +295,42 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
 
         if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        // _id field must exists in every document, this is guaranteed by ES
+        // if _id was found in tuple, we would get `_id` value from inner-hit node
+        // json-format response would like below:
+        //    "hits": {
+        //            "hits": [
+        //                {
+        //                    "_id": "UhHNc3IB8XwmcbhBk1ES",
+        //                    "_source": {
+        //                          "k": 201,
+        //                    }
+        //                }
+        //            ]
+        //        }
+        if (slot_desc->col_name() == FIELD_ID) {
+            // actually this branch will not be reached, this is guaranteed by Doris FE.
+            if (pure_doc_value) {
+                std::stringstream ss;
+                ss << "obtain `_id` is not supported in doc_values mode";
+                return Status::RuntimeError(ss.str());
+            }
+            tuple->set_not_null(slot_desc->null_indicator_offset());
+            void* slot = tuple->get_slot(slot_desc->tuple_offset());
+            // obj[FIELD_ID] must not be NULL
+            std::string _id = obj[FIELD_ID].GetString();
+            size_t len = _id.length();
+            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(len));
+            if (UNLIKELY(buffer == NULL)) {
+                string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
+                            len, "string slot");
+                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, len);
+            }
+            memcpy(buffer, _id.data(), len);
+            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
+            reinterpret_cast<StringValue*>(slot)->len = len;
             continue;
         }
 
