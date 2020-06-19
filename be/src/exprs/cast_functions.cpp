@@ -230,14 +230,16 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const StringVa
 }
 
 BooleanVal CastFunctions::cast_to_boolean_val(FunctionContext* ctx, const StringVal& val) {
-    if (val.is_null) return BooleanVal::null(); 
-        StringParser::ParseResult result;
-        BooleanVal ret;
-        ret.val = StringParser::string_to_bool(reinterpret_cast<char*>(val.ptr), val.len, &result);
-        if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(ret.val) || std::isinf(ret.val))) { 
-            return BooleanVal::null();
-        }
-        return ret;
+    if (val.is_null) {
+        return BooleanVal::null(); 
+    }
+    StringParser::ParseResult result;
+    BooleanVal ret;
+    ret.val = StringParser::string_to_bool(reinterpret_cast<char*>(val.ptr), val.len, &result);
+    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) { 
+        return BooleanVal::null();
+    }
+    return ret;
 }
 
 #if 0
