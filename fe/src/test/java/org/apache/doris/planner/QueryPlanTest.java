@@ -70,8 +70,8 @@ public class QueryPlanTest {
         
         createTable("create table test.test1\n" + 
                 "(\n" +
-                "    time datetime not null comment \"Query start time\",\n" +
                 "    query_id varchar(48) comment \"Unique query id\",\n" +
+                "    time datetime not null comment \"Query start time\",\n" +
                 "    client_ip varchar(32) comment \"Client IP\",\n" + 
                 "    user varchar(64) comment \"User name\",\n" + 
                 "    db varchar(96) comment \"Database of this query\",\n" + 
