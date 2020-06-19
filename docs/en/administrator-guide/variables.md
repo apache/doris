@@ -338,3 +338,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `rewrite_count_distinct_to_bitmap_hll`
 
     Whether to rewrite count distinct queries of bitmap and HLL types as bitmap_union_count and hll_union_agg.
+
+* `allow_ignore_order_by`
+   Used to ignore order by w/o limit and offset in inline views, set operands and insert statements.
+    
