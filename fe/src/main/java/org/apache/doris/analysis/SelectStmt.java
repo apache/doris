@@ -813,12 +813,6 @@ public class SelectStmt extends QueryStmt {
                 return;
             }
         }
-
-        // can not get AST only with equal join, MayBe cross join can help
-        fromClause_.clear();
-        for (Pair<TableRef, Long> candidate : candidates) {
-            fromClause_.add(candidate.first);
-        }
     }
 
     // reorder select table
