@@ -537,6 +537,10 @@ public class OlapTable extends Table {
         return keysType;
     }
 
+    public KeysType getKeysTypeByIndexId(long indexId) {
+        return indexIdToMeta.get(indexId).getKeysType();
+    }
+
     public PartitionInfo getPartitionInfo() {
         return partitionInfo;
     }

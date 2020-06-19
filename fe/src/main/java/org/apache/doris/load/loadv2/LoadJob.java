@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
@@ -30,6 +31,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -46,6 +48,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -392,7 +395,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws AnalysisException there are error params in job
      * @throws DuplicatedRequestException 
      */
-    public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+    public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
+            DuplicatedRequestException, LoadException {
         writeLock();
         try {
             unprotectedExecute();
@@ -401,8 +405,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    public void unprotectedExecute()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+    public void unprotectedExecute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
+            DuplicatedRequestException, LoadException {
         // check if job state is pending
         if (state != JobState.PENDING) {
             return;
@@ -410,7 +414,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // the limit of job will be restrict when begin txn
         beginTxn();
         unprotectedExecuteJob();
-        unprotectedUpdateState(JobState.LOADING);
+        // update spark load job state from PENDING to ETL when pending task is finished
+        if (jobType != EtlJobType.SPARK) {
+            unprotectedUpdateState(JobState.LOADING);
+        }
     }
 
     public void processTimeout() {
@@ -433,7 +440,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected void unprotectedExecuteJob() {
+    protected void unprotectedExecuteJob() throws LoadException {
     }
 
     /**
@@ -706,6 +713,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 case CANCELLED:
                     jobInfo.add("ETL:N/A; LOAD:N/A");
                     break;
+                case ETL:
+                    jobInfo.add("ETL:" + progress + "%; LOAD:0%");
+                    break;
                 default:
                     jobInfo.add("ETL:100%; LOAD:" + progress + "%");
                     break;
@@ -722,7 +732,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
 
             // task info
-            jobInfo.add("cluster:N/A" + "; timeout(s):" + timeoutSecond
+            jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + timeoutSecond
                                 + "; max_filter_ratio:" + maxFilterRatio);
 
             // error msg
@@ -735,7 +745,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // create time
             jobInfo.add(TimeUtils.longToTimeString(createTimestamp));
             // etl start time
-            jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
+            jobInfo.add(TimeUtils.longToTimeString(getEtlStartTimestamp()));
             // etl end time
             jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
             // load start time
@@ -749,6 +759,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         } finally {
             readUnlock();
         }
+    }
+
+    protected String getResourceName() {
+        return "N/A";
+    }
+
+    protected long getEtlStartTimestamp() {
+        return loadStartTimestamp;
     }
 
     public void getJobInfo(Load.JobInfo jobInfo) throws DdlException {
@@ -768,6 +786,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
         if (type == EtlJobType.BROKER) {
             job = new BrokerLoadJob();
+        } else if (type == EtlJobType.SPARK) {
+            job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT) {
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {
@@ -1014,6 +1034,62 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
             timezone = Text.readString(in);
+        }
+    }
+
+    public void replayUpdateStateInfo(LoadJobStateUpdateInfo info) {
+        state = info.getState();
+        transactionId = info.getTransactionId();
+        loadStartTimestamp = info.getLoadStartTimestamp();
+    }
+
+    public static class LoadJobStateUpdateInfo implements Writable {
+        @SerializedName(value = "jobId")
+        private long jobId;
+        @SerializedName(value = "state")
+        private JobState state;
+        @SerializedName(value = "transactionId")
+        private long transactionId;
+        @SerializedName(value = "loadStartTimestamp")
+        private long loadStartTimestamp;
+
+        public LoadJobStateUpdateInfo(long jobId, JobState state, long transactionId, long loadStartTimestamp) {
+            this.jobId = jobId;
+            this.state = state;
+            this.transactionId = transactionId;
+            this.loadStartTimestamp = loadStartTimestamp;
+        }
+
+        public long getJobId() {
+            return jobId;
+        }
+
+        public JobState getState() {
+            return state;
+        }
+
+        public long getTransactionId() {
+            return transactionId;
+        }
+
+        public long getLoadStartTimestamp() {
+            return loadStartTimestamp;
+        }
+
+        @Override
+        public String toString() {
+            return GsonUtils.GSON.toJson(this);
+        }
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            String json = GsonUtils.GSON.toJson(this);
+            Text.writeString(out, json);
+        }
+
+        public static LoadJobStateUpdateInfo read(DataInput in) throws IOException {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, LoadJobStateUpdateInfo.class);
         }
     }
 }

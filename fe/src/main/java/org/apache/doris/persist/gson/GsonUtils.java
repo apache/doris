@@ -26,6 +26,8 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
+import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -102,6 +104,12 @@ public class GsonUtils {
             .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
             .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
 
+    // runtime adapter for class "LoadJobStateUpdateInfo"
+    private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
+            = RuntimeTypeAdapterFactory
+            .of(LoadJobStateUpdateInfo.class, "clazz")
+            .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
@@ -113,7 +121,8 @@ public class GsonUtils {
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
-            .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory);
+            .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
+            .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory);
 
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();

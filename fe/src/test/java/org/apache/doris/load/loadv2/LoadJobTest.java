@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.metric.LongCounterMetric;
@@ -122,7 +123,11 @@ public class LoadJobTest {
             }
         };
 
-        loadJob.execute();
+        try {
+            loadJob.execute();
+        } catch (LoadException e) {
+            Assert.fail(e.getMessage());
+        }
         Assert.assertEquals(JobState.LOADING, loadJob.getState());
         Assert.assertEquals(1, loadJob.getTransactionId());
 

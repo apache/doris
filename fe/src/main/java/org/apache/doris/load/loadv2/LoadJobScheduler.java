@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MasterDaemon;
@@ -74,8 +75,16 @@ public class LoadJobScheduler extends MasterDaemon {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
                                  .build(), e);
+                // transaction not begin, so need not abort
                 loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
                         false, true);
+            } catch (LoadException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
+                                 .add("error_msg", "Failed to submit etl job. Job will be cancelled")
+                                 .build(), e);
+                // transaction already begin, so need abort
+                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
+                                              true, true);
             } catch (DuplicatedRequestException e) {
                 // should not happen in load job scheduler, there is no request id.
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
