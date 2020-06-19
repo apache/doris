@@ -47,6 +47,11 @@ public class ExceptionChecker {
                 "Expected exception " + expectedType.getSimpleName() + " but no exception was thrown", null, runnable);
     }
 
+    /**
+     * Checks a specific exception class is thrown by the given runnable, and
+     * returns it.
+     * Will also check if the given `exceptionMsg` is with exception.
+     */
     public static <T extends Throwable> T expectThrowsWithMsg(Class<T> expectedType, String exceptionMsg,
             ThrowingRunnable runnable) {
         return expectThrows(expectedType,
