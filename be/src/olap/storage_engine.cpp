@@ -394,8 +394,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
             if (it.second->is_used()) {
-                if (_available_storage_medium_type_count == 1
-                    || it.second->storage_medium() == storage_medium) {
+                if (it.second->storage_medium() == storage_medium) {
                     stores.push_back(it.second);
                 }
             }
