@@ -64,7 +64,7 @@ Status ExportSink::prepare(RuntimeState* state) {
     std::stringstream title;
     title << "ExportSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), title.str()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
 
     _mem_tracker.reset(new MemTracker(-1, "ExportSink", state->instance_mem_tracker()));
