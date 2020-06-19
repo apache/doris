@@ -903,7 +903,7 @@ public class Catalog {
                 token = storage.getToken();
                 try {
                     URL idURL = new URL("http://" + rightHelperNode.first + ":" + Config.http_port + "/check");
-                    HttpURLConnection conn = null;
+                    HttpURLConnection conn;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
@@ -942,11 +942,7 @@ public class Catalog {
             System.exit(-1);
         }
 
-        if (role.equals(FrontendNodeType.FOLLOWER)) {
-            isElectable = true;
-        } else {
-            isElectable = false;
-        }
+        isElectable = role.equals(FrontendNodeType.FOLLOWER);
 
         Preconditions.checkState(helperNodes.size() == 1);
         LOG.info("finished to get cluster id: {}, role: {} and node name: {}",
@@ -972,7 +968,7 @@ public class Catalog {
             try {
                 URL url = new URL("http://" + helperNode.first + ":" + Config.http_port
                         + "/role?host=" + selfNode.first + "&port=" + selfNode.second);
-                HttpURLConnection conn = null;
+                HttpURLConnection conn;
                 conn = (HttpURLConnection) url.openConnection();
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}",
@@ -1020,7 +1016,7 @@ public class Catalog {
     }
 
     private void getSelfHostPort() {
-        selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
+        selfNode = new Pair<>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
         LOG.debug("get self node: {}", selfNode);
     }
 
@@ -1323,7 +1319,7 @@ public class Catalog {
         }
     }
 
-    private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) throws IOException {
+    private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) {
         try {
             String url = "http://" + helperNode.first + ":" + Config.http_port + "/version";
             File dir = new File(this.imageDir);
@@ -1339,7 +1335,7 @@ public class Catalog {
     }
 
     private void getNewImage(Pair<String, Integer> helperNode) throws IOException {
-        long localImageVersion = 0;
+        long localImageVersion;
         Storage storage = new Storage(this.imageDir);
         localImageVersion = storage.getImageSeq();
 
@@ -1653,7 +1649,7 @@ public class Catalog {
         return newChecksum;
     }
 
-    public long loadExportJob(DataInputStream dis, long checksum) throws IOException, DdlException {
+    public long loadExportJob(DataInputStream dis, long checksum) throws IOException {
         long newChecksum = checksum;
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
             int size = dis.readInt();
@@ -2755,7 +2751,7 @@ public class Catalog {
     public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
         String dbName = recoverStmt.getDbName();
 
-        Database db = null;
+        Database db;
         if ((db = getDb(dbName)) == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
@@ -2779,7 +2775,7 @@ public class Catalog {
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         String dbName = recoverStmt.getDbName();
 
-        Database db = null;
+        Database db;
         if ((db = getDb(dbName)) == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
@@ -2979,11 +2975,11 @@ public class Catalog {
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
         boolean isTempPartition = addPartitionClause.isTempPartition();
 
-        DistributionInfo distributionInfo = null;
-        OlapTable olapTable = null;
+        DistributionInfo distributionInfo;
+        OlapTable olapTable;
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta;
-        Set<String> bfColumns = null;
+        Set<String> bfColumns;
 
         String partitionName = singlePartitionDesc.getPartitionName();
 
@@ -3088,7 +3084,7 @@ public class Catalog {
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
 
-        Set<Long> tabletIdSet = new HashSet<Long>();
+        Set<Long> tabletIdSet = new HashSet<>();
         try {
             long partitionId = getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
@@ -3336,7 +3332,7 @@ public class Catalog {
 
         // 2. replication num
         short oldReplicationNum = partitionInfo.getReplicationNum(partition.getId());
-        short newReplicationNum = (short) -1;
+        short newReplicationNum;
         try {
             newReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, oldReplicationNum);
         } catch (AnalysisException e) {
@@ -3354,7 +3350,7 @@ public class Catalog {
                 PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
 
         // 4. tablet type
-        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
         } catch (AnalysisException e) {
@@ -3444,7 +3440,7 @@ public class Catalog {
         Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
 
         // add to index map
-        Map<Long, MaterializedIndex> indexMap = new HashMap<Long, MaterializedIndex>();
+        Map<Long, MaterializedIndex> indexMap = new HashMap<>();
         indexMap.put(baseIndexId, baseIndex);
 
         // create rollup index if has
@@ -3475,15 +3471,15 @@ public class Catalog {
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
                     replicationNum, tabletMeta, tabletIdSet);
 
-            boolean ok = false;
-            String errMsg = null;
+            boolean ok;
+            String errMsg;
 
             // add create replica task for olap
             short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
             TStorageType storageType = indexMeta.getStorageType();
             List<Column> schema = indexMeta.getSchema();
             int totalTaskNum = index.getTablets().size() * replicationNum;
-            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
+            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalTaskNum);
             AgentBatchTask batchTask = new AgentBatchTask();
             for (Tablet tablet : index.getTablets()) {
                 long tabletId = tablet.getId();
@@ -3558,7 +3554,7 @@ public class Catalog {
 
         // create partition info
         PartitionDesc partitionDesc = stmt.getPartitionDesc();
-        PartitionInfo partitionInfo = null;
+        PartitionInfo partitionInfo;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             // gen partition id first
@@ -3612,8 +3608,8 @@ public class Catalog {
         Map<String, String> properties = stmt.getProperties();
 
         // analyze bloom filter columns
-        Set<String> bfColumns = null;
-        double bfFpp = 0;
+        Set<String> bfColumns;
+        double bfFpp;
         try {
             bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, baseSchema);
             if (bfColumns != null && bfColumns.isEmpty()) {
@@ -3648,7 +3644,7 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
-        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
         } catch (AnalysisException e) {
@@ -3656,12 +3652,12 @@ public class Catalog {
         }
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
-            // if this is an unpartitioned table, we should analyze data property and replication num here.
+            // if this is an un-partitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
 
             // use table name as this single partition name
             long partitionId = partitionNameToId.get(tableName);
-            DataProperty dataProperty = null;
+            DataProperty dataProperty;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                         DataProperty.DEFAULT_DATA_PROPERTY);
@@ -3698,7 +3694,7 @@ public class Catalog {
         }
 
         // get base index storage type. default is COLUMN
-        TStorageType baseIndexStorageType = null;
+        TStorageType baseIndexStorageType;
         try {
             baseIndexStorageType = PropertyAnalyzer.analyzeStorageType(properties);
         } catch (AnalysisException e) {
@@ -3706,7 +3702,7 @@ public class Catalog {
         }
         Preconditions.checkNotNull(baseIndexStorageType);
         // set base index meta
-        int schemaVersion = 0;
+        int schemaVersion;
         try {
             schemaVersion = PropertyAnalyzer.analyzeSchemaVersion(properties);
         } catch (AnalysisException e) {
@@ -3722,7 +3718,7 @@ public class Catalog {
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
             // get storage type for rollup index
-            TStorageType rollupIndexStorageType = null;
+            TStorageType rollupIndexStorageType;
             try {
                 rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupClause.getProperties());
             } catch (AnalysisException e) {
@@ -3740,7 +3736,7 @@ public class Catalog {
         }
 
         // analyze version info
-        Pair<Long, Long> versionInfo = null;
+        Pair<Long, Long> versionInfo;
         try {
             versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
         } catch (AnalysisException e) {
@@ -3749,7 +3745,7 @@ public class Catalog {
         Preconditions.checkNotNull(versionInfo);
 
         // get storage format
-        TStorageFormat storageFormat = TStorageFormat.DEFAULT; // default means it's up to BE's config
+        TStorageFormat storageFormat; // default means it's up to BE's config
         try {
             storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
         } catch (AnalysisException e) {
@@ -3759,7 +3755,7 @@ public class Catalog {
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
-        Set<Long> tabletIdSet = new HashSet<Long>();
+        Set<Long> tabletIdSet = new HashSet<>();
 
         // create partition
         try {
@@ -3844,7 +3840,6 @@ public class Catalog {
 
             throw e;
         }
-        return;
     }
 
     private void createMysqlTable(Database db, CreateTableStmt stmt) throws DdlException {
@@ -3859,7 +3854,6 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
-        return;
     }
 
     private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
@@ -3871,7 +3865,7 @@ public class Catalog {
 
         // create partition info
         PartitionDesc partitionDesc = stmt.getPartitionDesc();
-        PartitionInfo partitionInfo = null;
+        PartitionInfo partitionInfo;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
@@ -3907,8 +3901,6 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
-
-        return;
     }
 
     private void createHiveTable(Database db, CreateTableStmt stmt) throws DdlException {
@@ -4015,7 +4007,7 @@ public class Catalog {
             if (separatePartition) {
                 // version info
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
-                Partition partition = null;
+                Partition partition;
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     partition = olapTable.getPartition(olapTable.getName());
                 } else {
@@ -4839,7 +4831,7 @@ public class Catalog {
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
             throws DdlException {
-        List<Column> indexColumns = new ArrayList<Column>();
+        List<Column> indexColumns = new ArrayList<>();
         for (Column column : columns) {
             if (column.isKey()) {
                 indexColumns.add(column);
@@ -4849,7 +4841,7 @@ public class Catalog {
         Preconditions.checkArgument(indexColumns.size() > 0);
 
         // figure out shortKeyColumnCount
-        short shortKeyColumnCount = (short) -1;
+        short shortKeyColumnCount;
         try {
             shortKeyColumnCount = PropertyAnalyzer.analyzeShortKeyColumnCount(properties);
         } catch (AnalysisException e) {
@@ -4934,7 +4926,7 @@ public class Catalog {
     }
 
     /*
-     * used for handling CacnelAlterStmt (for client is the CANCEL ALTER
+     * used for handling CancelAlterStmt (for client is the CANCEL ALTER
      * command). including SchemaChangeHandler and RollupHandler
      */
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
@@ -4980,7 +4972,7 @@ public class Catalog {
 
         // check if rollup has same name
         if (table.getType() == TableType.OLAP) {
-            OlapTable olapTable = (OlapTable) table;
+            OlapTable olapTable = table;
             for (String idxName: olapTable.getIndexNameToId().keySet()) {
                 if (idxName.equals(newTableName)) {
                     throw new DdlException("New name conflicts with rollup index name: " + idxName);
@@ -5024,7 +5016,7 @@ public class Catalog {
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
-        GroupId groupId = null;
+        GroupId groupId;
         if (!Strings.isNullOrEmpty(colocateGroup)) {
             String fullGroupName = db.getId() + "_" + colocateGroup;
             ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
@@ -6388,9 +6380,7 @@ public class Catalog {
             Partition oldPartition = olapTable.replacePartition(newPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
-                index.getTablets().stream().forEach(t -> {
-                    oldTabletIds.add(t.getId());
-                });
+                index.getTablets().forEach(t -> oldTabletIds.add(t.getId()));
             }
         }
 
@@ -6536,7 +6526,7 @@ public class Catalog {
      */
     public void replaceTempPartition(Database db, String tableName, ReplacePartitionClause clause) throws DdlException {
         List<String> partitionNames = clause.getPartitionNames();
-        List<String> tempPartitonNames = clause.getTempPartitionNames();
+        List<String> tempPartitionNames = clause.getTempPartitionNames();
         boolean isStrictRange = clause.isStrictRange();
         boolean useTempPartitionName = clause.useTempPartitionName();
         db.writeLock();
@@ -6557,17 +6547,17 @@ public class Catalog {
                     throw new DdlException("Partition[" + partName + "] does not exist");
                 }
             }
-            for (String partName : tempPartitonNames) {
+            for (String partName : tempPartitionNames) {
                 if (!olapTable.checkPartitionNameExist(partName, true)) {
                     throw new DdlException("Temp partition[" + partName + "] does not exist");
                 }
             }
 
-            olapTable.replaceTempPartitions(partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+            olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
 
             // write log
             ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
-                    partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+                    partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
             editLog.logReplaceTempPartition(info);
             LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
                     clause.getPartitionNames(), clause.getTempPartitionNames(), tableName);
