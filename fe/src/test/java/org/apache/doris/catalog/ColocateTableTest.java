@@ -41,6 +41,7 @@ import org.apache.doris.task.AgentBatchTask;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -138,7 +139,7 @@ public class ColocateTableTest {
                 result = systemInfoService;
 
                 systemInfoService.checkClusterCapacity(anyString);
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                systemInfoService.seqChooseBackendIdsByStorageMedium(anyInt, true, true, anyString, TStorageMedium.HDD);
                 result = beIds;
 
                 catalog.getAuth();
