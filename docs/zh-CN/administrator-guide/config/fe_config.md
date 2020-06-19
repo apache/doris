@@ -411,6 +411,10 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `max_small_file_size_bytes`
 
+### `max_stream_load_timeout_second`
+
+该配置是专门用来限制stream load的超时时间配置，防止失败的stream load事务因为用户的超长时间设置无法在短时间内被取消掉。
+
 ### `max_tolerable_backend_down_num`
 
 ### `max_unfinished_load_job`

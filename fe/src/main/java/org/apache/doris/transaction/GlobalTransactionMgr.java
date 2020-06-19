@@ -116,16 +116,26 @@ public class GlobalTransactionMgr implements Writable {
         if (Config.disable_load_job) {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
         }
-        
-        if (timeoutSecond > Config.max_load_timeout_second ||
-                timeoutSecond < Config.min_load_timeout_second) {
-            throw new AnalysisException("Invalid timeout. Timeout should between "
-                    + Config.min_load_timeout_second + " and " + Config.max_load_timeout_second
-                    + " seconds");
+
+        switch (sourceType) {
+            case BACKEND_STREAMING:
+                checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second, Config.min_load_timeout_second);
+                break;
+            default:
+                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second, Config.min_load_timeout_second);
         }
 
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         return dbTransactionMgr.beginTransaction(tableIdList, label, requestId, coordinator, sourceType, listenerId, timeoutSecond);
+    }
+
+    private void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond, int minLoadTimeOutSecond) throws AnalysisException {
+        if (timeoutSecond > maxLoadTimeoutSecond ||
+                timeoutSecond < minLoadTimeOutSecond) {
+            throw new AnalysisException("Invalid timeout. Timeout should between "
+                    + minLoadTimeOutSecond + " and " + maxLoadTimeoutSecond
+                    + " seconds");
+        }
     }
 
     public TransactionStatus getLabelState(long dbId, String label) {
