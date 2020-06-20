@@ -41,12 +41,12 @@ class TRoutineLoadTask;
 // to FE finally.
 class RoutineLoadTaskExecutor {
 public:
-    typedef std::function<void (StreamLoadContext*)> ExecFinishCallback; 
+    typedef std::function<void(StreamLoadContext*)> ExecFinishCallback;
 
-    RoutineLoadTaskExecutor(ExecEnv* exec_env):
-        _exec_env(exec_env),
-        _thread_pool(config::routine_load_thread_pool_size, 1),
-        _data_consumer_pool(10) {
+    RoutineLoadTaskExecutor(ExecEnv* exec_env)
+            : _exec_env(exec_env),
+              _thread_pool(config::routine_load_thread_pool_size, 1),
+              _data_consumer_pool(10) {
         REGISTER_GAUGE_DORIS_METRIC(routine_load_task_count, [this]() {
             std::lock_guard<std::mutex> l(_lock);
             return _task_map.size();
@@ -58,21 +58,28 @@ public:
     ~RoutineLoadTaskExecutor() {
         _thread_pool.shutdown();
         _thread_pool.join();
+
+        LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
+        for (auto it = _task_map.begin(); it != _task_map.end(); ++it) {
+            auto ctx = it->second;
+            if (ctx->unref()) {
+                delete ctx;
+            }
+        }
+        _task_map.clear();
     }
-    
+
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);
-    
-    Status get_kafka_partition_meta(const PKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids);
+
+    Status get_kafka_partition_meta(const PKafkaMetaProxyRequest& request,
+                                    std::vector<int32_t>* partition_ids);
 
 private:
     // execute the task
     void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
-    
-    void err_handler(
-            StreamLoadContext* ctx,
-            const Status& st,
-            const std::string& err_msg);
+
+    void err_handler(StreamLoadContext* ctx, const Status& st, const std::string& err_msg);
 
     // for test only
     Status _execute_plan_for_test(StreamLoadContext* ctx);
@@ -87,4 +94,4 @@ private:
     std::unordered_map<UniqueId, StreamLoadContext*> _task_map;
 };
 
-} // end namespace
+} // namespace doris
