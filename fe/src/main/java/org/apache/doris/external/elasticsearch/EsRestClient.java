@@ -91,7 +91,7 @@ public class EsRestClient {
         return nodesMap;
     }
     
-    public EsFieldInfos getFieldInfo(String indexName, String mappingType, List<Column> colList) throws Exception {
+    public EsFieldInfos getFieldInfos(String indexName, String mappingType, List<Column> colList) throws Exception {
         String path = indexName + "/_mapping";
         String indexMapping = execute(path);
         if (indexMapping == null) {

@@ -55,7 +55,7 @@ public class EsShardProcDir implements ProcDirInterface {
         db.readLock();
         try {
             // get infos
-            EsShardPartitions esShardPartitions = esTable.getEsTableState().getIndexState(indexName);
+            EsShardPartitions esShardPartitions = esTable.getEsTablePartitions().getEsShardPartitions(indexName);
             for (int shardId : esShardPartitions.getShardRoutings().keySet()) {
                 List<EsShardRouting> shardRoutings = esShardPartitions.getShardRoutings().get(shardId);
                 if (shardRoutings != null && shardRoutings.size() > 0) {

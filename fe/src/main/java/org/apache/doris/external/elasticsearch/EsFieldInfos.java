@@ -28,12 +28,18 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * It is used to hold the field information obtained from es, currently including the fields and docValue,
+ * it will eventually be added to the EsTable
+ **/
 public class EsFieldInfos {
     
     private static final Logger LOG = LogManager.getLogger(EsFieldInfos.class);
-    
+
+    // userId => userId.keyword
     private Map<String, String> fieldsContext;
-    
+
+    // city => city.raw
     private Map<String, String> docValueContext;
     
     public EsFieldInfos(Map<String, String> fieldsContext, Map<String, String> docValueContext) {
@@ -54,18 +60,41 @@ public class EsFieldInfos {
      * @param colList table column
      * @param indexName indexName(alias or really name)
      * @param indexMapping the return value of _mapping
-     * @param mappingType indexType
+     * @param docType The docType used by the index
      * @return fieldsContext and docValueContext
      * @throws Exception
      */
-    public static EsFieldInfos fromMapping(List<Column> colList, String indexName, String indexMapping, String mappingType) throws ExternalDataSourceException {
+    public static EsFieldInfos fromMapping(List<Column> colList, String indexName, String indexMapping, String docType) throws ExternalDataSourceException {
         JSONObject jsonObject = new JSONObject(indexMapping);
         // the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keys();
         String docKey = keys.next();
         JSONObject docData = jsonObject.optJSONObject(docKey);
+        //{
+        //  "mappings": {
+        //    "doc": {
+        //      "dynamic": "strict",
+        //      "properties": {
+        //        "time": {
+        //          "type": "long"
+        //        },
+        //        "type": {
+        //          "type": "keyword"
+        //        },
+        //        "userId": {
+        //          "type": "text",
+        //          "fields": {
+        //            "keyword": {
+        //              "type": "keyword"
+        //            }
+        //          }
+        //        }
+        //      }
+        //    }
+        //  }
+        //}
         JSONObject mappings = docData.optJSONObject("mappings");
-        JSONObject rootSchema = mappings.optJSONObject(mappingType);
+        JSONObject rootSchema = mappings.optJSONObject(docType);
         JSONObject properties;
         // no type in es7
         if (rootSchema == null) {
@@ -74,11 +103,12 @@ public class EsFieldInfos {
             properties = rootSchema.optJSONObject("properties");
         }
         if (properties == null) {
-            throw new ExternalDataSourceException( "index[" + indexName + "] type[" + mappingType + "] mapping not found for the Elasticsearch Cluster");
+            throw new ExternalDataSourceException( "index[" + indexName + "] type[" + docType + "] mapping not found for the Elasticsearch Cluster");
         }
         return parseProperties(colList, properties);
     }
-    
+
+    // get fields information in properties
     private static EsFieldInfos parseProperties(List<Column> colList, JSONObject properties) {
         if (properties == null) {
             return null;
@@ -91,9 +121,9 @@ public class EsFieldInfos {
                 continue;
             }
             JSONObject fieldObject = properties.optJSONObject(colName);
-            String fetchField = getFieldContext(fieldObject, colName);
-            if (StringUtils.isNotEmpty(fetchField)) {
-                fieldsMap.put(colName, fetchField);
+            String keywordField = getKeywordField(fieldObject, colName);
+            if (StringUtils.isNotEmpty(keywordField)) {
+                fieldsMap.put(colName, keywordField);
             }
             String docValueField = getDocValueField(fieldObject, colName);
             if (StringUtils.isNotEmpty(docValueField)) {
@@ -102,8 +132,9 @@ public class EsFieldInfos {
         }
         return new EsFieldInfos(fieldsMap, docValueMap);
     }
-    
-    private static String getFieldContext(JSONObject fieldObject, String colName) {
+
+    // get a field of keyword type in the fields
+    private static String getKeywordField(JSONObject fieldObject, String colName) {
         String fieldType = fieldObject.optString("type");
         // string-type field used keyword type to generate predicate
         // if text field type seen, we should use the `field` keyword type?
@@ -130,8 +161,7 @@ public class EsFieldInfos {
             if (fieldsObject != null) {
                 for (String key : fieldsObject.keySet()) {
                     JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(
-                            innerTypeObject.optString("type"))) {
+                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(innerTypeObject.optString("type"))) {
                         continue;
                     }
                     if (innerTypeObject.has("doc_values")) {

@@ -40,7 +40,7 @@ import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URISyntaxException;
 
-public class EsStateStoreTest {
+public class EsRepositoryTest {
     
     private static FakeEditLog fakeEditLog;
     private static FakeCatalog fakeCatalog;
@@ -48,7 +48,7 @@ public class EsStateStoreTest {
     private static String mappingsStr = "";
     private static String es7MappingsStr = "";
     private static String searchShardsStr = "";
-    private EsStateStore esStateStore;
+    private EsRepository esRepository;
     private EsRestClient fakeClient;
     
     @BeforeClass
@@ -70,7 +70,7 @@ public class EsStateStoreTest {
     
     @Before
     public void setUp() {
-        esStateStore = new EsStateStore();
+        esRepository = new EsRepository();
         fakeClient = new EsRestClient(new String[]{"localhost:9200"}, null, null);
     }
     
@@ -81,7 +81,7 @@ public class EsStateStoreTest {
                 .getTable(CatalogTestUtil.testEsTableId1);
         // es5
         EsFieldInfos fieldInfos = EsFieldInfos.fromMapping(esTable.getFullSchema(), esTable.getIndexName(), mappingsStr, esTable.getMappingType());
-        esStateStore.setEsTableContext(fieldInfos, esTable);
+        esTable.addFieldInfos(fieldInfos);
         assertEquals("userId.keyword", esTable.fieldsContext().get("userId"));
         assertEquals("userId.keyword", esTable.docValueContext().get("userId"));
         // es7
@@ -106,14 +106,14 @@ public class EsStateStoreTest {
                 .getDb(CatalogTestUtil.testDb1)
                 .getTable(CatalogTestUtil.testEsTableId1);
         EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions(esTable.getIndexName(), searchShardsStr);
-        EsTableState esTableState = esStateStore.setPartitionInfo(esTable, esShardPartitions);
-        assertNotNull(esTableState);
-        assertEquals(1, esTableState.getUnPartitionedIndexStates().size());
-        assertEquals(5, esTableState.getIndexState("indexa").getShardRoutings().size());
+        EsTablePartitions esTablePartitions = EsTablePartitions.fromShardPartitions(esTable, esShardPartitions);
+        assertNotNull(esTablePartitions);
+        assertEquals(1, esTablePartitions.getUnPartitionedIndexStates().size());
+        assertEquals(5, esTablePartitions.getEsShardPartitions("indexa").getShardRoutings().size());
     }
     
     private static String loadJsonFromFile(String fileName) throws IOException, URISyntaxException {
-        File file = new File(EsStateStoreTest.class.getClassLoader().getResource(fileName).toURI());
+        File file = new File(EsRepositoryTest.class.getClassLoader().getResource(fileName).toURI());
         InputStream is = new FileInputStream(file);
         BufferedReader br = new BufferedReader(new InputStreamReader(is));
         StringBuilder jsonStr = new StringBuilder();

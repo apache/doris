@@ -20,8 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.external.elasticsearch.EsFieldInfos;
 import org.apache.doris.external.elasticsearch.EsMajorVersion;
-import org.apache.doris.external.elasticsearch.EsTableState;
+import org.apache.doris.external.elasticsearch.EsTablePartitions;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -71,7 +72,7 @@ public class EsTable extends Table {
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
-    private EsTableState esTableState;
+    private EsTablePartitions esTablePartitions;
     private boolean enableDocValueScan = false;
     private boolean enableKeywordSniff = true;
 
@@ -98,7 +99,7 @@ public class EsTable extends Table {
     // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
     private Map<String, String> docValueContext = new HashMap<>();
 
-    private Map<String, String> fieldsContext = new HashMap<>();
+    private Map<String, String> fieldsContext= new HashMap<>();
 
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
     private Throwable lastMetaDataSyncException = null;
@@ -114,16 +115,17 @@ public class EsTable extends Table {
         validate(properties);
     }
 
-    public void addFetchField(Map<String, String> fetchFieldMap) {
-        fieldsContext.putAll(fetchFieldMap);
+    public void addFieldInfos(EsFieldInfos esFieldInfos) {
+        if (enableKeywordSniff && esFieldInfos.getFieldsContext() != null) {
+            fieldsContext = esFieldInfos.getFieldsContext();
+        }
+        if (enableDocValueScan && esFieldInfos.getDocValueContext() != null) {
+            docValueContext = esFieldInfos.getDocValueContext();
+        }
     }
 
     public Map<String, String> fieldsContext() {
         return fieldsContext;
-    }
-
-    public void addDocValueField(Map<String, String> docValueFieldMap) {
-        docValueContext.putAll(docValueFieldMap);
     }
 
     public Map<String, String> docValueContext() {
@@ -386,12 +388,12 @@ public class EsTable extends Table {
         return partitionInfo;
     }
 
-    public EsTableState getEsTableState() {
-        return esTableState;
+    public EsTablePartitions getEsTablePartitions() {
+        return esTablePartitions;
     }
 
-    public void setEsTableState(EsTableState esTableState) {
-        this.esTableState = esTableState;
+    public void setEsTablePartitions(EsTablePartitions esTablePartitions) {
+        this.esTablePartitions = esTablePartitions;
     }
 
     public Throwable getLastMetaDataSyncException() {
