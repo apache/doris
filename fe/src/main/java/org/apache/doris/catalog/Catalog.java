@@ -554,6 +554,12 @@ public class Catalog {
         }
     }
 
+    // NOTICE: in most case, we should use getCurrentCatalog() to get the right catalog.
+    // but in some cases, we should get the serving catalog explicitly.
+    public static Catalog getServingCatalog() {
+        return SingletonHolder.INSTANCE;
+    }
+
     public PullLoadJobMgr getPullLoadJobMgr() {
         return pullLoadJobMgr;
     }
