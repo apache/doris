@@ -84,8 +84,8 @@ public class SystemMetrics {
                 throw new Exception("invalid tcp metrics: " + line + ". header size: " + headerMap.size());
             }
 
-            tcpRetransSegs = Long.valueOf(headerMap.get("RetransSegs"));
-            tcpInErrs = Long.valueOf(headerMap.get("InErrs"));
+            tcpRetransSegs = Long.valueOf(parts[headerMap.get("RetransSegs")]);
+            tcpInErrs = Long.valueOf(parts[headerMap.get("InErrs")]);
 
         } catch (Exception e) {
             LOG.warn("failed to get /proc/net/snmp", e);
