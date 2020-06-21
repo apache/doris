@@ -73,7 +73,7 @@ public class RangePartitionDesc extends PartitionDesc {
             for (ColumnDef columnDef : columnDefs) {
                 if (columnDef.getName().equals(partitionCol)) {
                     if (!columnDef.isKey() && columnDef.getAggregateType() != AggregateType.NONE) {
-                        throw new AnalysisException("Only key column can be partition column");
+                        throw new AnalysisException("The partition column could not be aggregated column");
                     }
                     if (columnDef.getType().isFloatingPointType()) {
                         throw new AnalysisException("Floating point type column can not be partition column");
