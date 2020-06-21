@@ -24,7 +24,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TCondition;
+import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushType;
@@ -62,6 +64,10 @@ public class PushTask extends AgentTask {
     
     private long transactionId;
     private boolean isSchemaChanging;
+
+    // for load v2 (spark load)
+    private TBrokerScanRange tBrokerScanRange;
+    private TDescriptorTable tDescriptorTable;
     
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
                     long indexId, long tabletId, long replicaId, int schemaHash, long version, long versionHash, 
@@ -85,6 +91,8 @@ public class PushTask extends AgentTask {
         this.isSyncDelete = true;
         this.asyncDeleteJobId = -1;
         this.transactionId = transactionId;
+        this.tBrokerScanRange = null;
+        this.tDescriptorTable = null;
     }
 
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
@@ -95,6 +103,19 @@ public class PushTask extends AgentTask {
              tabletId, replicaId, schemaHash, version, versionHash, filePath, 
              fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress, 
              priority, TTaskType.PUSH, -1, tableId);
+    }
+
+    // for load v2 (SparkLoadJob)
+    public PushTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
+                    long replicaId, int schemaHash, int timeoutSecond, long loadJobId, TPushType pushType,
+                    TPriority priority, long transactionId, long signature,
+                    TBrokerScanRange tBrokerScanRange, TDescriptorTable tDescriptorTable) {
+        this(null, backendId, dbId, tableId, partitionId, indexId,
+             tabletId, replicaId, schemaHash, -1, 0, null,
+             0, timeoutSecond, loadJobId, pushType, null, false,
+             priority, TTaskType.REALTIME_PUSH, transactionId, signature);
+        this.tBrokerScanRange = tBrokerScanRange;
+        this.tDescriptorTable = tDescriptorTable;
     }
 
     public TPushReq toThrift() {
@@ -144,6 +165,10 @@ public class PushTask extends AgentTask {
                     tConditions.add(tCondition);
                 }
                 request.setDelete_conditions(tConditions);
+                break;
+            case LOAD_V2:
+                request.setBroker_scan_range(tBrokerScanRange);
+                request.setDesc_tbl(tDescriptorTable);
                 break;
             default:
                 LOG.warn("unknown push type. type: " + pushType.name());
