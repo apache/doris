@@ -581,3 +581,10 @@ The value for thrift_client_timeout_ms is set to be larger than zero to prevent 
 
 ### `with_k8s_certs`
 
+### `enable_strict_storage_medium_check`
+
+This configuration indicates that when the table is being built, it checks for the presence of the appropriate storage medium in the cluster and fails to build the table when it does not exist. For example, when the user specifies that the storage medium is' SSD 'when the table is built, but only' HDD 'disks exist in the cluster,
+
+If this parameter is' True ', the error 'Failed to find enough host in all Backends with storage medium with storage medium is SSD, need 3'.
+
+If this parameter is' False ', no error is reported when the table is built. Instead, the table is built on a disk with 'HDD' as the storage medium.
