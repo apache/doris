@@ -16,6 +16,8 @@
 // under the License.
 
 #include "util/system_metrics.h"
+#include "gutil/strings/split.h" // for string split
+#include "gutil/strtoint.h" //  for atoi64
 
 #include <stdio.h>
 #include <gperftools/malloc_extension.h>
@@ -469,13 +471,14 @@ void SystemMetrics::_update_snmp_metrics() {
 
     // metric line looks like:
     // Tcp: 1 200 120000 -1 47849374 38601877 3353843 2320314 276 1033354613 1166025166 825439 12694 23238924 0
-    int64_t retrans_segs = 0;
-    int64_t in_errs = 0;
-    sscanf(_line_ptr,
-            "Tcp: %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d"
-            " %" PRId64 " %" PRId64 " %*d %*d",
-            &retrans_segs, &in_errs);
-
+    std::vector<std::string> metrics = strings::Split(_line_ptr, " ");
+    if (metrics.size() != headers.size()) {
+        LOG(WARNING) << "invalid tcp metrics line: " << _line_ptr;
+        fclose(fp);
+        return;
+    }
+    int64_t retrans_segs = atoi64(metrics[header_map["RetransSegs"]]);
+    int64_t in_errs = atoi64(metrics[header_map["InErrs"]]);
     _snmp_metrics->tcp_retrans_segs.set_value(retrans_segs);
     _snmp_metrics->tcp_in_errs.set_value(in_errs);
 
