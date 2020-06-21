@@ -361,7 +361,7 @@ DataStreamRecvr::DataStreamRecvr(
             _is_merging(is_merging),
             _num_buffered_bytes(0),
             _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _profile.reset(new RuntimeProfile(nullptr, "DataStreamRecvr"));
+    _profile.reset(new RuntimeProfile("DataStreamRecvr"));
     profile->add_child(_profile.get(), true, nullptr);
 
     // TODO: Now the parent tracker may cause problem when we need spill to disk, so we
