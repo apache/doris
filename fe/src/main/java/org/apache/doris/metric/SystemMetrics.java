@@ -19,14 +19,14 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.Map;
-
-import avro.shaded.com.google.common.collect.Maps;
 
 /**
  * Save system metrics such as CPU, MEM, IO, Networks.
