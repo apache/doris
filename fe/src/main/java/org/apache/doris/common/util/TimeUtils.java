@@ -54,7 +54,8 @@ public class TimeUtils {
     private static final TimeZone TIME_ZONE;
 
     // set CST to +08:00 instead of America/Chicago
-    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of("CST", DEFAULT_TIME_ZONE);
+    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of(
+            "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE);
 
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
