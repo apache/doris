@@ -129,8 +129,8 @@ module.exports = [
       "logstash",
       "contribute_udf",
       {
-        title: "Third-party UDF",
-        directoryPath: "third-party-udf/",
+        title: "Users contribute UDF",
+        directoryPath: "contrib/udf",
         children:[],
       },
     ],

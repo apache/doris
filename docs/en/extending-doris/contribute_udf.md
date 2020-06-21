@@ -45,49 +45,49 @@ If you are not sure whether the UDF function you wrote is universal, you can sen
 
 ## Source code
 
-Create a folder to store UDF functions under `custom_udf/src/`, and store the source code and CMAKE files here. The source code to be contributed should include: `.h`, `.cpp`, `CMakeFile.txt`. Taking udf_samples as an example here, first create a new folder under the `custom_udf/src/` path and store the source code.
+Create a folder for UDF functions under `contrib/udf/src/`, and store the source code and CMAKE files here. The source code to be contributed should include: `.h`, `.cpp`, `CMakeFile.txt`. Taking udf_samples as an example here, first create a new folder under the `contrib/udf/src/` path and store the source code.
 
 ```
-
-    ├── custom_udf
-    │   ├── CMakeLists.txt
-    │   └── src
-    │       └── udf_samples
-    │           ├── CMakeLists.txt
-    │           ├── uda_sample.cpp
-    │           ├── uda_sample.h
-    │           ├── udf_sample.cpp
-    │           └── udf_sample.h
+   ├──contrib
+   │  └── udf
+   │    ├── CMakeLists.txt
+   │    └── src
+   │       └── udf_samples
+   │           ├── CMakeLists.txt
+   │           ├── uda_sample.cpp
+   │           ├── uda_sample.h
+   │           ├── udf_sample.cpp
+   │           └── udf_sample.h
 
 ```
 
 1. CMakeLists.txt
 
-     After the user's CMakeLists are placed here, a few changes are required. Just remove `include udf` and `udf lib`. The reason for the removal is that it has been declared in the custom_udf level CMake file.
+After the user's `CMakeLists.txt` is placed here, a small amount of changes are required. Just remove `include udf` and `udf lib`. The reason for the removal is that it has been declared in the CMake file at the `contrib/udf` level.
 
 ## manual
 
 The user manual needs to include: UDF function definition description, applicable scenarios, function syntax, how to compile UDF, how to use UDF in Doris, and use examples.
 
-1. The user manual must contain both Chinese and English versions, and be stored under `docs/zh-CN/extending-doris/third-party-udf/` and `docs/en/extending-doris/third-party-udf`, respectively.
+1. The user manual must contain both Chinese and English versions and be stored under `docs/zh-CN/extending-doris/contrib/udf` and `docs/en/extending-doris/contrib/udf` respectively.
 
     ```
     ├── docs
     │   └── zh-CN
     │       └──extending-doris
-    │          └──third-party-udf
-    │             ├── udf-simple-manual.md
-
-
-    ```
+    │          └──contrib
+    │            └──udf
+    │              ├── udf-simple-manual.md
+ 
+    ``` 
 
     ```
     ├── docs
     │   └── en
     │       └──extending-doris
-    │          └──third-party-udf
-    │             ├── udf-simple-manual.md
-
+    │          └──contrib
+    │            └──udf
+    │              ├── udf-simple-manual.md
     ```
 
 2. Add the two manual files to the sidebar in Chinese and English.
@@ -95,8 +95,8 @@ The user manual needs to include: UDF function definition description, applicabl
     ```
     vi docs/.vuepress/sidebar/zh-CN.js
     {
-        title: "第三方 UDF",
-        directoryPath: "third-party-udf/",
+        title: "用户贡献的 UDF",
+        directoryPath: "contrib/udf/",
         children:
         [
             "udf-simple-manual",
@@ -107,8 +107,8 @@ The user manual needs to include: UDF function definition description, applicabl
     ```
     vi docs/.vuepress/sidebar/en.js
     {
-        title: "Third-party UDF",
-        directoryPath: "third-party-udf/",
+        title: "Users contribute UDF",
+        directoryPath: "contrib/udf/",
         children:
         [
             "udf-simple-manual",

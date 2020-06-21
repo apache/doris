@@ -25,7 +25,7 @@ under the License.
 -->
 
 # User Define Function
-UDF is mainly suitable for scenarios where the analytical capabilities that users need do not possess. Users can implement customized functions according to their own needs, and register with Doris through UDF to expand Doris' capabilities and solve user analysis needs.
+UDF is mainly suitable for scenarios where the analytical capabilities that users need do not possess. Users can implement custom functions according to their own needs, and register with Doris through the UDF framework to expand Doris' capabilities and solve user analysis needs.
 
 There are two types of analysis requirements that UDF can meet: UDF and UDAF. UDF in this article refers to both.
 
@@ -38,7 +38,7 @@ If users use the UDF function and extend Doris' function analysis, and want to c
 
 ## Writing UDF functions
 
-Before using UDF, users need to write their own UDF functions under Doris' UDF framework. In the `custom_udf/src/udf_samples/udf_sample.h|cpp` file is a simple UDF Demo.
+Before using UDF, users need to write their own UDF functions under Doris' UDF framework. In the `contrib/udf/src/udf_samples/udf_sample.h|cpp` file is a simple UDF Demo.
 
 Writing a UDF function requires the following steps.
 
@@ -95,11 +95,13 @@ The implementation function is `StringVal md5sumUdf(FunctionContext* ctx, int nu
 
 ## Compile UDF function
 
-    Since the function implemented by the user depends on the udf of Doris, the first step is to compile Doris when compiling the UDF function. Then compile the UDF implemented by the user.
+Since the UDF implementation relies on Doris' UDF framework, the first step in compiling UDF functions is to compile Doris, that is, the UDF framework.
+
+After the compilation is completed, the static library file of the UDF framework will be generated. Then introduce the UDF framework dependency and compile the UDF.
 
 ### Compile Doris
 
-Running `sh build.sh` in the root directory of Doris will generate the corresponding `headers|libs` in `output/udf/`
+Running `sh build.sh` in the root directory of Doris will generate a static library file of the UDF framework `headers|libs` in `output/udf/`
 
 ```
 ├── output
@@ -116,25 +118,25 @@ Running `sh build.sh` in the root directory of Doris will generate the correspon
 
 1. Prepare third_party
 
-    The third_party folder is mainly used to store third-party libraries that users' UDF functions depend on, including header files and static libraries. The two files that must be included are `udf.h` and `libDorisUdf.a`.
+    The third_party folder is mainly used to store third-party libraries that users' UDF functions depend on, including header files and static libraries. It must contain the two files `udf.h` and `libDorisUdf.a` in the dependent Doris UDF framework.
 
-    Taking udf_sample as an example here, the source code is stored in the user's own `udf_samples` directory. Create a third_party folder in the same directory to store the dependent static library generated in the previous step. The directory structure is as follows:
+    Taking udf_sample as an example here, the source code is stored in the user's own `udf_samples` directory. Create a third_party folder in the same directory to store the static library. The directory structure is as follows:
 
     ```
     ├── third_party
-    │ │── include
-    │ │ └── udf.h
-    │ └── lib
-    │ └── libDorisUdf.a
+    │  │── include
+    │  │ └── udf.h
+    │  └── lib
+    │    └── libDorisUdf.a
     └── udf_samples
 
     ```
 
-   `udf.h` is a header file that UDF functions must depend on. The original storage path is `doris/be/src/udf/udf.h`. Users need to copy this header file in the Doris project to their include folder of `third_party`.
+    `udf.h` is the UDF frame header file. The storage path is `doris/output/udf/include/udf.h`. Users need to copy the header file in the Doris compilation output to their include folder of `third_party`.
 
-   `libDorisUdf.a` is a static library that UDF functions must depend on. The output of the BE step in the previous compilation. After the compilation is complete, the file is stored in `doris/output/udf/lib/libDorisUdf.a`. The user needs to copy this file to the lib folder of his `third_party`.
+    `libDorisUdf.a` is a static library of UDF framework. After Doris is compiled, the file is stored in `doris/output/udf/lib/libDorisUdf.a`. The user needs to copy the file to the lib folder of his `third_party`.
 
-    *Note: Static libraries will only be generated after BE compilation is completed.
+    *Note: The static library of UDF framework will not be generated until Doris is compiled.
 
 2. Prepare to compile UDF's CMakeFiles.txt
 
@@ -213,29 +215,30 @@ Run the command `cmake ../` in the build folder to generate a Makefile, and exec
 
 ```
 ├── third_party
-├── build
-└── udf_samples
+├── udf_samples
+  └── build
 ```
 
 ### Compilation result
 
-After the compilation is completed, the dynamic link library is placed under `build/src/`. Taking udf_samples as an example, the directory structure is as follows:
+After the compilation is completed, the UDF dynamic link library is successfully generated. Under `build/src/`, taking udf_samples as an example, the directory structure is as follows:
 
 ```
-
 ├── third_party
-├── build
-│ └── src
-│ └── udf_samples
-│ ├── libudasample.so
-│ └── libudfsample.so
-└── udf_samples
+├── udf_samples
+  └── build
+    └── src
+      └── udf_samples
+        ├── libudasample.so
+        └── libudfsample.so
 
 ```
 
 ## Create UDF function
 
-After going through the above steps, you can get a dynamic library. You need to put this dynamic library in a location that can be accessed through the HTTP protocol. Then execute the create UDF function to create a UDF inside the Doris system. You need to have AMDIN permission to complete this operation.
+After following the above steps, you can get the UDF dynamic library (that is, the `.so` file in the compilation result). You need to put this dynamic library in a location that can be accessed through the HTTP protocol.
+
+Then log in to the Doris system and create a UDF function in the mysql-client through the `CREATE FUNCTION` syntax. You need to have AMDIN authority to complete this operation. At this time, there will be a UDF created in the Doris system.
 
 ```
 CREATE [AGGREGATE] FUNCTION

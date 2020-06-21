@@ -140,8 +140,8 @@ module.exports = [
       "logstash",
       "contribute_udf",
       {
-        title: "第三方 UDF",
-        directoryPath: "third-party-udf/",
+        title: "用户贡献的 UDF",
+        directoryPath: "contrib/udf/",
         children:[],       
       },
     ],

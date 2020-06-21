@@ -26,7 +26,7 @@ under the License.
 
 # User Define Function
 
-UDF 主要适用于，用户需要的分析能力 Doris 并不具备的场景。用户可以自行根据自己的需求，实现自定义的函数，并且通过 UDF 的方式注册到 Doris 中，来扩展 Doris 的能力，并解决用户分析需求。
+UDF 主要适用于，用户需要的分析能力 Doris 并不具备的场景。用户可以自行根据自己的需求，实现自定义的函数，并且通过 UDF 框架注册到 Doris 中，来扩展 Doris 的能力，并解决用户分析需求。
 
 UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指的是二者的统称。
 
@@ -39,9 +39,9 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 ## 编写UDF函数
 
-在使用UDF之前，用户需要先在Doris的UDF框架下，编写自己的UDF函数。在`custom_udf/src/udf_samples/udf_sample.h|cpp`文件中是一个简单的UDF Demo。
+在使用UDF之前，用户需要先在 Doris 的 UDF 框架下，编写自己的UDF函数。在`contrib/udf/src/udf_samples/udf_sample.h|cpp`文件中是一个简单的 UDF Demo。
 
-编写一个UDF函数需要以下几个步骤。
+编写一个 UDF 函数需要以下几个步骤。
 
 ### 编写函数
 
@@ -96,11 +96,13 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 ## 编译 UDF 函数
 
-    由于用户自己实现的 function 中依赖了 Doris 的 udf , 所以在编译 UDF 函数的时候首先对 Doris 进行编译。然后再编译用户自己实现的 UDF 即可。
+    由于 UDF 实现中依赖了 Doris 的 UDF 框架 , 所以在编译 UDF 函数的时候首先要对 Doris 进行编译，也就是对 UDF 框架进行编译。
+    
+    编译完成后会生成，UDF 框架的静态库文件。之后引入 UDF 框架依赖，并编译 UDF 即可。
 
 ### 编译Doris
 
-在Doris根目录下执行 `sh build.sh` 就会在 `output/udf/` 生成对应 `headers|libs`
+在 Doris 根目录下执行 `sh build.sh` 就会在 `output/udf/` 生成 UDF 框架的静态库文件 `headers|libs`
 
 ```
 ├── output
@@ -117,9 +119,9 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 1. 准备 third_party 
 
-    third_party 文件夹主要用于存放用户 UDF 函数依赖的第三方库，包括头文件及静态库。其中必须包含的是 `udf.h` 和 `libDorisUdf.a` 这两个文件。
+    third_party 文件夹主要用于存放用户 UDF 函数依赖的第三方库，包括头文件及静态库。其中必须包含依赖的 Doris UDF 框架中 `udf.h` 和 `libDorisUdf.a` 这两个文件。
     
-    这里以 udf_sample 为例, 在 用户自己 `udf_samples` 目录用于存放 source code。在同级目录下再创建一个 `third_party` 文件夹用于存放上一步生成的依赖静态库。目录结构如下：
+    这里以 udf_sample 为例, 在 用户自己 `udf_samples` 目录用于存放 source code。在同级目录下再创建一个 `third_party` 文件夹用于存放静态库。目录结构如下：
 
     ```
     ├── third_party
@@ -131,11 +133,11 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
     ```
 
-   `udf.h` 是 UDF 函数必须依赖的头文件。原始存放路径为 `doris/be/src/udf/udf.h`。 用户需要将 Doris 工程中的这个头文件拷贝到自己的 `third_party` 的 include 文件夹下。
+   `udf.h` 是 UDF 框架头文件。存放路径为 `doris/output/udf/include/udf.h`。 用户需要将 Doris 编译产出中的这个头文件拷贝到自己的 `third_party` 的 include 文件夹下。
 
-   `libDorisUdf.a`  是 UDF 函数必须依赖的静态库。在前面编译 BE 步骤的产出，编译完成后该文件存放在 `doris/output/udf/lib/libDorisUdf.a`。用户需要将该文件拷贝到自己的 `third_party` 的 lib 文件夹下。
+   `libDorisUdf.a`  是 UDF 框架的静态库。Doris 编译完成后该文件存放在 `doris/output/udf/lib/libDorisUdf.a`。用户需要将该文件拷贝到自己的 `third_party` 的 lib 文件夹下。
 
-    *注意：静态库只有完成 BE 编译后才会生成。
+    *注意：UDF 框架的静态库只有完成 Doris 编译后才会生成。
 
 2. 准备编译 UDF 的 CMakeFiles.txt
 
@@ -186,7 +188,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
     )
     ```
 
-    如果用户的 UDF 函数还依赖了其他的三方库，则需要声明include，lib，并在 `add_library` 中增加依赖。
+    如果用户的 UDF 函数还依赖了其他的三方库，则需要声明 include，lib，并在 `add_library` 中增加依赖。
 
 所有文件准备齐后完整的目录结构如下：
 
@@ -214,29 +216,31 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 ```
 ├── third_party
-├── build
-└── udf_samples
+├── udf_samples
+  └── build
 ```
 
 ### 编译结果
 
-编译完成后的动态链接库被放在了 `build/src/` 下，以 udf_samples 为例，目录结构如下：
+编译完成后的 UDF 动态链接库就生成成功了。在 `build/src/` 下，以 udf_samples 为例，目录结构如下：
 
 ```
 
 ├── third_party
-├── build
-│ └── src
-│    └── udf_samples
-│      ├── libudasample.so
-│      └── libudfsample.so
-└── udf_samples
+├── udf_samples
+  └── build
+    └── src
+      └── udf_samples
+        ├── libudasample.so
+        └── libudfsample.so
 
 ```
 
 ## 创建UDF函数
 
-通过上述的步骤后，你可以得到一个动态库。你需要将这个动态库放到一个能够通过 HTTP 协议访问到的位置。然后执行创建 UDF 函数在 Doris 系统内部创建一个 UDF，你需要拥有AMDIN权限才能够完成这个操作。
+通过上述的步骤后，你可以得到 UDF 的动态库（也就是编译结果中的 `.so` 文件）。你需要将这个动态库放到一个能够通过 HTTP 协议访问到的位置。
+
+然后登录 Doris 系统，在 mysql-client 中通过 `CREATE FUNCTION` 语法创建 UDF 函数。你需要拥有AMDIN权限才能够完成这个操作。这时 Doris 系统内部就会存在刚才创建好的 UDF。
 
 ```
 CREATE [AGGREGATE] FUNCTION 
@@ -254,9 +258,9 @@ CREATE [AGGREGATE] FUNCTION
 
 ## 使用UDF
 
-用户使用UDF/UDAF必须拥有对应数据库的 `SELECT` 权限。
+用户使用 UDF 必须拥有对应数据库的 `SELECT` 权限。
 
-UDF的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而UDF的作用域是DB内部。当链接session位于数据内部时，直接使用UDF名字会在当前DB内部查找对应的UDF。否则用户需要显示的指定UDF的数据库名字，例如`dbName`.`funcName`。
+UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而UDF的作用域是DB内部。当链接session位于数据内部时，直接使用UDF名字会在当前DB内部查找对应的UDF。否则用户需要显示的指定UDF的数据库名字，例如`dbName`.`funcName`。
 
 
 ## 删除UDF函数
