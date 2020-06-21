@@ -1082,5 +1082,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean drop_backend_after_decommission = true;
+
+    /**
+     *
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_strict_storage_medium_check = false;
 }
 

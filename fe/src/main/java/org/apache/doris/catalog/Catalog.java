@@ -4258,7 +4258,11 @@ public class Catalog {
                 if (chooseBackendsArbitrary) {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
-                    chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
+                    if (Config.enable_strict_storage_medium_check) {
+                        chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
+                    } else {
+                        chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
+                    }
                     backendsPerBucketSeq.add(chosenBackendIds);
                 } else {
                     // get backends from existing backend sequence
@@ -4290,6 +4294,14 @@ public class Catalog {
                 true, true, clusterName, storageMedium);
         if (chosenBackendIds == null) {
             throw new DdlException("Failed to find enough host with storage medium is " + storageMedium + " in all backends. need: " + replicationNum);
+        }
+        return chosenBackendIds;
+    }
+
+    private List<Long> chosenBackendIdBySeq(int replicationNum, String clusterName) throws DdlException {
+        List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(replicationNum, true, true, clusterName);
+        if (chosenBackendIds == null) {
+            throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
         }
         return chosenBackendIds;
     }

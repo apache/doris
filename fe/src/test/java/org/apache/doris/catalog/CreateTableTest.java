@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -115,9 +116,17 @@ public class CreateTableTest {
 
     @Test
     public void testTableNotFoundStorageMedium() throws Exception {
+        ConfigBase.setMutableConfig("enable_strict_storage_medium_check", "true");
         String createOlapTblStmt = "create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');";
         expectedException.expect(DdlException.class);
         expectedException.expectMessage("errCode = 2, detailMessage = Failed to find enough host with storage medium is SSD in all backends. need: 1");
+        createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testNotSetStorageMediumCheck() throws Exception {
+        ConfigBase.setMutableConfig("enable_strict_storage_medium_check", "false");
+        String createOlapTblStmt = "create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');";
         createTable(createOlapTblStmt);
     }
 }
