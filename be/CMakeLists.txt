@@ -238,9 +238,6 @@ set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/lib
 add_library(cctz STATIC IMPORTED)
 set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
 
-add_library(mustache STATIC IMPORTED)
-set_target_properties(mustache PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmustache.a)
-
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -574,6 +571,6 @@ install(FILES
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(DIRECTORY
-    ${BASE_DIR}/src/www
-    DESTINATION ${OUTPUT_DIR})
+    PATTERN ${BASE_DIR}/../webroot/be/*
+    DESTINATION ${OUTPUT_DIR}/www)
 
