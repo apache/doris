@@ -32,9 +32,9 @@ This manual mainly introduces how external users can contribute their own UDF fu
 
 1. UDF function is universal
 
-The versatility here mainly refers to: UDF functions are widely used in certain business scenarios. Such UDF functions are valuable and can be used directly by other users in the community.
+    The versatility here mainly refers to: UDF functions are widely used in certain business scenarios. Such UDF functions are valuable and can be used directly by other users in the community.
 
-If you are not sure whether the UDF function you wrote is universal, you can send an email to `dev@doris.apache.org` or directly create an ISSUE to initiate the discussion.
+    If you are not sure whether the UDF function you wrote is universal, you can send an email to `dev@doris.apache.org` or directly create an ISSUE to initiate the discussion.
 
 2. UDF has completed testing and is running normally in the user's production environment
 
@@ -63,7 +63,7 @@ Create a folder for UDF functions under `contrib/udf/src/`, and store the source
 
 1. CMakeLists.txt
 
-After the user's `CMakeLists.txt` is placed here, a small amount of changes are required. Just remove `include udf` and `udf lib`. The reason for the removal is that it has been declared in the CMake file at the `contrib/udf` level.
+    After the user's `CMakeLists.txt` is placed here, a small amount of changes are required. Just remove `include udf` and `udf lib`. The reason for the removal is that it has been declared in the CMake file at the `contrib/udf` level.
 
 ## manual
 
@@ -119,6 +119,6 @@ The user manual needs to include: UDF function definition description, applicabl
 
 # Contribute UDF to the community
 
-    When you meet the conditions and prepare the code, you can contribute UDF to the Doris community after the document. Simply submit the request (PR) on [Github] (https://github.com/apache/incubator-doris). See the specific submission method: [Pull Request (PR)] (https://help.github.com/articles/about-pull-requests/).
+When you meet the conditions and prepare the code, you can contribute UDF to the Doris community after the document. Simply submit the request (PR) on [Github] (https://github.com/apache/incubator-doris). See the specific submission method: [Pull Request (PR)] (https://help.github.com/articles/about-pull-requests/).
 
-    Finally, when the PR assessment is passed and merged. Congratulations, your UDF becomes a third-party UDF supported by Doris. You can check it out in the extended functions section of [Doris official website] (http://doris.apache.org/master/zh-CN/)~.
+Finally, when the PR assessment is passed and merged. Congratulations, your UDF becomes a third-party UDF supported by Doris. You can check it out in the extended functions section of [Doris official website] (http://doris.apache.org/master/zh-CN/)~.

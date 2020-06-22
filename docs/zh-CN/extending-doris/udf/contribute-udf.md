@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 贡献用户的 UDF 函数到社区
+# 贡献 UDF
 
 该手册主要讲述了外部用户如何将自己编写的 UDF 函数贡献给 Doris 社区。
 
@@ -45,7 +45,7 @@ under the License.
 
 ## 源代码
     
-    在 `contrib/udf/src/` 下创建一个存放 UDF 函数的文件夹，并将源码和 CMAKE 文件存放在此处。待贡献的源代码应该包含: `.h` , `.cpp`, `CMakeFile.txt`。这里以 udf_samples 为例，首先在 `contrib/udf/src/` 路径下创建一个新的文件夹，并存放源码。
+在 `contrib/udf/src/` 下创建一个存放 UDF 函数的文件夹，并将源码和 CMAKE 文件存放在此处。待贡献的源代码应该包含: `.h` , `.cpp`, `CMakeFile.txt`。这里以 udf_samples 为例，首先在 `contrib/udf/src/` 路径下创建一个新的文件夹，并存放源码。
 
 ```
    ├──contrib
@@ -67,7 +67,7 @@ under the License.
 
 ## 使用手册
 
-    使用手册需要包含：UDF 函数含义说明，适用的场景，函数的语法，如何编译 UDF ，如何在 Doris 集群中使用 UDF， 以及使用示例。
+使用手册需要包含：UDF 函数含义说明，适用的场景，函数的语法，如何编译 UDF ，如何在 Doris 集群中使用 UDF， 以及使用示例。
 
 1. 使用手册需包含中英文两个版本，并分别存放在 `docs/zh-CN/extending-doris/udf/contrib` 和 `docs/en/extending-doris/udf/contrib` 下。
 
@@ -119,6 +119,6 @@ under the License.
  
 # 贡献 UDF 到社区
 
-    当你符合前提条件并准备好代码，文档后就可以将 UDF 贡献到 Doris 社区了。在  [Github](https://github.com/apache/incubator-doris) 上面提交 Pull Request (PR) 即可。具体提交方式见：[Pull Request (PR)](https://help.github.com/articles/about-pull-requests/)。
+当你符合前提条件并准备好代码，文档后就可以将 UDF 贡献到 Doris 社区了。在  [Github](https://github.com/apache/incubator-doris) 上面提交 Pull Request (PR) 即可。具体提交方式见：[Pull Request (PR)](https://help.github.com/articles/about-pull-requests/)。
 
-    最后，当 PR 评审通过并 Merge 后。恭喜你，你的 UDF 已经贡献给 Doris 社区，你可以在 [Doris 官网](http://doris.apache.org/master/zh-CN/) 的扩展功能部分查看到啦~。
+最后，当 PR 评审通过并 Merge 后。恭喜你，你的 UDF 已经贡献给 Doris 社区，你可以在 [Doris 官网](http://doris.apache.org/master/zh-CN/) 的扩展功能部分查看到啦~。
