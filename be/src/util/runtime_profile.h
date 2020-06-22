@@ -49,6 +49,8 @@ namespace doris {
       (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) \
       ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
+#define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
+      ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
 #define SCOPED_RAW_TIMER(c) \
       ScopedRawTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
 #define COUNTER_UPDATE(c, v) (c)->update(v)
@@ -659,12 +661,11 @@ private:
 template<class T>
 class ScopedTimer {
 public:
-    ScopedTimer(RuntimeProfile::Counter* counter) :
-        _counter(counter) {
+    ScopedTimer(RuntimeProfile::Counter* counter, const bool* is_cancelled = nullptr) :
+        _counter(counter), _is_cancelled(is_cancelled) {
         if (counter == NULL) {
             return;
         }
-
         DCHECK(counter->type() == TUnit::TIME_NS);
         _sw.start();
     }
@@ -677,8 +678,12 @@ public:
         _sw.start();
     }
 
+    bool is_cancelled() {
+        return _is_cancelled != nullptr && *_is_cancelled;
+    }
+
     void UpdateCounter() {
-        if (_counter != NULL) {
+        if (_counter != NULL && !is_cancelled()) {
             _counter->update(_sw.elapsed_time());
         }
     }
@@ -696,6 +701,7 @@ private:
 
     T _sw;
     RuntimeProfile::Counter* _counter;
+    const bool* _is_cancelled;
 };
 
 // Utility class to update time elapsed when the object goes out of scope.
