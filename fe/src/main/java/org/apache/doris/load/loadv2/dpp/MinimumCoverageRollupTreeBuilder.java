@@ -74,10 +74,6 @@ public class MinimumCoverageRollupTreeBuilder implements RollupTreeBuilder {
 
         // sort the index metas to make sure the column number decrease
         Collections.sort(indexMetas, new EtlJobConfig.EtlIndexComparator().reversed());
-        boolean[] flags = new boolean[indexMetas.size()];
-        for (int i = 0; i < indexMetas.size(); ++i) {
-            flags[i] = false;
-        }
         for (int i = 0; i < indexMetas.size(); ++i) {
             List<String> keyColumns = new ArrayList<>();
             List<String> valueColumns = new ArrayList<>();
