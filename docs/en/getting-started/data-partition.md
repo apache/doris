@@ -182,7 +182,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * The bucket column can be multiple columns, but it must be a Key column. The bucket column can be the same or different from the Partition column.
     * The choice of bucket column is a trade-off between **query throughput** and **query concurrency**:
 
-        1. If you select multiple bucket columns, the data is more evenly distributed. However, if the query condition does not include the equivalent condition for all bucket columns, a query will scan all buckets. The throughput of such queries will increase, but the latency of a single query will increase. This method is suitable for large throughput and low concurrent query scenarios.
+        1. If you select multiple bucket columns, the data is more evenly distributed. However, if the query condition does not include the equivalent condition for all bucket columns, a query will scan all buckets. The throughput of such queries will increase, and the latency of a single query will decrease. This method is suitable for large throughput and low concurrent query scenarios.
         2. If you select only one or a few bucket columns, the point query can query only one bucket. This approach is suitable for high-concurrency point query scenarios.
         
     * There is no theoretical limit on the number of buckets.

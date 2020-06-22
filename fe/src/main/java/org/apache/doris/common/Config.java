@@ -474,10 +474,16 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 600; // 600s
 
     /*
-     * Max load timeout applicable to all type of load
+     * Max load timeout applicable to all type of load except for stream load
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_load_timeout_second = 259200; // 3days
+
+    /*
+     * Max stream load and streaming mini load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_stream_load_timeout_second = 259200; // 3days
 
     /*
     * Min stream load timeout applicable to all type of load

@@ -504,6 +504,10 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
+    // put runtime state before _obj_pool, so that it will be deconstructed after
+    // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
+    RuntimeProfile _profile;
+
     DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;
 
@@ -541,8 +545,6 @@ private:
     // Thread resource management object for this fragment's execution.  The runtime
     // state is responsible for returning this pool to the thread mgr.
     ThreadResourceMgr::ResourcePool* _resource_pool;
-
-    RuntimeProfile _profile;
 
     // all mem limits that apply to this query
     std::vector<MemTracker*> _mem_trackers;

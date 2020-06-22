@@ -186,6 +186,8 @@ public:
 
     Status none_of(std::initializer_list<bool> vars);
 
+    void clear_all_batches();
+
 private:
     OlapTableSink* _parent = nullptr;
     int64_t _index_id = -1;

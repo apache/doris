@@ -146,7 +146,9 @@ import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
+import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -383,6 +385,8 @@ public class Catalog {
     private LoadJobScheduler loadJobScheduler;
 
     private LoadTimeoutChecker loadTimeoutChecker;
+    private LoadEtlChecker loadEtlChecker;
+    private LoadLoadingChecker loadLoadingChecker;
 
     private RoutineLoadScheduler routineLoadScheduler;
 
@@ -519,6 +523,8 @@ public class Catalog {
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
+        this.loadEtlChecker = new LoadEtlChecker(loadManager);
+        this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
@@ -552,6 +558,12 @@ public class Catalog {
         } else {
             return SingletonHolder.INSTANCE;
         }
+    }
+
+    // NOTICE: in most case, we should use getCurrentCatalog() to get the right catalog.
+    // but in some cases, we should get the serving catalog explicitly.
+    public static Catalog getServingCatalog() {
+        return SingletonHolder.INSTANCE;
     }
 
     public PullLoadJobMgr getPullLoadJobMgr() {
@@ -1055,7 +1067,22 @@ public class Catalog {
             if (helpers != null) {
                 String[] splittedHelpers = helpers.split(",");
                 for (String helper : splittedHelpers) {
-                    helperNodes.add(SystemInfoService.validateHostAndPort(helper));
+                    Pair<String, Integer> helperHostPort = SystemInfoService.validateHostAndPort(helper);
+                    if (helperHostPort.equals(selfNode)) {
+                        /**
+                         * If user specified the helper node to this FE itself,
+                         * we will stop the starting FE process and report an error.
+                         * First, it is meaningless to point the helper to itself.
+                         * Secondly, when some users add FE for the first time, they will mistakenly
+                         * point the helper that should have pointed to the Master to themselves.
+                         * In this case, some errors have caused users to be troubled.
+                         * So here directly exit the program and inform the user to avoid unnecessary trouble.
+                         */
+                        throw new AnalysisException(
+                                "Do not specify the helper node to FE itself. "
+                                        + "Please specify it to the existing running Master or Follower FE");
+                    }
+                    helperNodes.add(helperHostPort);
                 }
             } else {
                 // If helper node is not designated, use local node as helper node.
@@ -1218,6 +1245,8 @@ public class Catalog {
         loadManager.prepareJobs();
         loadJobScheduler.start();
         loadTimeoutChecker.start();
+        loadEtlChecker.start();
+        loadLoadingChecker.start();
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();

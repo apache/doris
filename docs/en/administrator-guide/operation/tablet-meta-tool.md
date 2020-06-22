@@ -71,7 +71,7 @@ If the final query is successful, the Tablet Meta will be returned as json.
 
 Get Tablet Meta on a disk based on the meta\ tool tool.
 
-Order:
+Command:
 
 ```
 ./lib/meta_tool --root_path=/path/to/root_path --operation=get_meta --tablet_id=xxx --schema_hash=xxx
@@ -85,7 +85,7 @@ The result is also a presentation of Tablet Meta in JSON format.
 
 The function of loading header is provided to realize manual migration of tablet. This function is based on Tablet Meta in JSON format, so if changes in the shard field and version information are involved, they can be changed directly in the JSON content of Tablet Meta. Then use the following commands to load.
 
-Order:
+Command:
 
 ```
 ./lib/meta_tool --operation=load_meta --root_path=/path/to/root_path --json_header_path=path
@@ -130,8 +130,18 @@ Batch delete will skip the line with incorrect tablet information format in `tab
 
 This command is to view the old file-based management PB format Tablet Meta, and to display Tablet Meta in JSON format.
 
-Order:
+Command:
 
 ```
 ./lib/meta_tool --operation=show_meta --root_path=/path/to/root_path --pb_header_path=path
+```
+
+### Segment meta in Pb format
+
+This command is to view the PB format segment meta, and to display segment meta in JSON format.
+
+Command:
+
+```
+./meta_tool --operation=show_segment_footer --file=/path/to/segment/file
 ```

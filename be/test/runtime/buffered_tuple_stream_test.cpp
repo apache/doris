@@ -45,7 +45,7 @@ public:
     RowBatch* create_row_batch(int num_rows);
     BufferedTupleStreamTest() {
         _object_pool = new ObjectPool();
-        _profile = new RuntimeProfile(_object_pool, "bufferedStream");
+        _profile = new RuntimeProfile("bufferedStream");
         _runtime_state = new RuntimeState("BufferedTupleStreamTest");
         _runtime_state->exec_env_ = &_exec_env;
         _runtime_state->create_block_mgr();

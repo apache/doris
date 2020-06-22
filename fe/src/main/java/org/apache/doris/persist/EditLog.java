@@ -53,6 +53,7 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
@@ -684,6 +685,11 @@ public class EditLog {
                     catalog.getLoadManager().replayEndLoadJob(operation);
                     break;
                 }
+                case OperationType.OP_UPDATE_LOAD_JOB: {
+                    LoadJobStateUpdateInfo info = (LoadJobStateUpdateInfo) journal.getData();
+                    catalog.getLoadManager().replayUpdateLoadJobStateInfo(info);
+                    break;
+                }
                 case OperationType.OP_CREATE_RESOURCE: {
                     final Resource resource = (Resource) journal.getData();
                     catalog.getResourceMgr().replayCreateResource(resource);
@@ -1264,6 +1270,10 @@ public class EditLog {
 
     public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
         logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
+    }
+
+    public void logUpdateLoadJob(LoadJobStateUpdateInfo info) {
+        logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
     }
 
     public void logCreateResource(Resource resource) {
