@@ -1084,7 +1084,7 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
-     *
+     * If set to true, FE will check backend available capacity by storage medium when create table
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_strict_storage_medium_check = false;
