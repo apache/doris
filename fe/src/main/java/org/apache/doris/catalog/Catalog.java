@@ -1067,7 +1067,22 @@ public class Catalog {
             if (helpers != null) {
                 String[] splittedHelpers = helpers.split(",");
                 for (String helper : splittedHelpers) {
-                    helperNodes.add(SystemInfoService.validateHostAndPort(helper));
+                    Pair<String, Integer> helperHostPort = SystemInfoService.validateHostAndPort(helper);
+                    if (helperHostPort.equals(selfNode)) {
+                        /**
+                         * If user specified the helper node to this FE itself,
+                         * we will stop the starting FE process and report an error.
+                         * First, it is meaningless to point the helper to itself.
+                         * Secondly, when some users add FE for the first time, they will mistakenly
+                         * point the helper that should have pointed to the Master to themselves.
+                         * In this case, some errors have caused users to be troubled.
+                         * So here directly exit the program and inform the user to avoid unnecessary trouble.
+                         */
+                        throw new AnalysisException(
+                                "Do not specify the helper node to FE itself. "
+                                        + "Please specify it to the existing running Master or Follower FE");
+                    }
+                    helperNodes.add(helperHostPort);
                 }
             } else {
                 // If helper node is not designated, use local node as helper node.
