@@ -17,12 +17,21 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.http.DorisHttpTestCase;
+import com.google.common.base.Strings;
+
 import junit.framework.AssertionFailedError;
 
 public class ExceptionChecker {
 
-    public static void expectThrowsNoException(DorisHttpTestCase.ThrowingRunnable runnable) {
+    /**
+     * A runnable that can throw any checked exception.
+     */
+    @FunctionalInterface
+    public interface ThrowingRunnable {
+        void run() throws Throwable;
+    }
+
+    public static void expectThrowsNoException(ThrowingRunnable runnable) {
         try {
             runnable.run();
         } catch (Throwable e) {
@@ -33,21 +42,44 @@ public class ExceptionChecker {
     /**
      * Checks a specific exception class is thrown by the given runnable, and returns it.
      */
-    public static <T extends Throwable> T expectThrows(Class<T> expectedType, DorisHttpTestCase.ThrowingRunnable runnable) {
-        return expectThrows(expectedType, "Expected exception " + expectedType.getSimpleName() + " but no exception was thrown", runnable);
+    public static <T extends Throwable> T expectThrows(Class<T> expectedType, ThrowingRunnable runnable) {
+        return expectThrows(expectedType,
+                "Expected exception " + expectedType.getSimpleName() + " but no exception was thrown", null, runnable);
+    }
+
+    /**
+     * Checks a specific exception class is thrown by the given runnable, and
+     * returns it.
+     * Will also check if the given `exceptionMsg` is with exception.
+     */
+    public static <T extends Throwable> T expectThrowsWithMsg(Class<T> expectedType, String exceptionMsg,
+            ThrowingRunnable runnable) {
+        return expectThrows(expectedType,
+                "Expected exception " + expectedType.getSimpleName() + " but no exception was thrown", exceptionMsg,
+                runnable);
     }
 
     /**
      * Checks a specific exception class is thrown by the given runnable, and returns it.
      */
-    public static <T extends Throwable> T expectThrows(Class<T> expectedType, String noExceptionMessage, DorisHttpTestCase.ThrowingRunnable runnable) {
+    public static <T extends Throwable> T expectThrows(Class<T> expectedType, String noExceptionMessage,
+            String exceptionMsg, ThrowingRunnable runnable) {
         try {
             runnable.run();
         } catch (Throwable e) {
             if (expectedType.isInstance(e)) {
+                if (!Strings.isNullOrEmpty(exceptionMsg)) {
+                    if (!e.getMessage().contains(exceptionMsg)) {
+                        AssertionFailedError assertion = new AssertionFailedError(
+                                "expceted msg: " + exceptionMsg + ", actual: " + e.getMessage());
+                        assertion.initCause(e);
+                        throw assertion;
+                    }
+                }
                 return expectedType.cast(e);
             }
-            AssertionFailedError assertion = new AssertionFailedError("Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
+            AssertionFailedError assertion = new AssertionFailedError(
+                    "Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
             assertion.initCause(e);
             throw assertion;
         }
