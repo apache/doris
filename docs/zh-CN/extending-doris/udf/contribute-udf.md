@@ -1,6 +1,6 @@
 ---
 {
-    "title": "贡献用户 UDF 函数到社区",
+    "title": "贡献 UDF ",
     "language": "zh-CN"
 }
 ---
@@ -69,14 +69,14 @@ under the License.
 
     使用手册需要包含：UDF 函数含义说明，适用的场景，函数的语法，如何编译 UDF ，如何在 Doris 集群中使用 UDF， 以及使用示例。
 
-1. 使用手册需包含中英文两个版本，并分别存放在 `docs/zh-CN/extending-doris/contrib/udf` 和 `docs/en/extending-doris/contrib/udf` 下。
+1. 使用手册需包含中英文两个版本，并分别存放在 `docs/zh-CN/extending-doris/udf/contrib` 和 `docs/en/extending-doris/udf/contrib` 下。
 
     ```
     ├── docs
     │   └── zh-CN
     │       └──extending-doris
-    │          └──contrib
-    │            └──udf
+    │          └──udf
+    │            └──contrib
     │              ├── udf-simple-manual.md
  
     ``` 
@@ -85,8 +85,8 @@ under the License.
     ├── docs
     │   └── en
     │       └──extending-doris
-    │          └──contrib
-    │            └──udf
+    │          └──udf
+    │            └──contrib
     │              ├── udf-simple-manual.md
     ```
 
@@ -96,7 +96,7 @@ under the License.
     vi docs/.vuepress/sidebar/zh-CN.js
     {
         title: "用户贡献的 UDF",
-        directoryPath: "contrib/udf/",
+        directoryPath: "contrib/",
         children:
         [
             "udf-simple-manual",
@@ -108,7 +108,7 @@ under the License.
     vi docs/.vuepress/sidebar/en.js
     {
         title: "Users contribute UDF",
-        directoryPath: "contrib/udf/",
+        directoryPath: "contrib/",
         children:
         [
             "udf-simple-manual",

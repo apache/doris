@@ -75,8 +75,8 @@ The user manual needs to include: UDF function definition description, applicabl
     ├── docs
     │   └── zh-CN
     │       └──extending-doris
-    │          └──contrib
-    │            └──udf
+    │          └──udf
+    │            └──contrib
     │              ├── udf-simple-manual.md
  
     ``` 
@@ -85,8 +85,8 @@ The user manual needs to include: UDF function definition description, applicabl
     ├── docs
     │   └── en
     │       └──extending-doris
-    │          └──contrib
-    │            └──udf
+    │          └──udf
+    │            └──contrib
     │              ├── udf-simple-manual.md
     ```
 
@@ -96,7 +96,7 @@ The user manual needs to include: UDF function definition description, applicabl
     vi docs/.vuepress/sidebar/zh-CN.js
     {
         title: "用户贡献的 UDF",
-        directoryPath: "contrib/udf/",
+        directoryPath: "contrib/",
         children:
         [
             "udf-simple-manual",
@@ -108,7 +108,7 @@ The user manual needs to include: UDF function definition description, applicabl
     vi docs/.vuepress/sidebar/en.js
     {
         title: "Users contribute UDF",
-        directoryPath: "contrib/udf/",
+        directoryPath: "contrib/",
         children:
         [
             "udf-simple-manual",

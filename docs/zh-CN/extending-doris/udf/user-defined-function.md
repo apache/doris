@@ -35,7 +35,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 这篇文档主要讲述了，如何编写自定义的 UDF 函数，以及如何在 Doris 中使用它。
 
-如果用户使用 UDF 功能并扩展了 Doris 的函数分析，并且希望将自己实现的 UDF 函数贡献回 Doris 社区给其他用户使用，这时候请看文档 [Contribute UDF to Doris](http://doris.apache.org/master/zh-CN/extending-doris/contribute_udf.html)。
+如果用户使用 UDF 功能并扩展了 Doris 的函数分析，并且希望将自己实现的 UDF 函数贡献回 Doris 社区给其他用户使用，这时候请看文档 [Contribute UDF](./contribute_udf.md)。
 
 ## 编写UDF函数
 
@@ -117,14 +117,14 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 ### 编写 UDF 编译文件
 
-1. 准备 third_party 
+1. 准备 thirdparty 
 
-    third_party 文件夹主要用于存放用户 UDF 函数依赖的第三方库，包括头文件及静态库。其中必须包含依赖的 Doris UDF 框架中 `udf.h` 和 `libDorisUdf.a` 这两个文件。
+    `thirdparty` 文件夹主要用于存放用户 UDF 函数依赖的第三方库，包括头文件及静态库。其中必须包含依赖的 Doris UDF 框架中 `udf.h` 和 `libDorisUdf.a` 这两个文件。
     
-    这里以 udf_sample 为例, 在 用户自己 `udf_samples` 目录用于存放 source code。在同级目录下再创建一个 `third_party` 文件夹用于存放静态库。目录结构如下：
+    这里以 `udf_sample` 为例, 在 用户自己 `udf_samples` 目录用于存放 source code。在同级目录下再创建一个 `thirdparty` 文件夹用于存放静态库。目录结构如下：
 
     ```
-    ├── third_party
+    ├── thirdparty
     │ │── include
     │ │ └── udf.h
     │ └── lib
@@ -133,9 +133,9 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
     ```
 
-   `udf.h` 是 UDF 框架头文件。存放路径为 `doris/output/udf/include/udf.h`。 用户需要将 Doris 编译产出中的这个头文件拷贝到自己的 `third_party` 的 include 文件夹下。
+   `udf.h` 是 UDF 框架头文件。存放路径为 `doris/output/udf/include/udf.h`。 用户需要将 Doris 编译产出中的这个头文件拷贝到自己的 `thirdparty` 的 include 文件夹下。
 
-   `libDorisUdf.a`  是 UDF 框架的静态库。Doris 编译完成后该文件存放在 `doris/output/udf/lib/libDorisUdf.a`。用户需要将该文件拷贝到自己的 `third_party` 的 lib 文件夹下。
+   `libDorisUdf.a`  是 UDF 框架的静态库。Doris 编译完成后该文件存放在 `doris/output/udf/lib/libDorisUdf.a`。用户需要将该文件拷贝到自己的 `thirdparty` 的 lib 文件夹下。
 
     *注意：UDF 框架的静态库只有完成 Doris 编译后才会生成。
 
@@ -144,7 +144,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
     CMakeFiles.txt 用于声明 UDF 函数如何进行编译。存放在源码文件夹下，与用户代码平级。这里以 `udf_samples` 为例目录结构如下:
 
     ```
-    ├── third_party
+    ├── thirdparty
     └── udf_samples
       ├── CMakeLists.txt
       ├── uda_sample.cpp
@@ -161,11 +161,11 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
     
     ```
     # Include udf
-    include_directories(third_party/include)    
+    include_directories(thirdparty/include)    
 
     # Set all libraries
     add_library(udf STATIC IMPORTED)
-    set_target_properties(udf PROPERTIES IMPORTED_LOCATION third_party/lib/libDorisUdf.a)
+    set_target_properties(udf PROPERTIES IMPORTED_LOCATION thirdparty/lib/libDorisUdf.a)
 
     # where to put generated libraries
     set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
@@ -193,7 +193,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 所有文件准备齐后完整的目录结构如下：
 
 ```
-    ├── third_party
+    ├── thirdparty
     │ │── include
     │ │ └── udf.h
     │ └── lib
@@ -215,7 +215,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 在 build 文件夹下运行命令 `cmake ../` 生成Makefile，并执行 make 就会生成对应动态库。
 
 ```
-├── third_party
+├── thirdparty
 ├── udf_samples
   └── build
 ```
@@ -226,7 +226,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 ```
 
-├── third_party
+├── thirdparty
 ├── udf_samples
   └── build
     └── src
@@ -260,7 +260,7 @@ CREATE [AGGREGATE] FUNCTION
 
 用户使用 UDF 必须拥有对应数据库的 `SELECT` 权限。
 
-UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而UDF的作用域是DB内部。当链接session位于数据内部时，直接使用UDF名字会在当前DB内部查找对应的UDF。否则用户需要显示的指定UDF的数据库名字，例如`dbName`.`funcName`。
+UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而UDF的作用域是DB内部。当链接 session 位于数据内部时，直接使用 UDF 名字会在当前DB内部查找对应的UDF。否则用户需要显示的指定 UDF 的数据库名字，例如 `dbName`.`funcName`。
 
 
 ## 删除UDF函数

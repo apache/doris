@@ -34,7 +34,7 @@ There are two types of analysis requirements that UDF can meet: UDF and UDAF. UD
 
 This document mainly describes how to write a custom UDF function and how to use it in Doris.
 
-If users use the UDF function and extend Doris' function analysis, and want to contribute their own UDF functions back to the Doris community for other users, please see the document [Contribute UDF to Doris](http://doris.apache. org/master/zh-CN/extending-doris/contribute_udf.html).
+If users use the UDF function and extend Doris' function analysis, and want to contribute their own UDF functions back to the Doris community for other users, please see the document [Contribute UDF](./contribute_udf.md).
 
 ## Writing UDF functions
 
@@ -116,14 +116,14 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
 
 ### Writing UDF compilation files
 
-1. Prepare third_party
+1. Prepare thirdparty
 
-    The third_party folder is mainly used to store third-party libraries that users' UDF functions depend on, including header files and static libraries. It must contain the two files `udf.h` and `libDorisUdf.a` in the dependent Doris UDF framework.
+    The thirdparty folder is mainly used to store thirdparty libraries that users' UDF functions depend on, including header files and static libraries. It must contain the two files `udf.h` and `libDorisUdf.a` in the dependent Doris UDF framework.
 
-    Taking udf_sample as an example here, the source code is stored in the user's own `udf_samples` directory. Create a third_party folder in the same directory to store the static library. The directory structure is as follows:
+    Taking udf_sample as an example here, the source code is stored in the user's own `udf_samples` directory. Create a thirdparty folder in the same directory to store the static library. The directory structure is as follows:
 
     ```
-    ├── third_party
+    ├── thirdparty
     │  │── include
     │  │ └── udf.h
     │  └── lib
@@ -132,9 +132,9 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
 
     ```
 
-    `udf.h` is the UDF frame header file. The storage path is `doris/output/udf/include/udf.h`. Users need to copy the header file in the Doris compilation output to their include folder of `third_party`.
+    `udf.h` is the UDF frame header file. The storage path is `doris/output/udf/include/udf.h`. Users need to copy the header file in the Doris compilation output to their include folder of `thirdparty`.
 
-    `libDorisUdf.a` is a static library of UDF framework. After Doris is compiled, the file is stored in `doris/output/udf/lib/libDorisUdf.a`. The user needs to copy the file to the lib folder of his `third_party`.
+    `libDorisUdf.a` is a static library of UDF framework. After Doris is compiled, the file is stored in `doris/output/udf/lib/libDorisUdf.a`. The user needs to copy the file to the lib folder of his `thirdparty`.
 
     *Note: The static library of UDF framework will not be generated until Doris is compiled.
 
@@ -143,7 +143,7 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
     CMakeFiles.txt is used to declare how UDF functions are compiled. Stored in the source code folder, level with user code. Here, taking udf_samples as an example, the directory structure is as follows:
 
     ```
-    ├── third_party
+    ├── thirdparty
     └── udf_samples
       ├── CMakeLists.txt
       ├── uda_sample.cpp
@@ -160,11 +160,11 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
 
     ```
     # Include udf
-    include_directories(third_party/include)
+    include_directories(thirdparty/include)
 
     # Set all libraries
     add_library(udf STATIC IMPORTED)
-    set_target_properties(udf PROPERTIES IMPORTED_LOCATION third_party/lib/libDorisUdf.a)
+    set_target_properties(udf PROPERTIES IMPORTED_LOCATION thirdparty/lib/libDorisUdf.a)
 
     # where to put generated libraries
     set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
@@ -187,12 +187,12 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
     )
     ```
 
-    If the user's UDF function also depends on other third-party libraries, you need to declare include, lib, and add dependencies in `add_library`.
+    If the user's UDF function also depends on other thirdparty libraries, you need to declare include, lib, and add dependencies in `add_library`.
 
 The complete directory structure after all files are prepared is as follows:
 
 ```
-    ├── third_party
+    ├── thirdparty
     │ │── include
     │ │ └── udf.h
     │ └── lib
@@ -214,7 +214,7 @@ Create a build folder under the udf_samples folder to store the compilation outp
 Run the command `cmake ../` in the build folder to generate a Makefile, and execute make to generate the corresponding dynamic library.
 
 ```
-├── third_party
+├── thirdparty
 ├── udf_samples
   └── build
 ```
@@ -224,7 +224,7 @@ Run the command `cmake ../` in the build folder to generate a Makefile, and exec
 After the compilation is completed, the UDF dynamic link library is successfully generated. Under `build/src/`, taking udf_samples as an example, the directory structure is as follows:
 
 ```
-├── third_party
+├── thirdparty
 ├── udf_samples
   └── build
     └── src
