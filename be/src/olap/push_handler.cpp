@@ -324,7 +324,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
             }
 
             // init Reader
-            if (OLAP_SUCCESS != (res = reader->init(schema, 
+            if (OLAP_SUCCESS != (res = reader->init(schema.get(), 
                                                     _request.broker_scan_range,
                                                     _request.desc_tbl))) {
                 LOG(WARNING) << "fail to init reader. res=" << res
@@ -335,7 +335,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
 
             // 3. Init Row
             uint8_t* tuple_buf = reader->mem_pool()->allocate(schema->schema_size());
-            ContiguousRow row(schema, tuple_buf);
+            ContiguousRow row(schema.get(), tuple_buf);
 
             // 4. Read data from broker and write into SegmentGroup of cur_tablet
             // Convert from raw to delta
