@@ -155,7 +155,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
             return status;
         }
 
-        LOG(DEBUG) << "send readat request to broker:" << broker_addr << " position:" << position << ", read bytes length:" << nbytes;
+        VLOG_RPC << "send pread request to broker:" << broker_addr << " position:" << position << ", read bytes length:" << nbytes;
 
         try {
             client->pread(response, request);

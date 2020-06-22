@@ -32,8 +32,7 @@ class BufferedReader : public FileReader {
 public:
     // If the reader need the file size, set it when construct FileReader.
     // There is no other way to set the file size.
-    BufferedReader(FileReader* reader);
-    BufferedReader(FileReader* reader, int64_t buffer_size);
+    BufferedReader(FileReader* reader, int64_t = 1024 * 1024);
     virtual ~BufferedReader();
 
     virtual Status open() override;

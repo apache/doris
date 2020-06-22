@@ -25,16 +25,6 @@
 namespace doris {
 
 // buffered reader
-
-BufferedReader::BufferedReader(FileReader* reader)
-        : _reader(reader),
-          _buffer_size(1024 * 1024),
-          _buffer_offset(0),
-          _buffer_limit(0),
-          _cur_offset(0) {
-    _buffer = new char[_buffer_size];
-}
-
 BufferedReader::BufferedReader(FileReader* reader, int64_t buffer_size)
         : _reader(reader),
           _buffer_size(buffer_size),
