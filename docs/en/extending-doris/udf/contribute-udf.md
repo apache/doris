@@ -28,7 +28,7 @@ According to permission.
 
 This manual mainly introduces how external users can contribute their own UDF functions to the Doris community.
 
-# Prerequisites
+## Prerequisites
 
 1. UDF function is universal
 
@@ -38,12 +38,12 @@ This manual mainly introduces how external users can contribute their own UDF fu
 
 2. UDF has completed testing and is running normally in the user's production environment
 
-# Ready to work
+## Ready to work
 
 1. UDF source code
 2. User Manual of UDF
 
-## Source code
+### Source code
 
 Create a folder for UDF functions under `contrib/udf/src/`, and store the source code and CMAKE files here. The source code to be contributed should include: `.h`, `.cpp`, `CMakeFile.txt`. Taking udf_samples as an example here, first create a new folder under the `contrib/udf/src/` path and store the source code.
 
@@ -65,7 +65,7 @@ Create a folder for UDF functions under `contrib/udf/src/`, and store the source
 
     After the user's `CMakeLists.txt` is placed here, a small amount of changes are required. Just remove `include udf` and `udf lib`. The reason for the removal is that it has been declared in the CMake file at the `contrib/udf` level.
 
-## manual
+### manual
 
 The user manual needs to include: UDF function definition description, applicable scenarios, function syntax, how to compile UDF, how to use UDF in Doris, and use examples.
 
@@ -117,7 +117,7 @@ The user manual needs to include: UDF function definition description, applicabl
 
     ```
 
-# Contribute UDF to the community
+## Contribute UDF to the community
 
 When you meet the conditions and prepare the code, you can contribute UDF to the Doris community after the document. Simply submit the request (PR) on [Github] (https://github.com/apache/incubator-doris). See the specific submission method: [Pull Request (PR)] (https://help.github.com/articles/about-pull-requests/).
 

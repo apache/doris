@@ -28,7 +28,7 @@ under the License.
 
 该手册主要讲述了外部用户如何将自己编写的 UDF 函数贡献给 Doris 社区。
 
-# 前提条件
+## 前提条件
 
 1. UDF 函数具有通用性
 
@@ -38,12 +38,12 @@ under the License.
 
 2. UDF 已经完成测试，并正常运行在用户的生产环境中
 
-# 准备工作
+## 准备工作
 
 1. UDF 的 source code
 2. UDF 的使用手册
 
-## 源代码
+### 源代码
     
 在 `contrib/udf/src/` 下创建一个存放 UDF 函数的文件夹，并将源码和 CMAKE 文件存放在此处。待贡献的源代码应该包含: `.h` , `.cpp`, `CMakeFile.txt`。这里以 udf_samples 为例，首先在 `contrib/udf/src/` 路径下创建一个新的文件夹，并存放源码。
 
@@ -65,7 +65,7 @@ under the License.
 
     用户的 `CMakeLists.txt` 放在此处后，需要进行少量更改。去掉 `include udf` 和 `udf lib` 即可。去掉的原因是，在 `contrib/udf` 层级的 CMake 文件中，已经声明了。
 
-## 使用手册
+### 使用手册
 
 使用手册需要包含：UDF 函数含义说明，适用的场景，函数的语法，如何编译 UDF ，如何在 Doris 集群中使用 UDF， 以及使用示例。
 
@@ -117,7 +117,7 @@ under the License.
 
     ```
  
-# 贡献 UDF 到社区
+## 贡献 UDF 到社区
 
 当你符合前提条件并准备好代码，文档后就可以将 UDF 贡献到 Doris 社区了。在  [Github](https://github.com/apache/incubator-doris) 上面提交 Pull Request (PR) 即可。具体提交方式见：[Pull Request (PR)](https://help.github.com/articles/about-pull-requests/)。
 

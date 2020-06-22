@@ -37,7 +37,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 如果用户使用 UDF 功能并扩展了 Doris 的函数分析，并且希望将自己实现的 UDF 函数贡献回 Doris 社区给其他用户使用，这时候请看文档 [Contribute UDF](./contribute_udf.md)。
 
-## 编写UDF函数
+## 编写 UDF 函数
 
 在使用UDF之前，用户需要先在 Doris 的 UDF 框架下，编写自己的UDF函数。在`contrib/udf/src/udf_samples/udf_sample.h|cpp`文件中是一个简单的 UDF Demo。
 
@@ -236,7 +236,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 ```
 
-## 创建UDF函数
+## 创建 UDF 函数
 
 通过上述的步骤后，你可以得到 UDF 的动态库（也就是编译结果中的 `.so` 文件）。你需要将这个动态库放到一个能够通过 HTTP 协议访问到的位置。
 
@@ -256,14 +256,14 @@ CREATE [AGGREGATE] FUNCTION
 
 具体使用可以参见 `CREATE FUNCTION` 获取更详细信息。
 
-## 使用UDF
+## 使用 UDF
 
 用户使用 UDF 必须拥有对应数据库的 `SELECT` 权限。
 
-UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而UDF的作用域是DB内部。当链接 session 位于数据内部时，直接使用 UDF 名字会在当前DB内部查找对应的UDF。否则用户需要显示的指定 UDF 的数据库名字，例如 `dbName`.`funcName`。
+UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而 UDF 的作用域是 DB内部。当链接 session 位于数据内部时，直接使用 UDF 名字会在当前DB内部查找对应的 UDF。否则用户需要显示的指定 UDF 的数据库名字，例如 `dbName`.`funcName`。
 
 
-## 删除UDF函数
+## 删除 UDF函数
 
-当你不再需要UDF函数时，你可以通过下述命令来删除一个UDF函数, 可以参考 `DROP FUNCTION`。
+当你不再需要 UDF 函数时，你可以通过下述命令来删除一个 UDF 函数, 可以参考 `DROP FUNCTION`。
 
