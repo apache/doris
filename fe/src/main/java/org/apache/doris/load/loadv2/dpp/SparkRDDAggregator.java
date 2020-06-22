@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2.dpp;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.BitmapValue;
+import org.apache.doris.load.loadv2.Hll;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.function.Function2;
@@ -307,7 +308,6 @@ class HllUnionAggregator extends SparkRDDAggregator<Hll> {
 
 }
 
-// TODO(wb) maybe we can use <java generics> to make code more abstract if its performance is similar with handwritten code which needs a test
 class LargeIntMaxAggregator extends SparkRDDAggregator<BigInteger> {
 
     BigInteger init(Object value) {
@@ -358,8 +358,6 @@ class LargeIntSumAggregator extends LargeIntMaxAggregator {
 }
 
 
-// TODO(wb) test type cast cost to decide whether we need to use a certain type aggregator(such as ShortMaxAggregator)
-
 class NumberMaxAggregator extends SparkRDDAggregator {
 
     @Override
@@ -404,9 +402,6 @@ class LongSumAggregator extends SparkRDDAggregator<Long> {
     }
 }
 
-// TODO(wb) try to avoid branch cost for bound check when do aggregate,some solution as below
-//  1 support store long result of sum even column type is short
-//  2 user specify args to tell Doris sum result won't exceed bound column typ
 class ShortSumAggregator extends SparkRDDAggregator<Short> {
 
     @Override

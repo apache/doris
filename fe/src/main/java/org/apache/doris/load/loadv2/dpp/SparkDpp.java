@@ -58,6 +58,7 @@ import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.List;
 import java.util.ArrayList;
@@ -804,7 +805,7 @@ public final class SparkDpp implements java.io.Serializable {
                 for (EtlJobConfig.EtlFileGroup fileGroup : etlTable.fileGroups) {
                     List<String> filePaths = fileGroup.filePaths;
                     Dataset<Row> fileGroupDataframe = null;
-                    if (Strings.isNullOrEmpty(fileGroup.hiveTableName)) {
+                    if (Strings.isNullOrEmpty(fileGroup.hiveDbTableName)) {
                         fileGroupDataframe = loadDataFromFilePaths(spark, baseIndex, filePaths, fileGroup, dstTableSchema);
                     } else {
                         String taskId = etlJobConfig.outputPath.substring(etlJobConfig.outputPath.lastIndexOf("/") + 1);
