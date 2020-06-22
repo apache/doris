@@ -529,6 +529,3 @@ PROPERTIES (
 4. Whether the aggregation operation can be pushed down
 
    At present, Doris On ES does not support push-down operations such as sum, avg, min/max, etc., all documents satisfying the conditions are obtained from the ES in batch flow, and then calculated in Doris
-   
-5. Filters for date type fields cannot be pushed down
-   Due to the time format problem, the date type field will not be pushed down in most cases; the date type filtering can be in the form of a string, and the date format needs to be completely consistent with ES
