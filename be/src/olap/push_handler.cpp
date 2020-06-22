@@ -264,7 +264,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
                                     RowsetSharedPtr* cur_rowset,
                                     RowsetSharedPtr* new_rowset) {
     OLAPStatus res = OLAP_SUCCESS;
-    PushBrokerReader* reader = nullptr;
+    std::unique_ptr<PushBrokerReader> reader;
     Schema* schema = nullptr;
     uint32_t num_rows = 0;
     PUniqueId load_id;
@@ -309,7 +309,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
         LOG(INFO) << "tablet=" << cur_tablet->full_name() << ", file path=" << path
                   << ", file size=" << _request.broker_scan_range.ranges[0].file_size;
         if (!path.empty()) {
-            reader = new(std::nothrow) PushBrokerReader();
+            reader = std::make_unique<PushBrokerReader>();
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name();
                 res = OLAP_ERR_MALLOC_ERROR;
@@ -394,7 +394,6 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
         }
     } while (0);
 
-    SAFE_DELETE(reader);
     SAFE_DELETE(schema);
     VLOG(10) << "convert delta file end. res=" << res
              << ", tablet=" << cur_tablet->full_name()
