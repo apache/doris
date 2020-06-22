@@ -480,11 +480,13 @@ select * from doe where k2 < date_format(now(), '%Y-%m-%d');
 
 注意:
 
-在ES中如果不对时间类型的字段设置`format`, 默认的时间类型字段格式为
+* 在ES中如果不对时间类型的字段设置`format`, 默认的时间类型字段格式为
 
 ```
 strict_date_optional_time||epoch_millis
 ```
+
+* 导入到ES的日期字段如果是时间戳需要转换成`ms`, ES内部处理时间戳都是按照`ms`进行处理的, 否则Doris On ES会出现显示错误
 
 ### 获取ES元数据字段`_id`
 

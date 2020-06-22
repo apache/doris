@@ -484,11 +484,12 @@ select * from doe where k2 < date_format(now(), '%Y-%m-%d');
 
 `Notice`:
 
-If you don’t set the format for the time type field In ES, the default format for Date-type field is
+* If you don’t set the format for the time type field In ES, the default format for Date-type field is
 
 ```
 strict_date_optional_time||epoch_millis
 ```
+* If the date field indexed into ES is unix timestamp, it needs to be converted to `ms`, and the internal timestamp of ES is processed according to `ms` unit, otherwise Doris On ES will display wrong column data
 
 ### Fetch ES metadata field `_id`
 
