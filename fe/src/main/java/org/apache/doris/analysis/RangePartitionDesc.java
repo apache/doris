@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionRangeType;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
@@ -71,8 +72,11 @@ public class RangePartitionDesc extends PartitionDesc {
             boolean found = false;
             for (ColumnDef columnDef : columnDefs) {
                 if (columnDef.getName().equals(partitionCol)) {
-                    if (!columnDef.isKey()) {
-                        throw new AnalysisException("Only key column can be partition column");
+                    if (!columnDef.isKey() && columnDef.getAggregateType() != AggregateType.NONE) {
+                        throw new AnalysisException("The partition column could not be aggregated column");
+                    }
+                    if (columnDef.getType().isFloatingPointType()) {
+                        throw new AnalysisException("Floating point type column can not be partition column");
                     }
                     found = true;
                     break;
@@ -145,9 +149,14 @@ public class RangePartitionDesc extends PartitionDesc {
             boolean find = false;
             for (Column column : schema) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (!column.isKey()) {
-                        throw new DdlException("Partition column[" + colName + "] is not key column");
+                    if (!column.isKey() && column.getAggregationType() != AggregateType.NONE) {
+                        throw new DdlException("The partition column could not be aggregated column");
                     }
+
+                    if (column.getType().isFloatingPointType()) {
+                        throw new DdlException("Floating point type column can not be partition column");
+                    }
+
                     try {
                         RangePartitionInfo.checkRangeColumnType(column);
                     } catch (AnalysisException e) {
