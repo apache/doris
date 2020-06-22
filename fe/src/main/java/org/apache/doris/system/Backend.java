@@ -370,6 +370,21 @@ public class Backend implements Writable {
         return exceedLimit;
     }
 
+    public boolean diskExceedLimit() {
+        if (getDiskNum() <= 0) {
+            return true;
+        }
+        ImmutableMap<String, DiskInfo> diskInfos = disksRef.get();
+        boolean exceedLimit = true;
+        for (DiskInfo diskInfo : diskInfos.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE && !diskInfo.exceedLimit(true)) {
+                exceedLimit = false;
+                break;
+            }
+        }
+        return exceedLimit;
+    }
+
     public String getPathByPathHash(long pathHash) {
         for (DiskInfo diskInfo : disksRef.get().values()) {
             if (diskInfo.getPathHash() == pathHash) {
@@ -658,6 +673,10 @@ public class Backend implements Writable {
 
     private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {
         return disksRef.get().values().stream().filter(v -> v.getStorageMedium() == storageMedium).count();
+    }
+
+    private int getDiskNum() {
+        return disksRef.get().size();
     }
 
     /**

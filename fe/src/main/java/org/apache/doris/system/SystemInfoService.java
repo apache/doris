@@ -736,7 +736,8 @@ public class SystemInfoService {
 
     public List<Long> seqChooseBackendIds(int backendNum, boolean needAlive, boolean isCreate,
                                                        String clusterName) {
-        return seqChooseBackendIds(backendNum, needAlive, isCreate, clusterName, getClusterBackends(clusterName));
+        final List<Backend> backends = getClusterBackends(clusterName).stream().filter(v -> !v.diskExceedLimit()).collect(Collectors.toList());
+        return seqChooseBackendIds(backendNum, needAlive, isCreate, clusterName, backends);
     }
 
     // choose backends by round robin
