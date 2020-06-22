@@ -103,7 +103,7 @@ Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* byt
     if (position >= _buffer_limit || position < _buffer_offset) {
         // if requested length is larger than the capacity of buffer, do not
         // need to copy the character into local buffer.
-        if (nbytes > _buffer_limit - _buffer_offset) {
+        if (nbytes > _buffer_size) {
             return _reader->readat(position, nbytes, bytes_read, out);
         }
         _buffer_offset = position;
