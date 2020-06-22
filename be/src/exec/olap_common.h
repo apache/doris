@@ -186,7 +186,7 @@ public:
         _is_convertible(true) {}
 
     template<class T>
-    Status extend_scan_key(ColumnValueRange<T>& range);
+    Status extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
@@ -615,7 +615,7 @@ bool ColumnValueRange<T>::has_intersection(ColumnValueRange<T>& range) {
 }
 
 template<class T>
-Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
+Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num) {
     using namespace std;
     typedef typename set<T>::const_iterator const_iterator_type;
 
@@ -636,8 +636,8 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
     bool has_converted = false;
 
     if (range.is_fixed_value_range()) {
-        if ((_begin_scan_keys.empty() && range.get_fixed_value_size() > config::doris_max_scan_key_num)
-                || range.get_fixed_value_size() * _begin_scan_keys.size() > config::doris_max_scan_key_num) {
+        if ((_begin_scan_keys.empty() && range.get_fixed_value_size() > max_scan_key_num)
+                || range.get_fixed_value_size() * _begin_scan_keys.size() > max_scan_key_num) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
             } else {
@@ -647,7 +647,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
     } else {
         if (range.is_fixed_value_convertible() && _is_convertible) {
             if (_begin_scan_keys.empty()) {
-                if (range.get_convertible_fixed_value_size() < config::doris_max_scan_key_num) {
+                if (range.get_convertible_fixed_value_size() < max_scan_key_num) {
                     if (range.is_low_value_mininum() && range.is_high_value_maximum()) {
                         has_converted = true;
                     }
@@ -656,7 +656,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
                 }
             } else {
                 if (range.get_convertible_fixed_value_size() * _begin_scan_keys.size()
-                        < config::doris_max_scan_key_num) {
+                        < max_scan_key_num) {
                     if (range.is_low_value_mininum() && range.is_high_value_maximum()) {
                         has_converted = true;
                     }

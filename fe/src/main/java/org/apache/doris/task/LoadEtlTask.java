@@ -62,7 +62,7 @@ public abstract class LoadEtlTask extends MasterTask {
         super();
         this.job = job;
         this.signature = job.getId();
-        this.load = Catalog.getInstance().getLoadInstance();
+        this.load = Catalog.getCurrentCatalog().getLoadInstance();
     }
 
     protected String getErrorMsg() {
@@ -84,7 +84,7 @@ public abstract class LoadEtlTask extends MasterTask {
         
         // check db
         long dbId = job.getDbId();
-        db = Catalog.getInstance().getDb(dbId);
+        db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
             return;

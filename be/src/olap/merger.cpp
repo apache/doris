@@ -24,6 +24,7 @@
 #include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
+#include "util/trace.h"
 
 namespace doris {
 
@@ -32,6 +33,8 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
                                  const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                                  RowsetWriter* dst_rowset_writer,
                                  Merger::Statistics* stats_output) {
+    TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
+
     Reader reader;
     ReaderParams reader_params;
     reader_params.tablet = tablet;

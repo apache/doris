@@ -294,6 +294,16 @@ public class DistributedPlanner {
         // broadcast: send the rightChildFragment's output to each node executing
         // the leftChildFragment; the cost across all nodes is proportional to the
         // total amount of data sent
+
+        // NOTICE:
+        // for now, only MysqlScanNode and OlapScanNode has Cardinality.
+        // OlapScanNode's cardinality is calculated by row num and data size,
+        // and MysqlScanNode's cardinality is always 0.
+        // Other ScanNode's cardinality is -1.
+        //
+        // So if there are other kind of scan node in join query, it won't be able to calculate the cost of
+        // join normally and result in both "broadcastCost" and "partitionCost" be 0. And this will lead
+        // to a SHUFFLE join.
         PlanNode rhsTree = rightChildFragment.getPlanRoot();
         long rhsDataSize = 0;
         long broadcastCost = 0;
@@ -335,14 +345,13 @@ public class DistributedPlanner {
         // - and we're not doing a full or right outer join (those require the left-hand
         //   side to be partitioned for correctness)
         // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
-        // we do a "<=" comparison of the costs so that we default to broadcast joins if
-        // we're unable to estimate the cost
+        // we set partition join as default when broadcast join cost equals partition join cost
         if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
                 && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN
                 && (perNodeMemLimit == 0 || Math.round(
                 (double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
                 && (node.getInnerRef().isBroadcastJoin() || (!node.getInnerRef().isPartitionJoin()
-                && broadcastCost <= partitionCost))) {
+                && broadcastCost < partitionCost))) {
             doBroadcast = true;
         } else {
             doBroadcast = false;

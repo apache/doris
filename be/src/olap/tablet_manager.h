@@ -71,6 +71,9 @@ public:
 
     TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type, DataDir* data_dir);
 
+    BaseTabletSharedPtr get_base_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                                        bool include_deleted = false, std::string* err = nullptr);
+
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
 
@@ -140,10 +143,10 @@ private:
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
     OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
-                                    const TabletSharedPtr& tablet, bool update_meta, bool force);
+                                    const BaseTabletSharedPtr& tablet, bool update_meta, bool force);
 
     OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
-                                           const TabletSharedPtr& tablet, bool update_meta,
+                                           const BaseTabletSharedPtr& tablet, bool update_meta,
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
@@ -156,16 +159,19 @@ private:
 
     OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
 
+    BaseTabletSharedPtr _get_base_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash);
+    BaseTabletSharedPtr _get_base_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+                                                  bool include_deleted, std::string* err);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
                                          bool include_deleted, std::string* err);
 
-    TabletSharedPtr _internal_create_tablet_unlocked(const AlterTabletType alter_type,
-                                                     const TCreateTabletReq& request,
-                                                     const bool is_schema_change,
-                                                     const Tablet* base_tablet,
-                                                     const std::vector<DataDir*>& data_dirs);
-    TabletSharedPtr _create_tablet_meta_and_dir_unlocked(const TCreateTabletReq& request,
+    BaseTabletSharedPtr _internal_create_tablet_unlocked(const AlterTabletType alter_type,
+                                                         const TCreateTabletReq& request,
+                                                         const bool is_schema_change,
+                                                         const Tablet* base_tablet,
+                                                         const std::vector<DataDir*>& data_dirs);
+    BaseTabletSharedPtr _create_tablet_meta_and_dir_unlocked(const TCreateTabletReq& request,
                                                          const bool is_schema_change,
                                                          const Tablet* base_tablet,
                                                          const std::vector<DataDir*>& data_dirs);
@@ -177,9 +183,9 @@ private:
 
     void _build_tablet_stat();
 
-    void _add_tablet_to_partition(const Tablet& tablet);
+    void _add_tablet_to_partition(const BaseTablet& tablet);
 
-    void _remove_tablet_from_partition(const Tablet& tablet);
+    void _remove_tablet_from_partition(const BaseTablet& tablet);
 
     inline RWMutex& _get_tablet_map_lock(TTabletId tabletId);
 
@@ -193,7 +199,7 @@ private:
         // The first element(i.e. tablet_arr[0]) is the base tablet. When we add new tablet
         // to tablet_arr, we will sort all the elements in create-time ascending order,
         // which will ensure the first one is base-tablet
-        std::list<TabletSharedPtr> table_arr;
+        std::list<BaseTabletSharedPtr> table_arr;
     };
     // tablet_id -> TabletInstances
     typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
@@ -209,7 +215,7 @@ private:
     RWMutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
-    std::vector<TabletSharedPtr> _shutdown_tablets;
+    std::vector<BaseTabletSharedPtr> _shutdown_tablets;
 
     std::mutex _tablet_stat_mutex;
     // cache to save tablets' statistics, such as data-size and row-count

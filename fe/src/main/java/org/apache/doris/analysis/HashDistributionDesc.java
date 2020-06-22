@@ -17,10 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
-import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -102,8 +103,12 @@ public class HashDistributionDesc extends DistributionDesc {
             boolean find = false;
             for (Column column : columns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (!column.isKey()) {
+                    if (!column.isKey() && column.getAggregationType() != AggregateType.NONE) {
                         throw new DdlException("Distribution column[" + colName + "] is not key column");
+                    }
+
+                    if (column.getType().isFloatingPointType()) {
+                        throw new DdlException("Floating point type column can not be distribution column");
                     }
 
                     distributionColumns.add(column);

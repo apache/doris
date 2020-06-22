@@ -39,7 +39,7 @@ struct RowBlockInfo {
 
     uint32_t checksum;
     uint32_t row_num;       // block最大数据行数
-    bool null_supported;
+    bool null_supported = false;
     std::vector<uint32_t> column_ids;
 };
 

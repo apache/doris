@@ -49,6 +49,8 @@ namespace doris {
       (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) \
       ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
+#define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
+      ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
 #define SCOPED_RAW_TIMER(c) \
       ScopedRawTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
 #define COUNTER_UPDATE(c, v) (c)->update(v)
@@ -275,16 +277,10 @@ public:
         MonotonicStopWatch _sw;
     };
 
-    // Create a runtime profile object with 'name'.  Counters and merged profile are
-    // allocated from pool.
-    RuntimeProfile(ObjectPool* pool, const std::string& name, bool is_averaged_profile = false);
+    // Create a runtime profile object with 'name'.
+    RuntimeProfile(const std::string& name, bool is_averaged_profile = false);
 
     ~RuntimeProfile();
-
-    // Deserialize from thrift.  Runtime profiles are allocated from the pool.
-    static RuntimeProfile* create_from_thrift(
-            ObjectPool* pool,
-            const TRuntimeProfileTree& profiles);
 
     // Adds a child profile.  This is thread safe.
     // 'indent' indicates whether the child will be printed w/ extra indentation
@@ -601,13 +597,6 @@ private:
     // for updating them.
     static PeriodicCounterUpdateState _s_periodic_counter_update_state;
 
-    // Create a subtree of runtime profiles from nodes, starting at *node_idx.
-    // On return, *node_idx is the index one past the end of this subtree
-    static RuntimeProfile* create_from_thrift(
-            ObjectPool* pool,
-            const std::vector<TRuntimeProfileNode>& nodes,
-            int* node_idx);
-
     // update a subtree of profiles from nodes, rooted at *idx.
     // On return, *idx points to the node immediately following this subtree.
     void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx);
@@ -672,12 +661,11 @@ private:
 template<class T>
 class ScopedTimer {
 public:
-    ScopedTimer(RuntimeProfile::Counter* counter) :
-        _counter(counter) {
+    ScopedTimer(RuntimeProfile::Counter* counter, const bool* is_cancelled = nullptr) :
+        _counter(counter), _is_cancelled(is_cancelled) {
         if (counter == NULL) {
             return;
         }
-
         DCHECK(counter->type() == TUnit::TIME_NS);
         _sw.start();
     }
@@ -690,8 +678,12 @@ public:
         _sw.start();
     }
 
+    bool is_cancelled() {
+        return _is_cancelled != nullptr && *_is_cancelled;
+    }
+
     void UpdateCounter() {
-        if (_counter != NULL) {
+        if (_counter != NULL && !is_cancelled()) {
             _counter->update(_sw.elapsed_time());
         }
     }
@@ -709,6 +701,7 @@ private:
 
     T _sw;
     RuntimeProfile::Counter* _counter;
+    const bool* _is_cancelled;
 };
 
 // Utility class to update time elapsed when the object goes out of scope.

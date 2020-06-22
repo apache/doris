@@ -35,6 +35,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
@@ -1117,14 +1118,14 @@ public class PaloAuth implements Writable {
                 // This may happen when we grant non global privs to a non exist user via GRANT stmt.
                 LOG.warn("user identity does not have global priv entry: {}", userIdent);
                 userAuthInfo.add(userIdent.toString());
-                userAuthInfo.add("N/A");
-                userAuthInfo.add("N/A");
+                userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
             } else {
                 // this is a domain user identity and fall in here, which means this user identity does not
                 // have global priv, we need to check user property to see if it has password.
                 userAuthInfo.add(userIdent.toString());
                 userAuthInfo.add(propertyMgr.doesUserHasPassword(userIdent) ? "No" : "Yes");
-                userAuthInfo.add("N/A");
+                userAuthInfo.add(FeConstants.null_string);
             }
         }
 
@@ -1139,7 +1140,7 @@ public class PaloAuth implements Writable {
                     + " (" + entry.isSetByDomainResolver() + ")");
         }
         if (dbPrivs.isEmpty()) {
-            userAuthInfo.add("N/A");
+            userAuthInfo.add(FeConstants.null_string);
         } else {
             userAuthInfo.add(Joiner.on("; ").join(dbPrivs));
         }
@@ -1156,7 +1157,7 @@ public class PaloAuth implements Writable {
                     + " (" + entry.isSetByDomainResolver() + ")");
         }
         if (tblPrivs.isEmpty()) {
-            userAuthInfo.add("N/A");
+            userAuthInfo.add(FeConstants.null_string);
         } else {
             userAuthInfo.add(Joiner.on("; ").join(tblPrivs));
         }
@@ -1172,7 +1173,7 @@ public class PaloAuth implements Writable {
                                       + " (" + entry.isSetByDomainResolver() + ")");
         }
         if (resourcePrivs.isEmpty()) {
-            userAuthInfo.add("N/A");
+            userAuthInfo.add(FeConstants.null_string);
         } else {
             userAuthInfo.add(Joiner.on("; ").join(resourcePrivs));
         }

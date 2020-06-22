@@ -74,7 +74,7 @@ public class BDBHA implements HAProtocol {
                 DatabaseEntry theData = new DatabaseEntry(new byte[1]);
                 OperationStatus status = epochDb.putNoOverwrite(null, theKey, theData);
                 if (status == OperationStatus.SUCCESS) {
-                    Catalog.getInstance().setEpoch(myEpoch);
+                    Catalog.getCurrentCatalog().setEpoch(myEpoch);
                     return true;
                 } else if (status == OperationStatus.KEYEXIST) {
                     return false;

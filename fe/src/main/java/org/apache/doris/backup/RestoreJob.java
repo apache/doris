@@ -292,8 +292,8 @@ public class RestoreJob extends AbstractJob {
         }
 
         if (System.currentTimeMillis() - createTime > timeoutMs) {
-            status = new Status(ErrCode.TIMEOUT, "");
-            cancel();
+            status = new Status(ErrCode.TIMEOUT, "restore job with label: " + label + "  timeout.");
+            cancelInternal(false);
             return;
         }
 
@@ -781,7 +781,8 @@ public class RestoreJob extends AbstractJob {
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
                             localTbl.getCopiedIndexes(),
-                            localTbl.isInMemory());
+                            localTbl.isInMemory(),
+                            localTbl.getPartitionInfo().getTabletType(restorePart.getId()));
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }

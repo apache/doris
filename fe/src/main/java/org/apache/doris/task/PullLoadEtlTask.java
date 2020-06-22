@@ -39,7 +39,7 @@ public class PullLoadEtlTask extends LoadEtlTask {
 
     public PullLoadEtlTask(LoadJob job) {
         super(job);
-        mgr = Catalog.getInstance().getPullLoadJobMgr();
+        mgr = Catalog.getCurrentCatalog().getPullLoadJobMgr();
     }
 
     @Override

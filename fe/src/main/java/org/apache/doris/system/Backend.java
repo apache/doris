@@ -21,6 +21,7 @@ import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -94,6 +95,9 @@ public class Backend implements Writable {
     // this field is set by tablet report, and just for metric monitor, no need to persist.
     private AtomicLong tabletMaxCompactionScore = new AtomicLong(0);
 
+    // additional backendStatus information for BE, display in JSON format
+    private BackendStatus backendStatus = new BackendStatus();
+
     public Backend() {
         this.host = "";
         this.version = "";
@@ -105,9 +109,9 @@ public class Backend implements Writable {
         this.bePort = new AtomicInteger();
         this.httpPort = new AtomicInteger();
         this.beRpcPort = new AtomicInteger();
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
-        this.ownerClusterName = new AtomicReference<String>("");
+        this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
@@ -123,12 +127,12 @@ public class Backend implements Writable {
         this.beRpcPort = new AtomicInteger(-1);
         this.lastUpdateMs = new AtomicLong(-1L);
         this.lastStartTime = new AtomicLong(-1L);
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
         this.isAlive = new AtomicBoolean(false);
         this.isDecommissioned = new AtomicBoolean(false);
 
-        this.ownerClusterName = new AtomicReference<String>(""); 
+        this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
     }
@@ -260,6 +264,10 @@ public class Backend implements Writable {
 
     public void setDisks(ImmutableMap<String, DiskInfo> disks) {
         this.disksRef.set(disks);
+    }
+
+    public BackendStatus getBackendStatus() {
+        return backendStatus;
     }
 
     /**
@@ -435,7 +443,7 @@ public class Backend implements Writable {
             disksRef.set(ImmutableMap.copyOf(newDiskInfos));
             Catalog.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
             // log disk changing
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
+            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(this);
         }
     }
 
@@ -630,6 +638,17 @@ public class Backend implements Writable {
 
     public long getTabletMaxCompactionScore() {
         return tabletMaxCompactionScore.get();
+    }
+
+    /**
+     * Note: This class must be a POJO in order to display in JSON format
+     * Add additional information in the class to show in `show backends`
+     * if just change new added backendStatus, you can do like following
+     *     BackendStatus status = Backend.getBackendStatus();
+     *     status.newItem = xxx;
+     */
+    public class BackendStatus {
+        public String lastSuccessReportTabletsTime = FeConstants.null_string;
     }
 }
 

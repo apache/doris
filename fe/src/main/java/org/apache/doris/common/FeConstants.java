@@ -51,4 +51,7 @@ public class FeConstants {
     // general model
     // Current meta data version. Use this version to write journals and image
     public static int meta_version = FeMetaVersion.VERSION_CURRENT;
+
+    // use \N to indicate NULL
+    public static String null_string = "\\N";
 }

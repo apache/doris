@@ -70,7 +70,7 @@ Status ExchangeNode::prepare(RuntimeState* state) {
             state, _input_row_desc,
             state->fragment_instance_id(), _id,
             _num_senders, config::exchg_node_buffer_size_bytes,
-            state->runtime_profile(), _is_merging, _sub_plan_query_statistics_recvr);
+            _runtime_profile.get(), _is_merging, _sub_plan_query_statistics_recvr);
     if (_is_merging) {
         RETURN_IF_ERROR(_sort_exec_exprs.prepare(
                     state, _row_descriptor, _row_descriptor, expr_mem_tracker()));
@@ -110,7 +110,7 @@ Status ExchangeNode::close(RuntimeState* state) {
     if (_stream_recvr != NULL) {
         _stream_recvr->close();
     }
-    _stream_recvr.reset();
+    // _stream_recvr.reset();
     return ExecNode::close(state);
 }
 

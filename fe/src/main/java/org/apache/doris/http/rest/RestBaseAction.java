@@ -116,7 +116,7 @@ public class RestBaseAction extends BaseAction {
     }
 
     public boolean redirectToMaster(BaseRequest request, BaseResponse response) throws DdlException {
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         if (catalog.isMaster()) {
             return false;
         }

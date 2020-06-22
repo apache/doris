@@ -197,19 +197,19 @@ public:
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
-    OLAPStatus _open();
+    Status _open();
 
     // Clear status(tables, ...)
     void _clear();
 
-    OLAPStatus _init_store_map();
+    Status _init_store_map();
 
     void _update_storage_medium_type_count();
 
     // Some check methods
-    OLAPStatus _check_file_descriptor_number();
-    OLAPStatus _check_all_root_path_cluster_id();
-    OLAPStatus _judge_and_update_effective_cluster_id(int32_t cluster_id);
+    Status _check_file_descriptor_number();
+    Status _check_all_root_path_cluster_id();
+    Status _judge_and_update_effective_cluster_id(int32_t cluster_id);
 
     bool _delete_tablets_on_unused_root_path();
 

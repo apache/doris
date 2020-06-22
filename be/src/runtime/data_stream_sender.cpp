@@ -381,7 +381,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _state = state;
     std::stringstream title;
     title << "DataStreamSender (dst_id=" << _dest_node_id << ")";
-    _profile = _pool->add(new RuntimeProfile(_pool, title.str()));
+    _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker.reset(
             new MemTracker(_profile, -1, "DataStreamSender", state->instance_mem_tracker()));

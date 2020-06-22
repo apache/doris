@@ -105,8 +105,6 @@ under the License.
         例子：DROP ROLLUP r1,r2
     2.2 注意：
             1) 不能删除 base index
-            2) 执行 DROP ROLLUP 一段时间内，可以通过 RECOVER 语句恢复被删除的 rollup index。详见 RECOVER 语句
-
             
     schema change 支持如下几种修改方式：
     1. 向指定 index 的指定位置添加一列

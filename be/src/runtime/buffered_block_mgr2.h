@@ -515,9 +515,9 @@ private:
     // Equal to the number of disks.
     const int _block_write_threshold;
 
-    // If true, spilling is disabled. The client calls will fail if there is not enough
+    // If false, spilling is disabled. The client calls will fail if there is not enough
     // memory.
-    const bool _disable_spill;
+    const bool _enable_spill;
 
     const TUniqueId _query_id;
 

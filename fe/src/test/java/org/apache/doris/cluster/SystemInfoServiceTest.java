@@ -102,7 +102,7 @@ public class SystemInfoServiceTest {
                 catalog.clear();
                 minTimes = 0;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 

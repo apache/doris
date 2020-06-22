@@ -17,6 +17,7 @@
 
 #include "olap/base_compaction.h"
 #include "util/doris_metrics.h"
+#include "util/trace.h"
 
 namespace doris {
 
@@ -36,22 +37,28 @@ OLAPStatus BaseCompaction::compact() {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
     }
+    TRACE("got base compaction lock");
 
     // 1. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
+    TRACE("rowsets picked");
+    TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
 
     // 2. do base compaction, merge rowsets
     RETURN_NOT_OK(do_compaction());
+    TRACE("compaction finished");
 
     // 3. set state to success
     _state = CompactionState::SUCCESS;
 
-    // 4. garbage collect input rowsets after base compaction 
-    RETURN_NOT_OK(gc_unused_rowsets());
-
-    // 5. add metric to base compaction
+    // 4. add metric to base compaction
     DorisMetrics::instance()->base_compaction_deltas_total.increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total.increment(_input_rowsets_size);
+    TRACE("save base compaction metrics");
+
+    // 5. garbage collect input rowsets after base compaction 
+    RETURN_NOT_OK(gc_unused_rowsets());
+    TRACE("unused rowsets have been moved to GC queue");
 
     return OLAP_SUCCESS;
 }

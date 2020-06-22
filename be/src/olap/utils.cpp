@@ -22,7 +22,11 @@
 #include <sys/stat.h>
 #include <time.h>
 
+#include <stdlib.h>
+#include <unistd.h>
 #include <string>
+#include <cstring>
+#include <cstdint>
 #include <vector>
 
 #include <boost/filesystem.hpp>
@@ -30,6 +34,7 @@
 #include <errno.h>
 #include <lz4/lz4.h>
 #include "util/file_utils.h"
+#include "olap/file_helper.h"
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
@@ -50,6 +55,7 @@
 using std::string;
 using std::set;
 using std::vector;
+using std::unique_ptr;
 
 namespace doris {
 
@@ -973,6 +979,92 @@ COPY_EXIT:
     
     return res;
 }
+OLAPStatus read_write_test_file(const string& test_file_path) {
+    if (access(test_file_path.c_str(), F_OK) == 0) {
+        if (remove(test_file_path.c_str()) != 0) {
+            char errmsg[64];
+            LOG(WARNING) << "fail to delete test file. "
+                         << "path=" << test_file_path
+                         << ", errno=" << errno << ", err=" << strerror_r(errno, errmsg, 64);
+            return OLAP_ERR_IO_ERROR;
+        }
+    } else {
+        if (errno != ENOENT) {
+            char errmsg[64];
+            LOG(WARNING) << "fail to access test file. "
+                         << "path=" << test_file_path
+                         << ", errno=" << errno << ", err=" << strerror_r(errno, errmsg, 64);
+            return OLAP_ERR_IO_ERROR;
+        }
+    }
+    OLAPStatus res = OLAP_SUCCESS;
+    FileHandler file_handler;
+    if ((res = file_handler.open_with_mode(test_file_path.c_str(),
+                                           O_RDWR | O_CREAT | O_DIRECT,
+                                           S_IRUSR | S_IWUSR)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to create test file. path=" << test_file_path;
+        return res;
+    }
+    const size_t TEST_FILE_BUF_SIZE = 4096;
+    const size_t DIRECT_IO_ALIGNMENT = 512;
+    char *write_test_buff = nullptr;
+    char *read_test_buff = nullptr;
+    if (posix_memalign((void**) &write_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE)!= 0) {
+        LOG(WARNING) << "fail to allocate write buffer memory. size=" <<  TEST_FILE_BUF_SIZE;
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    unique_ptr<char, decltype(&std::free)> write_buff (write_test_buff, &std::free);
+    if (posix_memalign((void**) &read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE)!= 0) {
+        LOG(WARNING) << "fail to allocate read buffer memory. size=" <<  TEST_FILE_BUF_SIZE;
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    unique_ptr<char, decltype(&std::free)> read_buff (read_test_buff, &std::free);
+    // generate random numbers
+    uint32_t rand_seed = static_cast<uint32_t>(time(NULL));
+    for (size_t i = 0; i < TEST_FILE_BUF_SIZE; ++i) {
+        int32_t tmp_value = rand_r(&rand_seed);
+        write_test_buff[i] = static_cast<char>(tmp_value);
+    }
+    if ((res = file_handler.pwrite(write_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to write test file. [file_name=" << test_file_path << "]";
+        return res;
+    }
+    if ((res = file_handler.pread(read_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to read test file. [file_name=" << test_file_path << "]";
+        return res;
+    }
+    if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
+        LOG(WARNING) << "the test file write_buf and read_buf not equal, [file_name = " << test_file_path << "]";
+        return OLAP_ERR_TEST_FILE_ERROR;
+    }
+    if ((res = file_handler.close()) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to close test file. [file_name=" << test_file_path << "]";
+        return res;
+    }
+    if (remove(test_file_path.c_str()) != 0) {
+        char errmsg[64];
+        VLOG(3) << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64)
+                << "' path='" << test_file_path << "']";
+        return OLAP_ERR_IO_ERROR;
+    }
+    return res;
+}
+
+bool check_datapath_rw(const string& path) {
+    if (!FileUtils::check_exist(path))
+        return false;
+    string file_path = path + "/.read_write_test_file";
+    try {
+        OLAPStatus res = read_write_test_file(file_path);
+        return res == OLAP_SUCCESS;
+    } catch (...) {
+        // do nothing
+    }
+    LOG(WARNING) << "error when try to read and write temp file under the data path and return false. [path=" << path << "]";
+    return false;
+}
+
+
 
 OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
     boost::filesystem::path src_path(src_dir.c_str());

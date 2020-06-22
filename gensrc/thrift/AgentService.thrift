@@ -21,6 +21,7 @@ namespace java org.apache.doris.thrift
 include "Status.thrift"
 include "Types.thrift"
 include "PaloInternalService.thrift"
+include "PlanNodes.thrift"
 include "Descriptors.thrift"
 include "Exprs.thrift"
 
@@ -55,6 +56,11 @@ enum TStorageFormat {
     V2
 }
 
+enum TTabletType {
+    TABLET_TYPE_DISK = 0,
+    TABLET_TYPE_MEMORY = 1
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -74,6 +80,7 @@ struct TCreateTabletReq {
     // indicate whether this tablet is a compute storage split mode, we call it "eco mode"
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
+    14: optional TTabletType tablet_type
 }
 
 struct TDropTabletReq {
@@ -121,6 +128,9 @@ struct TPushReq {
     // fe should inform be that this request is running during schema change
     // be should write two files
     13: optional bool is_schema_changing
+    // 14 and 15 are used by spark load
+    14: optional PlanNodes.TBrokerScanRange broker_scan_range
+    15: optional Descriptors.TDescriptorTable desc_tbl
 }
 
 struct TCloneReq {

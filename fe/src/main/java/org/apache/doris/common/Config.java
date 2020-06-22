@@ -474,10 +474,16 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 600; // 600s
 
     /*
-     * Max load timeout applicable to all type of load
+     * Max load timeout applicable to all type of load except for stream load
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_load_timeout_second = 259200; // 3days
+
+    /*
+     * Max stream load and streaming mini load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_stream_load_timeout_second = 259200; // 3days
 
     /*
     * Min stream load timeout applicable to all type of load
@@ -490,6 +496,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
+
+    /*
+     * Default spark load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int spark_load_default_timeout_second = 86400; // 1 day
 
     /*
      * Default number of waiting jobs for routine load and version 2 of load
@@ -668,10 +680,6 @@ public class Config extends ConfigBase {
      * Maximal number of connections per FE.
      */
     @ConfField public static int qe_max_connection = 1024;
-    /*
-     * Maximal number of connections per user, per FE.
-     */
-    @ConfField public static int max_conn_per_user = 100;
 
     /*
      * Maximal number of thread in connection-scheduler-pool.
@@ -1060,7 +1068,7 @@ public class Config extends ConfigBase {
      * control materialized view
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_materialized_view = false;
+    public static boolean enable_materialized_view = true;
 
     /**
      * it can't auto-resume routine load job as long as one of the backends is down

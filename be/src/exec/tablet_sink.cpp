@@ -83,8 +83,8 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
 
-    _load_info = "load_id=" + print_id(_parent->_load_id) + ", txn_id" +
-                 std::to_string(_parent->_txn_id);
+    _load_info = "load_id=" + print_id(_parent->_load_id) +
+                 ", txn_id=" + std::to_string(_parent->_txn_id);
     _name = "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
     return Status::OK();
 }
@@ -141,7 +141,7 @@ Status NodeChannel::open_wait() {
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
         _cancelled = true;
-        LOG(WARNING) << "NodeChannel add batch req rpc failed, " << print_load_info()
+        LOG(WARNING) << name() << " add batch req rpc failed, " << print_load_info()
                      << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
     });
 
@@ -160,7 +160,7 @@ Status NodeChannel::open_wait() {
                     }
                 } else {
                     _cancelled = true;
-                    LOG(WARNING) << "NodeChannel add batch req success but status isn't ok, "
+                    LOG(WARNING) << name() << " add batch req success but status isn't ok, "
                                  << print_load_info() << ", node=" << node_info()->host << ":"
                                  << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
                 }
@@ -248,13 +248,12 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     timer.stop();
     VLOG(1) << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
 
-    {
-        std::lock_guard<std::mutex> lg(_pending_batches_lock);
-        DCHECK(_pending_batches.empty());
-        DCHECK(_cur_batch == nullptr);
-    }
-
     if (_add_batches_finished) {
+        {
+            std::lock_guard<std::mutex> lg(_pending_batches_lock);
+            CHECK(_pending_batches.empty()) << name();
+            CHECK(_cur_batch == nullptr) << name();
+        }
         state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
                                             std::make_move_iterator(_tablet_commit_infos.begin()),
                                             std::make_move_iterator(_tablet_commit_infos.end()));
@@ -280,15 +279,6 @@ void NodeChannel::cancel() {
     closure->cntl.set_timeout_ms(_rpc_timeout_ms);
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
     request.release_id();
-
-    // Beware of the destruct sequence. RowBatches will use mem_trackers(include ancestors).
-    // Delete RowBatches here is a better choice to reduce the potential of dtor errors.
-    {
-        std::lock_guard<std::mutex> lg(_pending_batches_lock);
-        std::queue<AddBatchReq> empty;
-        std::swap(_pending_batches, empty);
-        _cur_batch.reset();
-    }
 }
 
 int NodeChannel::try_send_and_fetch_status() {
@@ -358,6 +348,13 @@ Status NodeChannel::none_of(std::initializer_list<bool> vars) {
     return st;
 }
 
+void NodeChannel::clear_all_batches() {
+    std::lock_guard<std::mutex> lg(_pending_batches_lock);
+    std::queue<AddBatchReq> empty;
+    std::swap(_pending_batches, empty);
+    _cur_batch.reset();
+}
+
 IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
@@ -419,7 +416,15 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
     }
 }
 
-OlapTableSink::~OlapTableSink() {}
+OlapTableSink::~OlapTableSink() {
+    // We clear NodeChannels' batches here, cuz NodeChannels' batches destruction will use
+    // OlapTableSink::_mem_tracker and its parents.
+    // But their destructions are after OlapTableSink's.
+    // TODO: can be remove after all MemTrackers become shared.
+    for (auto index_channel : _channels) {
+        index_channel->for_each_node_channel([](NodeChannel* ch) { ch->clear_all_batches(); });
+    }
+}
 
 Status OlapTableSink::init(const TDataSink& t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
@@ -457,7 +462,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _num_senders = state->num_per_fragment_instances();
 
     // profile must add to state's object pool
-    _profile = state->obj_pool()->add(new RuntimeProfile(_pool, "OlapTableSink"));
+    _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
     _mem_tracker = _pool->add(new MemTracker(-1, "OlapTableSink", state->instance_mem_tracker()));
 
     SCOPED_TIMER(_profile->total_time_counter());
@@ -518,6 +523,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             _need_validate_data = true;
             break;
         default:
@@ -574,7 +580,7 @@ Status OlapTableSink::open(RuntimeState* state) {
         index_channel->for_each_node_channel([&index_channel](NodeChannel* ch) {
             auto st = ch->open_wait();
             if (!st.ok()) {
-                LOG(WARNING) << "tablet open failed, " << ch->print_load_info()
+                LOG(WARNING) << ch->name() << ": tablet open failed, " << ch->print_load_info()
                              << ", node=" << ch->node_info()->host << ":"
                              << ch->node_info()->brpc_port << ", errmsg=" << st.get_error_msg();
                 index_channel->mark_as_failed(ch);
@@ -660,8 +666,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
-                index_channel->for_each_node_channel(
-                        [](NodeChannel* ch) { WARN_IF_ERROR(ch->mark_close(), ""); });
+                index_channel->for_each_node_channel([](NodeChannel* ch) { ch->mark_close(); });
             }
 
             for (auto index_channel : _channels) {
@@ -671,7 +676,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                                                       &actual_consume_ns](NodeChannel* ch) {
                     status = ch->close_wait(state);
                     if (!status.ok()) {
-                        LOG(WARNING) << "close channel failed, " << ch->print_load_info();
+                        LOG(WARNING)
+                                << ch->name() << ": close channel failed, " << ch->print_load_info()
+                                << ". error_msg=" << status.get_error_msg();
                     }
                     ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                     &mem_exceeded_block_ns, &queue_push_lock_ns,
@@ -785,9 +792,15 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
     for (int row_no = 0; row_no < batch->num_rows(); ++row_no) {
         Tuple* tuple = batch->get_row(row_no)->get_tuple(0);
         bool row_valid = true;
+        std::stringstream ss; // error message
         for (int i = 0; row_valid && i < _output_tuple_desc->slots().size(); ++i) {
             SlotDescriptor* desc = _output_tuple_desc->slots()[i];
             if (desc->is_nullable() && tuple->is_null(desc->null_indicator_offset())) {
+                if (desc->type().type == TYPE_OBJECT) {
+                    ss << "null is not allowed for bitmap column, column_name: "
+                       << desc->col_name();
+                    row_valid = false;
+                }
                 continue;
             }
             void* slot = tuple->get_slot(desc->tuple_offset());
@@ -797,21 +810,12 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 // Fixed length string
                 StringValue* str_val = (StringValue*)slot;
                 if (str_val->len > desc->type().len) {
-                    std::stringstream ss;
                     ss << "the length of input is too long than schema. "
                        << "column_name: " << desc->col_name() << "; "
                        << "input_str: [" << std::string(str_val->ptr, str_val->len) << "] "
                        << "schema length: " << desc->type().len << "; "
                        << "actual length: " << str_val->len << "; ";
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 // padding 0 to CHAR field
@@ -830,34 +834,17 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 if (dec_val->scale() > desc->type().scale) {
                     int code = dec_val->round(dec_val, desc->type().scale, HALF_UP);
                     if (code != E_DEC_OK) {
-                        std::stringstream ss;
                         ss << "round one decimal failed.value=" << dec_val->to_string();
-#if BE_TEST
-                        LOG(INFO) << ss.str();
-#else
-                        state->append_error_msg_to_file("", ss.str());
-#endif
-
-                        filtered_rows++;
                         row_valid = false;
-                        filter_bitmap->Set(row_no, true);
                         continue;
                     }
                 }
                 if (*dec_val > _max_decimal_val[i] || *dec_val < _min_decimal_val[i]) {
-                    std::stringstream ss;
                     ss << "decimal value is not valid for defination, column=" << desc->col_name()
                        << ", value=" << dec_val->to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 break;
@@ -868,34 +855,17 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     int code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
                     reinterpret_cast<PackedInt128*>(slot)->value = dec_val.value();
                     if (code != E_DEC_OK) {
-                        std::stringstream ss;
                         ss << "round one decimal failed.value=" << dec_val.to_string();
-#if BE_TEST
-                        LOG(INFO) << ss.str();
-#else
-                        state->append_error_msg_to_file("", ss.str());
-#endif
-
-                        filtered_rows++;
                         row_valid = false;
-                        filter_bitmap->Set(row_no, true);
                         continue;
                     }
                 }
                 if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
-                    std::stringstream ss;
                     ss << "decimal value is not valid for defination, column=" << desc->col_name()
                        << ", value=" << dec_val.to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 break;
@@ -903,17 +873,9 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
             case TYPE_HLL: {
                 Slice* hll_val = (Slice*)slot;
                 if (!HyperLogLog::is_valid(*hll_val)) {
-                    std::stringstream ss;
                     ss << "Content of HLL type column is invalid"
                        << "column_name: " << desc->col_name() << "; ";
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 break;
@@ -921,6 +883,16 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
             default:
                 break;
             }
+        }
+
+        if (!row_valid) {
+            filtered_rows++;
+            filter_bitmap->Set(row_no, true);
+#if BE_TEST
+            LOG(INFO) << ss.str();
+#else
+            state->append_error_msg_to_file("", ss.str());
+#endif
         }
     }
     return filtered_rows;

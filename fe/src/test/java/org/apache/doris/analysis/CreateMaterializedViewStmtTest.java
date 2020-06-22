@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -584,15 +585,19 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 slotRef4.getColumnName();
                 result = columnName4;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList(slotRef1, slotRef2, slotRef3, slotRef4);
-                slotRef1.getType().getStorageLayoutBytes();
-                result = 35;
-                slotRef2.getType().getStorageLayoutBytes();
-                result = 2;
-                slotRef3.getType().getStorageLayoutBytes();
-                result = 3;
-                slotRef4.getType().getStorageLayoutBytes();
+                slotRef1.getType().getIndexSize();
+                result = 34;
+                slotRef1.getType().getPrimitiveType();
+                result = PrimitiveType.INT;
+                slotRef2.getType().getIndexSize();
+                result = 1;
+                slotRef2.getType().getPrimitiveType();
+                result = PrimitiveType.INT;
+                slotRef3.getType().getIndexSize();
+                result = 1;
+                slotRef3.getType().getPrimitiveType();
+                result = PrimitiveType.INT;
+                slotRef4.getType().getIndexSize();
                 result = 4;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
@@ -630,6 +635,306 @@ public class CreateMaterializedViewStmtTest {
             Assert.fail(e.getMessage());
         }
     }
+
+    /*
+    ISSUE: #3811
+     */
+    @Test
+    public void testMVColumnsWithoutOrderbyWithoutAggregationWithFloat(@Injectable SlotRef slotRef1,
+            @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
+            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+        SelectList selectList = new SelectList();
+        SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
+        selectList.addItem(selectListItem1);
+        SelectListItem selectListItem2 = new SelectListItem(slotRef2, null);
+        selectList.addItem(selectListItem2);
+        SelectListItem selectListItem3 = new SelectListItem(slotRef3, null);
+        selectList.addItem(selectListItem3);
+        SelectListItem selectListItem4 = new SelectListItem(slotRef4, null);
+        selectList.addItem(selectListItem4);
+
+        final String columnName1 = "k1";
+        final String columnName2 = "k2";
+        final String columnName3 = "v1";
+        final String columnName4 = "v2";
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default";
+                selectStmt.getAggInfo();
+                result = null;
+                selectStmt.getSelectList();
+                result = selectList;
+                selectStmt.getTableRefs();
+                result = Lists.newArrayList(tableRef);
+                selectStmt.getWhereClause();
+                result = null;
+                selectStmt.getHavingPred();
+                result = null;
+                selectStmt.getOrderByElements();
+                result = null;
+                selectStmt.getLimit();
+                result = -1;
+                selectStmt.analyze(analyzer);
+                slotRef1.getColumnName();
+                result = columnName1;
+                slotRef2.getColumnName();
+                result = columnName2;
+                slotRef3.getColumnName();
+                result = columnName3;
+                slotRef4.getColumnName();
+                result = columnName4;
+                slotRef1.getType().getIndexSize();
+                result = 1;
+                slotRef1.getType().getPrimitiveType();
+                result = PrimitiveType.INT;
+                slotRef2.getType().getIndexSize();
+                result = 2;
+                slotRef2.getType().getPrimitiveType();
+                result = PrimitiveType.INT;
+                slotRef3.getType().getIndexSize();
+                result = 3;
+                slotRef3.getType().isFloatingPointType();
+                result = true;
+                selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
+                result = null;
+            }
+        };
+
+
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        try {
+            createMaterializedViewStmt.analyze(analyzer);
+            Assert.assertEquals(KeysType.DUP_KEYS, createMaterializedViewStmt.getMVKeysType());
+            List<MVColumnItem> mvColumns = createMaterializedViewStmt.getMVColumnItemList();
+            Assert.assertEquals(4, mvColumns.size());
+            MVColumnItem mvColumn0 = mvColumns.get(0);
+            Assert.assertTrue(mvColumn0.isKey());
+            Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(null, mvColumn0.getAggregationType());
+            MVColumnItem mvColumn1 = mvColumns.get(1);
+            Assert.assertTrue(mvColumn1.isKey());
+            Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(null, mvColumn1.getAggregationType());
+            MVColumnItem mvColumn2 = mvColumns.get(2);
+            Assert.assertFalse(mvColumn2.isKey());
+            Assert.assertTrue(mvColumn2.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(AggregateType.NONE, mvColumn2.getAggregationType());
+            MVColumnItem mvColumn3 = mvColumns.get(3);
+            Assert.assertFalse(mvColumn3.isKey());
+            Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
+        } catch (UserException e) {
+            Assert.fail(e.getMessage());
+        }
+    }
+
+    /*
+    ISSUE: #3811
+    */
+    @Test
+    public void testMVColumnsWithoutOrderbyWithoutAggregationWithVarchar(@Injectable SlotRef slotRef1,
+            @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
+            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+        SelectList selectList = new SelectList();
+        SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
+        selectList.addItem(selectListItem1);
+        SelectListItem selectListItem2 = new SelectListItem(slotRef2, null);
+        selectList.addItem(selectListItem2);
+        SelectListItem selectListItem3 = new SelectListItem(slotRef3, null);
+        selectList.addItem(selectListItem3);
+        SelectListItem selectListItem4 = new SelectListItem(slotRef4, null);
+        selectList.addItem(selectListItem4);
+
+        final String columnName1 = "k1";
+        final String columnName2 = "k2";
+        final String columnName3 = "v1";
+        final String columnName4 = "v2";
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default";
+                selectStmt.getAggInfo();
+                result = null;
+                selectStmt.getSelectList();
+                result = selectList;
+                selectStmt.getTableRefs();
+                result = Lists.newArrayList(tableRef);
+                selectStmt.getWhereClause();
+                result = null;
+                selectStmt.getHavingPred();
+                result = null;
+                selectStmt.getOrderByElements();
+                result = null;
+                selectStmt.getLimit();
+                result = -1;
+                selectStmt.analyze(analyzer);
+                slotRef1.getColumnName();
+                result = columnName1;
+                slotRef2.getColumnName();
+                result = columnName2;
+                slotRef3.getColumnName();
+                result = columnName3;
+                slotRef4.getColumnName();
+                result = columnName4;
+                slotRef1.getType().getIndexSize();
+                result = 1;
+                slotRef1.getType().getPrimitiveType();
+                result = PrimitiveType.INT;
+                slotRef2.getType().getIndexSize();
+                result = 2;
+                slotRef2.getType().getPrimitiveType();
+                result = PrimitiveType.INT;
+                slotRef3.getType().getIndexSize();
+                result = 3;
+                slotRef3.getType().getPrimitiveType();
+                result = PrimitiveType.VARCHAR;
+                selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
+                result = null;
+            }
+        };
+
+
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        try {
+            createMaterializedViewStmt.analyze(analyzer);
+            Assert.assertEquals(KeysType.DUP_KEYS, createMaterializedViewStmt.getMVKeysType());
+            List<MVColumnItem> mvColumns = createMaterializedViewStmt.getMVColumnItemList();
+            Assert.assertEquals(4, mvColumns.size());
+            MVColumnItem mvColumn0 = mvColumns.get(0);
+            Assert.assertTrue(mvColumn0.isKey());
+            Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(null, mvColumn0.getAggregationType());
+            MVColumnItem mvColumn1 = mvColumns.get(1);
+            Assert.assertTrue(mvColumn1.isKey());
+            Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(null, mvColumn1.getAggregationType());
+            MVColumnItem mvColumn2 = mvColumns.get(2);
+            Assert.assertTrue(mvColumn2.isKey());
+            Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(null, mvColumn2.getAggregationType());
+            MVColumnItem mvColumn3 = mvColumns.get(3);
+            Assert.assertFalse(mvColumn3.isKey());
+            Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
+        } catch (UserException e) {
+            Assert.fail(e.getMessage());
+        }
+    }
+
+    /*
+    ISSUE: #3811
+     */
+    @Test
+    public void testMVColumnsWithFirstFloat(@Injectable SlotRef slotRef1,
+            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+        SelectList selectList = new SelectList();
+        SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
+        selectList.addItem(selectListItem1);
+
+        final String columnName1 = "k1";
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default";
+                selectStmt.getAggInfo();
+                result = null;
+                selectStmt.getSelectList();
+                result = selectList;
+                selectStmt.getTableRefs();
+                result = Lists.newArrayList(tableRef);
+                selectStmt.getWhereClause();
+                result = null;
+                selectStmt.getHavingPred();
+                result = null;
+                selectStmt.getOrderByElements();
+                result = null;
+                selectStmt.analyze(analyzer);
+                slotRef1.getColumnName();
+                result = columnName1;
+                slotRef1.getType().isFloatingPointType();
+                result = true;
+                selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
+                result = null;
+            }
+        };
+
+
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        try {
+            createMaterializedViewStmt.analyze(analyzer);
+            Assert.fail("The first column could not be float or double, use decimal instead");
+        } catch (UserException e) {
+            System.out.print(e.getMessage());
+        }
+    }
+
+    /*
+    ISSUE: #3811
+    */
+    @Test
+    public void testMVColumnsWithFirstVarchar(@Injectable SlotRef slotRef1,
+            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+        SelectList selectList = new SelectList();
+        SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
+        selectList.addItem(selectListItem1);
+
+        final String columnName1 = "k1";
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default";
+                selectStmt.getAggInfo();
+                result = null;
+                selectStmt.getSelectList();
+                result = selectList;
+                selectStmt.getTableRefs();
+                result = Lists.newArrayList(tableRef);
+                selectStmt.getWhereClause();
+                result = null;
+                selectStmt.getHavingPred();
+                result = null;
+                selectStmt.getOrderByElements();
+                result = null;
+                selectStmt.getLimit();
+                result = -1;
+                selectStmt.analyze(analyzer);
+                slotRef1.getColumnName();
+                result = columnName1;
+                slotRef1.getType().getPrimitiveType();
+                result = PrimitiveType.VARCHAR;
+            }
+        };
+
+
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        try {
+            createMaterializedViewStmt.analyze(analyzer);
+            Assert.assertEquals(KeysType.DUP_KEYS, createMaterializedViewStmt.getMVKeysType());
+            List<MVColumnItem> mvColumns = createMaterializedViewStmt.getMVColumnItemList();
+            Assert.assertEquals(1, mvColumns.size());
+            MVColumnItem mvColumn0 = mvColumns.get(0);
+            Assert.assertTrue(mvColumn0.isKey());
+            Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
+            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(null, mvColumn0.getAggregationType());
+        } catch (UserException e) {
+            Assert.fail(e.getMessage());
+        }
+    }
+
 
     @Test
     public void testMVColumns(@Injectable SlotRef slotRef1,

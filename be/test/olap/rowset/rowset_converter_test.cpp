@@ -165,7 +165,8 @@ public:
         doris::EngineOptions options;
         options.store_paths = paths;
         if (k_engine == nullptr) {
-            doris::StorageEngine::open(options, &k_engine);
+            Status s = doris::StorageEngine::open(options, &k_engine);
+            ASSERT_TRUE(s.ok()) << s.to_string();
         }
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();

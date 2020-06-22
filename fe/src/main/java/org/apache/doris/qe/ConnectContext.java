@@ -25,6 +25,7 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.qe.QueryDetail;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -97,6 +98,8 @@ public class ConnectContext {
 
     protected String remoteIP;
 
+    protected QueryDetail queryDetail;
+
     public static ConnectContext get() {
         return threadLocalInfo.get();
     }
@@ -135,6 +138,7 @@ public class ConnectContext {
         if (channel != null) {
             remoteIP = mysqlChannel.getRemoteIp();
         }
+        queryDetail = null;
     }
 
     public long getStmtId() {
@@ -159,6 +163,14 @@ public class ConnectContext {
 
     public void setRemoteIP(String remoteIP) {
         this.remoteIP = remoteIP;
+    }
+
+    public void setQueryDetail(QueryDetail queryDetail) {
+        this.queryDetail = queryDetail;
+    }
+
+    public QueryDetail getQueryDetail() {
+        return queryDetail;
     }
 
     public AuditEventBuilder getAuditEventBuilder() {
