@@ -27,8 +27,8 @@ import org.apache.spark.sql.catalog.Column;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,7 +63,7 @@ import java.util.stream.Collectors;
 
 public class GlobalDictBuilder {
 
-    protected static final Logger LOG = LoggerFactory.getLogger(GlobalDictBuilder.class);
+    protected static final Logger LOG = LogManager.getLogger(GlobalDictBuilder.class);
 
     // name of the column in doris table which need to build global dict
     // for example: some dict columns a,b,c
