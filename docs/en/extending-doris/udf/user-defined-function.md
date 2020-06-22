@@ -1,7 +1,7 @@
 ---
 {
-    "title": "User Define Function",
-    "language": "en"
+    "title": "User Defined Function",
+    "language": "en"
 }
 ---
 
