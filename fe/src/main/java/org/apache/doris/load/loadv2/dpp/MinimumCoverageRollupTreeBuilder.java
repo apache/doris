@@ -88,26 +88,29 @@ public class MinimumCoverageRollupTreeBuilder implements RollupTreeBuilder {
                     valueColumns.add(column.columnName);
                 }
             }
-            insertIndex(root, indexMetas.get(i), keyColumns, valueColumns, i, flags);
+            if(!insertIndex(root, indexMetas.get(i), keyColumns, valueColumns)) {
+                throw new RuntimeException(String.format("can't find a parent rollup for rollup %s, rollup tree is %s", indexMetas.get(i).toString(),
+                        root.toString()));
+            }
         }
         return root;
     }
 
     // DFS traverse to build the rollup tree
-    private void insertIndex(RollupTreeNode root, EtlJobConfig.EtlIndex indexMeta,
+    // return true means we find a parent rollup for current rollup table
+    private boolean insertIndex(RollupTreeNode root, EtlJobConfig.EtlIndex indexMeta,
                              List<String> keyColumns,
-                             List<String> valueColumns, int id, boolean[] flags) {
+                             List<String> valueColumns) {
+        // find suitable parent rollup from current node's children
         if (root.children != null) {
-            for (RollupTreeNode child : root.children) {
-                insertIndex(child, indexMeta, keyColumns, valueColumns, id, flags);
-                if (flags[id]) {
-                    return;
+            for (int i = root.children.size() - 1; i >= 0; i--) {
+                if(insertIndex(root.children.get(i), indexMeta, keyColumns, valueColumns)){
+                    return true;
                 }
             }
         }
-        if (flags[id]) {
-            return;
-        }
+
+        // find suitable parent rollup from current node
         if (root.keyColumnNames.containsAll(keyColumns) && root.valueColumnNames.containsAll(valueColumns)) {
             if (root.children == null) {
                 root.children = new ArrayList<>();
@@ -120,7 +123,9 @@ public class MinimumCoverageRollupTreeBuilder implements RollupTreeBuilder {
             newChild.parent = root;
             newChild.level = root.level + 1;
             root.children.add(newChild);
-            flags[id] = true;
+            return true;
         }
+
+        return false;
     }
 }
