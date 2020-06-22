@@ -22,6 +22,8 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.external.elasticsearch.EsFieldInfos;
 import org.apache.doris.external.elasticsearch.EsMajorVersion;
+import org.apache.doris.external.elasticsearch.EsNodeInfo;
+import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -402,5 +404,29 @@ public class EsTable extends Table {
 
     public void setLastMetaDataSyncException(Throwable lastMetaDataSyncException) {
         this.lastMetaDataSyncException = lastMetaDataSyncException;
+    }
+
+    /**
+     * set es meta from remote
+     * @param fieldInfos contains docValue and fields
+     * @param esShardPartitions shard partitions for search
+     * @param nodesInfo http-nodes info
+     */
+    public void setRemoteMeta(EsFieldInfos fieldInfos, EsShardPartitions esShardPartitions, Map<String, EsNodeInfo> nodesInfo) {
+        try {
+            if (this.enableKeywordSniff || this.enableDocValueScan) {
+                addFieldInfos(fieldInfos);
+            }
+
+            this.esTablePartitions = EsTablePartitions.fromShardPartitions(this, esShardPartitions);
+
+            if (EsTable.TRANSPORT_HTTP.equals(getTransport())) {
+                this.esTablePartitions.addHttpAddress(nodesInfo);
+            }
+        } catch (Throwable e) {
+            LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", this.name, e);
+            this.esTablePartitions = null;
+            this.lastMetaDataSyncException = e;
+        }
     }
 }

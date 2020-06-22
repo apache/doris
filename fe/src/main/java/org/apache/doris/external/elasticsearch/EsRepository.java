@@ -36,19 +36,19 @@ import java.util.Map;
  * It is used to call es api to get shard allocation state
  */
 public class EsRepository extends MasterDaemon {
-    
+
     private static final Logger LOG = LogManager.getLogger(EsRepository.class);
-    
+
     private Map<Long, EsTable> esTables;
-    
+
     private Map<Long, EsRestClient> esClients;
-    
+
     public EsRepository() {
         super("es state store", Config.es_state_sync_interval_second * 1000);
         esTables = Maps.newConcurrentMap();
         esClients = Maps.newConcurrentMap();
     }
-    
+
     public void registerTable(EsTable esTable) {
         if (Catalog.isCheckpointThread()) {
             return;
@@ -58,36 +58,22 @@ public class EsRepository extends MasterDaemon {
                 new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd()));
         LOG.info("register a new table [{}] to sync list", esTable);
     }
-    
+
     public void deRegisterTable(long tableId) {
         esTables.remove(tableId);
         esClients.remove(tableId);
         LOG.info("deregister table [{}] from sync list", tableId);
     }
-    
+
     @Override
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
                 EsRestClient client = esClients.get(esTable.getId());
-                
-                if (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable()) {
-                    EsFieldInfos fieldInfos = client.getFieldInfos(esTable.getIndexName(), esTable.getMappingType(), esTable.getFullSchema());
-                    if (fieldInfos == null) {
-                        continue;
-                    }
-                    esTable.addFieldInfos(fieldInfos);
-                }
-                
+                EsFieldInfos fieldInfos = client.getFieldInfos(esTable.getIndexName(), esTable.getMappingType(), esTable.getFullSchema());
                 EsShardPartitions esShardPartitions = client.getShardPartitions(esTable.getIndexName());
-                
-                EsTablePartitions esTablePartitions = EsTablePartitions.fromShardPartitions(esTable, esShardPartitions);
-                
-                if (EsTable.TRANSPORT_HTTP.equals(esTable.getTransport())) {
-                    Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
-                    esTablePartitions.addHttpAddress(nodesInfo);
-                }
-                esTable.setEsTablePartitions(esTablePartitions);
+                Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
+                esTable.setRemoteMeta(fieldInfos, esShardPartitions, nodesInfo);
             } catch (Throwable e) {
                 LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
                 esTable.setEsTablePartitions(null);
@@ -95,7 +81,7 @@ public class EsRepository extends MasterDaemon {
             }
         }
     }
-    
+
     // should call this method to init the state store after loading image
     // the rest of tables will be added or removed by replaying edit log
     // when fe is start to load image, should call this method to init the state store
@@ -106,7 +92,7 @@ public class EsRepository extends MasterDaemon {
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database database = Catalog.getCurrentCatalog().getDb(dbId);
-            
+
             List<Table> tables = database.getTables();
             for (Table table : tables) {
                 if (table.getType() == TableType.ELASTICSEARCH) {
