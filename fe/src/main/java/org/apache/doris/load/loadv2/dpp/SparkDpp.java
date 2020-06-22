@@ -746,11 +746,18 @@ public final class SparkDpp implements java.io.Serializable {
     }
 
     private Dataset<Row> loadDataFromHiveTable(SparkSession spark,
-                                               String hiveTableName,
+                                               String hiveDbTableName,
                                                EtlJobConfig.EtlIndex baseIndex,
                                                EtlJobConfig.EtlFileGroup fileGroup,
                                                StructType dstTableSchema) throws UserException {
-        Dataset<Row> dataframe = spark.sql("select * from " + hiveTableName);
+        // select base index columns from hive table
+        StringBuilder sql = new StringBuilder();
+        sql.append("select ");
+        baseIndex.columns.forEach(column -> {
+            sql.append(column.columnName).append(",");
+        });
+        sql.deleteCharAt(sql.length() - 1).append(" from ").append(hiveDbTableName);
+        Dataset<Row> dataframe = spark.sql(sql.toString());
         dataframe = convertSrcDataframeToDstDataframe(baseIndex, dataframe, dstTableSchema, fileGroup);
         return dataframe;
     }
@@ -805,13 +812,13 @@ public final class SparkDpp implements java.io.Serializable {
                 for (EtlJobConfig.EtlFileGroup fileGroup : etlTable.fileGroups) {
                     List<String> filePaths = fileGroup.filePaths;
                     Dataset<Row> fileGroupDataframe = null;
-                    if (Strings.isNullOrEmpty(fileGroup.hiveDbTableName)) {
+                    EtlJobConfig.SourceType sourceType = fileGroup.sourceType;
+                    if (sourceType == EtlJobConfig.SourceType.FILE) {
                         fileGroupDataframe = loadDataFromFilePaths(spark, baseIndex, filePaths, fileGroup, dstTableSchema);
+                    } else if (sourceType == EtlJobConfig.SourceType.HIVE) {
+                        fileGroupDataframe = loadDataFromHiveTable(spark, fileGroup.dppHiveDbTableName, baseIndex, fileGroup, dstTableSchema);
                     } else {
-                        String taskId = etlJobConfig.outputPath.substring(etlJobConfig.outputPath.lastIndexOf("/") + 1);
-                        String dorisIntermediateHiveTable = String.format(EtlJobConfig.DORIS_INTERMEDIATE_HIVE_TABLE_NAME,
-                                                                          tableId, taskId);
-                        fileGroupDataframe = loadDataFromHiveTable(spark, dorisIntermediateHiveTable, baseIndex, fileGroup, dstTableSchema);
+                        throw new RuntimeException("Unknown source type: " + sourceType.name());
                     }
                     if (fileGroupDataframe == null) {
                         LOG.info("no data for file file group:" + fileGroup);

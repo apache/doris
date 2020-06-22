@@ -58,7 +58,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
-//import org.apache.doris.load.loadv2.dpp.DppResult;
+import org.apache.doris.load.loadv2.dpp.DppResult;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.service.FrontendOptions;
@@ -76,7 +76,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
-//import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TabletQuorumFailedException;
@@ -313,8 +313,6 @@ public class SparkLoadJob extends BulkLoadJob {
             loadingStatus.setTrackingUrl(appId);
         }
 
-        // TODO(wyb): spark-load
-        /*
         DppResult dppResult = etlStatus.getDppResult();
         if (dppResult != null) {
             // update load statistic and counters when spark etl job finished
@@ -331,7 +329,6 @@ public class SparkLoadJob extends BulkLoadJob {
             counters.put(DPP_ABNORMAL_ALL, String.valueOf(dppResult.abnormalRows));
             counters.put(UNSELECTED_ROWS, String.valueOf(dppResult.unselectRows));
         }
-        */
     }
 
     private void unprotectedProcessEtlFinish(EtlStatus etlStatus, SparkEtlJobHandler handler) throws Exception {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.loadv2;
 
+import static org.apache.doris.common.DataQualityException.QUALITY_FAIL_MSG;
+
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;

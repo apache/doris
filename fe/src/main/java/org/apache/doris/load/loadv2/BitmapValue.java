@@ -22,6 +22,7 @@ import org.roaringbitmap.Util;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.Serializable;
 
 /**
  *
@@ -32,7 +33,7 @@ import java.io.IOException;
  *          Now Long.MAX_VALUE is enough for doris's spark load and support unsigned integer in java need to pay more
  *      2. getSizeInBytes method is different from fe to be, details description see method comment
  */
-public class BitmapValue {
+public class BitmapValue implements Serializable {
 
     public static final int EMPTY = 0;
     public static final int SINGLE32 = 1;

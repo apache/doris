@@ -25,8 +25,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.load.EtlStatus;
-//import org.apache.doris.load.loadv2.dpp.DppResult;
+import org.apache.doris.load.loadv2.dpp.DppResult;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.load.loadv2.etl.SparkEtlJob;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
 
@@ -46,12 +47,12 @@ import org.apache.spark.launcher.SparkAppHandle.Listener;
 import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
 
-//import com.google.common.base.Strings;
+import com.google.common.base.Strings;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-//import com.google.gson.Gson;
-//import com.google.gson.JsonSyntaxException;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -73,7 +74,6 @@ public class SparkEtlJobHandler {
     private static final String CONFIG_FILE_NAME = "jobconfig.json";
     private static final String APP_RESOURCE_LOCAL_PATH = PaloFe.DORIS_HOME_DIR + "/lib/" + APP_RESOURCE_NAME;
     private static final String JOB_CONFIG_DIR = "configs";
-    private static final String MAIN_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtlJob";
     private static final String ETL_JOB_NAME = "doris__%s";
     // 5min
     private static final int GET_APPID_MAX_RETRY_TIMES = 300;
@@ -112,10 +112,7 @@ public class SparkEtlJobHandler {
         launcher.setMaster(resource.getMaster())
                 .setDeployMode(resource.getDeployMode().name().toLowerCase())
                 .setAppResource(appResourceHdfsPath)
-                // TODO(wyb): spark-load
-                // replace with getCanonicalName later
-                //.setMainClass(SparkEtlJob.class.getCanonicalName())
-                .setMainClass(MAIN_CLASS)
+                .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .addAppArgs(jobConfigHdfsPath);
         // spark configs
@@ -220,8 +217,6 @@ public class SparkEtlJobHandler {
 
         if (status.getState() == TEtlState.FINISHED || status.getState() == TEtlState.CANCELLED) {
             // get dpp result
-            // TODO(wyb): spark-load
-            /*
             String dppResultFilePath = EtlJobConfig.getDppResultFilePath(etlOutputPath);
             try {
                 byte[] data = BrokerUtil.readFile(dppResultFilePath, brokerDesc);
@@ -234,7 +229,6 @@ public class SparkEtlJobHandler {
             } catch (UserException | JsonSyntaxException | UnsupportedEncodingException e) {
                 LOG.warn("read broker file failed. path: {}", dppResultFilePath, e);
             }
-            */
         }
 
         return status;
