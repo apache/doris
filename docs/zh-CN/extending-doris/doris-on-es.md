@@ -488,7 +488,7 @@ strict_date_optional_time||epoch_millis
 
 ### 获取ES元数据字段`_id`
 
-导入文档在不指定`_id`的情况下ES会给每个文档分配一个全局唯一的`_id`元, 用户也可以在导入时为文档指定一个含有特殊业务意义的`_id`; 如果需要在Doris On ES中获取该字段值，建表时可以增加类型为`varchar`的`_id`字段：
+导入文档在不指定`_id`的情况下ES会给每个文档分配一个全局唯一的`_id`即主键, 用户也可以在导入时为文档指定一个含有特殊业务意义的`_id`; 如果需要在Doris On ES中获取该字段值，建表时可以增加类型为`varchar`的`_id`字段：
 
 ```
 CREATE EXTERNAL TABLE `doe` (
