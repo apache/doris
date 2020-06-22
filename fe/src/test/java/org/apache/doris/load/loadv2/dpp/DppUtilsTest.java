@@ -103,7 +103,7 @@ public class DppUtilsTest {
 
             column.columnType = "DATETIME";
             Class datetimeResult = dppUtils.getClassFromColumn(column);
-            Assert.assertEquals(Long.class, datetimeResult);
+            Assert.assertEquals(java.sql.Timestamp.class, datetimeResult);
 
             column.columnType = "FLOAT";
             Class floatResult = dppUtils.getClassFromColumn(column);
@@ -152,11 +152,11 @@ public class DppUtilsTest {
 
             column.columnType = "BOOLEAN";
             DataType booleanResult = dppUtils.getDataTypeFromColumn(column, false);
-            Assert.assertEquals(DataTypes.BooleanType, booleanResult);
+            Assert.assertEquals(DataTypes.StringType, booleanResult);
 
             column.columnType = "TINYINT";
             DataType tinyResult = dppUtils.getDataTypeFromColumn(column, false);
-            Assert.assertEquals(DataTypes.ShortType, tinyResult);
+            Assert.assertEquals(DataTypes.ByteType, tinyResult);
 
             column.columnType = "SMALLINT";
             DataType smallResult = dppUtils.getDataTypeFromColumn(column, false);
@@ -172,7 +172,7 @@ public class DppUtilsTest {
 
             column.columnType = "DATETIME";
             DataType datetimeResult = dppUtils.getDataTypeFromColumn(column, false);
-            Assert.assertEquals(DataTypes.LongType, datetimeResult);
+            Assert.assertEquals(DataTypes.TimestampType, datetimeResult);
 
             column.columnType = "FLOAT";
             DataType floatResult = dppUtils.getDataTypeFromColumn(column, false);
