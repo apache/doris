@@ -59,7 +59,7 @@ public class VariableMgrTest {
 
         new Expectations(catalog) {
             {
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
             }

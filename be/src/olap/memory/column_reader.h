@@ -36,6 +36,7 @@ namespace memory {
 // Note: this class is only intended for single-thread single reader usage.
 class ColumnBlockHolder {
 public:
+    ColumnBlockHolder() {}
     ColumnBlockHolder(ColumnBlock* cb, bool own) : _cb(cb), _own_cb(own) {}
 
     void init(ColumnBlock* cb, bool own) {
@@ -46,7 +47,9 @@ public:
 
     void release() {
         if (_own_cb) {
-            delete _cb;
+            // use delete _cb directly will cause DCHECK fail in DEBUG mode
+            // so we use scoped_refptr to free _cb instead
+            scoped_refptr<ColumnBlock> ref(_cb);
             _own_cb = false;
         }
         _cb = nullptr;
@@ -56,13 +59,7 @@ public:
 
     bool own() const { return _own_cb; }
 
-    ~ColumnBlockHolder() {
-        if (_own_cb) {
-            delete _cb;
-            _cb = nullptr;
-            _own_cb = false;
-        }
-    }
+    ~ColumnBlockHolder() { release(); }
 
 private:
     ColumnBlock* _cb = nullptr;

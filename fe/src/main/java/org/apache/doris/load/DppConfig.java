@@ -289,12 +289,12 @@ public class DppConfig implements Writable {
     }
 
     public String getApplicationsPath() {
-        return String.format("%s/%d/%s/%s", paloPath, Catalog.getInstance().getClusterId(), APPLICATIONS_PATH,
+        return String.format("%s/%d/%s/%s", paloPath, Catalog.getCurrentCatalog().getClusterId(), APPLICATIONS_PATH,
                 FeConstants.dpp_version);
     }
 
     public String getOutputPath() {
-        return String.format("%s/%d/%s", paloPath, Catalog.getInstance().getClusterId(), OUTPUT_PATH);
+        return String.format("%s/%d/%s", paloPath, Catalog.getCurrentCatalog().getClusterId(), OUTPUT_PATH);
     }
 
     public static String getHttpPortKey() {

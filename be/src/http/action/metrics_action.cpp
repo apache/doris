@@ -210,7 +210,7 @@ void MetricsAction::handle(HttpRequest* req) {
         SimpleCoreMetricsVisitor visitor;
         _metrics->collect(&visitor);
         str.assign(visitor.to_string());
-    } else if (type == "agent") {
+    } else if (type == "json") {
         JsonMetricsVisitor visitor;
         _metrics->collect(&visitor);
         str.assign(visitor.to_string());

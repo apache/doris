@@ -131,7 +131,8 @@ public class MaterializedViewSelector {
         // Step5: columns required to compute output expr are available in the view output
         checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToMeta);
         // Step6: if table type is aggregate and the candidateIndexIdToSchema is empty,
-        if (table.getKeysType() == KeysType.AGG_KEYS && candidateIndexIdToMeta.size() == 0) {
+        if ((table.getKeysType() == KeysType.AGG_KEYS || table.getKeysType() == KeysType.UNIQUE_KEYS)
+                && candidateIndexIdToMeta.size() == 0) {
             // the base index will be added in the candidateIndexIdToSchema.
             /**
              * In Doris, it is allowed that the aggregate table should be scanned directly

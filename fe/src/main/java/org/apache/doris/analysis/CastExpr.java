@@ -185,10 +185,10 @@ public class CastExpr extends Expr {
         FunctionName fnName = new FunctionName(getFnName(type));
         Function searchDesc = new Function(fnName, collectChildReturnTypes(), Type.INVALID, false);
         if (isImplicit) {
-            fn = Catalog.getInstance().getFunction(
+            fn = Catalog.getCurrentCatalog().getFunction(
                     searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
-            fn = Catalog.getInstance().getFunction(
+            fn = Catalog.getCurrentCatalog().getFunction(
                     searchDesc, Function.CompareMode.IS_IDENTICAL);
         }
 

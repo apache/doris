@@ -23,6 +23,7 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -79,14 +80,17 @@ public class MasterOpExecutor {
         params.setDb(ctx.getDatabase());
         params.setSqlMode(ctx.getSessionVariable().getSqlMode());
         params.setResourceInfo(ctx.toResourceCtx());
-        params.setExecMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
-        params.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
         params.setUser_ip(ctx.getRemoteIP());
         params.setTime_zone(ctx.getSessionVariable().getTimeZone());
         params.setStmt_id(ctx.getStmtId());
-        params.setLoadMemLimit(ctx.getSessionVariable().getLoadMemLimit());
         params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
         params.setCurrent_user_ident(ctx.getCurrentUserIdentity().toThrift());
+
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.setMem_limit(ctx.getSessionVariable().getMaxExecMemByte());
+        queryOptions.setQuery_timeout(ctx.getSessionVariable().getQueryTimeoutS());
+        queryOptions.setLoad_mem_limit(ctx.getSessionVariable().getLoadMemLimit());
+        params.setQuery_options(queryOptions);
 
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 

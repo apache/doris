@@ -24,7 +24,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.external.EsIndexState;
+import org.apache.doris.external.elasticsearch.EsIndexState;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;

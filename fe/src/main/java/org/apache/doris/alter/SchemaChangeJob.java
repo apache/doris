@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -217,7 +218,7 @@ public class SchemaChangeJob extends AlterJob {
     }
 
     public void deleteAllTableHistorySchema() {
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             LOG.warn("db[{}] does not exist", dbId);
             return;
@@ -312,7 +313,7 @@ public class SchemaChangeJob extends AlterJob {
             return 1;
         }
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -374,7 +375,7 @@ public class SchemaChangeJob extends AlterJob {
 
         LOG.info("sending schema change job {}, start txn id: {}", tableId, transactionId);
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             String msg = "db[" + dbId + "] does not exist";
             setMsg(msg);
@@ -544,7 +545,7 @@ public class SchemaChangeJob extends AlterJob {
         this.finishedTime = System.currentTimeMillis();
 
         // 2. log
-        Catalog.getInstance().getEditLog().logCancelSchemaChange(this);
+        Catalog.getCurrentCatalog().getEditLog().logCancelSchemaChange(this);
         LOG.info("cancel schema change job[{}] finished, because: {}",
                 olapTable == null ? -1 : olapTable.getId(), cancelMsg);
     }
@@ -580,7 +581,7 @@ public class SchemaChangeJob extends AlterJob {
         long replicaId = schemaChangeTask.getReplicaId();
 
         // update replica's info
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             throw new MetaNotFoundException("Cannot find db[" + dbId + "]");
         }
@@ -654,7 +655,7 @@ public class SchemaChangeJob extends AlterJob {
             return 0;
         }
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = String.format("database %d does not exist", dbId);
             LOG.warn(cancelMsg);
@@ -865,14 +866,14 @@ public class SchemaChangeJob extends AlterJob {
             db.writeUnlock();
         }
 
-        Catalog.getInstance().getEditLog().logFinishingSchemaChange(this);
+        Catalog.getCurrentCatalog().getEditLog().logFinishingSchemaChange(this);
         LOG.info("schema change job is finishing. finishing txn id: {} table {}", transactionId, tableId);
         return 1;
     }
 
     @Override
     public void finishJob() {
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             cancelMsg = String.format("database %d does not exist", dbId);
             LOG.warn(cancelMsg);
@@ -1102,14 +1103,14 @@ public class SchemaChangeJob extends AlterJob {
                 jobInfo.add(tbl.getName()); // table name
                 jobInfo.add(TimeUtils.longToTimeString(createTime));
                 jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-                jobInfo.add("N/A"); // index name
-                jobInfo.add("N/A"); // index id
-                jobInfo.add("N/A"); // origin id
-                jobInfo.add("N/A"); // schema version
+                jobInfo.add(FeConstants.null_string); // index name
+                jobInfo.add(FeConstants.null_string); // index id
+                jobInfo.add(FeConstants.null_string); // origin id
+                jobInfo.add(FeConstants.null_string); // schema version
                 jobInfo.add(-1); // transaction id
                 jobInfo.add(state.name()); // job state
                 jobInfo.add(cancelMsg);
-                jobInfo.add("N/A"); // progress
+                jobInfo.add(FeConstants.null_string); // progress
                 jobInfo.add(Config.alter_table_timeout_second); // timeout
                 jobInfos.add(jobInfo);
                 return;
@@ -1153,7 +1154,7 @@ public class SchemaChangeJob extends AlterJob {
 
                 indexState.put(indexId, idxState);
 
-                if (Catalog.getInstance().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
+                if (Catalog.getCurrentCatalog().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
                     indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
                 } else {
                     indexProgress.put(indexId, "0%");
@@ -1168,7 +1169,7 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(tbl.getName());
             jobInfo.add(TimeUtils.longToTimeString(createTime));
             jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-            jobInfo.add(tbl.getIndexNameById(indexId) == null ? "N/A" : tbl.getIndexNameById(indexId)); // index name
+            jobInfo.add(tbl.getIndexNameById(indexId) == null ? FeConstants.null_string : tbl.getIndexNameById(indexId)); // index name
             jobInfo.add(indexId);
             jobInfo.add(indexId); // origin index id
             // index schema version and schema hash
@@ -1177,9 +1178,9 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(state.name()); // job state
             jobInfo.add(cancelMsg);
             if (state == JobState.RUNNING) {
-                jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
+                jobInfo.add(indexProgress.get(indexId) == null ? FeConstants.null_string : indexProgress.get(indexId)); // progress
             } else {
-                jobInfo.add("N/A");
+                jobInfo.add(FeConstants.null_string);
             }
             jobInfo.add(Config.alter_table_timeout_second);
 

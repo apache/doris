@@ -266,6 +266,10 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     * 如果用户 kafka 集群的 broker 设置了 `auto.create.topics.enable = false`, 则 topic 不会被自动创建，例行作业会在没有读取任何数据之前就被暂停，状态为 `PAUSED`。
 
     所以，如果用户希望当 kafka topic 不存在的时候，被例行作业自动创建的话，只需要将**用户方的kafka集群**中的 broker 设置 `auto.create.topics.enable = true` 即可。
+ 5. 在网络隔离的环境中可能出现的问题
+    在有些环境中存在网段和域名解析的隔离措施，所以需要注意
+     1. 创建Routine load 任务中指定的 Broker list 必须能够被Doris服务访问
+     2. Kafka 中如果配置了`advertised.listeners`, `advertised.listeners` 中的地址必须能够被Doris服务访问
 
 ## 相关参数
 

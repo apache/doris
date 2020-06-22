@@ -53,23 +53,13 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
     return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
 
-void Tablet::_gen_tablet_path() {
-    std::string path = _data_dir->path() + DATA_PREFIX;
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->shard_id()));
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->tablet_id()));
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->schema_hash()));
-    _tablet_path = path;
-}
-
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         BaseTablet(tablet_meta, data_dir),
-        _is_bad(false),
         _last_cumu_compaction_failure_millis(0),
         _last_base_compaction_failure_millis(0),
         _last_cumu_compaction_success_millis(0),
         _last_base_compaction_success_millis(0),
         _cumulative_point(kInvalidCumulativePoint) {
-    _gen_tablet_path();
     _rs_graph.construct_rowset_graph(_tablet_meta->all_rs_metas());
 }
 
@@ -109,20 +99,6 @@ OLAPStatus Tablet::_init_once_action() {
     }
 
     return res;
-}
-
-OLAPStatus Tablet::init() {
-    return _init_once.call([this] { return _init_once_action(); });
-}
-
-// should save tablet meta to remote meta store
-// if it's a primary replica
-void Tablet::save_meta() {
-    auto res = _tablet_meta->save_meta(_data_dir);
-    CHECK_EQ(res, OLAP_SUCCESS) << "fail to save tablet_meta. res=" << res << ", root=" << _data_dir->path();
-    // User could directly update tablet schema by _tablet_meta,
-    // So we need to refetch schema again
-    _schema = _tablet_meta->tablet_schema();
 }
 
 OLAPStatus Tablet::revise_tablet_meta(
@@ -683,16 +659,8 @@ void Tablet::calculate_cumulative_point() {
             // There is a hole, do not continue
             break;
         }
-        // break the loop if segments in this rowset is overlapping, or overlap flag is NOT NONOVERLAPPING
-        // even if is_segments_overlapping() return false, the overlap flag may be OVERLAPPING.
-        // eg: tablet with versions(rowsets):
-        //      [0-1] NONOVERLAPPING
-        //      [2-2] OVERLAPPING
-        // [2-2]'s overlap flag is OVERLAPPING because it is newly written by the delta writer.
-        // but is has only one segment, so is_segments_overlapping() will return false.
-        // but we should not continue increasing the cumulative point, because we need
-        // the compaction process to change the overlap flag from OVERLAPPING to NONOVERLAPPING.
-        if (rs->is_segments_overlapping() || rs->segments_overlap() != NONOVERLAPPING) {
+        // break the loop if segments in this rowset is overlapping, or is a singleton.
+        if (rs->is_segments_overlapping() || rs->is_singleton_delta()) {
             _cumulative_point = rs->version().first;
             break;
         }
@@ -859,14 +827,6 @@ OLAPStatus Tablet::_contains_version(const Version& version) {
     }
 
     return OLAP_SUCCESS;
-}
-
-OLAPStatus Tablet::set_partition_id(int64_t partition_id) {
-    return _tablet_meta->set_partition_id(partition_id);
-}
-
-TabletInfo Tablet::get_tablet_info() const {
-    return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
 
 void Tablet::pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
@@ -1062,6 +1022,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
+    tablet_info->__set_tablet_type(_tablet_meta->tablet_type() == TabletTypePB::TABLET_TYPE_DISK ?
+            TTabletType::TABLET_TYPE_DISK : TTabletType::TABLET_TYPE_MEMORY);
 }
 
 // should use this method to get a copy of current tablet meta

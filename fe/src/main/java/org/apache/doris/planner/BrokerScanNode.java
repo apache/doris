@@ -317,7 +317,7 @@ public class BrokerScanNode extends LoadScanNode {
 
         FsBroker broker = null;
         try {
-            broker = Catalog.getInstance().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
+            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
@@ -354,7 +354,7 @@ public class BrokerScanNode extends LoadScanNode {
             for (BrokerFileGroup fileGroup : fileGroups) {
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                 for (String path : fileGroup.getFilePaths()) {
-                    BrokerUtil.parseBrokerFile(path, brokerDesc, fileStatuses);
+                    BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                 }
                 fileStatusesList.add(fileStatuses);
                 filesAdded += fileStatuses.size();

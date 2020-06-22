@@ -17,12 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
@@ -39,7 +42,9 @@ import java.util.Map.Entry;
 // syntax:
 //      LOAD LABEL load_label
 //          (data_desc, ...)
+//          [broker_desc]
 //          [BY cluster]
+//          [resource_desc]
 //      [PROPERTIES (key1=value1, )]
 //
 //      load_label:
@@ -53,6 +58,14 @@ import java.util.Map.Entry;
 //          [COLUMNS TERMINATED BY separator ]
 //          [(col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xx))]
+//
+//      broker_desc:
+//          WITH BROKER name
+//          (key2=value2, ...)
+//
+//      resource_desc:
+//          WITH RESOURCE name
+//          (key3=value3, ...)
 public class LoadStmt extends DdlStmt {
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
@@ -80,10 +93,15 @@ public class LoadStmt extends DdlStmt {
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
     private final String cluster;
+    private final ResourceDesc resourceDesc;
     private final Map<String, String> properties;
     private String user;
+    private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
     private String version = "v2";
+
+    // TODO(wyb): spark-load
+    public static boolean disableSparkLoad = true;
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -96,13 +114,25 @@ public class LoadStmt extends DdlStmt {
             .add(VERSION)
             .add(TIMEZONE)
             .build();
-    
+
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
                     BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
         this.cluster = cluster;
+        this.resourceDesc = null;
+        this.properties = properties;
+        this.user = null;
+    }
+
+    public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
+                    ResourceDesc resourceDesc, Map<String, String> properties) {
+        this.label = label;
+        this.dataDescriptions = dataDescriptions;
+        this.brokerDesc = null;
+        this.cluster = null;
+        this.resourceDesc = resourceDesc;
         this.properties = properties;
         this.user = null;
     }
@@ -123,12 +153,20 @@ public class LoadStmt extends DdlStmt {
         return cluster;
     }
 
+    public ResourceDesc getResourceDesc() {
+        return resourceDesc;
+    }
+
     public Map<String, String> getProperties() {
         return properties;
     }
 
     public String getUser() {
         return user;
+    }
+
+    public EtlJobType getEtlJobType() {
+        return etlJobType;
     }
 
     public static void checkProperties(Map<String, String> properties) throws DdlException {
@@ -223,13 +261,52 @@ public class LoadStmt extends DdlStmt {
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
         }
+        // check data descriptions, support 2 cases bellow:
+        // case 1: muti file paths, muti data descriptions
+        // case 2: one hive table, one data description
+        boolean isLoadFromTable = false;
         for (DataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc == null) {
+            if (brokerDesc == null && resourceDesc == null) {
                 dataDescription.setIsHadoopLoad(true);
             }
             dataDescription.analyze(label.getDbName());
+
+            if (dataDescription.isLoadFromTable()) {
+                isLoadFromTable = true;
+            }
         }
-        
+        if (isLoadFromTable) {
+            if (dataDescriptions.size() > 1) {
+                throw new AnalysisException("Only support one olap table load from one external table");
+            }
+            if (resourceDesc == null) {
+                throw new AnalysisException("Load from table should use Spark Load");
+            }
+        }
+
+        if (resourceDesc != null) {
+            resourceDesc.analyze();
+            etlJobType = resourceDesc.getEtlJobType();
+            // TODO(wyb): spark-load
+            if (disableSparkLoad) {
+                throw new AnalysisException("Spark Load is comming soon");
+            }
+            // check resource usage privilege
+            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+                                                                         resourceDesc.getName(),
+                                                                         PrivPredicate.USAGE)) {
+                throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
+                                                    + "'@'" + ConnectContext.get().getRemoteIP()
+                                                    + "' for resource '" + resourceDesc.getName() + "'");
+            }
+        } else if (brokerDesc != null) {
+            etlJobType = EtlJobType.BROKER;
+        } else {
+            // if cluster is null, use default hadoop cluster
+            // if cluster is not null, use this hadoop cluster
+            etlJobType = EtlJobType.HADOOP;
+        }
+
         try {
             checkProperties(properties);
         } catch (DdlException e) {
@@ -242,7 +319,7 @@ public class LoadStmt extends DdlStmt {
 
     @Override
     public boolean needAuditEncryption() {
-        if (brokerDesc != null) {
+        if (brokerDesc != null || resourceDesc != null) {
             return true;
         }
         return false;
@@ -263,16 +340,16 @@ public class LoadStmt extends DdlStmt {
                 return dataDescription.toSql();
             }
         })).append(")");
+        if (brokerDesc != null) {
+            sb.append("\n").append(brokerDesc.toSql());
+        }
         if (cluster != null) {
             sb.append("\nBY '");
             sb.append(cluster);
             sb.append("'");
         }
-
-        if (brokerDesc != null) {
-            sb.append("\n WITH BROKER '").append(brokerDesc.getName()).append("' (");
-            sb.append(new PrintableMap<String, String>(brokerDesc.getProperties(), "=", true, false, true));
-            sb.append(")");
+        if (resourceDesc != null) {
+            sb.append("\n").append(resourceDesc.toSql());
         }
 
         if (properties != null && !properties.isEmpty()) {

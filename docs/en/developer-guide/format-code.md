@@ -38,6 +38,8 @@ You should install clang-format, or you can use clang-format plugins which suppo
 ### Install clang-format
 Ubuntu: `apt-get install clang-format` 
 
+Mac: `brew install clang-format`
+
 The current release is 10.0, you can specify old version, e.g.
  
  `apt-get install clang-format-9`
@@ -58,17 +60,24 @@ the version is lower than clang-format-9.0.
 ### CMD
 `clang-format --style=file -i $File$` 
 
-When using `-style=file`, clang-format for each input file will try to find the 
-.clang-format file located in the closest parent directory of the input file. 
-When the standard input is used, the search is started from the current directory.
+`-style=file` Clang-format will try to find the .clang-format file located in the closest parent directory of the input file. When the standard input is used, the search is started from the current directory.
 
-Note: filter out the files which should not be formatted, when batch clang-formating
- files. 
+`--lines = m:n` Format a range of lines. Multiple ranges can be formatted by specifying several -lines arguments.
+
+`-i`input file
+
+Note: filter out the files which should not be formatted, when batch clang-formating files. 
  
  A example of how to filter \*.h/\*.cpp and exclude some dirs:
  
+ Centos
+
 `find . -type f -not \( -wholename ./env/* \) -regextype posix-egrep -regex
  ".*\.(cpp|h)" | xargs clang-format -i -style=file`
+ 
+ Mac
+ 
+ `find -E . -type f -not \( -wholename ./env/* \) -regex ".*\.(cpp|h)" | xargs clang-format -i --style=file`
 
 ### Using clang-format in IDEs or Editors
 #### Clion
@@ -78,8 +87,10 @@ shortcut.
 VS Code needs install the extension 'Clang-Format', and specify the executable path of 
 clang-format in settings.
 
+Open the vs code configuration page and search `clang_format`, fill the box as follows.
+
 ```
-"clang-format.executable":  "$clang-format path$",
-"clang-format.style": "file"
+"clang_format_path":  "$clang-format path$",
+"clang_format_style": "file"
 ```
-Then, choose `Format Document`.
+Then, right click the file and choose `Format Document`.

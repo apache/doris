@@ -17,8 +17,49 @@
 
 #include "olap/memory/schema.h"
 
+#include "gutil/strings/split.h"
+
 namespace doris {
 namespace memory {
+
+bool supported(ColumnType type) {
+    switch (type) {
+    case OLAP_FIELD_TYPE_TINYINT:
+    case OLAP_FIELD_TYPE_SMALLINT:
+    case OLAP_FIELD_TYPE_INT:
+    case OLAP_FIELD_TYPE_BIGINT:
+    case OLAP_FIELD_TYPE_LARGEINT:
+    case OLAP_FIELD_TYPE_FLOAT:
+    case OLAP_FIELD_TYPE_DOUBLE:
+    case OLAP_FIELD_TYPE_BOOL:
+        return true;
+    default:
+        return false;
+    }
+}
+
+size_t get_type_byte_size(ColumnType type) {
+    switch (type) {
+    case OLAP_FIELD_TYPE_TINYINT:
+        return 1;
+    case OLAP_FIELD_TYPE_SMALLINT:
+        return 2;
+    case OLAP_FIELD_TYPE_INT:
+        return 4;
+    case OLAP_FIELD_TYPE_BIGINT:
+        return 8;
+    case OLAP_FIELD_TYPE_LARGEINT:
+        return 16;
+    case OLAP_FIELD_TYPE_FLOAT:
+        return 4;
+    case OLAP_FIELD_TYPE_DOUBLE:
+        return 8;
+    case OLAP_FIELD_TYPE_BOOL:
+        return 1;
+    default:
+        return 0;
+    }
+}
 
 ColumnSchema::ColumnSchema(const TabletColumn& tcolumn) : _tcolumn(tcolumn) {}
 
@@ -44,15 +85,46 @@ std::string ColumnSchema::debug_string() const {
 
 //////////////////////////////////////////////////////////////////////////////
 
+Status Schema::create(const string& desc, scoped_refptr<Schema>* sc) {
+    TabletSchemaPB tspb;
+    std::vector<std::string> cs = strings::Split(desc, ",", strings::SkipWhitespace());
+    uint32_t cid = 1;
+    for (std::string& c : cs) {
+        ColumnPB* cpb = tspb.add_column();
+        std::vector<std::string> fs = strings::Split(c, " ", strings::SkipWhitespace());
+        if (fs.size() < 2) {
+            return Status::InvalidArgument("bad schema desc");
+        }
+        cpb->set_is_key(cid == 1);
+        cpb->set_unique_id(cid++);
+        cpb->set_name(fs[0]);
+        cpb->set_type(fs[1]);
+        if (fs.size() == 3 && fs[2] == "null") {
+            cpb->set_is_nullable(true);
+        }
+    }
+    tspb.set_keys_type(KeysType::UNIQUE_KEYS);
+    tspb.set_next_column_unique_id(cid);
+    tspb.set_num_short_key_columns(1);
+    tspb.set_is_in_memory(false);
+    TabletSchema ts;
+    ts.init_from_pb(tspb);
+    sc->reset(new Schema(ts));
+    return Status::OK();
+}
+
 Schema::Schema(const TabletSchema& tschema) : _tschema(tschema) {
     _cid_size = 1;
     _cid_to_col.resize(_cid_size, nullptr);
+    _column_byte_sizes.resize(_cid_size, 0);
     for (size_t i = 0; i < num_columns(); i++) {
         const ColumnSchema* cs = get(i);
         _cid_size = std::max(_cid_size, cs->cid() + 1);
         _cid_to_col.resize(_cid_size, nullptr);
         _cid_to_col[cs->cid()] = cs;
         _name_to_col[cs->name()] = cs;
+        _column_byte_sizes.resize(_cid_size, 0);
+        _column_byte_sizes[cs->cid()] = get_type_byte_size(cs->type());
     }
 }
 

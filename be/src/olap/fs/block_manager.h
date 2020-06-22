@@ -176,17 +176,17 @@ struct CreateBlockOptions {
 
 // Block manager creation options.
 struct BlockManagerOptions {
-    BlockManagerOptions();
+    BlockManagerOptions() = default;
 
     // The memory tracker under which all new memory trackers will be parented.
     // If NULL, new memory trackers will be parented to the root tracker.
     std::shared_ptr<MemTracker> parent_mem_tracker;
 
     // If false, metrics will not be produced.
-    bool enable_metric;
+    bool enable_metric = false;
 
     // Whether the block manager should only allow reading. Defaults to false.
-    bool read_only;
+    bool read_only = false;
 };
 
 // Utilities for Block lifecycle management. All methods are thread-safe.

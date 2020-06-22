@@ -127,7 +127,7 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
-import org.apache.doris.external.EsStateStore;
+import org.apache.doris.external.elasticsearch.EsStateStore;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -146,7 +146,9 @@ import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
+import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -202,6 +204,7 @@ import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
@@ -382,6 +385,8 @@ public class Catalog {
     private LoadJobScheduler loadJobScheduler;
 
     private LoadTimeoutChecker loadTimeoutChecker;
+    private LoadEtlChecker loadEtlChecker;
+    private LoadLoadingChecker loadLoadingChecker;
 
     private RoutineLoadScheduler routineLoadScheduler;
 
@@ -518,6 +523,8 @@ public class Catalog {
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
+        this.loadEtlChecker = new LoadEtlChecker(loadManager);
+        this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
@@ -540,25 +547,23 @@ public class Catalog {
         }
     }
 
-    // use this to get real Catalog instance
-    public static Catalog getInstance() {
-        return SingletonHolder.INSTANCE;
-    }
-
-    // use this to get CheckPoint Catalog instance
-    public static Catalog getCheckpoint() {
-        if (CHECKPOINT == null) {
-            CHECKPOINT = new Catalog();
-        }
-        return CHECKPOINT;
-    }
-
     public static Catalog getCurrentCatalog() {
         if (isCheckpointThread()) {
+            // only checkpoint thread it self will goes here.
+            // so no need to care about the thread safe.
+            if (CHECKPOINT == null) {
+                CHECKPOINT = new Catalog();
+            }
             return CHECKPOINT;
         } else {
             return SingletonHolder.INSTANCE;
         }
+    }
+
+    // NOTICE: in most case, we should use getCurrentCatalog() to get the right catalog.
+    // but in some cases, we should get the serving catalog explicitly.
+    public static Catalog getServingCatalog() {
+        return SingletonHolder.INSTANCE;
     }
 
     public PullLoadJobMgr getPullLoadJobMgr() {
@@ -1062,7 +1067,22 @@ public class Catalog {
             if (helpers != null) {
                 String[] splittedHelpers = helpers.split(",");
                 for (String helper : splittedHelpers) {
-                    helperNodes.add(SystemInfoService.validateHostAndPort(helper));
+                    Pair<String, Integer> helperHostPort = SystemInfoService.validateHostAndPort(helper);
+                    if (helperHostPort.equals(selfNode)) {
+                        /**
+                         * If user specified the helper node to this FE itself,
+                         * we will stop the starting FE process and report an error.
+                         * First, it is meaningless to point the helper to itself.
+                         * Secondly, when some users add FE for the first time, they will mistakenly
+                         * point the helper that should have pointed to the Master to themselves.
+                         * In this case, some errors have caused users to be troubled.
+                         * So here directly exit the program and inform the user to avoid unnecessary trouble.
+                         */
+                        throw new AnalysisException(
+                                "Do not specify the helper node to FE itself. "
+                                        + "Please specify it to the existing running Master or Follower FE");
+                    }
+                    helperNodes.add(helperHostPort);
                 }
             } else {
                 // If helper node is not designated, use local node as helper node.
@@ -1208,8 +1228,11 @@ public class Catalog {
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
         checkpointer.setMetaContext(metaContext);
-        checkpointer.start();
+        // set "checkpointThreadId" before the checkpoint thread start, because the thread
+        // need to check the "checkpointThreadId" when running.
         checkpointThreadId = checkpointer.getId();
+
+        checkpointer.start();
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
         // heartbeat mgr
@@ -1222,6 +1245,8 @@ public class Catalog {
         loadManager.prepareJobs();
         loadJobScheduler.start();
         loadTimeoutChecker.start();
+        loadEtlChecker.start();
+        loadLoadingChecker.start();
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
@@ -2968,6 +2993,9 @@ public class Catalog {
         } else if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
             createEsTable(db, stmt);
             return;
+        } else if (engineName.equalsIgnoreCase("hive")) {
+            createHiveTable(db, stmt);
+            return;
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
@@ -3105,7 +3133,9 @@ public class Catalog {
                     bfColumns, olapTable.getBfFpp(),
                     tabletIdSet, olapTable.getCopiedIndexes(),
                     singlePartitionDesc.isInMemory(),
-                    olapTable.getStorageFormat());
+                    olapTable.getStorageFormat(),
+                    singlePartitionDesc.getTabletType()
+                    );
 
             // check again
             db.writeLock();
@@ -3352,6 +3382,14 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
 
+        // 4. tablet type
+        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        try {
+            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         // check if has other undefined properties
         if (properties != null && !properties.isEmpty()) {
             MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
@@ -3378,6 +3416,14 @@ public class Catalog {
             partitionInfo.setIsInMemory(partition.getId(), isInMemory);
             LOG.debug("modify partition[{}-{}-{}] in memory to {}", db.getId(), olapTable.getId(), partitionName,
                     isInMemory);
+        }
+
+        // tablet type
+        // TODO: serialize to edit log
+        if (tabletType != partitionInfo.getTabletType(partition.getId())) {
+            partitionInfo.setTabletType(partition.getId(), tabletType);
+            LOG.debug("modify partition[{}-{}-{}] tablet type to {}", db.getId(), olapTable.getId(), partitionName,
+                    tabletType);
         }
 
         // log
@@ -3417,7 +3463,8 @@ public class Catalog {
                                                  Set<Long> tabletIdSet,
                                                  List<Index> indexes,
                                                  boolean isInMemory,
-                                                 TStorageFormat storageFormat) throws DdlException {
+                                                 TStorageFormat storageFormat,
+                                                 TTabletType tabletType) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3481,7 +3528,8 @@ public class Catalog {
                             schema, bfColumns, bfFpp,
                             countDownLatch,
                             indexes,
-                            isInMemory);
+                            isInMemory,
+                            tabletType);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3579,7 +3627,7 @@ public class Catalog {
         TableIndexes indexes = new TableIndexes(stmt.getIndexes());
 
         // create table
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
                 distributionInfo, indexes);
         olapTable.setComment(stmt.getComment());
@@ -3629,6 +3677,13 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
+        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        try {
+            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
@@ -3646,6 +3701,7 @@ public class Catalog {
             partitionInfo.setDataProperty(partitionId, dataProperty);
             partitionInfo.setReplicationNum(partitionId, replicationNum);
             partitionInfo.setIsInMemory(partitionId, isInMemory);
+            partitionInfo.setTabletType(partitionId, tabletType);
         }
 
         // check colocation properties
@@ -3752,7 +3808,7 @@ public class Catalog {
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat);
+                        isInMemory, storageFormat, tabletType);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3781,7 +3837,8 @@ public class Catalog {
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
-                            isInMemory, storageFormat);
+                            isInMemory, storageFormat,
+                            rangePartitionInfo.getTabletType(entry.getValue()));
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -3824,7 +3881,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, stmt.getProperties());
         mysqlTable.setComment(stmt.getComment());
         if (!db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists())) {
@@ -3854,7 +3911,7 @@ public class Catalog {
             partitionInfo = new SinglePartitionInfo();
         }
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         EsTable esTable = new EsTable(tableId, tableName, baseSchema, stmt.getProperties(), partitionInfo);
         esTable.setComment(stmt.getComment());
 
@@ -3870,7 +3927,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, stmt.getProperties());
         brokerTable.setComment(stmt.getComment());
         brokerTable.setBrokerProperties(stmt.getExtProperties());
@@ -3881,6 +3938,18 @@ public class Catalog {
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
 
         return;
+    }
+
+    private void createHiveTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+        List<Column> columns = stmt.getColumns();
+        long tableId = getNextId();
+        HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
+        hiveTable.setComment(stmt.getComment());
+        if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
     }
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
@@ -3900,7 +3969,7 @@ public class Catalog {
         // 1.2 other table type
         sb.append("CREATE ");
         if (table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
-                || table.getType() == TableType.BROKER) {
+                || table.getType() == TableType.BROKER || table.getType() == TableType.HIVE) {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
@@ -4072,6 +4141,17 @@ public class Catalog {
             sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isDocValueScanEnable()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\"\n");
             sb.append(")");
+        } else if (table.getType() == TableType.HIVE) {
+            HiveTable hiveTable = (HiveTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
+            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
+            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
+            sb.append("\n)");
         }
         sb.append(";");
 
@@ -4175,7 +4255,7 @@ public class Catalog {
             GroupId groupId = null;
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
                 // if this is a colocate table, try to get backend seqs from colocation index.
-                Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
+                Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
                 groupId = colocateIndex.getGroup(tabletMeta.getTableId());
                 // Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
                 // This lock will release very fast.
@@ -4828,29 +4908,30 @@ public class Catalog {
              * contains at most one VARCHAR column. And if contains, it should
              * be at the last position of the short key list.
              */
-            shortKeyColumnCount = 1;
+            shortKeyColumnCount = 0;
             int shortKeySizeByte = 0;
-            Column firstColumn = indexColumns.get(0);
-            if (firstColumn.getDataType() != PrimitiveType.VARCHAR) {
-                shortKeySizeByte = firstColumn.getOlapColumnIndexSize();
-                int maxShortKeyColumnCount = Math.min(indexColumns.size(), FeConstants.shortkey_max_column_count);
-                for (int i = 1; i < maxShortKeyColumnCount; i++) {
-                    Column column = indexColumns.get(i);
-                    shortKeySizeByte += column.getOlapColumnIndexSize();
-                    if (shortKeySizeByte > FeConstants.shortkey_maxsize_bytes) {
-                        break;
-                    }
-                    if (column.getDataType() == PrimitiveType.VARCHAR) {
+            int maxShortKeyColumnCount = Math.min(indexColumns.size(), FeConstants.shortkey_max_column_count);
+            for (int i = 0; i < maxShortKeyColumnCount; i++) {
+                Column column = indexColumns.get(i);
+                shortKeySizeByte += column.getOlapColumnIndexSize();
+                if (shortKeySizeByte > FeConstants.shortkey_maxsize_bytes) {
+                    if (column.getDataType().isCharFamily()) {
                         ++shortKeyColumnCount;
-                        break;
                     }
-                    ++shortKeyColumnCount;
+                    break;
                 }
+                if (column.getType().isFloatingPointType()) {
+                    break;
+                }
+                if (column.getDataType() == PrimitiveType.VARCHAR) {
+                    ++shortKeyColumnCount;
+                    break;
+                }
+                ++shortKeyColumnCount;
             }
-            // else
-            // first column type is VARCHAR
-            // use only first column as shortKey
-            // do nothing here
+            if (shortKeyColumnCount == 0) {
+                throw new DdlException("The first column could not be float or double type, use decimal instead");
+            }
 
         } // end calc shortKeyColumnCount
 
@@ -4872,7 +4953,8 @@ public class Catalog {
         this.alter.processAlterView(stmt, ConnectContext.get());
     }
 
-    public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
+    public void createMaterializedView(CreateMaterializedViewStmt stmt)
+            throws AnalysisException, DdlException {
         this.alter.processCreateMaterializedView(stmt);
     }
 
@@ -5025,6 +5107,11 @@ public class Catalog {
                 // this table is not a colocate table, do nothing
                 return;
             }
+
+            // when replayModifyTableColocate, we need the groupId info
+            String fullGroupName = db.getId() + "_" + oldGroup;
+            groupId = colocateTableIndex.getGroupSchema(fullGroupName).getGroupId();
+
             colocateTableIndex.removeTable(table.getId());
             table.setColocateGroup(null);
         }
@@ -5396,7 +5483,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getInstance().getNextId();
+        long tableId = Catalog.getCurrentCatalog().getNextId();
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
         newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
@@ -5985,8 +6072,8 @@ public class Catalog {
                 InfoSchemaDb db;
                 // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
                 // when checkpoint thread load image.
-                if (Catalog.getInstance().getFullNameToDb().containsKey(dbName)) {
-                    db = (InfoSchemaDb)Catalog.getInstance().getFullNameToDb().get(dbName);
+                if (Catalog.getCurrentCatalog().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getCurrentCatalog().getFullNameToDb().get(dbName);
                 } else {
                     db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());
@@ -6248,7 +6335,8 @@ public class Catalog {
                         tabletIdSet,
                         copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(),
-                        copiedTbl.getStorageFormat());
+                        copiedTbl.getStorageFormat(),
+                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId));
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

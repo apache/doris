@@ -337,14 +337,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
     }
 }
 
-TabletSchema::TabletSchema()
-    : _num_columns(0),
-      _num_key_columns(0),
-      _num_null_columns(0),
-      _num_short_key_columns(0) { }
-
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _keys_type = schema.keys_type();
+    _num_columns = 0;
+    _num_key_columns = 0;
+    _num_null_columns = 0;
+    _cols.clear();
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
@@ -418,6 +416,63 @@ const TabletColumn& TabletSchema::column(size_t ordinal) const {
     DCHECK(ordinal < _num_columns)
         << "ordinal:" << ordinal << ", _num_columns:" << _num_columns;
     return _cols[ordinal];
+}
+
+bool operator==(const TabletColumn& a, const TabletColumn& b) {
+    if (a._unique_id != b._unique_id) return false;
+    if (a._col_name != b._col_name) return false;
+    if (a._type != b._type) return false;
+    if (a._is_key != b._is_key) return false;
+    if (a._aggregation != b._aggregation) return false;
+    if (a._is_nullable != b._is_nullable) return false;
+    if (a._has_default_value != b._has_default_value) return false;
+    if (a._has_default_value) {
+        if (a._default_value != b._default_value) return false;
+    }
+    if (a._is_decimal != b._is_decimal) return false;
+    if (a._is_decimal) {
+        if (a._precision != b._precision) return false;
+        if (a._frac != b._frac) return false;
+    }
+    if (a._length != b._length) return false;
+    if (a._index_length != b._index_length) return false;
+    if (a._is_bf_column != b._is_bf_column) return false;
+    if (a._has_referenced_column != b._has_referenced_column) return false;
+    if (a._has_referenced_column) {
+        if (a._referenced_column_id != b._referenced_column_id) return false;
+        if (a._referenced_column != b._referenced_column) return false;
+    }
+    if (a._has_bitmap_index != b._has_bitmap_index) return false;
+    return true;
+}
+
+bool operator!=(const TabletColumn& a, const TabletColumn& b) {
+    return !(a == b);
+}
+
+bool operator==(const TabletSchema& a, const TabletSchema& b) {
+    if (a._keys_type != b._keys_type) return false;
+    if (a._cols.size() != b._cols.size()) return false;
+    for (int i = 0; i < a._cols.size(); ++i) {
+        if (a._cols[i] != b._cols[i]) return false;
+    }
+    if (a._num_columns != b._num_columns) return false;
+    if (a._num_key_columns != b._num_key_columns) return false;
+    if (a._num_null_columns != b._num_null_columns) return false;
+    if (a._num_short_key_columns != b._num_short_key_columns) return false;
+    if (a._num_rows_per_row_block != b._num_rows_per_row_block) return false;
+    if (a._compress_kind != b._compress_kind) return false;
+    if (a._next_column_unique_id != b._next_column_unique_id) return false;
+    if (a._has_bf_fpp != b._has_bf_fpp) return false;
+    if (a._has_bf_fpp) {
+        if (std::abs(a._bf_fpp - b._bf_fpp) > 1e-6) return false;
+    }
+    if (a._is_in_memory != b._is_in_memory) return false;
+    return true;
+}
+
+bool operator!=(const TabletSchema& a, const TabletSchema& b) {
+  return !(a == b);
 }
 
 } // namespace doris

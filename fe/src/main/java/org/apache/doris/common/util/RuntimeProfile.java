@@ -34,10 +34,10 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Formatter;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * It is accessed by two kinds of thread, one is to create this RuntimeProfile
@@ -57,7 +57,7 @@ public class RuntimeProfile {
     private Map<String, Counter> counterMap = Maps.newConcurrentMap();
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
 
-    private Map<String, Set<String> > childCounterMap = Maps.newHashMap();
+    private Map<String, TreeSet<String>> childCounterMap = Maps.newHashMap();
     private List<Pair<RuntimeProfile, Boolean>> childList = Lists.newArrayList();
 
     private String name;
@@ -101,7 +101,7 @@ public class RuntimeProfile {
             
             Set<String> childCounters = childCounterMap.get(parentCounterName);
             if (childCounters == null) {
-                childCounterMap.put(parentCounterName, new HashSet<String>());
+                childCounterMap.put(parentCounterName, new TreeSet<String>());
                 childCounters = childCounterMap.get(parentCounterName);
             }
             childCounters.add(name);
@@ -142,7 +142,7 @@ public class RuntimeProfile {
                     String parentCounterName = entry.getKey();                
                     Set<String> childCounters = childCounterMap.get(parentCounterName);
                     if (childCounters == null) {
-                        childCounterMap.put(parentCounterName, new HashSet<String>());
+                        childCounterMap.put(parentCounterName, new TreeSet<String>());
                         childCounters = childCounterMap.get(parentCounterName);
                     } 
                     childCounters.addAll(entry.getValue());
@@ -193,17 +193,18 @@ public class RuntimeProfile {
         builder.append(prefix).append(name).append(":");
         // total time
         if (counter.getValue() != 0) {
-            Formatter fmt = new Formatter();
-            builder.append("(Active: ")
-                    .append(this.printCounter(counter.getValue(), counter.getType()))
-                    .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
-                    .append("%)");
+            try (Formatter fmt = new Formatter()) {
+                builder.append("(Active: ")
+                .append(this.printCounter(counter.getValue(), counter.getType()))
+                .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
+                .append("%)");
+            }
         }
         builder.append("\n");
         
         // 2. info String
         for (String key : this.infoStringsDisplayOrder) {
-            builder.append(prefix).append("  ").append(key).append(": ")
+            builder.append(prefix).append("   - ").append(key).append(": ")
                 .append(this.infoStrings.get(key)).append("\n");
         }
         
@@ -385,3 +386,4 @@ public class RuntimeProfile {
         return infoStrings.get(key);
     }
 }
+

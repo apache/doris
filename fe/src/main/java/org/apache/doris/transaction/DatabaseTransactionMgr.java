@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -367,9 +368,16 @@ public class DatabaseTransactionMgr {
         // if index is dropped, it does not matter.
         // if table or partition is dropped during load, just ignore that tablet,
         // because we should allow dropping rollup or partition during load
-        for (TabletCommitInfo tabletCommitInfo : tabletCommitInfos) {
-            long tabletId = tabletCommitInfo.getTabletId();
-            long tableId = tabletInvertedIndex.getTableId(tabletId);
+        List<Long> tabletIds = tabletCommitInfos.stream().map(
+                tabletCommitInfo -> tabletCommitInfo.getTabletId()).collect(Collectors.toList());
+        List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
+        for (int i = 0; i < tabletMetaList.size(); i++) {
+            TabletMeta tabletMeta = tabletMetaList.get(i);
+            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                continue;
+            }
+            long tabletId = tabletIds.get(i);
+            long tableId = tabletMeta.getTableId();
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 // this can happen when tableId == -1 (tablet being dropping)
@@ -382,7 +390,7 @@ public class DatabaseTransactionMgr {
                         + "Can not load into it");
             }
 
-            long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
+            long partitionId = tabletMeta.getPartitionId();
             if (tbl.getPartition(partitionId) == null) {
                 // this can happen when partitionId == -1 (tablet being dropping)
                 // or partition really not exist.
@@ -396,7 +404,7 @@ public class DatabaseTransactionMgr {
             if (!tabletToBackends.containsKey(tabletId)) {
                 tabletToBackends.put(tabletId, new HashSet<>());
             }
-            tabletToBackends.get(tabletId).add(tabletCommitInfo.getBackendId());
+            tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
         }
 
         if (tableToPartition.isEmpty()) {
@@ -1102,7 +1110,7 @@ public class DatabaseTransactionMgr {
         List<List<String>> infos = new ArrayList<List<String>>();
         readLock();
         try {
-            Database db = Catalog.getInstance().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db == null) {
                 throw new AnalysisException("Database[" + dbId + "] does not exist");
             }

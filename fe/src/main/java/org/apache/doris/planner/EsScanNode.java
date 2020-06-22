@@ -26,9 +26,9 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.external.EsIndexState;
-import org.apache.doris.external.EsShardRouting;
-import org.apache.doris.external.EsTableState;
+import org.apache.doris.external.elasticsearch.EsIndexState;
+import org.apache.doris.external.elasticsearch.EsShardRouting;
+import org.apache.doris.external.elasticsearch.EsTableState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -130,7 +130,6 @@ public class EsScanNode extends ScanNode {
         msg.es_scan_node = esScanNode;
     }
 
-    // TODO(ygl) assign backend that belong to the same cluster
     private void assignBackends() throws UserException {
         backendMap = HashMultimap.create();
         backendList = Lists.newArrayList();
@@ -146,11 +145,13 @@ public class EsScanNode extends ScanNode {
     }
 
     // only do partition(es index level) prune
-    // TODO (ygl) should not get all shards, prune unrelated shard 
     private List<TScanRangeLocations> getShardLocations() throws UserException {
         // has to get partition info from es state not from table because the partition info is generated from es cluster state dynamically
         if (esTableState == null) {
-            throw new UserException("EsTable shard info has not been synced, wait some time or check log");
+            if (table.getLastMetaDataSyncException() != null) {
+                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
+            }
+            throw new UserException("EsTable metadata has not been synced, Try it later");
         }
         Collection<Long> partitionIds = partitionPrune(esTableState.getPartitionInfo()); 
         List<EsIndexState> selectedIndex = Lists.newArrayList();
@@ -225,7 +226,14 @@ public class EsScanNode extends ScanNode {
             }
 
         }
-        LOG.debug("generate [{}] scan ranges to scan node [{}]", result.size(), result.get(0));
+        if (LOG.isDebugEnabled()) {
+            StringBuilder scratchBuilder = new StringBuilder();
+            for (TScanRangeLocations scanRangeLocations : result) {
+                scratchBuilder.append(scanRangeLocations.toString());
+                scratchBuilder.append(" ");
+            }
+            LOG.debug("ES table {}  scan ranges {}", table.getName(), scratchBuilder.toString());
+        }
         return result;
     }
 

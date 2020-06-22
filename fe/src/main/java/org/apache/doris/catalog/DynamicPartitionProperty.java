@@ -18,13 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.TimeUtils;
 
 import java.util.Map;
 import java.util.TimeZone;
 
-public class DynamicPartitionProperty{
+public class DynamicPartitionProperty {
     public static final String TIME_UNIT = "dynamic_partition.time_unit";
     public static final String START = "dynamic_partition.start";
     public static final String END = "dynamic_partition.end";
@@ -33,6 +34,7 @@ public class DynamicPartitionProperty{
     public static final String ENABLE = "dynamic_partition.enable";
     public static final String START_DAY_OF_WEEK = "dynamic_partition.start_day_of_week";
     public static final String START_DAY_OF_MONTH = "dynamic_partition.start_day_of_month";
+    public static final String TIME_ZONE = "dynamic_partition.time_zone";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
 
@@ -46,15 +48,14 @@ public class DynamicPartitionProperty{
     private int buckets;
     private StartOfDate startOfWeek;
     private StartOfDate startOfMonth;
-    // TODO: support setting timezone.
     private TimeZone tz = TimeUtils.getDefaultTimeZone();
-
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
+            this.tz = TimeUtils.getOrSystemTimeZone(properties.get(TIME_ZONE));
             // In order to compatible dynamic add partition version
             this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
             this.end = Integer.parseInt(properties.get(END));
@@ -124,7 +125,7 @@ public class DynamicPartitionProperty{
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
             return startOfMonth.toDisplayInfo();
         } else {
-            return "N/A";
+            return FeConstants.null_string;
         }
     }
 
@@ -132,11 +133,11 @@ public class DynamicPartitionProperty{
         return tz;
     }
 
-
     @Override
     public String toString() {
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
+                ",\n\"" + TIME_ZONE + "\" = \"" + tz + "\"" +
                 ",\n\"" + START + "\" = \"" + start + "\"" +
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +

@@ -52,6 +52,10 @@ Status BRpcService::start(int port) {
                         brpc::SERVER_OWNS_SERVICE);
     // start service
     brpc::ServerOptions options;
+    if (config::brpc_num_threads != -1) {
+        options.num_threads = config::brpc_num_threads;
+    }
+
     if (_server->Start(port, &options) != 0) {
         char buf[64];
         LOG(WARNING) << "start brpc failed, errno=" << errno

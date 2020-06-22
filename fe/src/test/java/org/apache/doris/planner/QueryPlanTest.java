@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -27,13 +26,21 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -62,9 +69,9 @@ public class QueryPlanTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         
         createTable("create table test.test1\n" + 
-                "(\n" + 
-                "    query_id varchar(48) comment \"Unique query id\",\n" + 
-                "    time datetime not null comment \"Query start time\",\n" + 
+                "(\n" +
+                "    query_id varchar(48) comment \"Unique query id\",\n" +
+                "    time datetime not null comment \"Query start time\",\n" +
                 "    client_ip varchar(32) comment \"Client IP\",\n" + 
                 "    user varchar(64) comment \"User name\",\n" + 
                 "    db varchar(96) comment \"Database of this query\",\n" + 
@@ -269,6 +276,22 @@ public class QueryPlanTest {
                 "\"replication_num\" = \"1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"DEFAULT\"\n" +
+                ");");
+
+        createTable("create table test.jointest\n" +
+                "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
+                "properties(\"replication_num\" = \"1\");");
+
+        createTable("create external table test.mysql_table\n" +
+                "(k1 int, k2 int)\n" +
+                "ENGINE=MYSQL\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\"\n" +
                 ");");
     }
 
@@ -838,7 +861,7 @@ public class QueryPlanTest {
 
     @Test
     public void testOrCompoundPredicateFold() throws Exception {
-        String queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
+        String queryStr = "explain select * from baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
 
@@ -849,5 +872,35 @@ public class QueryPlanTest {
         queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+    }
+
+    @Test
+    public void testJoinWithMysqlTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // set data size and row count for the olap table
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+
+        queryStr = "explain select * from jointest t1, mysql_table t2 where t1.k1 = t2.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
     }
 }

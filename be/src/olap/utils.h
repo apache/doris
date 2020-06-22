@@ -227,6 +227,10 @@ OLAPStatus copy_file(const std::string& src, const std::string& dest);
 
 OLAPStatus copy_dir(const std::string &src_dir, const std::string &dst_dir);
 
+bool check_datapath_rw(const std::string& path);
+
+OLAPStatus read_write_test_file(const std::string& test_file_path);
+
 //转换两个list
 template<typename T1, typename T2>
 void static_cast_assign_vector(std::vector<T1>* v1, const std::vector<T2>& v2) {

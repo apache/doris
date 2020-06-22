@@ -80,7 +80,7 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = catalog;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 

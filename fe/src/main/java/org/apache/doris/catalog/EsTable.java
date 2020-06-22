@@ -20,14 +20,17 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.external.EsMajorVersion;
-import org.apache.doris.external.EsTableState;
+import org.apache.doris.external.elasticsearch.EsMajorVersion;
+import org.apache.doris.external.elasticsearch.EsTableState;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -96,6 +99,9 @@ public class EsTable extends Table {
     private Map<String, String> docValueContext = new HashMap<>();
 
     private Map<String, String> fieldsContext = new HashMap<>();
+
+    // record the latest and recently exception when sync ES table metadata (mapping, shard location)
+    private Throwable lastMetaDataSyncException = null;
 
     public EsTable() {
         super(TableType.ELASTICSEARCH);
@@ -386,5 +392,13 @@ public class EsTable extends Table {
 
     public void setEsTableState(EsTableState esTableState) {
         this.esTableState = esTableState;
+    }
+
+    public Throwable getLastMetaDataSyncException() {
+        return lastMetaDataSyncException;
+    }
+
+    public void setLastMetaDataSyncException(Throwable lastMetaDataSyncException) {
+        this.lastMetaDataSyncException = lastMetaDataSyncException;
     }
 }

@@ -201,6 +201,11 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     "NumberUnselectedRows": 0,
     "LoadBytes": 40888898,
     "LoadTimeMs": 2144,
+    "BeginTxnTimeMs": 1,
+    "StreamLoadPutTimeMs": 2,
+    "ReadDataTimeMs": 325,
+    "WriteDataTimeMs": 1933,
+    "CommitAndPublishTimeMs": 106,
     "ErrorURL": "http://192.168.1.1:8042/api/_load_error_log?file=__shard_0/error_log_insert_stmt_db18266d4d9b4ee5-abb00ddd64bdf005_db18266d4d9b4ee5_abb00ddd64bdf005"
 }
 ```
@@ -238,6 +243,16 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 + LoadBytes：导入的字节数。
 
 + LoadTimeMs：导入完成时间。单位毫秒。
+
++ BeginTxnTimeMs：向Fe请求开始一个事务所花费的时间，单位毫秒。
+
++ StreamLoadPutTimeMs：向Fe请求获取导入数据执行计划所花费的时间，单位毫秒。
+  
++ ReadDataTimeMs：读取数据所花费的时间，单位毫秒。
+
++ WriteDataTimeMs：执行写入数据操作所花费的时间，单位毫秒。
+
++ CommitAndPublishTimeMs：向Fe请求提交并且发布事务所花费的时间，单位毫秒。
 
 + ErrorURL：如果有数据质量问题，通过访问这个 URL 查看具体错误行。
 
