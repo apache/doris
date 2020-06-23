@@ -1468,8 +1468,7 @@ public class Catalog {
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
-            // TODO(wyb): spark-load
-            //checksum = loadResources(dis, checksum);
+            checksum = loadResources(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
@@ -1872,13 +1871,10 @@ public class Catalog {
     }
 
     public long loadResources(DataInputStream in, long checksum) throws IOException {
-        // TODO(wyb): spark-load
-        /*
-        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.new_version_by_wyb) {
+        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.VERSION_87) {
             resourceMgr = ResourceMgr.read(in); 
         }
         LOG.info("finished replay resources from image");
-         */
         return checksum;
     }
 
@@ -1934,8 +1930,7 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
-            // TODO(wyb): spark-load
-            //checksum = saveResources(dos, checksum);
+            checksum = saveResources(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
