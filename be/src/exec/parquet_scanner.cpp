@@ -29,6 +29,7 @@
 #include "exec/text_converter.hpp"
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/parquet_reader.h"
 
@@ -119,8 +120,8 @@ Status ParquetScanner::open_next_reader() {
                 int64_t file_size = 0;
                 // for compatibility
                 if (range.__isset.file_size) { file_size = range.file_size; }
-                file_reader.reset(new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
-                                               range.path, range.start_offset, file_size));
+                file_reader.reset(new BufferedReader(new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
+                                               range.path, range.start_offset, file_size)));
                 break;
             }
 #if 0
