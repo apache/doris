@@ -183,7 +183,7 @@ Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.resource_info) {
         set_group(params.resource_info);
     }
-
+    LOG(INFO) << "prepare " << params.fragment.plan.nodes.size();
     return _executor.prepare(params);
 }
 
@@ -463,6 +463,7 @@ Status FragmentMgr::exec_plan_fragment(
         }
     }
 
+    LOG(INFO) << "use pool " << use_pool;
     if (use_pool) {
         if (!_thread_pool.offer(
                 boost::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb))) {

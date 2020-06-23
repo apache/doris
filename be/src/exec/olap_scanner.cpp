@@ -129,7 +129,8 @@ Status OlapScanner::open() {
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
     }
-
+    LOG(INFO) << "olap scanner is open";
+    LOG(INFO) << "init param" << _params.to_string();
     auto res = _reader->init(_params);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init reader.[res=%d]", res);

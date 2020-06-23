@@ -344,7 +344,9 @@ void DeleteHandler::finalize() {
 
 void DeleteHandler::get_delete_conditions_after_version(int32_t version,
         std::vector<const Conditions*>* delete_conditions) const {
+    LOG(INFO) << "delete handler del condition size " << _del_conds.size();
     for (auto& del_cond : _del_conds) {
+        LOG(INFO) << "delete version " << del_cond.filter_version << ":" << version;
         if (del_cond.filter_version > version) {
             delete_conditions->emplace_back(del_cond.del_cond);
         }

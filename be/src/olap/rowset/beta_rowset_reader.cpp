@@ -57,7 +57,9 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
                 read_context->is_upper_keys_included->at(i));
         }
     }
+    LOG(INFO) << "beta rowset intint " << "version " << _rowset->start_version() << ":" << _rowset->end_version();
     if (read_context->delete_handler != nullptr) {
+        LOG(INFO) << "get delete conditions ";
         read_context->delete_handler->get_delete_conditions_after_version(_rowset->end_version(),
                 &read_options.delete_conditions);
     }
