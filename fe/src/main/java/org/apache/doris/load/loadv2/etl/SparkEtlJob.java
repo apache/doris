@@ -28,6 +28,7 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 import org.apache.commons.collections.map.MultiValueMap;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
+import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
@@ -67,7 +68,12 @@ public class SparkEtlJob {
     }
 
     private void initSparkEnvironment() {
-        spark = SparkSession.builder().enableHiveSupport().getOrCreate();
+        SparkConf conf = new SparkConf();
+        //serialization conf
+        conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
+        conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
+        conf.set("spark.kryo.registrationRequired", "false");
+        spark = SparkSession.builder().enableHiveSupport().config(conf).getOrCreate();
     }
 
     private void initSparkConfigs(Map<String, String> configs) {
