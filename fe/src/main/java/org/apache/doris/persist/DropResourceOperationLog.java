@@ -28,13 +28,13 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * For resource drop or update (later)
+ * For resource drop
  */
-public class ResourceOperationLog implements Writable {
+public class DropResourceOperationLog implements Writable {
     @SerializedName(value = "name")
     private String name;
 
-    public ResourceOperationLog(String name) {
+    public DropResourceOperationLog(String name) {
         this.name = name;
     }
 
@@ -47,7 +47,7 @@ public class ResourceOperationLog implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static ResourceOperationLog read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), ResourceOperationLog.class);
+    public static DropResourceOperationLog read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropResourceOperationLog.class);
     }
 }

@@ -696,7 +696,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_RESOURCE: {
-                    final ResourceOperationLog operationLog = (ResourceOperationLog) journal.getData();
+                    final DropResourceOperationLog operationLog = (DropResourceOperationLog) journal.getData();
                     catalog.getResourceMgr().replayDropResource(operationLog);
                     break;
                 }
@@ -1280,7 +1280,7 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_RESOURCE, resource);
     }
 
-    public void logDropResource(ResourceOperationLog operationLog) {
+    public void logDropResource(DropResourceOperationLog operationLog) {
         logEdit(OperationType.OP_DROP_RESOURCE, operationLog);
     }
 

@@ -27,7 +27,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.ResourceOperationLog;
+import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -89,11 +89,11 @@ public class ResourceMgr implements Writable {
         }
 
         // log drop
-        Catalog.getCurrentCatalog().getEditLog().logDropResource(new ResourceOperationLog(name));
+        Catalog.getCurrentCatalog().getEditLog().logDropResource(new DropResourceOperationLog(name));
         LOG.info("drop resource success. resource name: {}", name);
     }
 
-    public void replayDropResource(ResourceOperationLog operationLog) {
+    public void replayDropResource(DropResourceOperationLog operationLog) {
         nameToResource.remove(operationLog.getName());
     }
 
