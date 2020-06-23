@@ -39,7 +39,6 @@ static const char* FIELD_SCROLL_ID = "_scroll_id";
 static const char* FIELD_HITS = "hits";
 static const char* FIELD_INNER_HITS = "hits";
 static const char* FIELD_SOURCE = "_source";
-static const char* FIELD_TOTAL = "total";
 static const char* FIELD_ID = "_id";
 
 
@@ -201,7 +200,6 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
 
 ScrollParser::ScrollParser(bool doc_value_mode) :
     _scroll_id(""),
-    _total(0),
     _size(0),
     _line_index(0),
     _doc_value_mode(doc_value_mode) {
@@ -211,6 +209,8 @@ ScrollParser::~ScrollParser() {
 }
 
 Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
+    // rely on `_size !=0 ` to determine whether scroll ends
+    _size = 0;
     _document_node.Parse(scroll_result.c_str());
     if (_document_node.HasParseError()) {
         std::stringstream ss;
@@ -229,37 +229,18 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     }
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
     const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
-    const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
-    // after es 7.x "total": { "value": 1, "relation": "eq" }
-    // it is not necessary to parse `total`, this logic would be removed the another pr.
-    if (field_total.IsObject()) {
-        const rapidjson::Value &field_relation_value = field_total["relation"];
-        std::string relation = field_relation_value.GetString();
-        // maybe not happend on scoll sort mode, for logically rigorous
-        if ("eq" != relation) {
-            return Status::InternalError("Could not identify exact hit count for search response");
-        }
-        const rapidjson::Value &field_total_value = field_total["value"];
-        _total = field_total_value.GetInt();
-    } else {
-        _total = field_total.GetInt();
-    }
-    // just used for the first scroll, maybe we should remove this logic from the `get_next`
-    if (_total == 0) {
+    // if has no inner hits, there has no data in this index
+    if (!outer_hits_node.HasMember(FIELD_INNER_HITS)) {
         return Status::OK();
     }
-
-    VLOG(1) << "es_scan_reader parse scroll result: " << scroll_result;
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     // this happened just the end of scrolling
     if (!inner_hits_node.IsArray()) {
         return Status::OK();
     }
-
-    rapidjson::Document::AllocatorType& a = _document_node.GetAllocator();
-    _inner_hits_node.CopyFrom(inner_hits_node, a);
+    _inner_hits_node.CopyFrom(inner_hits_node, _document_node.GetAllocator());
+    // how many documents contains in this batch
     _size = _inner_hits_node.Size();
-
     return Status::OK();
 }
 
@@ -269,10 +250,6 @@ int ScrollParser::get_size() {
 
 const std::string& ScrollParser::get_scroll_id() {
     return _scroll_id;
-}
-
-int ScrollParser::get_total() {
-    return _total;
 }
 
 Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
