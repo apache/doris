@@ -109,6 +109,15 @@ CREATE [AGGREGATE] FUNCTION function_name
 	);
 	```
 
+3. 创建一个变长参数的标量函数
+
+       ```
+       CREATE FUNCTION strconcat(varchar, ...) RETURNS varchar properties (
+           "symbol" = "_ZN9doris_udf6StrConcatUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+           "object_file" = "http://host:port/libmyStrConcat.so"
+       );
+       ```
+
 ## keyword
 
     CREATE,FUNCTION
