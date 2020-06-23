@@ -91,13 +91,13 @@ public class EsRestClient {
         return nodesMap;
     }
     
-    public EsFieldInfos getFieldInfos(String indexName, String mappingType, List<Column> colList) throws Exception {
+    public EsFieldInfos getFieldInfos(String indexName, String docType, List<Column> colList) throws Exception {
         String path = indexName + "/_mapping";
         String indexMapping = execute(path);
         if (indexMapping == null) {
             throw new ExternalDataSourceException( "index[" + indexName + "] _mapping not found for the Elasticsearch Cluster");
         }
-        return EsFieldInfos.fromMapping(colList, indexName, indexMapping, mappingType);
+        return EsFieldInfos.fromMapping(colList, indexName, indexMapping, docType);
     }
 
     

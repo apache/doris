@@ -44,7 +44,7 @@ public class EsRepository extends MasterDaemon {
     private Map<Long, EsRestClient> esClients;
 
     public EsRepository() {
-        super("es state store", Config.es_state_sync_interval_second * 1000);
+        super("es repository", Config.es_state_sync_interval_second * 1000);
         esTables = Maps.newConcurrentMap();
         esClients = Maps.newConcurrentMap();
     }
@@ -70,10 +70,7 @@ public class EsRepository extends MasterDaemon {
         for (EsTable esTable : esTables.values()) {
             try {
                 EsRestClient client = esClients.get(esTable.getId());
-                EsFieldInfos fieldInfos = client.getFieldInfos(esTable.getIndexName(), esTable.getMappingType(), esTable.getFullSchema());
-                EsShardPartitions esShardPartitions = client.getShardPartitions(esTable.getIndexName());
-                Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
-                esTable.setRemoteMeta(fieldInfos, esShardPartitions, nodesInfo);
+                esTable.syncESIndexMeta(client);
             } catch (Throwable e) {
                 LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
                 esTable.setEsTablePartitions(null);

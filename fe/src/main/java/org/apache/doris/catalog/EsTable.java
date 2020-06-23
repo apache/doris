@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.external.elasticsearch.EsFieldInfos;
 import org.apache.doris.external.elasticsearch.EsMajorVersion;
 import org.apache.doris.external.elasticsearch.EsNodeInfo;
+import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
 import org.apache.doris.thrift.TEsTable;
@@ -407,13 +408,14 @@ public class EsTable extends Table {
     }
 
     /**
-     * set es meta from remote
-     * @param fieldInfos contains docValue and fields
-     * @param esShardPartitions shard partitions for search
-     * @param nodesInfo http-nodes info
+     * sync es index meta from remote
+     * @param client esRestClient
      */
-    public void setRemoteMeta(EsFieldInfos fieldInfos, EsShardPartitions esShardPartitions, Map<String, EsNodeInfo> nodesInfo) {
+    public void syncESIndexMeta(EsRestClient client) {
         try {
+            EsFieldInfos fieldInfos = client.getFieldInfos(this.indexName, this.mappingType, this.fullSchema);
+            EsShardPartitions esShardPartitions = client.getShardPartitions(this.indexName);
+            Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
             if (this.enableKeywordSniff || this.enableDocValueScan) {
                 addFieldInfos(fieldInfos);
             }
