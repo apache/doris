@@ -159,12 +159,12 @@ public class EsRestClient {
         return null;
     }
     
-    public <T > T get(String q, String key) throws Exception {
+    public <T> T get(String q, String key) throws Exception {
         return parseContent(execute(q), key);
     }
     
     @SuppressWarnings("unchecked")
-    private <T > T parseContent(String response, String key) {
+    private <T> T parseContent(String response, String key) {
         Map<String, Object> map = Collections.emptyMap();
         try {
             JsonParser jsonParser = mapper.getJsonFactory().createJsonParser(response);
