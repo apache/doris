@@ -31,6 +31,10 @@
 #include "util/thread.h"
 #include "http/action/tablets_info_action.h"
 
+using std::vector;
+using std::shared_ptr;
+using std::string;
+
 namespace doris {
 
 // Writes the last config::web_log_bytes of the INFO logfile to a webpage
@@ -113,6 +117,41 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
     (*ej) = tablet_info_action.get_tablets_info(tablet_num_to_return);
 }
 
+// Registered to handle "/mem-trackers", and prints out memory tracker information.
+void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
+    (*output) << "<h1>Memory usage by subsystem</h1>\n";
+    (*output) << "<table data-toggle='table' "
+               "       data-pagination='true' "
+               "       data-search='true' "
+               "       class='table table-striped'>\n";
+    (*output) << "<thead><tr>"
+               "<th>Id</th>"
+               "<th>Parent</th>"
+               "<th>Limit</th>"
+               "<th data-sorter='bytesSorter' "
+               "    data-sortable='true' "
+               ">Current Consumption</th>"
+               "<th data-sorter='bytesSorter' "
+               "    data-sortable='true' "
+               ">Peak Consumption</th>";
+    (*output) << "<tbody>\n";
+
+    vector<shared_ptr<MemTracker>> trackers;
+    MemTracker::ListTrackers(&trackers);
+    for (const shared_ptr<MemTracker>& tracker : trackers) {
+        string parent = tracker->parent() == nullptr ? "none" : tracker->parent()->id();
+        string limit_str = tracker->limit() == -1 ? "none" :
+                           HumanReadableNumBytes::ToString(tracker->limit());
+        string current_consumption_str = HumanReadableNumBytes::ToString(tracker->consumption());
+        string peak_consumption_str = HumanReadableNumBytes::ToString(tracker->peak_consumption());
+        (*output) << Substitute("<tr><td>$0</td><td>$1</td><td>$2</td>" // id, parent, limit
+                                "<td>$3</td><td>$4</td></tr>\n", // current, peak
+                                tracker->id(), parent, limit_str, current_consumption_str,
+                                peak_consumption_str);
+    }
+    (*output) << "</tbody></table>\n";
+}
+
 void add_default_path_handlers(WebPageHandler* web_page_handler,
                                const std::shared_ptr<MemTracker>& process_mem_tracker) {
     // TODO(yingchun): logs_handler is not implemented yet, so not show it on navigate bar
@@ -121,6 +160,7 @@ void add_default_path_handlers(WebPageHandler* web_page_handler,
     web_page_handler->register_page(
             "/memz", "Memory", boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2),
             true /* is_on_nav_bar */);
+    web_page_handler->register_page("/mem_tracker", "MemTracker", mem_tracker_handler,true /* is_on_nav_bar */);
     register_thread_display_page(web_page_handler);
     web_page_handler->register_template_page("/tablets_page", "Tablets", boost::bind<void>(&display_tablets_callback, _1, _2), true /* is_on_nav_bar */);
 }
