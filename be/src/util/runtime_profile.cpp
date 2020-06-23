@@ -47,8 +47,7 @@ static const std::string ROOT_COUNTER = "";
 
 RuntimeProfile::PeriodicCounterUpdateState RuntimeProfile::_s_periodic_counter_update_state;
 
-// TODO: we do not use the param pool should we del the param ObjectPool
-RuntimeProfile::RuntimeProfile(ObjectPool* pool, const std::string& name, bool is_averaged_profile)
+RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile)
         : _pool(new ObjectPool()),
           _own_pool(false),
           _name(name),
@@ -75,43 +74,6 @@ RuntimeProfile::~RuntimeProfile() {
         // counters might be gone already.
         stop_bucketing_counters_updates(*buckets_iter, false);
     }
-}
-
-RuntimeProfile* RuntimeProfile::create_from_thrift(ObjectPool* pool,
-                                                   const TRuntimeProfileTree& profiles) {
-    if (profiles.nodes.size() == 0) {
-        return NULL;
-    }
-
-    int idx = 0;
-    return RuntimeProfile::create_from_thrift(pool, profiles.nodes, &idx);
-}
-
-RuntimeProfile* RuntimeProfile::create_from_thrift(ObjectPool* pool,
-                                                   const std::vector<TRuntimeProfileNode>& nodes,
-                                                   int* idx) {
-    DCHECK_LT(*idx, nodes.size());
-
-    const TRuntimeProfileNode& node = nodes[*idx];
-    RuntimeProfile* profile = pool->add(new RuntimeProfile(pool, node.name));
-    profile->_metadata = node.metadata;
-
-    for (int i = 0; i < node.counters.size(); ++i) {
-        const TCounter& counter = node.counters[i];
-        profile->_counter_map[counter.name] = pool->add(new Counter(counter.type, counter.value));
-    }
-
-    profile->_child_counter_map = node.child_counters_map;
-    profile->_info_strings = node.info_strings;
-    profile->_info_strings_display_order = node.info_strings_display_order;
-
-    ++*idx;
-
-    for (int i = 0; i < node.num_children; ++i) {
-        profile->add_child(RuntimeProfile::create_from_thrift(pool, nodes, idx), false, NULL);
-    }
-
-    return profile;
 }
 
 void RuntimeProfile::merge(RuntimeProfile* other) {
@@ -168,7 +130,7 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
             if (j != _child_map.end()) {
                 child = j->second;
             } else {
-                child = _pool->add(new RuntimeProfile(_pool.get(), other_child->_name));
+                child = _pool->add(new RuntimeProfile(other_child->_name));
                 child->_local_time_percent = other_child->_local_time_percent;
                 child->_metadata = other_child->_metadata;
                 bool indent_other_child = other->_children[i].second;
@@ -257,7 +219,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
             if (j != _child_map.end()) {
                 child = j->second;
             } else {
-                child = _pool->add(new RuntimeProfile(_pool.get(), tchild.name));
+                child = _pool->add(new RuntimeProfile(tchild.name));
                 child->_metadata = tchild.metadata;
                 _child_map[tchild.name] = child;
                 _children.push_back(std::make_pair(child, tchild.indent));
@@ -325,7 +287,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
 RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool indent, bool prepend) {
     boost::lock_guard<boost::mutex> l(_children_lock);
     DCHECK(_child_map.find(name) == _child_map.end());
-    RuntimeProfile* child = _pool->add(new RuntimeProfile(_pool.get(), name));
+    RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
     if (_children.empty()) {
         add_child_unlock(child, indent, NULL);
     } else {

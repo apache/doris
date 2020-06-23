@@ -48,7 +48,7 @@ mysql> set is_report_success=true;
 ```
 
 之后执行对应的SQL语句之后，在FE的Web页面就可以看到对应SQL语句执行的Report信息：
-![image.png](https://upload-images.jianshu.io/upload_images/8552201-f5308be377dc4d90.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+![image.png](/images/running_profile.png)
 
 这里会列出最新执行完成的**100条语句**，我们可以通过Profile查看详细的统计信息。
 ```
@@ -68,7 +68,7 @@ Query:
 这里详尽的列出了**查询的ID，执行时间，执行语句**等等的总结信息。接下来内容是打印从BE收集到的各个Fragement的详细信息。
  ```
     Fragment 0:
-      Instance 9664061c57e84404-85ae111b8ba7e83d (host=TNetworkAddress(hostname:10.144.192.47, port:9060)):(Active: 10s270ms, % non-child: 0.14%)
+      Instance 9664061c57e84404-85ae111b8ba7e83d (host=TNetworkAddress(hostname:192.168.0.1, port:9060)):(Active: 10s270ms, % non-child: 0.14%)
          - MemoryLimit: 2.00 GB
          - BytesReceived: 168.08 KB
          - PeakUsedReservation: 0.00 
@@ -92,13 +92,11 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
    - AverageThreadTokens: 执行Fragment使用线程数目，不包含线程池的使用情况
    - Buffer Pool PeakReservation: Buffer Pool使用的内存的峰值
    - MemoryLimit: 查询时的内存限制
-   - PeakMemoryUsage: 内存使用的峰值  
+   - PeakMemoryUsage: 整个Instance在查询时内存使用的峰值
    - RowsProduced: 处理列的行数
-   - BytesReceived: 通过网络接收的Bytes大小
-   - DeserializeRowBatchTimer: 反序列化的耗时
 
 #### `BlockMgr`
-  - BlocksCreated: 落盘时创建的Blocks数目
+  - BlocksCreated: BlockMgr创建的Blocks数目
   - BlocksRecycled: 重用的Blocks数目
   - BytesWritten: 总的落盘写数据量
   - MaxBlockSize: 单个Block的大小
@@ -110,6 +108,16 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
    - OverallThroughput: 总的吞吐量 = BytesSent / 时间
    - SerializeBatchTime: 发送数据序列化消耗的时间
    - UncompressedRowBatchSize: 发送数据压缩前的RowBatch的大小
+
+#### `EXCHANGE_NODE`
+  - BytesReceived: 通过网络接收的数据量大小
+  - DataArrivalWaitTime: 等待Sender发送数据的总时间
+  - FirstBatchArrivalWaitTime: 等待第一个batch从Sender获取的时间
+  - DeserializeRowBatchTimer: 反序列化网络数据的耗时
+  - SendersBlockedTotalTimer(*): DataStreamRecv的队列的内存被打满，Sender端等待的耗时
+  - ConvertRowBatchTime: 接收数据转为RowBatch的耗时
+  - RowsReturned: 接收行的数目
+  - RowsReturnedRate: 接收行的速率
 
 #### `SORT_NODE`
   - InMemorySortTime: 内存之中的排序耗时

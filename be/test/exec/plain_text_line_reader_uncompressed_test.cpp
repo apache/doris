@@ -27,7 +27,7 @@ namespace doris {
 
 class PlainTextLineReaderTest : public testing::Test {
 public:
-    PlainTextLineReaderTest() : _profile(&_obj_pool, "TestProfile") {
+    PlainTextLineReaderTest() : _profile("TestProfile") {
     }
 
 protected:
@@ -36,7 +36,6 @@ protected:
     virtual void TearDown() {
     }
 private:
-    ObjectPool _obj_pool;
     RuntimeProfile _profile;
 };
 

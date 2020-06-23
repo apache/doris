@@ -17,426 +17,135 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.HashDistributionDesc;
-import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.EditLog;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
-
-import org.junit.Before;
-import org.junit.Rule;
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
+import java.io.File;
+import java.util.UUID;
 
 public class CreateTableTest {
+    private static String runningDir = "fe/mocked/CreateTableTest2/" + UUID.randomUUID().toString() + "/";
 
-    private TableName dbTableName;
-    private String dbName = "testDb";
-    private String tableName = "testTable";
-    private String clusterName = "default";
-    private List<Long> beIds = Lists.newArrayList();
-    private List<String> columnNames = Lists.newArrayList();
-    private List<ColumnDef> columnDefs = Lists.newArrayList();
+    private static ConnectContext connectContext;
 
-    private Catalog catalog = Catalog.getCurrentCatalog();
-    private Database db = new Database();
-    private Analyzer analyzer;
+    @BeforeClass
+    public static void beforeClass() throws Exception {
+        UtFrameUtils.createMinDorisCluster(runningDir);
 
-    @Injectable
-    ConnectContext connectContext;
+        // create connect context
+        connectContext = UtFrameUtils.createDefaultCtx();
+        // create database
+        String createDbStmtStr = "create database test;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+    }
+    
+    @AfterClass
+    public static void tearDown() {
+        File file = new File(runningDir);
+        file.delete();
+    }
 
-    @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
-
-    @Before
-    public void setUp() throws AnalysisException {
-        dbTableName = new TableName(dbName, tableName);
-
-        beIds.add(1L);
-        beIds.add(2L);
-        beIds.add(3L);
-
-        columnNames.add("key1");
-        columnNames.add("key2");
-
-        columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
-        columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createVarchar(10))));
-
-        analyzer = new Analyzer(catalog, connectContext);
-
-        new Expectations(analyzer) {
-            {
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = clusterName;
-            }
-        };
-
-        new Expectations(catalog) {
-            {
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-            }
-        };
-
-        dbTableName.analyze(analyzer);
+    private static void createTable(String sql) throws Exception {
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
     @Test
-    public void testNormalOlap(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth,
-            @Injectable EditLog editLog) throws Exception {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
+    public void testNormal() {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl1\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
+        ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.tbl2\n" + "(k1 int, k2 int)\n"
+                + "duplicate key(k1)\n" + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl3\n" + "(k1 varchar(40), k2 int)\n" + "duplicate key(k1)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1');"));
 
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl4\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1');"));
 
-        new Expectations() {
-            {
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.tbl5\n" + "(k1 varchar(40), k2 int, v1 int sum)\n" + "aggregate key(k1,k2)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1');"));
 
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.tbl6\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1');"));
 
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        ExceptionChecker
+                .expectThrowsNoException(() -> createTable("create table test.tbl7\n" + "(k1 varchar(40), k2 int)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1');"));
 
-        new MockUp<AgentBatchTask>() {
-            @Mock
-            void run() {
-                return;
-            }
-        };
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl6 = (OlapTable) db.getTable("tbl6");
+        Assert.assertTrue(tbl6.getColumn("k1").isKey());
+        Assert.assertTrue(tbl6.getColumn("k2").isKey());
+        Assert.assertTrue(tbl6.getColumn("k3").isKey());
 
-        new MockUp<CountDownLatch>() {
-            @Mock
-            boolean await(long timeout, TimeUnit unit) {
-                return true;
-            }
-        };
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
-        stmt.analyze(analyzer);
-
-        catalog.createTable(stmt);
+        OlapTable tbl7 = (OlapTable) db.getTable("tbl7");
+        Assert.assertTrue(tbl7.getColumn("k1").isKey());
+        Assert.assertFalse(tbl7.getColumn("k2").isKey());
+        Assert.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
     }
 
     @Test
-    public void testUnknownDatabase(@Injectable PaloAuth paloAuth) throws Exception {
-        new Expectations(catalog) {
-            {
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-            }
-        };
+    public void testAbormal() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Floating point type column can not be distribution column",
+                () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-        new Expectations() {
-            {
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Floating point type column can not be partition column",
+                () -> createTable("create table test.atbl3\n" + "(k1 int, k2 int, k3 float)\n" + "duplicate key(k1)\n"
+                        + "partition by range(k3)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Varchar should not in the middle of short keys",
+                () -> createTable("create table test.atbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n"
+                        + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num' = '1', 'short_key' = '3');"));
 
-        stmt.analyze(analyzer);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Short key is too large. should less than: 3",
+                () -> createTable("create table test.atbl4\n" + "(k1 int, k2 int, k3 int)\n"
+                        + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num' = '1', 'short_key' = '4');"));
 
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Unknown database 'default:testDb'");
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class, "Failed to find enough host in all backends. need: 3",
+                        () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
+                                + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
+                                + "properties('replication_num' = '3');"));
 
-        catalog.createTable(stmt);
-    }
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.atbl6\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-    @Test
-    public void testShortKeyTooLarge(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
-            throws Exception {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-
-            }
-        };
-
-        new Expectations() {
-            {
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
-
-        Map<String, String> properties = new HashMap<String, String>();
-        //larger then indexColumns size
-        properties.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, "3");
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Short key is too large. should less than: 2");
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testShortKeyVarcharMiddle(@Injectable SystemInfoService systemInfoService,
-            @Injectable PaloAuth paloAuth) throws Exception {
-        columnDefs.clear();
-        columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createVarchar(10))));
-        columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
-
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-
-            }
-        };
-
-        new Expectations() {
-            {
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
-
-        Map<String, String> properties = new HashMap<String, String>();
-        properties.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, "2");
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Varchar should not in the middle of short keys.");
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testNotEnoughBackend(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
-            throws Exception {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-
-            }
-        };
-
-        new Expectations() {
-            {
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = null;
-
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Failed to find enough host in all backends. need: 3");
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testOlapTableExists(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
-            throws Exception {
-        Table olapTable = new OlapTable();
-        new Expectations(db) {
-            {
-                db.getTable(tableName);
-                minTimes = 0;
-                result = olapTable;
-            }
-        };
-
-        new Expectations(catalog) {
-            {
-
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-
-            }
-        };
-
-        new Expectations() {
-            {
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Table 'testTable' already exists");
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testOlapTimeOut(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
-            throws Exception {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-
-            }
-        };
-
-        new Expectations() {
-            {
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-            }
-        };
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Failed to create partition[testTable]. Timeout");
-
-        catalog.createTable(stmt);
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class, "Table 'atbl6' already exists",
+                        () -> createTable("create table test.atbl6\n" + "(k1 int, k2 int, k3 int)\n"
+                                + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
+                                + "properties('replication_num' = '1');"));
     }
 }

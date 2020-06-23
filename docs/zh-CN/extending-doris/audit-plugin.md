@@ -34,7 +34,7 @@ Doris 的审计日志插件是在 FE 的插件框架基础上开发的。是一�
 
 ### FE 配置
 
-FE的插件框架当前是实验性功能，Droris中默认关闭，在FE的配置文件中，增加`plugin_enable = true`启用plugin框架
+FE的插件框架当前是实验性功能，Doris中默认关闭，在FE的配置文件中，增加`plugin_enable = true`启用plugin框架
 
 ### AuditLoader 配置
 

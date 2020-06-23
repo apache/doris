@@ -15,16 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common;
 
-#include "udf/udf.h"
+/**
+ * Exception for data quality check failed
+ */
+public class DataQualityException extends LoadException {
+    public static final String QUALITY_FAIL_MSG = "quality not good enough to cancel";
 
-namespace doris_udf {
+    public DataQualityException(String msg) {
+        super(msg);
+    }
 
-/// This is an example of the COUNT aggregate function.
-void CountInit(FunctionContext* context, BigIntVal* val);
-void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val);
-void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst);
-BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val);
-
+    public DataQualityException(String msg, Throwable e) {
+        super(msg, e);
+    }
 }

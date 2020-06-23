@@ -28,7 +28,9 @@
 
 namespace doris {
 
-const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,_id";
+// hits.hits._id used for obtain ES document `_id`
+const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
+// hits.hits._score used for processing field not exists in one batch
 const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
 
 const std::string REQUEST_SCROLL_PATH = "_scroll";

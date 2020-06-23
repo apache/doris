@@ -15,29 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf_samples/udf_sample.h"
+package org.apache.doris.common;
 
-namespace doris_udf {
+import org.junit.Test;
 
-// ---------------------------------------------------------------------------
-// This is a sample of implementing a COUNT aggregate function.
-// ---------------------------------------------------------------------------
-void CountInit(FunctionContext* context, BigIntVal* val) {
-    val->is_null = false;
-    val->val = 0;
-}
+public class FeNameFormatTest {
 
-void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val) {
-    if (input.is_null) return;
-    ++val->val;
-}
-
-void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst) {
-    dst->val += src.val;
-}
-
-BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val) {
-    return val;
-}
+    @Test
+    public void testCheckColumnName() {
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("_id"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("__id"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("___id"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("___id_"));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("?id_"));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("#id_"));
+    }
 
 }

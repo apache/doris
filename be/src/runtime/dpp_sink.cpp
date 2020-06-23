@@ -569,7 +569,7 @@ Status Translator::create_profile(RuntimeState* state) {
     std::stringstream ss;
     ss << "Dpp translator(" << _tablet_desc.partition_id << "_" << _tablet_desc.bucket_id
         << "_" << _rollup_name << ")";
-    _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), ss.str()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(ss.str()));
 
     _add_batch_timer = ADD_TIMER(_profile, "add batch time");
     _sort_timer = ADD_TIMER(_profile, "sort time");
@@ -875,7 +875,7 @@ Status Translator::close(RuntimeState* state) {
 }
 
 Status DppSink::init(RuntimeState* state) {
-    _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), "Dpp sink"));
+    _profile = state->obj_pool()->add(new RuntimeProfile("Dpp sink"));
     return Status::OK();
 }
 

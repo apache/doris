@@ -89,7 +89,7 @@ fi
 
 cd ${DORIS_HOME}/be/ut_build/
 
-${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=DEBUG
+${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=ASAN
 make -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
@@ -212,6 +212,7 @@ ${DORIS_TEST_BINARY_DIR}/exec/es_scan_reader_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_query_builder_test
 ${DORIS_TEST_BINARY_DIR}/exec/tablet_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/tablet_sink_test
+${DORIS_TEST_BINARY_DIR}/exec/buffered_reader_test
 
 # Running runtime Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/external_scan_context_mgr_test
@@ -307,6 +308,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/key_coder_test
 ${DORIS_TEST_BINARY_DIR}/olap/page_cache_test
 ${DORIS_TEST_BINARY_DIR}/olap/hll_test
 ${DORIS_TEST_BINARY_DIR}/olap/selection_vector_test
+${DORIS_TEST_BINARY_DIR}/olap/push_handler_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test

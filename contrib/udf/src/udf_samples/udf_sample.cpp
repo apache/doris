@@ -15,23 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "udf/udf.h"
+#include "udf_sample.h"
 
 namespace doris_udf {
 
-IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2);
+IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2) {
+    if (arg1.is_null || arg2.is_null) {
+        return IntVal::null();
+    }
+    return {arg1.val + arg2.val};
+}
 
 /// --- Prepare / Close Functions ---
 /// ---------------------------------
-
-/// The UDF can optionally include a prepare function. The prepare function is called
-/// before any calls to the UDF to evaluate values.
-void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope);
-
-/// The UDF can also optionally include a close function. The close function is called 
-/// after all calls to the UDF have completed.
-void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope);
+void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
+void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
 
 }

@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_UDF_UDF_INTERNAL_H
 #define DORIS_BE_UDF_UDF_INTERNAL_H
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <string.h>
