@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf_samples/udf_sample.h"
+#include "udf_sample.h"
 
 namespace doris_udf {
 
