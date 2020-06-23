@@ -17,21 +17,14 @@
 
 #pragma once
 
-#include "udf/udf.h"
+#include "udf.h"
 
 namespace doris_udf {
 
-IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2);
-
-/// --- Prepare / Close Functions ---
-/// ---------------------------------
-
-/// The UDF can optionally include a prepare function. The prepare function is called
-/// before any calls to the UDF to evaluate values.
-void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope);
-
-/// The UDF can also optionally include a close function. The close function is called 
-/// after all calls to the UDF have completed.
-void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope);
+/// This is an example of the COUNT aggregate function.
+void CountInit(FunctionContext* context, BigIntVal* val);
+void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val);
+void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst);
+BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val);
 
 }
