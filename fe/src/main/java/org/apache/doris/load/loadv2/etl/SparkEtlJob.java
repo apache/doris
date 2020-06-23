@@ -70,8 +70,11 @@ public class SparkEtlJob {
         spark = SparkSession.builder().enableHiveSupport().getOrCreate();
     }
 
-    private void initHiveConfigs(Map<String, String> hiveProperties) {
-        for (Map.Entry<String, String> entry : hiveProperties.entrySet()) {
+    private void initSparkConfigs(Map<String, String> configs) {
+        if (configs == null) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : configs.entrySet()) {
             spark.sparkContext().conf().set(entry.getKey(), entry.getValue());
         }
     }
@@ -202,7 +205,7 @@ public class SparkEtlJob {
 
             // init hive configs like metastore service
             EtlFileGroup fileGroup = table.fileGroups.get(0);
-            initHiveConfigs(fileGroup.hiveTableProperties);
+            initSparkConfigs(fileGroup.hiveTableProperties);
             fileGroup.dppHiveDbTableName = fileGroup.hiveDbTableName;
 
             // build global dict and encode source hive table if has bitmap dict columns
