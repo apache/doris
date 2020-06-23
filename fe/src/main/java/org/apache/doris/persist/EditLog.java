@@ -696,8 +696,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_RESOURCE: {
-                    final String resourceName = journal.getData().toString();
-                    catalog.getResourceMgr().replayDropResource(resourceName);
+                    final ResourceOperationLog operationLog = (ResourceOperationLog) journal.getData();
+                    catalog.getResourceMgr().replayDropResource(operationLog);
                     break;
                 }
                 case OperationType.OP_CREATE_SMALL_FILE: {
@@ -1280,8 +1280,8 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_RESOURCE, resource);
     }
 
-    public void logDropResource(String resourceName) {
-        logEdit(OperationType.OP_DROP_RESOURCE, new Text(resourceName));
+    public void logDropResource(ResourceOperationLog operationLog) {
+        logEdit(OperationType.OP_DROP_RESOURCE, operationLog);
     }
 
     public void logCreateSmallFile(SmallFile info) {

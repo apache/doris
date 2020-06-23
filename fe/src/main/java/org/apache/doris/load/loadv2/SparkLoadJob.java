@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import static org.apache.doris.common.DataQualityException.QUALITY_FAIL_MSG;
-
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DescriptorTable;
@@ -335,7 +333,7 @@ public class SparkLoadJob extends BulkLoadJob {
         unprotectedUpdateEtlStatusInternal(etlStatus);
         // checkDataQuality
         if (!checkDataQuality()) {
-            throw new DataQualityException(QUALITY_FAIL_MSG);
+            throw new DataQualityException(DataQualityException.QUALITY_FAIL_MSG);
         }
 
         // get etl output files and update loading state

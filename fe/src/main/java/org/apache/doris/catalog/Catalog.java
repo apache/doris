@@ -1460,6 +1460,7 @@ public class Catalog {
             checksum = loadGlobalVariable(dis, checksum);
             checksum = loadCluster(dis, checksum);
             checksum = loadBrokers(dis, checksum);
+            checksum = loadResources(dis, checksum);
             checksum = loadExportJob(dis, checksum);
             checksum = loadBackupHandler(dis, checksum);
             checksum = loadPaloAuth(dis, checksum);
@@ -1468,7 +1469,6 @@ public class Catalog {
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
-            checksum = loadResources(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
@@ -1923,6 +1923,7 @@ public class Catalog {
             checksum = saveGlobalVariable(dos, checksum);
             checksum = saveCluster(dos, checksum);
             checksum = saveBrokers(dos, checksum);
+            checksum = saveResources(dos, checksum);
             checksum = saveExportJob(dos, checksum);
             checksum = saveBackupHandler(dos, checksum);
             checksum = savePaloAuth(dos, checksum);
@@ -1930,7 +1931,6 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
-            checksum = saveResources(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
