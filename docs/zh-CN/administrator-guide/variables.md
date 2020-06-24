@@ -338,6 +338,3 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     是否将 bitmap 和 hll 类型的 count distinct 查询重写为 bitmap_union_count 和 hll_union_agg 。
 
-* `allow_ignore_order_by`
-
-    用来忽略没有limit和offset语句的集合操作、inline view、insert 中的order by 语句，提升查询性能。
