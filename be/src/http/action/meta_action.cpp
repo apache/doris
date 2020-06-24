@@ -53,8 +53,9 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
                      << ", schema_hash:" << req_schema_hash;
         return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
     }
-    BaseTabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_base_tablet(
-            tablet_id, schema_hash);
+
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status::InternalError("no tablet exist");
