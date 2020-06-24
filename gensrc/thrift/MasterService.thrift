@@ -38,7 +38,6 @@ struct TTabletInfo {
     12: optional bool used
     13: optional Types.TPartitionId partition_id
     14: optional bool is_in_memory
-    15: optional AgentService.TTabletType tablet_type
 }
 
 struct TFinishTaskRequest {
