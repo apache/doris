@@ -340,7 +340,6 @@ bool valid_datetime(const std::string& value_str);
 // Log define for non-network usage
 // 屏蔽DEBUG和TRACE日志以满足性能测试需求
 #define OLAP_LOG_WARNING(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
-#define OLAP_LOG_INFO(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_NOTICE_DIRECT_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_WARNING_SOCK(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
 #define OLAP_LOG_SETBASIC(type, fmt, arg...)
