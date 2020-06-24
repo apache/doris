@@ -29,8 +29,8 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
+#include "olap/storage_engine.h"
 #include "util/debug_util.h"
-#include "runtime/exec_env.h"
 
 using std::string;
 
@@ -46,7 +46,7 @@ FileHandler::FileHandler() :
         _cache_handle(NULL) {
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
-        _s_fd_cache = ExecEnv::GetInstance()->file_cache();
+        _s_fd_cache = StorageEngine::instance()->file_cache();
     });
 }
 

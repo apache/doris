@@ -107,6 +107,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
         _index_stream_lru_cache(NULL),
+        _file_cache = new_lru_cache(config::file_descriptor_cache_capacity),
         _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
         _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
@@ -504,7 +505,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "start clean file descritpor cache";
     // FileHandler::get_fd_cache()->prune();
-    fs_util::file_cache()->prune();
+    _file_cache->prune();
     VLOG(10) << "end clean file descritpor cache";
 }
 

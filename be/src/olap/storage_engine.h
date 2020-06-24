@@ -89,6 +89,10 @@ public:
         return _index_stream_lru_cache;
     }
 
+    Cache* file_cache() {
+        return _file_cache;
+    }
+
     template<bool include_unused = false> std::vector<DataDir*> get_stores();
 
 
@@ -296,6 +300,8 @@ private:
 
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
+
+    Cache* _file_cache;
 
     static StorageEngine* _s_instance;
 
