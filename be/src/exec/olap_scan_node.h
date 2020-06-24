@@ -18,7 +18,7 @@
 #ifndef  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 #define  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
-#include <boost/thread/recursive_mutex.hpp>
+#include <boost/variant/static_visitor.hpp>
 #include <condition_variable>
 #include <queue>
 
