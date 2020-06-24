@@ -183,6 +183,8 @@ public final class FeMetaVersion {
     public static final int VERSION_85 = 85;
     // serialize origStmt in rollupJob and mv meta
     public static final int VERSION_86 = 86;
+    // spark resource, resource privilege, broker file group for hive table
+    public static final int VERSION_87 = 87;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_86;
+    public static final int VERSION_CURRENT = VERSION_87;
 }

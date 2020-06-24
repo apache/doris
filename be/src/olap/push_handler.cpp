@@ -944,9 +944,9 @@ OLAPStatus PushBrokerReader::init(const Schema* schema,
         LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
         return OLAP_ERR_PUSH_INIT_ERROR;
     }
-    _runtime_profile.reset(_runtime_state->runtime_profile());
+    _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_tracker.reset(new MemTracker(_runtime_profile.get(), -1, _runtime_profile->name(), _runtime_state->instance_mem_tracker()));
+    _mem_tracker.reset(new MemTracker(_runtime_profile, -1, _runtime_profile->name(), _runtime_state->instance_mem_tracker()));
     _mem_pool.reset(new MemPool(_mem_tracker.get()));
     _counter.reset(new ScannerCounter());
 
@@ -955,7 +955,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema,
     switch (t_scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         scanner = new ParquetScanner(_runtime_state.get(),
-                                  _runtime_profile.get(),
+                                  _runtime_profile,
                                   t_scan_range.params,
                                   t_scan_range.ranges,
                                   t_scan_range.broker_addresses,
