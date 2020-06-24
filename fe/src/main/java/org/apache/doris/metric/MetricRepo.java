@@ -275,6 +275,28 @@ public final class MetricRepo {
         };
         tpcInErrs.addLabel(new MetricLabel("name", "tcp_in_errs"));
         PALO_METRIC_REGISTER.addPaloMetrics(tpcInErrs);
+
+        // TCP inSegs
+        GaugeMetric<Long> tpcInSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "snmp", MetricUnit.NOUNIT, "The number of all TCP packets received") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.tcpInSegs;
+            }
+        };
+        tpcInSegs.addLabel(new MetricLabel("name", "tcp_in_segs"));
+        PALO_METRIC_REGISTER.addPaloMetrics(tpcInSegs);
+
+        // TCP outSegs
+        GaugeMetric<Long> tpcOutSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "snmp", MetricUnit.NOUNIT, "The number of all TCP packets send with RST") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.tcpOutSegs;
+            }
+        };
+        tpcOutSegs.addLabel(new MetricLabel("name", "tcp_out_segs"));
+        PALO_METRIC_REGISTER.addPaloMetrics(tpcOutSegs);
     }
 
     // to generate the metrics related to tablets of each backends
