@@ -46,13 +46,6 @@ class TabletMeta;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
-inline TabletSharedPtr to_tablet(const BaseTabletSharedPtr& base) {
-    if (base->is_memory()) {
-        return TabletSharedPtr();
-    }
-    return std::static_pointer_cast<Tablet>(base);
-}
-
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
@@ -60,12 +53,39 @@ public:
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
 
+    OLAPStatus init();
+    inline bool init_succeeded();
+
+    bool is_used();
+
+    void register_tablet_into_dir();
+    void deregister_tablet_from_dir();
+
+    void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
     inline const int64_t cumulative_layer_point() const;
     inline void set_cumulative_layer_point(int64_t new_point);
+
+    inline size_t tablet_footprint(); // disk space occupied by tablet
+    inline size_t num_rows();
+    inline int version_count() const;
+    inline Version max_version() const;
+
+    // propreties encapsulated in TabletSchema
+    inline KeysType keys_type() const;
+    inline size_t num_columns() const;
+    inline size_t num_null_columns() const;
+    inline size_t num_key_columns() const;
+    inline size_t num_short_key_columns() const;
+    inline size_t num_rows_per_row_block() const;
+    inline CompressKind compress_kind() const;
+    inline double bloom_filter_fpp() const;
+    inline size_t next_unique_id() const;
+    inline size_t row_size() const;
+    inline size_t field_index(const string& field_name) const;
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
@@ -107,6 +127,12 @@ public:
                         const AlterTabletType alter_type);
     void delete_alter_task();
     OLAPStatus set_alter_state(AlterTabletState state);
+
+    // meta lock
+    inline void obtain_header_rdlock() { _meta_lock.rdlock(); }
+    inline void obtain_header_wrlock() { _meta_lock.wrlock(); }
+    inline void release_header_lock() { _meta_lock.unlock(); }
+    inline RWMutex* get_header_lock_ptr() { return &_meta_lock; }
 
     // ingest lock
     inline void obtain_push_lock() { _ingest_lock.lock(); }
@@ -167,8 +193,14 @@ public:
     int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
     void set_last_base_compaction_success_time(int64_t millis) { _last_base_compaction_success_millis = millis; }
 
+    void delete_all_files();
+
     bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);
+
+    OLAPStatus set_partition_id(int64_t partition_id);
+
+    TabletInfo get_tablet_info() const;
 
     void pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
                                                          std::vector<RowsetSharedPtr>* candidate_rowsets);
@@ -187,24 +219,20 @@ public:
 
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
+    void build_tablet_report_info(TTabletInfo* tablet_info);
+
     void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
 
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
-    virtual void build_tablet_report_info(TTabletInfo* tablet_info);
-
-    virtual void delete_all_files();
-
-protected:
-    virtual OLAPStatus _init_once_action();
-
 private:
+    OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     OLAPStatus _contains_version(const Version& version);
     void _max_continuous_version_from_begining_unlocked(Version* version,
-                                                        VersionHash* v_hash) const;
+                                                        VersionHash* v_hash) const ;
     RowsetSharedPtr _rowset_with_largest_size();
     void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
     OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
@@ -215,6 +243,7 @@ private:
 
     RowsetGraph _rs_graph;
 
+    DorisCallOnce<OLAPStatus> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
     // it will be used in econ-mode in the future
     RWMutex _meta_store_lock;
@@ -223,6 +252,9 @@ private:
     Mutex _cumulative_lock;
     RWMutex _migration_lock;
 
+    // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
+    // explain how these two locks work together.
+    mutable RWMutex _meta_lock;
     // A new load job will produce a new rowset, which will be inserted into both _rs_version_map
     // and _inc_rs_version_map. Only the most recent rowsets are kept in _inc_rs_version_map to
     // reduce the amount of data that needs to be copied during the clone task.
@@ -236,6 +268,8 @@ private:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
 
+    // if this tablet is broken, set to true. default is false
+    std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
     std::atomic<int64_t> _last_cumu_compaction_failure_millis;
     // timestamp of last base compaction failure
@@ -251,6 +285,22 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
+inline bool Tablet::init_succeeded() {
+    return _init_once.has_called() && _init_once.stored_result() == OLAP_SUCCESS;
+}
+
+inline bool Tablet::is_used() {
+    return !_is_bad && _data_dir->is_used();
+}
+
+inline void Tablet::register_tablet_into_dir() {
+    _data_dir->register_tablet(this);
+}
+
+inline void Tablet::deregister_tablet_from_dir() {
+    _data_dir->deregister_tablet(this);
+}
+
 
 inline const int64_t Tablet::cumulative_layer_point() const {
     return _cumulative_point;
@@ -260,6 +310,72 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
 
+
+// TODO(lingbin): Why other methods that need to get information from _tablet_meta
+// are not locked, here needs a comment to explain.
+inline size_t Tablet::tablet_footprint() {
+    ReadLock rdlock(&_meta_lock);
+    return _tablet_meta->tablet_footprint();
+}
+
+// TODO(lingbin): Why other methods which need to get information from _tablet_meta
+// are not locked, here needs a comment to explain.
+inline size_t Tablet::num_rows() {
+    ReadLock rdlock(&_meta_lock);
+    return _tablet_meta->num_rows();
+}
+
+inline int Tablet::version_count() const {
+    return _tablet_meta->version_count();
+}
+
+inline Version Tablet::max_version() const {
+    return _tablet_meta->max_version();
+}
+
+inline KeysType Tablet::keys_type() const {
+    return _schema.keys_type();
+}
+
+inline size_t Tablet::num_columns() const {
+    return _schema.num_columns();
+}
+
+inline size_t Tablet::num_null_columns() const {
+    return _schema.num_null_columns();
+}
+
+inline size_t Tablet::num_key_columns() const {
+    return _schema.num_key_columns();
+}
+
+inline size_t Tablet::num_short_key_columns() const {
+    return _schema.num_short_key_columns();
+}
+
+inline size_t Tablet::num_rows_per_row_block() const {
+    return _schema.num_rows_per_row_block();
+}
+
+inline CompressKind Tablet::compress_kind() const {
+    return _schema.compress_kind();
+}
+
+inline double Tablet::bloom_filter_fpp() const {
+    return _schema.bloom_filter_fpp();
+}
+
+inline size_t Tablet::next_unique_id() const {
+    return _schema.next_column_unique_id();
+}
+
+inline size_t Tablet::field_index(const string& field_name) const {
+    return _schema.field_index(field_name);
+}
+
+inline size_t Tablet::row_size() const {
+    return _schema.row_size();
+}
 
 }
 

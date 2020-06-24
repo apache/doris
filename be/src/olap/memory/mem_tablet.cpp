@@ -36,17 +36,10 @@ std::shared_ptr<MemTablet> MemTablet::create_tablet_from_meta(TabletMetaSharedPt
     return std::make_shared<MemTablet>(tablet_meta, data_dir);
 }
 
-OLAPStatus MemTablet::_init_once_action() {
+Status MemTablet::init() {
     _max_version = 0;
-    Status ret = MemSubTablet::create(0, *_mem_schema.get(), &_sub_tablet);
-    if (ret.ok()) {
-        return OLAP_SUCCESS;
-    } else {
-        // TODO: Status/OLAPStatus compatibility
-        return OLAP_ERR_INIT_FAILED;
-    }
+    return MemSubTablet::create(0, *_mem_schema.get(), &_sub_tablet);
 }
-
 
 Status MemTablet::scan(std::unique_ptr<ScanSpec>* spec, std::unique_ptr<MemTabletScan>* scan) {
     uint64_t version = (*spec)->version();
@@ -92,29 +85,6 @@ Status MemTablet::commit_write_txn(WriteTxn* wtxn, uint64_t version) {
     _max_version = version;
     return Status::OK();
 }
-
-void MemTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
-    ReadLock rdlock(&_meta_lock);
-    tablet_info->tablet_id = _tablet_meta->tablet_id();
-    tablet_info->schema_hash = _tablet_meta->schema_hash();
-    tablet_info->row_count = _tablet_meta->num_rows();
-    tablet_info->data_size = _tablet_meta->tablet_footprint();
-    tablet_info->version = _max_version;
-    tablet_info->version_hash = 0;
-    tablet_info->__set_partition_id(_tablet_meta->partition_id());
-    tablet_info->__set_storage_medium(_data_dir->storage_medium());
-    tablet_info->__set_version_count(_tablet_meta->version_count());
-    tablet_info->__set_path_hash(_data_dir->path_hash());
-    tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
-    tablet_info->__set_tablet_type(_tablet_meta->tablet_type() == TabletTypePB::TABLET_TYPE_DISK ?
-            TTabletType::TABLET_TYPE_DISK : TTabletType::TABLET_TYPE_MEMORY);
-}
-
-void MemTablet::delete_all_files() {
-    // TODO:
-}
-
-
 
 } // namespace memory
 } // namespace doris
