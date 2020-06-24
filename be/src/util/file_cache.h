@@ -104,6 +104,12 @@ public:
     // the number of files open at any given time.
     FileCache(const std::string& cache_name, int max_open_files);
 
+    // Creates a new file cache with given cache.
+    //
+    // The 'cache_name' is used to disambiguate amongst other file cache
+    // instances.
+    FileCache(const std::string& cache_name, Cache* cache);
+
     // Destroys the file cache.
     ~FileCache() { }
 
@@ -121,7 +127,7 @@ private:
     std::string _cache_name;
 
     // Underlying cache instance. Caches opened files.
-    std::unique_ptr<Cache> _cache;
+    Cache* _cache;
 
     DISALLOW_COPY_AND_ASSIGN(FileCache);
 };

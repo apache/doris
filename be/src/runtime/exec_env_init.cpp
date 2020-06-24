@@ -42,6 +42,7 @@
 #include "util/debug_util.h"
 #include "olap/storage_engine.h"
 #include "olap/page_cache.h"
+#include "olap/lru_cache.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
@@ -105,6 +106,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _plugin_mgr = new PluginMgr();
+    _file_cache = new_lru_cache(config::file_descriptor_cache_capacity);
 
     _backend_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "frontend");

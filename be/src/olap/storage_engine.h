@@ -313,6 +313,7 @@ private:
     std::vector<std::thread> _base_compaction_threads;
     // threads to check cumulative
     std::vector<std::thread> _cumulative_compaction_threads;
+    // threads to clean all file descriptor not actively in use
     std::thread _fd_cache_clean_thread;
     std::vector<std::thread> _path_gc_threads;
     // threads to scan disk paths

@@ -30,6 +30,7 @@
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "util/debug_util.h"
+#include "runtime/exec_env.h"
 
 using std::string;
 
@@ -45,7 +46,7 @@ FileHandler::FileHandler() :
         _cache_handle(NULL) {
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
-        _s_fd_cache = new_lru_cache(config::file_descriptor_cache_capacity);
+        _s_fd_cache = ExecEnv::GetInstance()->file_cache();
     });
 }
 

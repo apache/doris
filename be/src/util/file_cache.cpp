@@ -28,6 +28,11 @@ FileCache<FileType>::FileCache(const std::string& cache_name, int max_open_files
         _cache(new_lru_cache(max_open_files)) { }
 
 template <class FileType>
+FileCache<FileType>::FileCache(const std::string& cache_name, Cache* cache) :
+        _cache_name(cache_name),
+        _cache(cache) { }
+
+template <class FileType>
 bool FileCache<FileType>::lookup(const std::string& file_name, OpenedFileHandle<FileType>* file_handle) {
     CacheKey key(file_name);
     auto lru_handle = _cache->lookup(key);
@@ -47,6 +52,11 @@ void FileCache<FileType>::insert(const std::string& file_name, FileType* file, O
     auto lru_handle = _cache->insert(key, file, 1, deleter);
     *file_handle = OpenedFileHandle<FileType>(_cache.get(), lru_handle);
 }
+
+// template <class FileType>
+// void FileCache<FileType>::prune() {
+//     _cache->prune();
+// }
 
 // Explicit specialization for callers outside this compilation unit.
 template class FileCache<RandomAccessFile>;

@@ -55,6 +55,7 @@ class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class FileBlockManager;
 class PluginMgr;
+class Cache;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -123,6 +124,7 @@ public:
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
+    Cache* file_cache() { return _file_cache; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
@@ -174,6 +176,7 @@ private:
     LoadChannelMgr* _load_channel_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
     BrpcStubCache* _brpc_stub_cache = nullptr;
+    Cache* _file_cache = nullptr;
 
     ReservationTracker* _buffer_reservation = nullptr;
     BufferPool* _buffer_pool = nullptr;

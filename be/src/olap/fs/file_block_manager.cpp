@@ -385,7 +385,7 @@ FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts) :
         _metrics.reset(new internal::BlockManagerMetrics());
     }
 
-    _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", config::file_descriptor_cache_capacity));
+    _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", ExecEnv::GetInstance()->file_cache()));
 }
 
 FileBlockManager::~FileBlockManager() {

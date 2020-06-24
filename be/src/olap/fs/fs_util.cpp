@@ -35,6 +35,10 @@ BlockManager* block_manager() {
 #endif
 }
 
+Cache* file_cache() {
+    return ExecEnv::GetInstance()->file_cache();
+}
+
 BlockManager* block_mgr_for_ut() {
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;

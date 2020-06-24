@@ -503,7 +503,8 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
 void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "start clean file descritpor cache";
-    FileHandler::get_fd_cache()->prune();
+    // FileHandler::get_fd_cache()->prune();
+    fs_util::file_cache()->prune();
     VLOG(10) << "end clean file descritpor cache";
 }
 
