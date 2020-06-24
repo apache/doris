@@ -48,7 +48,7 @@ public class DynamicPartitionProperty {
     private int buckets;
     private StartOfDate startOfWeek;
     private StartOfDate startOfMonth;
-    private TimeZone tz = TimeUtils.getDefaultTimeZone();
+    private TimeZone tz = TimeUtils.getSystemTimeZone();
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
