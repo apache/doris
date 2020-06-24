@@ -39,7 +39,7 @@ bool FileCache<FileType>::lookup(const std::string& file_name, OpenedFileHandle<
     if (lru_handle == nullptr) {
         return false;
     }
-    *file_handle = OpenedFileHandle<FileType>(_cache.get(), lru_handle);
+    *file_handle = OpenedFileHandle<FileType>(_cache, lru_handle);
     return true;
 }
 
@@ -50,7 +50,7 @@ void FileCache<FileType>::insert(const std::string& file_name, FileType* file, O
     };
     CacheKey key(file_name);
     auto lru_handle = _cache->insert(key, file, 1, deleter);
-    *file_handle = OpenedFileHandle<FileType>(_cache.get(), lru_handle);
+    *file_handle = OpenedFileHandle<FileType>(_cache, lru_handle);
 }
 
 // template <class FileType>
