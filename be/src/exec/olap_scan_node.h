@@ -190,7 +190,7 @@ private:
     // object is.
     std::unique_ptr<ObjectPool> _scanner_pool;
 
-    std::thread _transfer_thread;
+    std::unique_ptr<std::thread> _transfer_thread;
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
 

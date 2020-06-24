@@ -304,7 +304,7 @@ Status OlapScanNode::close(RuntimeState* state) {
     _scan_batch_added_cv.notify_all();
 
     // join transfer thread
-    _transfer_thread.join();
+    _transfer_thread->join();
 
     // clear some row batch in queue
     for (auto row_batch : _materialized_row_batches) {
@@ -695,7 +695,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     _progress = ProgressUpdater(ss.str(), _olap_scanners.size(), 1);
     _progress.set_logging_level(1);
 
-    _transfer_thread = std::thread(&OlapScanNode::transfer_thread, this, state);
+    _transfer_thread.reset(new std::thread(&OlapScanNode::transfer_thread, this, state));
     return Status::OK();
 }
 
