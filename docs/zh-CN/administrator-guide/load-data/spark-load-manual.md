@@ -45,6 +45,7 @@ Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 S
 2. Backend（BE）：Doris 系统的计算和存储节点。在导入流程中主要负责数据写入及存储。
 3. Spark ETL：在导入流程中主要负责数据的 ETL 工作，包括全局字典构建（BITMAP类型）、分区、排序、聚合等。
 4. Broker：Broker 为一个独立的无状态进程。封装了文件系统接口，提供 Doris 读取远端存储系统中文件的能力。
+5. 全局字典： 保存了数据从原始值到编码值映射的数据结构，原始值可以是任意数据类型，而编码后的值为整型；全局字典主要应用于精确去重预计算的场景。
 
 
 ## 基本原理
@@ -88,16 +89,27 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 
 
-### 全局字典
+## 全局字典
+### 适用场景
+目前Doris中Bitmap列是使用类库```Roaringbitmap```实现的，而```Roaringbitmap```的输入数据类型只能是整型，因此如果要在导入流程中实现对于Bitmap列的预计算，那么就需要将输入数据的类型转换成整型。
 
-待补
+在Doris现有的导入流程中，全局字典的数据结构是基于Hive表实现的，保存了原始值到编码值的映射。
+### 构建流程
+1. 读取上游数据源的数据，生成一张hive临时表，记为hive_table。
+2. 从hive_table中抽取待去重字段的去重值，生成一张新的hive表，记为distinct_value_table。
+3. 新建一张全局字典表，记为dict_table；一列为原始值，一列为编码后的值。
+4. 将distinct_value_table与dict_table做left join，计算出新增的去重值集合，然后对这个集合使用窗口函数进行编码，此时去重列原始值就多了一列编码后的值，最后将这两列的数据写回dict_table。
+5. 将dict_table与hive_table做join，完成hive_table中原始值替换成整型编码值的工作。
+6. hive_table会被下一步数据预处理的流程所读取，经过计算后导入到Doris中。
 
-
-
-### 数据预处理（DPP）
-
-待补
-
+## 数据预处理（DPP）
+### 基本流程
+1. 从数据源读取数据，上游数据源可以是HDFS文件，也可以是Hive表。
+2. 对读取到的数据进行字段映射，表达式计算以及根据分区信息生成分桶字段bucket_id。
+3. 根据Doris表的rollup元数据生成RollupTree。
+4. 遍历RollupTree，进行分层的聚合操作，下一个层级的rollup可以由上一个层的rollup计算得来。
+5. 每次完成聚合计算后，会对数据根据bucket_id进行分桶然后写入HDFS中。
+6. 后续broker会拉取HDFS中的文件然后导入Doris Be中。
 
 
 ## 基本操作
@@ -113,8 +125,8 @@ Spark作为一种外部计算资源在Doris中用来完成ETL工作，未来可�
 ```sql
 -- create spark resource
 CREATE EXTERNAL RESOURCE resource_name
-PROPERTIES 
-(                 
+PROPERTIES
+(
   type = spark,
   spark_conf_key = spark_conf_value,
   working_dir = path,
@@ -150,7 +162,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
   - `spark.submit.deployMode`:  Spark 程序的部署模式，必填，支持 cluster，client 两种。
   - `spark.hadoop.yarn.resourcemanager.address`: master为yarn时必填。
   - `spark.hadoop.fs.defaultFS`: master为yarn时必填。
-  - 其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html 
+  - 其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html
 - `working_dir`: ETL 使用的目录。spark作为ETL资源使用时必填。例如：hdfs://host:port/tmp/doris。
 - `broker`: broker 名字。spark作为ETL资源使用时必填。需要使用`ALTER SYSTEM ADD BROKER` 命令提前完成配置。
   - `broker.property_key`: broker读取ETL生成的中间文件时需要指定的认证信息等。
@@ -158,7 +170,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 示例：
 
 ```sql
--- yarn cluster 模式 
+-- yarn cluster 模式
 CREATE EXTERNAL RESOURCE "spark0"
 PROPERTIES
 (
@@ -181,7 +193,7 @@ PROPERTIES
 CREATE EXTERNAL RESOURCE "spark1"
 PROPERTIES
 (
-  "type" = "spark", 
+  "type" = "spark",
   "spark.master" = "spark://127.0.0.1:7777",
   "spark.submit.deployMode" = "client",
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
@@ -224,7 +236,7 @@ REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 语法：
 
 ```sql
-LOAD LABEL load_label 
+LOAD LABEL load_label
     (data_desc, ...)
     WITH RESOURCE resource_name resource_properties
     [PROPERTIES (key1=value1, ... )]
@@ -242,10 +254,10 @@ LOAD LABEL load_label
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
-* resource_properties: 
+* resource_properties:
     (key2=value2, ...)
 ```
-示例：
+示例1：上游数据源为hdfs文件的情况
 
 ```sql
 LOAD LABEL db1.label1
@@ -264,6 +276,48 @@ LOAD LABEL db1.label1
     COLUMNS TERMINATED BY ","
     (col1, col2)
     where col1 > 1
+)
+WITH RESOURCE 'spark0'
+(
+    "spark.executor.memory" = "2g",
+    "spark.shuffle.compress" = "true"
+)
+PROPERTIES
+(
+    "timeout" = "3600"
+);
+
+```
+
+示例2：上游数据源是hive表的情况
+```sql
+step 1:新建hive外部表
+CREATE EXTERNAL TABLE hive_t1
+(
+    k1 INT,
+    K2 SMALLINT,
+    k3 varchar(50),
+    uuid varchar(100)
+)
+ENGINE=hive
+properties
+(
+"database" = "tmp",
+"table" = "t1",
+"hive.metastore.uris" = "thrift://0.0.0.0:8080"
+);
+
+step 2: 提交load命令
+LOAD LABEL db1.label1
+(
+    DATA FROM TABLE hive_t1
+    INTO TABLE tbl1
+    COLUMNS TERMINATED BY ","
+    (k1,k2,k3)
+    SET
+    (
+		uuid=bitmap_dict(uuid)
+    )
 )
 WITH RESOURCE 'spark0'
 (
@@ -304,8 +358,14 @@ WITH RESOURCE 'spark0'
   "spark.executor.memory" = "3g"
 )
 ```
+#### 数据源为hive表时的导入
+目前如果期望在导入流程中将hive表作为数据源，那么需要先新建一张类型为hive的外部表，
+然后提交导入命令时指定外部表的表名即可。
 
-
+#### 导入流程构建全局字典
+适用于doris表聚合列的数据类型为bitmap类型。
+在load命令中指定需要构建全局字典的字段即可，格式为：```doris字段名称=bitmap_dict(hive表字段名称)```
+需要注意的是目前只有在上游数据源为hive表时才支持全局字典的构建。
 
 ### 查看导入
 
