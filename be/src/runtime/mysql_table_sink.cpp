@@ -32,7 +32,8 @@ MysqlTableSink::MysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& t_exprs) :
         _pool(pool),
         _row_desc(row_desc),
-        _t_output_expr(t_exprs) {
+        _t_output_expr(t_exprs),
+        _mem_tracker(new MemTracker(-1, "MysqlTableSink")) {
 }
 
 MysqlTableSink::~MysqlTableSink() {

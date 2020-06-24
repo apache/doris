@@ -83,16 +83,14 @@ class TQueryOptions;
 /// This class is thread-safe.
 class MemTracker : public std::enable_shared_from_this<MemTracker> {
  public:
-  // TODO(yingchun): change to std::shared_ptr<MemTracker> parent
   /// 'byte_limit' < 0 means no limit
   /// 'label' is the label used in the usage string (LogUsage())
-  /// If 'auto_unregister' is true, never call unregister_from_parent().
   /// If 'log_usage_if_zero' is false, this tracker (and its children) will not be
   /// included
   /// in LogUsage() output if consumption is 0.
   MemTracker(int64_t byte_limit = -1, const std::string& label = std::string(),
              const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
-             bool auto_unregister = false, bool log_usage_if_zero = true);
+             bool log_usage_if_zero = true);
 
   /// C'tor for tracker for which consumption counter is created as part of a profile.
   /// The counter is created with name COUNTER_NAME.
@@ -108,13 +106,8 @@ class MemTracker : public std::enable_shared_from_this<MemTracker> {
 
   ~MemTracker();
 
-  // Removes this tracker from parent_->child_trackers_.
-  void unregister_from_parent() {
-      DCHECK(parent_ != nullptr);
-      std::lock_guard<SpinLock> l(parent_->child_trackers_lock_);
-      parent_->child_trackers_.erase(child_tracker_it_);
-      child_tracker_it_ = parent_->child_trackers_.end();
-  }
+  // Returns a list of all the valid trackers.
+  static void ListTrackers(std::vector<std::shared_ptr<MemTracker>>* trackers);
 
   /// Include counters from a ReservationTracker in logs and other diagnostics.
   /// The counters should be owned by the fragment's RuntimeProfile.
@@ -572,13 +565,6 @@ class MemTracker : public std::enable_shared_from_this<MemTracker> {
 
   /// Metric for limit_.
   IntGauge* limit_metric_;
-
-  // If true, calls unregister_from_parent() in the dtor. This is only used for
-  // the query wide trackers to remove it from the process mem tracker. The
-  // process tracker never gets deleted so it is safe to reference it in the dtor.
-  // The query tracker has lifetime shared by multiple plan fragments so it's hard
-  // to do cleanup another way.
-  bool auto_unregister_ = false;
 };
 
 /// Global registry for query and pool MemTrackers. Owned by ExecEnv.

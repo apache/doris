@@ -590,7 +590,6 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
         delete[] buffer->buffer;
     }
     DCHECK_EQ(_mem_tracker->consumption(), 0);
-    _mem_tracker->unregister_from_parent();
     _mem_tracker.reset();
 }
 

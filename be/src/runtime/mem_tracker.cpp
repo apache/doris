@@ -37,11 +37,14 @@
 #include "util/uid_util.h"
 #include "util/stack_util.h"
 
+using std::deque;
 using std::endl;
 using std::greater;
 using std::pair;
 using std::priority_queue;
+using std::shared_ptr;
 using std::string;
+using std::vector;
 using strings::Substitute;
 
 namespace doris {
@@ -67,22 +70,21 @@ void MemTracker::CreateRootTracker() {
   root_tracker->Init();
 }
 
-MemTracker::MemTracker(
-    int64_t byte_limit, const string& label, const std::shared_ptr<MemTracker>& parent, bool auto_unregister, bool log_usage_if_zero)
-  : limit_(byte_limit),
-    soft_limit_(CalcSoftLimit(byte_limit)),
-    label_(label),
-    parent_(parent),
-    consumption_(&local_counter_),
-    local_counter_(TUnit::BYTES),
-    consumption_metric_(nullptr),
-    log_usage_if_zero_(log_usage_if_zero),
-    num_gcs_metric_(nullptr),
-    bytes_freed_by_last_gc_metric_(nullptr),
-    bytes_over_limit_metric_(nullptr),
-    limit_metric_(nullptr),
-    auto_unregister_(auto_unregister) {
-  Init();
+MemTracker::MemTracker(int64_t byte_limit, const string& label,
+                       const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero)
+        : limit_(byte_limit),
+          soft_limit_(CalcSoftLimit(byte_limit)),
+          label_(label),
+          parent_(parent),
+          consumption_(&local_counter_),
+          local_counter_(TUnit::BYTES),
+          consumption_metric_(nullptr),
+          log_usage_if_zero_(log_usage_if_zero),
+          num_gcs_metric_(nullptr),
+          bytes_freed_by_last_gc_metric_(nullptr),
+          bytes_over_limit_metric_(nullptr),
+          limit_metric_(nullptr) {
+    Init();
 }
 
 MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit,
@@ -219,8 +221,32 @@ MemTracker::~MemTracker() {
     DCHECK(consumption() == 0) << "Memory tracker " << debug_string()
                                << " has unreleased consumption " << consumption();
     parent_->Release(consumption());
-    if (auto_unregister_) {  // TODO(yingchun): when auto_unregister_ is false, and can it be false?
-      unregister_from_parent();
+
+    lock_guard<SpinLock> l(parent_->child_trackers_lock_);
+    if (child_tracker_it_ != parent_->child_trackers_.end()) {
+      parent_->child_trackers_.erase(child_tracker_it_);
+      child_tracker_it_ = parent_->child_trackers_.end();
+    }
+  }
+}
+
+void MemTracker::ListTrackers(vector<shared_ptr<MemTracker>>* trackers) {
+  trackers->clear();
+  deque<shared_ptr<MemTracker>> to_process;
+  to_process.push_front(GetRootTracker());
+  while (!to_process.empty()) {
+    shared_ptr<MemTracker> t = to_process.back();
+    to_process.pop_back();
+
+    trackers->push_back(t);
+    {
+      lock_guard<SpinLock> l(t->child_trackers_lock_);
+      for (const auto& child_weak : t->child_trackers_) {
+        shared_ptr<MemTracker> child = child_weak.lock();
+        if (child) {
+          to_process.emplace_back(std::move(child));
+        }
+      }
     }
   }
 }
