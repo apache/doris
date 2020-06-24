@@ -103,9 +103,15 @@ public class VariableMgrTest {
 
         SetVar setVar3 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Asia/Shanghai"));
         VariableMgr.setVar(var, setVar3);
-        Assert.assertEquals("CST", var.getTimeZone());
+        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
+
+        setVar3 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("CST"));
+        VariableMgr.setVar(var, setVar3);
+        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
+        var = VariableMgr.newSessionVariable();
+        Assert.assertEquals("CST", var.getTimeZone());
 
         // Set session variable
         setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
