@@ -59,3 +59,19 @@ FE 的监控项可以通过以下方式访问：
 结合采样周期可以计算发生率。
 
 通常用于排查网络问题。
+
+### `doris_fe_snmp{name="tcp_in_segs"}`
+
+该监控项为 `/proc/net/snmp` 中的 `Tcp: InSegs` 字段值。表示当前接收到的所有 TCP 包的数量。
+
+通过 `(NEW_tcp_in_errs - OLD_tcp_in_errs) / (NEW_tcp_in_segs - OLD_tcp_in_segs)` 可以计算接收到的 TCP 错误包率。
+
+通常用于排查网络问题。
+
+### `doris_fe_snmp{name="tcp_out_segs"}`
+
+该监控项为 `/proc/net/snmp` 中的 `Tcp: OutSegs` 字段值。表示当前发送的所有带 RST 标记的 TCP 包的数量。
+
+通过 `(NEW_tcp_tcp_retrans_segs - OLD_tcp_retrans_segs) / (NEW_tcp_out_segs - OLD_tcp_out_segs)` 可以计算 TCP 重传率。
+
+通常用于排查网络问题。

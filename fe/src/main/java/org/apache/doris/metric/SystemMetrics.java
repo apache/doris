@@ -19,11 +19,14 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.util.Map;
 
 /**
  * Save system metrics such as CPU, MEM, IO, Networks.
@@ -38,6 +41,10 @@ public class SystemMetrics {
     protected long tcpRetransSegs = 0;
     // The number of all problematic TCP packets received
     protected long tcpInErrs = 0;
+    // All received TCP packets
+    protected long tcpInSegs = 0;
+    // All send TCP packets with RST mark
+    protected long tcpOutSegs = 0;
 
     public synchronized void update() {
         updateSnmpMetrics();
@@ -61,19 +68,30 @@ public class SystemMetrics {
             if (!found) {
                 throw new Exception("can not find tcp metrics");
             }
-            // skip tcp header line
+
+            // parse the header of TCP
+            String[] headers = line.split(" ");
+            Map<String, Integer> headerMap = Maps.newHashMap();
+            int pos = 0;
+            for (int i = 0; i < headers.length; i++) {
+                headerMap.put(headers[i], pos++);
+            }
+
+            // read the metrics of TCP
             if ((line = br.readLine()) == null) {
-                throw new Exception("failed to skip tcp metrics header");
+                throw new Exception("failed to read metrics of TCP");
             }
             
             // eg: Tcp: 1 200 120000 -1 38920626 10487279 105581903 300009 305 18079291213 15411998945 11808180 22905 4174570 0
             String[] parts = line.split(" ");
-            if (parts.length != 16) {
-                throw new Exception("invalid tcp metrics: " + line);
+            if (parts.length != headerMap.size()) {
+                throw new Exception("invalid tcp metrics: " + line + ". header size: " + headerMap.size());
             }
 
-            tcpRetransSegs = Long.valueOf(parts[12]);
-            tcpInErrs = Long.valueOf(parts[13]);
+            tcpRetransSegs = Long.valueOf(parts[headerMap.get("RetransSegs")]);
+            tcpInErrs = Long.valueOf(parts[headerMap.get("InErrs")]);
+            tcpInSegs = Long.valueOf(parts[headerMap.get("InSegs")]);
+            tcpOutSegs = Long.valueOf(parts[headerMap.get("OutSegs")]);
 
         } catch (Exception e) {
             LOG.warn("failed to get /proc/net/snmp", e);
