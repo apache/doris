@@ -27,8 +27,8 @@ import org.apache.spark.sql.catalog.Column;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -200,7 +200,7 @@ public class GlobalDictBuilder {
                     maxDictValue = (long)row.get(0);
                     minDictValue = (long)row.get(1);
                 }
-                LOG.info(" column {} 's max value in dict is {} , min value is {}", distinctColumnNameTmp, maxDictValue, minDictValue);
+                LOG.info(" column " + distinctColumnNameTmp + " 's max value in dict is " + maxDictValue + ", min value is " + minDictValue);
                 // maybe never happened, but we need detect it
                 if (minDictValue < 0) {
                     throw new RuntimeException(String.format(" column %s 's cardinality has exceed bigint's max value", distinctColumnNameTmp));

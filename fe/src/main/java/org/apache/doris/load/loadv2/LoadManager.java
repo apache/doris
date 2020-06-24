@@ -17,10 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import static org.apache.doris.load.FailMsg.CancelType.ETL_RUN_FAIL;
-import static org.apache.doris.load.FailMsg.CancelType.LOAD_RUN_FAIL;
-import static org.apache.doris.common.DataQualityException.QUALITY_FAIL_MSG;
-
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
@@ -159,7 +155,7 @@ public class LoadManager implements Writable{
             return e.getTxnId();
         } catch (UserException e) {
             if (loadJob != null) {
-                loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false,
+                loadJob.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), false,
                         false /* no need to write edit log, because createLoadJob log is not wrote yet */);
             }
             throw e;
@@ -403,11 +399,11 @@ public class LoadManager implements Writable{
                         ((SparkLoadJob) job).updateEtlStatus();
                     } catch (DataQualityException e) {
                         LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
-                        job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG),
+                        job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, DataQualityException.QUALITY_FAIL_MSG),
                                                   true, true);
                     } catch (UserException e) {
                         LOG.warn("update load job etl status failed. job id: {}", job.getId(), e);
-                        job.cancelJobWithoutCheck(new FailMsg(ETL_RUN_FAIL, e.getMessage()), true, true);
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
                     } catch (Exception e) {
                         LOG.warn("update load job etl status failed. job id: {}", job.getId(), e);
                     }
@@ -422,7 +418,7 @@ public class LoadManager implements Writable{
                         ((SparkLoadJob) job).updateLoadingStatus();
                     } catch (UserException e) {
                         LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
-                        job.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), true, true);
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
                     } catch (Exception e) {
                         LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
                     }
