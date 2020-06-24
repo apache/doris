@@ -247,7 +247,7 @@ private:
     Tuple* _tuple;
     const Schema* _schema;
     std::unique_ptr<RuntimeState> _runtime_state;
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
+    RuntimeProfile* _runtime_profile;
     std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<ScannerCounter> _counter;
