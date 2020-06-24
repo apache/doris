@@ -358,11 +358,8 @@ public class BrokerFileGroup implements Writable {
         }
 
         // src table
-        // TODO(wyb): spark-load
-        /*
         out.writeLong(srcTableId);
         out.writeBoolean(isLoadFromTable);
-         */
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -414,13 +411,10 @@ public class BrokerFileGroup implements Writable {
             }
         }
         // src table
-        // TODO(wyb): spark-load
-        /*
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
             srcTableId = in.readLong();
             isLoadFromTable = in.readBoolean();
         }
-         */
 
         // There are no columnExprList in the previous load job which is created before function is supported.
         // The columnExprList could not be analyzed without origin stmt in the previous load job.

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -45,9 +46,6 @@ public class GrantStmt extends DdlStmt {
     private TablePattern tblPattern;
     private ResourcePattern resourcePattern;
     private List<PaloPrivilege> privileges;
-
-    // TODO(wyb): spark-load
-    public static boolean disableGrantResource = true;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
@@ -111,7 +109,7 @@ public class GrantStmt extends DdlStmt {
             tblPattern.analyze(analyzer.getClusterName());
         } else {
             // TODO(wyb): spark-load
-            if (disableGrantResource) {
+            if (!Config.enable_spark_load) {
                 throw new AnalysisException("GRANT ON RESOURCE is comming soon");
             }
             resourcePattern.analyze();

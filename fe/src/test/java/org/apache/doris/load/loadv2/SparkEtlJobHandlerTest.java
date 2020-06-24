@@ -157,9 +157,8 @@ public class SparkEtlJobHandlerTest {
                 result = trackingUrl;
                 report.getProgress();
                 returns(0.5f, 1f, 1f);
-                // TODO(wyb): spark-load
-                //BrokerUtil.readFile(anyString, (BrokerDesc) any);
-                //result = "{'normal_rows': 10, 'abnormal_rows': 0, 'failed_reason': 'etl job failed'}";
+                BrokerUtil.readFile(anyString, (BrokerDesc) any);
+                result = "{'normal_rows': 10, 'abnormal_rows': 0, 'failed_reason': 'etl job failed'}";
             }
         };
 
@@ -180,17 +179,15 @@ public class SparkEtlJobHandlerTest {
         status = handler.getEtlJobStatus(null, appId, loadJobId, etlOutputPath, resource, brokerDesc);
         Assert.assertEquals(TEtlState.CANCELLED, status.getState());
         Assert.assertEquals(100, status.getProgress());
-        // TODO(wyb): spark-load
-        //Assert.assertEquals("etl job failed", status.getDppResult().failedReason);
+        Assert.assertEquals("etl job failed", status.getDppResult().failedReason);
 
         // finished
         status = handler.getEtlJobStatus(null, appId, loadJobId, etlOutputPath, resource, brokerDesc);
         Assert.assertEquals(TEtlState.FINISHED, status.getState());
         Assert.assertEquals(100, status.getProgress());
         Assert.assertEquals(trackingUrl, status.getTrackingUrl());
-        // TODO(wyb): spark-load
-        //Assert.assertEquals(10, status.getDppResult().normalRows);
-        //Assert.assertEquals(0, status.getDppResult().abnormalRows);
+        Assert.assertEquals(10, status.getDppResult().normalRows);
+        Assert.assertEquals(0, status.getDppResult().abnormalRows);
     }
 
     @Test

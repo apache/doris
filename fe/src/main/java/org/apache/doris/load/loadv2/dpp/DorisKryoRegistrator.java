@@ -20,10 +20,14 @@ package org.apache.doris.load.loadv2.dpp;
 import com.esotericsoftware.kryo.Kryo;
 import org.apache.spark.serializer.KryoRegistrator;
 
+/**
+ * register etl classes with Kryo when using Kryo serialization.
+ */
 public class DorisKryoRegistrator implements KryoRegistrator {
 
     @Override
     public void registerClasses(Kryo kryo) {
         kryo.register(org.apache.doris.load.loadv2.Roaring64Map.class);
+        kryo.register(org.apache.doris.load.loadv2.BitmapValue.class);
     }
 }

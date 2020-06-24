@@ -1088,5 +1088,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean drop_backend_after_decommission = true;
+
+    /*
+     * enable spark load for temporary use
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_spark_load = false;
 }
 
