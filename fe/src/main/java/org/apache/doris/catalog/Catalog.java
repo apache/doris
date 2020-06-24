@@ -436,6 +436,11 @@ public class Catalog {
         return this.tabletInvertedIndex;
     }
 
+    // only for test
+    public void setColocateTableIndex(ColocateTableIndex colocateTableIndex) {
+        this.colocateTableIndex = colocateTableIndex;
+    }
+
     public ColocateTableIndex getColocateTableIndex() {
         return this.colocateTableIndex;
     }

@@ -17,31 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.HashDistributionDesc;
-import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.cluster.Cluster;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -54,18 +39,9 @@ import org.junit.rules.ExpectedException;
 
 import java.io.File;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 
 public class ColocateTableTest {
     private static String runningDir = "fe/mocked/ColocateTableTest" + UUID.randomUUID().toString() + "/";
@@ -73,12 +49,9 @@ public class ColocateTableTest {
     private static ConnectContext connectContext;
     private static String dbName = "testDb";
     private static String fullDbName = "default_cluster:" + dbName;
-
-    private static String groupName1 = "group1";
     private static String tableName1 = "t1";
     private static String tableName2 = "t2";
-    private static String tableName3 = "t3";
-    private static String clusterName = "default";
+    private static String groupName = "group1";
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -86,17 +59,29 @@ public class ColocateTableTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
-
         connectContext = UtFrameUtils.createDefaultCtx();
-        String createDbStmtStr = "create database " + dbName;
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+
     }
 
     @AfterClass
     public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+            File file = new File(runningDir);
+            file.delete();
+    }
+
+    @Before
+    public void createDb() throws Exception {
+        String createDbStmtStr = "create database " + dbName;
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Catalog.getCurrentCatalog().setColocateTableIndex(new ColocateTableIndex());
+    }
+
+    @After
+    public void dropDb() throws Exception {
+        String dropDbStmtStr = "drop database " + dbName;
+        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
     }
 
     private static void createTable(String sql) throws Exception {
@@ -115,7 +100,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
@@ -139,7 +124,7 @@ public class ColocateTableTest {
         System.out.println(backendIds);
         Assert.assertEquals(Collections.singletonList(10001L), backendIds);
 
-        String fullGroupName = dbId + "_" + groupName1;
+        String fullGroupName = dbId + "_" + groupName;
         Assert.assertEquals(tableId, index.getTableIdByGroup(fullGroupName));
         ColocateGroupSchema groupSchema = index.getGroupSchema(fullGroupName);
         Assert.assertNotNull(groupSchema);
@@ -159,7 +144,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
@@ -171,7 +156,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
@@ -228,7 +213,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
         expectedEx.expect(DdlException.class);
@@ -242,7 +227,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 2\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
     }
@@ -258,7 +243,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
         expectedEx.expect(DdlException.class);
@@ -272,7 +257,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"2\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
     }
 
@@ -287,7 +272,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
         expectedEx.expect(DdlException.class);
@@ -301,7 +286,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
     }
 
@@ -316,7 +301,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
 
         expectedEx.expect(DdlException.class);
@@ -330,7 +315,7 @@ public class ColocateTableTest {
                 "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName1 + "\"\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
     }
 }
