@@ -65,20 +65,6 @@ DateTimeValue DateTimeValue::_s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0,
 DateTimeValue DateTimeValue::_s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 
                                                    9999, 12, 31);
 RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
-// jint length_of_str(DateTimeValue& value) {
-// j    if (_type == TIME_DATE) {
-// j        return 10;
-// j    } else {
-// j        int extra_len = (_microsecond == 0) ? 0 : 7;
-// j        if (_type == TIME_DATETIME) {
-// j            return 19 + extra_len;
-// j        } else {
-// j            // TIME
-// j            return 8 + extra_len + _neg 
-// j                    + (_hour > 100) ? 1 : 0;
-// j        }
-// j    }
-// j}
 
 bool DateTimeValue::check_range() const {
     return _year > 9999 || _month > 12 || _day > 31 
@@ -600,7 +586,7 @@ static char* append_with_prefix(const char* str, int str_len,
     return to;
 }
 
-int DateTimeValue::compute_format_len(const char* format, int len) const {
+int DateTimeValue::compute_format_len(const char* format, int len) {
     int size = 0;
     const char* ptr = format;
     const char* end = format + len;
@@ -1535,7 +1521,10 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
     if (!find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
+    return unix_timestamp(timestamp, ctz);
+}
 
+bool DateTimeValue::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const{
     const auto tp =
             cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
     *timestamp = tp.time_since_epoch().count();
@@ -1547,7 +1536,10 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     if (!find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
+    return from_unixtime(timestamp, ctz);
+}
 
+bool DateTimeValue::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);

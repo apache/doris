@@ -32,6 +32,15 @@ class Expr;
 class OpcodeRegistry;
 class TupleRow;
 
+// The context used for timestamp function prepare phase,
+// to save the converted date formatter, so that it doesn't
+// need to be converted for each rows.
+struct FormatCtx {
+    // false means the format is invalid, and the function always return null
+    bool is_valid = false;
+    StringVal fmt;
+};
+
 class TimestampFunctions {
 public:
     static void init();
@@ -194,6 +203,14 @@ public:
 
     // Issue a warning for a bad format string.
     static void report_bad_format(const StringVal* format);
+
+    static void format_prepare(
+            doris_udf::FunctionContext* context,
+            doris_udf::FunctionContext::FunctionStateScope scope);
+
+    static void format_close(
+            doris_udf::FunctionContext* context,
+            doris_udf::FunctionContext::FunctionStateScope scope);
 };
 }
 

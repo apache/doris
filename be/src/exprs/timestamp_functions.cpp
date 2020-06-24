@@ -451,20 +451,79 @@ BigIntVal TimestampFunctions::timestamp_diff(FunctionContext* ctx, const DateTim
     }
 }
 
+void TimestampFunctions::format_prepare(
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope) {
+
+    if (scope != FunctionContext::FRAGMENT_LOCAL
+            || context->get_num_args() < 2
+            || context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR
+            || !context->is_arg_constant(1)) {
+        VLOG(10) << "format_prepare returned";
+        return;
+    }
+
+    FormatCtx* fc = new FormatCtx();
+    context->set_function_state(scope, fc);
+
+    StringVal* format = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
+    if (UNLIKELY(format->is_null)) {
+        fc->is_valid = false;
+        return;
+    }
+
+    fc->fmt = convert_format(context, *format);
+    int format_len = DateTimeValue::compute_format_len((const char*) fc->fmt.ptr, fc->fmt.len);
+    if (UNLIKELY(format_len >= 128)) {
+        fc->is_valid = false;
+        return;
+    }
+
+    fc->is_valid = true;
+    return;
+}
+
+void TimestampFunctions::format_close(
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::FRAGMENT_LOCAL) {
+        return;
+    }
+
+    FormatCtx* fc = reinterpret_cast<FormatCtx*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    if (fc != nullptr) {
+        delete fc;
+    }
+}
+
 StringVal TimestampFunctions::date_format(
         FunctionContext* ctx, const DateTimeVal& ts_val, const StringVal& format) {
     if (ts_val.is_null || format.is_null) {
         return StringVal::null();
     }
+
     DateTimeValue ts_value = DateTimeValue::from_datetime_val(ts_val);
-    if (ts_value.compute_format_len((const char*)format.ptr, format.len) >= 128) {
+    FormatCtx* fc = reinterpret_cast<FormatCtx*>(ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    if (UNLIKELY(fc == nullptr)) {
+        // prepare phase failed, calculate at runtime
+        StringVal new_fmt = convert_format(ctx, format);
+        if (DateTimeValue::compute_format_len((const char*) new_fmt.ptr, new_fmt.len) >= 128) {
+            return StringVal::null();
+        }
+
+        char buf[128];
+        if (!ts_value.to_format_string((const char*) new_fmt.ptr, new_fmt.len, buf)) {
+            return StringVal::null();
+        }
+        return AnyValUtil::from_string_temp(ctx, buf);
+    }
+
+    if (!fc->is_valid) {
         return StringVal::null();
     }
 
-    StringVal new_fmt = convert_format(ctx, format);
-
     char buf[128];
-    if (!ts_value.to_format_string((const char*)new_fmt.ptr, new_fmt.len, buf)) {
+    if (!ts_value.to_format_string((const char*) fc->fmt.ptr, fc->fmt.len, buf)) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, buf);
@@ -520,14 +579,15 @@ DateTimeVal TimestampFunctions::timestamp(
     return val;
 }
 
-// FROM_UNIXTIME()
+// FROM_UNIXTIME() without format
 StringVal TimestampFunctions::from_unix(
         FunctionContext* context, const IntVal& unix_time) {
     if (unix_time.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
+
     DateTimeValue dtv;
-    if (!dtv.from_unixtime(unix_time.val, context->impl()->state()->timezone())) {
+    if (!dtv.from_unixtime(unix_time.val, context->impl()->state()->timezone_obj())) {
         return StringVal::null();
     }
     char buf[64];
@@ -535,21 +595,35 @@ StringVal TimestampFunctions::from_unix(
     return AnyValUtil::from_string_temp(context, buf);
 }
 
-// FROM_UNIXTIME()
+// FROM_UNIXTIME() with format
 StringVal TimestampFunctions::from_unix(
             FunctionContext* context, const IntVal& unix_time, const StringVal& fmt) {
     if (unix_time.is_null || fmt.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
+
     DateTimeValue dtv;
-    if (!dtv.from_unixtime(unix_time.val, context->impl()->state()->timezone())) {
+    if (!dtv.from_unixtime(unix_time.val, context->impl()->state()->timezone_obj())) {
         return StringVal::null();
     }
 
-    StringVal new_fmt = convert_format(context, fmt);
+    FormatCtx* fc = reinterpret_cast<FormatCtx*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    if (UNLIKELY(fc == nullptr)) {
+        // prepare phase failed, calculate at runtime
+        StringVal new_fmt = convert_format(context, fmt);
+        char buf[128];
+        if (!dtv.to_format_string((const char*)new_fmt.ptr, new_fmt.len, buf)) {
+            return StringVal::null();
+        }
+        return AnyValUtil::from_string_temp(context, buf);
+    }
+
+    if (!fc->is_valid) {
+        return StringVal::null();
+    }
 
     char buf[128];
-    if (!dtv.to_format_string((const char*)new_fmt.ptr, new_fmt.len, buf)) {
+    if (!dtv.to_format_string((const char*) fc->fmt.ptr, fc->fmt.len, buf)) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(context, buf);
@@ -564,7 +638,7 @@ IntVal TimestampFunctions::to_unix(FunctionContext* context) {
 IntVal TimestampFunctions::to_unix(
             FunctionContext* context, const DateTimeValue& ts_value) {
     int64_t timestamp;
-    if(!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone())) {
+    if(!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone_obj())) {
         return IntVal::null();
     } else {
         //To compatible to mysql, timestamp not between 1970-01-01 00:00:00 ~ 2038-01-01 00:00:00 return 0
@@ -599,7 +673,7 @@ IntVal TimestampFunctions::to_unix(
 
 DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
     DateTimeValue dtv;
-    if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000, "+00:00")) {
+    if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000, "+0:00")) {
         return DateTimeVal::null();
     }
 
@@ -611,7 +685,7 @@ DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
 DateTimeVal TimestampFunctions::now(FunctionContext* context) {
     DateTimeValue dtv;
     if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
-            context->impl()->state()->timezone())) {
+            context->impl()->state()->timezone_obj())) {
         return DateTimeVal::null();
     }
 
@@ -623,7 +697,7 @@ DateTimeVal TimestampFunctions::now(FunctionContext* context) {
 DoubleVal TimestampFunctions::curtime(FunctionContext* context) {
     DateTimeValue dtv;
     if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
-            context->impl()->state()->timezone())) {
+            context->impl()->state()->timezone_obj())) {
         return DoubleVal::null();
     }
 
@@ -633,7 +707,7 @@ DoubleVal TimestampFunctions::curtime(FunctionContext* context) {
 DateTimeVal TimestampFunctions::curdate(FunctionContext* context) {
     DateTimeValue dtv;
     if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
-            context->impl()->state()->timezone())) {
+            context->impl()->state()->timezone_obj())) {
         return DateTimeVal::null();
     }
     dtv.set_type(TIME_DATE);
