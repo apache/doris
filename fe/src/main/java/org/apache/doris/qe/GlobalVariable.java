@@ -18,8 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Version;
-
-import java.time.ZoneId;
+import org.apache.doris.common.util.TimeUtils;
 
 // You can place your global variable in this class with public and VariableMgr.VarAttr annotation.
 // You can get this variable from MySQL client with statement `SELECT @@variable_name`,
@@ -50,7 +49,7 @@ public final class GlobalVariable {
 
     // A string to be executed by the server for each client that connects
     @VariableMgr.VarAttr(name = "system_time_zone", flag = VariableMgr.READ_ONLY)
-    public static String systemTimeZone = ZoneId.systemDefault().normalized().toString();
+    public static String systemTimeZone = TimeUtils.getSystemTimeZone().getID();
 
     // The amount of memory allocated for caching query results
     @VariableMgr.VarAttr(name = "query_cache_size")

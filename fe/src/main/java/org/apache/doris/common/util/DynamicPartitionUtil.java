@@ -47,7 +47,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.Month;
-import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
@@ -207,7 +206,7 @@ public class DynamicPartitionUtil {
                 throw new DdlException("Must assign dynamic_partition.buckets properties");
             }
             if (Strings.isNullOrEmpty(timeZone)) {
-                properties.put(DynamicPartitionProperty.TIME_ZONE, ZoneId.systemDefault().toString());
+                properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSystemTimeZone().getID());
             }
         }
         return true;
