@@ -102,7 +102,7 @@ public class EsTable extends Table {
     // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
     private Map<String, String> docValueContext = new HashMap<>();
 
-    private Map<String, String> fieldsContext= new HashMap<>();
+    private Map<String, String> fieldsContext = new HashMap<>();
 
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
     private Throwable lastMetaDataSyncException = null;
