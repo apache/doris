@@ -41,6 +41,10 @@ public class SystemMetrics {
     protected long tcpRetransSegs = 0;
     // The number of all problematic TCP packets received
     protected long tcpInErrs = 0;
+    // All received TCP packets
+    protected long tcpInSegs = 0;
+    // All send TCP packets with RST mark
+    protected long tcpOutSegs = 0;
 
     public synchronized void update() {
         updateSnmpMetrics();
@@ -86,6 +90,8 @@ public class SystemMetrics {
 
             tcpRetransSegs = Long.valueOf(parts[headerMap.get("RetransSegs")]);
             tcpInErrs = Long.valueOf(parts[headerMap.get("InErrs")]);
+            tcpInSegs = Long.valueOf(parts[headerMap.get("InSegs")]);
+            tcpOutSegs = Long.valueOf(parts[headerMap.get("OutSegs")]);
 
         } catch (Exception e) {
             LOG.warn("failed to get /proc/net/snmp", e);

@@ -59,3 +59,19 @@ Value of the `Tcp: RetransSegs` field in `/proc/net/snmp`. Represents the number
 The incidence rate can be calculated in combination with the sampling period.
 
 Usually used to troubleshoot network problems.
+
+### `doris_be_snmp{name="tcp_in_segs"}`
+
+Value of the `Tcp: InSegs` field in `/proc/net/snmp`. Represents the number of receivied TCP packets.
+
+Use `(NEW_tcp_in_errs - OLD_tcp_in_errs) / (NEW_tcp_in_segs - OLD_tcp_in_segs)` can calculate the error rate of received TCP packets.
+
+Usually used to troubleshoot network problems.
+
+### `doris_be_snmp{name="tcp_out_segs"}`
+
+Value of the `Tcp: OutSegs` field in `/proc/net/snmp`. Represents the number of send TCP packets with RST mark.
+
+Use `(NEW_tcp_retrans_segs - OLD_tcp_retrans_segs) / (NEW_tcp_out_segs - OLD_tcp_out_segs)` can calculate the retrans rate of TCP packets.
+
+Usually used to troubleshoot network problems.

@@ -74,6 +74,10 @@ struct SnmpMetrics {
     METRIC_DEFINE_INT_LOCK_COUNTER(tcp_in_errs, MetricUnit::NOUNIT);
     // All TCP packets retransmitted
     METRIC_DEFINE_INT_LOCK_COUNTER(tcp_retrans_segs, MetricUnit::NOUNIT);
+    // All received TCP packets
+    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_in_segs, MetricUnit::NOUNIT);
+    // All send TCP packets with RST mark
+    METRIC_DEFINE_INT_LOCK_COUNTER(tcp_out_segs, MetricUnit::NOUNIT);
 };
 
 struct FileDescriptorMetrics {
@@ -325,6 +329,8 @@ void SystemMetrics::_install_snmp_metrics(MetricRegistry* registry) {
                                   &_snmp_metrics->name)
     REGISTER_SNMP_METRIC(tcp_in_errs);
     REGISTER_SNMP_METRIC(tcp_retrans_segs);
+    REGISTER_SNMP_METRIC(tcp_in_segs);
+    REGISTER_SNMP_METRIC(tcp_out_segs);
 }
 
 void SystemMetrics::_update_net_metrics() {
@@ -479,8 +485,12 @@ void SystemMetrics::_update_snmp_metrics() {
     }
     int64_t retrans_segs = atoi64(metrics[header_map["RetransSegs"]]);
     int64_t in_errs = atoi64(metrics[header_map["InErrs"]]);
+    int64_t in_segs = atoi64(metrics[header_map["InSegs"]]);
+    int64_t out_segs = atoi64(metrics[header_map["OutSegs"]]);
     _snmp_metrics->tcp_retrans_segs.set_value(retrans_segs);
     _snmp_metrics->tcp_in_errs.set_value(in_errs);
+    _snmp_metrics->tcp_in_segs.set_value(in_segs);
+    _snmp_metrics->tcp_out_segs.set_value(out_segs);
 
     if (ferror(fp) != 0) {
         char buf[64];
