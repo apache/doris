@@ -186,7 +186,7 @@ public class GlobalTransactionMgr implements Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        if (!db.tryWriteLock(timeoutMillis, TimeUnit.MICROSECONDS)) {
+        if (!db.tryWriteLock(timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get database read lock timeout, database=" + db.getFullName());
         }
         try {
