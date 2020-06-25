@@ -163,7 +163,6 @@ private:
     // receiver and placed in _sender_queue_pool.
     std::vector<SenderQueue*> _sender_queues;
 
-    std::map<google::protobuf::Closure*, MonotonicStopWatch> _closure_clock_map;
     // SortedRunMerger used to merge rows from different senders.
     boost::scoped_ptr<SortedRunMerger> _merger;
 
