@@ -19,6 +19,7 @@
 #define  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
 #include <boost/variant/static_visitor.hpp>
+#include <boost/thread.hpp>
 #include <condition_variable>
 #include <queue>
 
@@ -190,7 +191,8 @@ private:
     // object is.
     std::unique_ptr<ObjectPool> _scanner_pool;
 
-    std::unique_ptr<std::thread> _transfer_thread;
+    boost::thread_group _transfer_thread;
+
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
 
