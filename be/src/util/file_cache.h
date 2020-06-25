@@ -111,7 +111,9 @@ public:
     FileCache(const std::string& cache_name, Cache* cache);
 
     // Destroys the file cache.
-    ~FileCache() { }
+    ~FileCache() {
+        _cache.reset();
+     }
 
     // find whether the file has been cached
     // if cached, return true and set the file_handle
@@ -127,7 +129,7 @@ private:
     std::string _cache_name;
 
     // Underlying cache instance. Caches opened files.
-    Cache* _cache;
+    std::shared_ptr<Cache> _cache;
 
     DISALLOW_COPY_AND_ASSIGN(FileCache);
 };
