@@ -157,7 +157,7 @@ Status StorageEngine::_open() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
     _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
-    
+
     _file_cache.reset(new_lru_cache(config::file_descriptor_cache_capacity));
 
     auto dirs = get_stores<false>();
@@ -459,7 +459,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 
 void StorageEngine::_clear() {
     SAFE_DELETE(_index_stream_lru_cache);
-    SAFE_DELETE(_file_cache);
+    _file_cache.reset();
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {

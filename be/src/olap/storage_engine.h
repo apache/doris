@@ -89,8 +89,8 @@ public:
         return _index_stream_lru_cache;
     }
 
-    Cache* file_cache() {
-        return _file_cache.get();
+    std::shared_ptr<Cache> file_cache() {
+        return _file_cache;
     }
 
     template<bool include_unused = false> std::vector<DataDir*> get_stores();

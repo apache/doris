@@ -44,14 +44,20 @@ FileHandler::FileHandler() :
         _file_name(""),
         _is_using_cache(false),
         _cache_handle(NULL) {
-    // storage engine may not be opened when doris try to read and write 
-    // temp file under the storage root path. So we need to check it.
-    if (StorageEngine::instance() != nullptr) {
-        static std::once_flag once_flag;
+    static std::once_flag once_flag;
+    #ifdef BE_TEST
         std::call_once(once_flag, [] {
-            _s_fd_cache = StorageEngine::instance()->file_cache();
+            _s_fd_cache = new_lru_cache(config::file_descriptor_cache_capacity);
         });
-    }
+    #else
+        // storage engine may not be opened when doris try to read and write 
+        // temp file under the storage root path. So we need to check it.
+        if (StorageEngine::instance() != nullptr) {
+            std::call_once(once_flag, [] {
+                _s_fd_cache = StorageEngine::instance()->file_cache().get();
+            });
+        }
+    #endif
 }
 
 FileHandler::~FileHandler() {
@@ -96,7 +102,6 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
     }
 
     CacheKey key(file_name.c_str(), file_name.size());
-    DCHECK(_cache_handle != nullptr);
     _cache_handle = _s_fd_cache->lookup(key);
     if (NULL != _cache_handle) {
         FileDescriptor* file_desc =

@@ -108,7 +108,7 @@ public:
     //
     // The 'cache_name' is used to disambiguate amongst other file cache
     // instances.
-    FileCache(const std::string& cache_name, Cache* cache);
+    FileCache(const std::string& cache_name, std::shared_ptr<Cache> cache);
 
     // Destroys the file cache.
     ~FileCache() {
