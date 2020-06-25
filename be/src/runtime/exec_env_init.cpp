@@ -42,7 +42,6 @@
 #include "util/debug_util.h"
 #include "olap/storage_engine.h"
 #include "olap/page_cache.h"
-#include "olap/lru_cache.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
