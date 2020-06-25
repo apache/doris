@@ -269,6 +269,12 @@ FE 的配置项有两种方式进行配置：
 
 ### `enable_materialized_view`
 
+该配置用于开启和关闭创建物化视图功能。如果设置为 true，则创建物化视图功能开启。用户可以通过 `CREATE MATERIALIZED VIEW` 命令创建物化视图。如果设置为 false，则无法创建物化视图。
+
+如果在创建物化视图的时候报错 `The materialized view is coming soon` 或 `The materialized view is disabled` 则说明改配置被设置为了 false，创建物化视图功能关闭了。可以通过修改配置为 true 来启动创建物化视图功能。
+
+该变量为动态配置，用户可以在 FE 进程启动后，通过命令修改配置。也可以通过修改 FE 的配置文件，重启 FE 来生效。
+
 ### `enable_metric_calculator`
 
 ### `enable_spilling`
