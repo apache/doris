@@ -26,9 +26,9 @@ namespace doris {
 class OutStream;
 class RowIndexEntryMessage;
 
-// A Writer that writes a sequence of bytes. A control byte is written before
-// each run with positive values 0 to 127 meaning 2 to 129 repetitions. If the
-// bytes is -1 to -128, 1 to 128 literal byte values follow.
+// A writer that writes a sequence of bytes. A control byte is written before
+// each run with positive values 0 to 127 meaning 3 to 130 repetitions. If the
+// byte is -1 to -128, 1 to 128 literal byte values follow.
 class RunLengthByteWriter {
 public:
     explicit RunLengthByteWriter(OutStream* output);
