@@ -53,11 +53,6 @@ void FileCache<FileType>::insert(const std::string& file_name, FileType* file, O
     *file_handle = OpenedFileHandle<FileType>(_cache, lru_handle);
 }
 
-// template <class FileType>
-// void FileCache<FileType>::prune() {
-//     _cache->prune();
-// }
-
 // Explicit specialization for callers outside this compilation unit.
 template class FileCache<RandomAccessFile>;
 
