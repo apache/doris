@@ -269,6 +269,12 @@ This configuration can play a role in certain scenarios. Assume that the initial
 
 ### `enable_materialized_view`
 
+This configuration is used to turn on and off the creation of materialized views. If set to true, the function to create a materialized view is enabled. The user can create a materialized view through the `CREATE MATERIALIZED VIEW` command. If set to false, materialized views cannot be created.
+
+If you get an error `The materialized view is coming soon` or `The materialized view is disabled` when creating the materialized view, it means that the configuration is set to false and the function of creating the materialized view is turned off. You can start to create a materialized view by modifying the configuration to true.
+
+This variable is a dynamic configuration, and users can modify the configuration through commands after the FE process starts. You can also modify the FE configuration file and restart the FE to take effect.
+
 ### `enable_metric_calculator`
 
 ### `enable_spilling`
