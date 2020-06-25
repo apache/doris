@@ -128,7 +128,7 @@ private:
     std::unordered_set<int> _sender_eos_set; // sender_id
     std::unordered_map<int, int64_t> _packet_seq_map; // be_number => packet_seq
 
-    std::deque<google::protobuf::Closure*> _pending_closures;
+    std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
 };
 
 DataStreamRecvr::SenderQueue::SenderQueue(
@@ -176,14 +176,12 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
     *next_batch = _current_batch.get();
 
     if (!_pending_closures.empty()) {
-        auto done = _pending_closures.front();
-        done->Run();
+        auto closure_pair = _pending_closures.front();
+        closure_pair.first->Run();
         _pending_closures.pop_front();
 
-        auto clock = _recvr->_closure_clock_map.at(done);
-        clock.stop();
-        _recvr->_buffer_full_total_timer->update(clock.elapsed_time());
-        _recvr->_closure_clock_map.erase(done);
+        closure_pair.second.stop();
+        _recvr->_buffer_full_total_timer->update(closure_pair.second.elapsed_time());
     }
 
     return Status::OK();
@@ -254,10 +252,8 @@ void DataStreamRecvr::SenderQueue::add_batch(
     if (done != nullptr && _recvr->exceeds_limit(batch_size)) {
         MonotonicStopWatch monotonicStopWatch;
         monotonicStopWatch.start();
-        _recvr->_closure_clock_map.insert(std::make_pair(*done, monotonicStopWatch));
-
         DCHECK(*done != nullptr);
-        _pending_closures.push_back(*done);
+        _pending_closures.emplace_back(*done, monotonicStopWatch);
         *done = nullptr;
     }
     _recvr->_num_buffered_bytes += batch_size;
@@ -301,8 +297,8 @@ void DataStreamRecvr::SenderQueue::cancel() {
 
     {
         boost::lock_guard<boost::mutex> l(_lock);
-        for (auto done : _pending_closures) {
-            done->Run();
+        for (auto closure_pair : _pending_closures) {
+            closure_pair.first->Run();
         }
         _pending_closures.clear();
     }
@@ -316,8 +312,8 @@ void DataStreamRecvr::SenderQueue::close() {
         boost::lock_guard<boost::mutex> l(_lock);
         _is_cancelled = true;
 
-        for (auto done : _pending_closures) {
-            done->Run();
+        for (auto closure_pair : _pending_closures) {
+            closure_pair.first->Run();
         }
         _pending_closures.clear();
     }
