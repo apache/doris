@@ -759,11 +759,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
-
+        long timeoutMs = request.isSetThrift_rpc_timeout_ms() ? request.getThrift_rpc_timeout_ms() : 5000;
         boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         db, request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                        request.getThrift_rpc_timeout_ms(), TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+                        timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
         if (ret) {
             // if commit and publish is success, load can be regarded as success
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
@@ -862,7 +862,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
-        long timeoutMs = request.getThrift_rpc_timeout_ms();
+        long timeoutMs = request.isSetThrift_rpc_timeout_ms() ? request.getThrift_rpc_timeout_ms() : 5000;
         if (!db.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException("get database read lock timeout, database=" + fullDbName);
         }

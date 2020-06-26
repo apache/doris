@@ -550,7 +550,7 @@ struct TStreamLoadPutRequest {
     22: optional bool isTempPartition
     23: optional bool strip_outer_array
     24: optional string jsonpaths
-    25: required i64 thrift_rpc_timeout_ms
+    25: optional i64 thrift_rpc_timeout_ms
 }
 
 struct TStreamLoadPutResult {
@@ -601,7 +601,7 @@ struct TLoadTxnCommitRequest {
     9: optional list<Types.TTabletCommitInfo> commitInfos
     10: optional i64 auth_code
     11: optional TTxnCommitAttachment txnCommitAttachment
-    12: required i64 thrift_rpc_timeout_ms
+    12: optional i64 thrift_rpc_timeout_ms
 }
 
 struct TLoadTxnCommitResult {
