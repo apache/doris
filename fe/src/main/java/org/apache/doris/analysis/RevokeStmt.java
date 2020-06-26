@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -98,7 +99,7 @@ public class RevokeStmt extends DdlStmt {
             tblPattern.analyze(analyzer.getClusterName());
         } else {
             // TODO(wyb): spark-load
-            if (GrantStmt.disableGrantResource) {
+            if (!Config.enable_spark_load) {
                 throw new AnalysisException("REVOKE ON RESOURCE is comming soon");
             }
             resourcePattern.analyze();

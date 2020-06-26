@@ -1460,6 +1460,7 @@ public class Catalog {
             checksum = loadGlobalVariable(dis, checksum);
             checksum = loadCluster(dis, checksum);
             checksum = loadBrokers(dis, checksum);
+            checksum = loadResources(dis, checksum);
             checksum = loadExportJob(dis, checksum);
             checksum = loadBackupHandler(dis, checksum);
             checksum = loadPaloAuth(dis, checksum);
@@ -1468,8 +1469,6 @@ public class Catalog {
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
-            // TODO(wyb): spark-load
-            //checksum = loadResources(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
@@ -1872,13 +1871,10 @@ public class Catalog {
     }
 
     public long loadResources(DataInputStream in, long checksum) throws IOException {
-        // TODO(wyb): spark-load
-        /*
-        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.new_version_by_wyb) {
-            resourceMgr = ResourceMgr.read(in); 
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
+            resourceMgr = ResourceMgr.read(in);
         }
         LOG.info("finished replay resources from image");
-         */
         return checksum;
     }
 
@@ -1927,6 +1923,7 @@ public class Catalog {
             checksum = saveGlobalVariable(dos, checksum);
             checksum = saveCluster(dos, checksum);
             checksum = saveBrokers(dos, checksum);
+            checksum = saveResources(dos, checksum);
             checksum = saveExportJob(dos, checksum);
             checksum = saveBackupHandler(dos, checksum);
             checksum = savePaloAuth(dos, checksum);
@@ -1934,8 +1931,6 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
-            // TODO(wyb): spark-load
-            //checksum = saveResources(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);

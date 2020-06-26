@@ -30,6 +30,7 @@ set(EXEC_FILES
     blocking_join_node.cpp
     broker_scan_node.cpp
     broker_reader.cpp
+    buffered_reader.cpp
     base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp

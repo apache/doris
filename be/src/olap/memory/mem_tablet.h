@@ -27,15 +27,6 @@ class MemSubTablet;
 class ScanSpec;
 class MemTabletScan;
 class WriteTxn;
-class MemTablet;
-using MemTabletSharedPtr = std::shared_ptr<MemTablet>;
-
-inline MemTabletSharedPtr to_mem_tablet(const BaseTabletSharedPtr& base) {
-    if (base->is_memory()) {
-        return std::static_pointer_cast<MemTablet>(base);
-    }
-    return MemTabletSharedPtr();
-}
 
 // Tablet class for memory-optimized storage engine.
 //
@@ -58,6 +49,9 @@ public:
 
     virtual ~MemTablet();
 
+    // Initialize
+    Status init();
+
     // Scan the tablet, return a MemTabletScan object scan, user can specify projections
     // using ScanSpec, currently only support full scan with projection, will support
     // filter/aggregation in the future.
@@ -75,13 +69,6 @@ public:
     //
     // Note: commit is done sequentially, protected by internal write lock
     Status commit_write_txn(WriteTxn* wtxn, uint64_t version);
-
-    virtual void build_tablet_report_info(TTabletInfo* tablet_info);
-
-    virtual void delete_all_files();
-
-protected:
-    virtual OLAPStatus _init_once_action();
 
 private:
     friend class MemTabletScan;

@@ -274,8 +274,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 column_cond,
                 column_delete_conditions[cid],
                 &column_row_ranges));
-        // intersection different columns's row ranges to get final row ranges by zone map
-        RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges, &zone_map_row_ranges);
+        // union different columns's row ranges to get final row ranges by zone map
+        RowRanges::ranges_union(zone_map_row_ranges, column_row_ranges, &zone_map_row_ranges);
     }
     DorisMetrics::instance()->segment_rows_read_by_zone_map.increment(zone_map_row_ranges.count());
     pre_size = condition_row_ranges->count();

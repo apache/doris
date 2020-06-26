@@ -486,6 +486,10 @@ public class EtlJobConfig implements Serializable {
         @SerializedName(value = "hiveTableProperties")
         public Map<String, String> hiveTableProperties;
 
+        // hive db table used in dpp, not serialized
+        // set with hiveDbTableName (no bitmap column) or IntermediateHiveTable (created by global dict builder) in spark etl job
+        public String dppHiveDbTableName;
+
         // for data infile path
         public EtlFileGroup(SourceType sourceType, List<String> filePaths, List<String> fileFieldNames,
                             List<String> columnsFromPath, String columnSeparator, String lineDelimiter,
