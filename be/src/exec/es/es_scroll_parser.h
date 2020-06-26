@@ -38,13 +38,11 @@ public:
                 MemPool* mem_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
-    int get_total();
     int get_size();
 
 private:
 
     std::string _scroll_id;
-    int _total;
     int _size;
     rapidjson::SizeType _line_index;
 
