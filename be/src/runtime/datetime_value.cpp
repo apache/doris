@@ -1576,7 +1576,7 @@ const char* DateTimeValue::day_name() const {
 
 DateTimeValue DateTimeValue::local_time() {
     DateTimeValue value;
-    value.from_unixtime(time(NULL), TimezoneDatabase::default_time_zone);
+    value.from_unixtime(time(NULL), TimezoneUtils::default_time_zone);
     return value;
 }
 

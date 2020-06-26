@@ -27,9 +27,9 @@
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
-#include "exprs/timezone_db.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -584,6 +584,7 @@ private:
 
     static DateTimeValue _s_min_datetime_value;
     static DateTimeValue _s_max_datetime_value;
+    // RE2 obj is thread safe
     static RE2 time_zone_offset_format_reg;
 };
 

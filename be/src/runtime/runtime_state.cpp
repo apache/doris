@@ -26,7 +26,6 @@
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
-#include "exprs/timezone_db.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_util.h"
 #include "runtime/descriptors.h"
@@ -41,6 +40,7 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/load_error_hub.h"
+#include "util/timezone_utils.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 
@@ -110,7 +110,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
     } else if (!query_globals.now_string.empty()) {
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
@@ -118,7 +118,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _timestamp_ms = timestamp * 1000;
     } else {
         //Unit test may set into here
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
     }
     DateTimeValue::find_cctz_time_zone(_timezone, _timezone_obj);
@@ -185,7 +185,7 @@ Status RuntimeState::init(
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
     } else if (!query_globals.now_string.empty()) {
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
@@ -193,7 +193,7 @@ Status RuntimeState::init(
         _timestamp_ms = timestamp * 1000;
     } else {
         //Unit test may set into here
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
     }
     DateTimeValue::find_cctz_time_zone(_timezone, _timezone_obj);

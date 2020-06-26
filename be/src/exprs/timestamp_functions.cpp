@@ -19,13 +19,13 @@
 
 #include "exprs/expr.h"
 #include "exprs/anyval_util.h"
-#include "exprs/timezone_db.h"
 #include "runtime/tuple_row.h"
 #include "runtime/datetime_value.h"
 #include "runtime/runtime_state.h"
-#include "util/path_builder.h"
 #include "runtime/string_value.hpp"
 #include "util/debug_util.h"
+#include "util/path_builder.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -673,7 +673,7 @@ IntVal TimestampFunctions::to_unix(
 
 DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
     DateTimeValue dtv;
-    if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000, "+0:00")) {
+    if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000, "+00:00")) {
         return DateTimeVal::null();
     }
 
@@ -717,26 +717,96 @@ DateTimeVal TimestampFunctions::curdate(FunctionContext* context) {
     return return_val;
 }
 
+void TimestampFunctions::convert_tz_prepare(
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope) {
+
+    if (scope != FunctionContext::FRAGMENT_LOCAL
+            || context->get_num_args() != 3
+            || context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR
+            || context->get_arg_type(2)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR
+            || !context->is_arg_constant(1)
+            || !context->is_arg_constant(2)) {
+        return;
+    }
+
+    ConvertTzCtx* ctc = new ConvertTzCtx();
+    context->set_function_state(scope, ctc);
+
+    // find from timezone
+    StringVal* from = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
+    if (UNLIKELY(from->is_null)) {
+        ctc->is_valid = false;
+        return;
+    }
+    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*) from->ptr, from->len), ctc->from_tz)) {
+        ctc->is_valid = false;
+        return;
+    }
+
+    // find to timezone
+    StringVal* to = reinterpret_cast<StringVal*>(context->get_constant_arg(2));
+    if (UNLIKELY(to->is_null)) {
+        ctc->is_valid = false;
+        return;
+    }
+    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*) to->ptr, to->len), ctc->to_tz)) {
+        ctc->is_valid = false;
+        return;
+    }
+
+    ctc->is_valid = true;
+    return;
+}
+
 DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeVal& ts_val,
                                                const StringVal& from_tz, const StringVal& to_tz) {
-    if (TimezoneDatabase::find_timezone(std::string((char *)from_tz.ptr, from_tz.len)) == nullptr ||
-        TimezoneDatabase::find_timezone(std::string((char *)to_tz.ptr, to_tz.len)) == nullptr
-    ) {
+    const DateTimeValue &ts_value = DateTimeValue::from_datetime_val(ts_val);
+    ConvertTzCtx* ctc = reinterpret_cast<ConvertTzCtx*>(ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    if (UNLIKELY(ctc == nullptr)) {
+        int64_t timestamp;
+        if(!ts_value.unix_timestamp(&timestamp, std::string((char *)from_tz.ptr, from_tz.len))) {
+            return DateTimeVal::null();
+        }
+        DateTimeValue ts_value2;
+        if (!ts_value2.from_unixtime(timestamp, std::string((char *)to_tz.ptr, to_tz.len))) {
+            return DateTimeVal::null();
+        }
+
+        DateTimeVal return_val;
+        ts_value2.to_datetime_val(&return_val);
+        return return_val;
+    }
+
+    if (!ctc->is_valid) {
         return DateTimeVal::null();
     }
-    const DateTimeValue &ts_value = DateTimeValue::from_datetime_val(ts_val);
+
     int64_t timestamp;
-    if(!ts_value.unix_timestamp(&timestamp, std::string((char *)from_tz.ptr, from_tz.len))) {
+    if(!ts_value.unix_timestamp(&timestamp, ctc->from_tz)) {
         return DateTimeVal::null();
     }
     DateTimeValue ts_value2;
-    if (!ts_value2.from_unixtime(timestamp, std::string((char *)to_tz.ptr, to_tz.len))) {
+    if (!ts_value2.from_unixtime(timestamp, ctc->to_tz)) {
         return DateTimeVal::null();
     }
 
     DateTimeVal return_val;
     ts_value2.to_datetime_val(&return_val);
     return return_val;
+}
+
+void TimestampFunctions::convert_tz_close(
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::FRAGMENT_LOCAL) {
+        return;
+    }
+
+    ConvertTzCtx* ctc = reinterpret_cast<ConvertTzCtx*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    if (ctc != nullptr) {
+        delete ctc;
+    }
 }
 
 }

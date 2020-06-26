@@ -41,6 +41,14 @@ struct FormatCtx {
     StringVal fmt;
 };
 
+// The context used for convert tz
+struct ConvertTzCtx {
+    // false means the format is invalid, and the function always return null
+    bool is_valid = false;
+    cctz::time_zone from_tz;
+    cctz::time_zone to_tz;
+};
+
 class TimestampFunctions {
 public:
     static void init();
@@ -209,6 +217,14 @@ public:
             doris_udf::FunctionContext::FunctionStateScope scope);
 
     static void format_close(
+            doris_udf::FunctionContext* context,
+            doris_udf::FunctionContext::FunctionStateScope scope);
+
+    static void convert_tz_prepare(
+            doris_udf::FunctionContext* context,
+            doris_udf::FunctionContext::FunctionStateScope scope);
+
+    static void convert_tz_close(
             doris_udf::FunctionContext* context,
             doris_udf::FunctionContext::FunctionStateScope scope);
 };
