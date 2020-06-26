@@ -130,8 +130,8 @@ The following parameters are accepted by ES table:
 Parameter | Description
 ---|---
 **hosts** | ES Cluster Connection Address, maybe one or more node, load-balance is also accepted
-**index** | the related ES index name
-**type** | the type for this index，If not specified, `_doc` will be used
+**index** | the related ES index name, alias is supported, and if you use doc_value, you need to use the real name
+**type** | the type for this index, If not specified, `_doc` will be used
 **user** | username for ES
 **password** | password for the user
 
