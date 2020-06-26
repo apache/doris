@@ -106,7 +106,6 @@ private:
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag) {
             _row_block->pos_inc();
-            LOG(INFO) << "refresh current row";
             auto res = _refresh_current_row();
             *row = _current_row;
             *delete_flag = _is_delete;
@@ -296,7 +295,6 @@ Reader::~Reader() {
 }
 
 OLAPStatus Reader::init(const ReaderParams& read_params) {
-
     OLAPStatus res = _init_params(read_params);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
@@ -561,7 +559,7 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 
     _init_conditions_param(read_params);
     _init_load_bf_columns(read_params);
-    LOG(INFO) << "begin reader init params";
+
     OLAPStatus res = _init_delete_condition(read_params);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init delete param. [res=%d]", res);
@@ -1031,9 +1029,6 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 
 OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type != READER_CUMULATIVE_COMPACTION) {
-        LOG(INFO) << "init delete condition tablet_id " << _tablet->table_id() << "  version : " << "[" <<
-        read_params.version.first << "," << read_params.version.second
-        << "]";
         _tablet->obtain_header_rdlock();
         OLAPStatus ret = _delete_handler.init(_tablet->tablet_schema(),
                                               _tablet->delete_predicates(),

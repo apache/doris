@@ -126,7 +126,6 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
-    LOG(INFO) << "this is scan node";
     RETURN_IF_ERROR(ScanNode::prepare(state));
     // create scanner profile
     // create timer
@@ -142,8 +141,6 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     }
 
     const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
-
-    LOG(INFO) << "slot size : " << slots.size();
 
     for (int i = 0; i < slots.size(); ++i) {
         if (!slots[i]->is_materialized()) {
@@ -162,7 +159,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
 }
 
 Status OlapScanNode::open(RuntimeState* state) {
-    LOG(INFO) << "OlapScanNode::Open";
+    VLOG(1) << "OlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -205,7 +202,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
     // check if started.
     if (!_start) {
-        LOG(INFO) << "start to scan beta node";
         Status status = start_scan(state);
 
         if (!status.ok()) {
@@ -372,7 +368,7 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to serval `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
 
-    LOG(INFO) << "StartScanThread";
+    VLOG(1) << "StartScanThread";
     // 6. Start multi thread to read serval `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
@@ -542,7 +538,7 @@ Status OlapScanNode::build_scan_key() {
         RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
     }
 
-    LOG(INFO) << "scan key : " << _scan_keys.debug_string();
+    VLOG(1) << _scan_keys.debug_string();
 
     return Status::OK();
 }
@@ -631,15 +627,8 @@ static Status get_hints(
 
 Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     if (_scan_ranges.empty()) {
-        LOG(INFO) << "scan ranges is empty";
         _transfer_done = true;
         return Status::OK();
-    }
-    LOG(INFO) << "scan range size is " << _scan_ranges.size();
-    for (int i = 0; i < _scan_ranges.size(); ++i) {
-        std::stringstream ss;
-        _scan_ranges[i]->printTo(ss);
-        LOG(INFO) << "scan range is " << ss.str();
     }
 
     // ranges constructed from scan keys

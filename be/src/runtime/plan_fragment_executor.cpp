@@ -173,14 +173,14 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
     }
 
-
+ 
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
     // set scan ranges
     std::vector<ExecNode*> scan_nodes;
     std::vector<TScanRangeParams> no_scan_ranges;
     _plan->collect_scan_nodes(&scan_nodes);
-    LOG(INFO) << "scan_nodes.size()=" << scan_nodes.size();
-    LOG(INFO) << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
+    VLOG(1) << "scan_nodes.size()=" << scan_nodes.size();
+    VLOG(1) << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
 
     _plan->try_do_aggregate_serde_improve();
 
@@ -274,7 +274,7 @@ Status PlanFragmentExecutor::open_internal() {
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
     }
-    LOG(INFO) << "sink get is null " << (_sink.get() == NULL) ;
+
     if (_sink.get() == NULL) {
         return Status::OK();
     }

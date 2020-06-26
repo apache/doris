@@ -642,7 +642,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
         }
     }
 
-    LOG(INFO) << "Row meets the delete conditions. "
+    VLOG(3) << "Row meets the delete conditions. "
             << "condition_count=" << _columns.size()
             << ", row=" << row.to_string();
     return true;

@@ -81,7 +81,6 @@ OLAPStatus ColumnData::get_next_block(RowBlock** row_block) {
 }
 
 OLAPStatus ColumnData::_next_row(const RowCursor** row, bool without_filter) {
-    LOG(INFO) << "column data next row";
     _read_block->pos_inc();
     do {
         if (_read_block->has_remaining()) {
