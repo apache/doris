@@ -162,7 +162,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         _eos = true;
     } else {
         _scroll_id = scroll_parser->get_scroll_id();
-        if (scroll_parser->get_total() == 0) {
+        if (scroll_parser->get_size() == 0) {
             _eos = true;
             return Status::OK();
         }
