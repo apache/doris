@@ -380,7 +380,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // check Dynamic Partition tables only when FE start
             initDynamicPartitionTable();
         }
-        setInterval(Config.dynamic_partition_check_interval_seconds);
+        setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
         if (Config.dynamic_partition_enable) {
             executeDynamicPartition();
         }
