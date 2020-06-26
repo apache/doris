@@ -474,7 +474,7 @@ module.exports = [
   {
     title: "开发者手册",
     directoryPath: "developer-guide/",
-    children: ["debug-tool", "format-code"],
+    children: ["debug-tool", "format-code","fe-idea-dev"],
   },
   {
     title: "Apache 社区",
