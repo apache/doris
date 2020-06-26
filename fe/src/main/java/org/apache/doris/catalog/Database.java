@@ -304,7 +304,7 @@ public class Database extends MetaObject implements Writable {
                     Catalog.getCurrentCatalog().getEditLog().logCreateTable(info);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
-                    Catalog.getCurrentCatalog().getEsStateStore().registerTable((EsTable)table);
+                    Catalog.getCurrentCatalog().getEsRepository().registerTable((EsTable)table);
                 }
             }
             return result;

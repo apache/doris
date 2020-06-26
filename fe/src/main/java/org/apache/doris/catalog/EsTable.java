@@ -20,8 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.external.elasticsearch.EsFieldInfos;
 import org.apache.doris.external.elasticsearch.EsMajorVersion;
-import org.apache.doris.external.elasticsearch.EsTableState;
+import org.apache.doris.external.elasticsearch.EsNodeInfo;
+import org.apache.doris.external.elasticsearch.EsRestClient;
+import org.apache.doris.external.elasticsearch.EsShardPartitions;
+import org.apache.doris.external.elasticsearch.EsTablePartitions;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -71,7 +75,7 @@ public class EsTable extends Table {
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
-    private EsTableState esTableState;
+    private EsTablePartitions esTablePartitions;
     private boolean enableDocValueScan = false;
     private boolean enableKeywordSniff = true;
 
@@ -114,16 +118,17 @@ public class EsTable extends Table {
         validate(properties);
     }
 
-    public void addFetchField(String originName, String replaceName) {
-        fieldsContext.put(originName, replaceName);
+    public void addFieldInfos(EsFieldInfos esFieldInfos) {
+        if (enableKeywordSniff && esFieldInfos.getFieldsContext() != null) {
+            fieldsContext = esFieldInfos.getFieldsContext();
+        }
+        if (enableDocValueScan && esFieldInfos.getDocValueContext() != null) {
+            docValueContext = esFieldInfos.getDocValueContext();
+        }
     }
 
     public Map<String, String> fieldsContext() {
         return fieldsContext;
-    }
-
-    public void addDocValueField(String name, String fieldsName) {
-        docValueContext.put(name, fieldsName);
     }
 
     public Map<String, String> docValueContext() {
@@ -386,12 +391,12 @@ public class EsTable extends Table {
         return partitionInfo;
     }
 
-    public EsTableState getEsTableState() {
-        return esTableState;
+    public EsTablePartitions getEsTablePartitions() {
+        return esTablePartitions;
     }
 
-    public void setEsTableState(EsTableState esTableState) {
-        this.esTableState = esTableState;
+    public void setEsTablePartitions(EsTablePartitions esTablePartitions) {
+        this.esTablePartitions = esTablePartitions;
     }
 
     public Throwable getLastMetaDataSyncException() {
@@ -400,5 +405,30 @@ public class EsTable extends Table {
 
     public void setLastMetaDataSyncException(Throwable lastMetaDataSyncException) {
         this.lastMetaDataSyncException = lastMetaDataSyncException;
+    }
+
+    /**
+     * sync es index meta from remote
+     * @param client esRestClient
+     */
+    public void syncESIndexMeta(EsRestClient client) {
+        try {
+            EsFieldInfos fieldInfos = client.getFieldInfos(this.indexName, this.mappingType, this.fullSchema);
+            EsShardPartitions esShardPartitions = client.getShardPartitions(this.indexName);
+            Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
+            if (this.enableKeywordSniff || this.enableDocValueScan) {
+                addFieldInfos(fieldInfos);
+            }
+
+            this.esTablePartitions = EsTablePartitions.fromShardPartitions(this, esShardPartitions);
+
+            if (EsTable.TRANSPORT_HTTP.equals(getTransport())) {
+                this.esTablePartitions.addHttpAddress(nodesInfo);
+            }
+        } catch (Throwable e) {
+            LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", this.name, e);
+            this.esTablePartitions = null;
+            this.lastMetaDataSyncException = e;
+        }
     }
 }

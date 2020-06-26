@@ -128,7 +128,7 @@ PROPERTIES (
 参数 | 说明
 ---|---
 **hosts** | ES集群地址，可以是一个或多个，也可以是ES前端的负载均衡地址
-**index** | 对应的ES的index名字
+**index** | 对应的ES的index名字，支持alias，如果使用doc_value，需要使用真实的名称
 **type** | index的type，不指定的情况会使用_doc
 **user** | ES集群用户名
 **password** | 对应用户的密码信息

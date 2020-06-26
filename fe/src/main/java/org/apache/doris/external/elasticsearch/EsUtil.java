@@ -17,51 +17,50 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.json.JSONObject;
-
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.common.AnalysisException;
+import org.json.JSONObject;
 
 public class EsUtil {
     
     public static void analyzePartitionAndDistributionDesc(PartitionDesc partitionDesc,
-                                                           DistributionDesc distributionDesc)
-            throws AnalysisException {
+            DistributionDesc distributionDesc) throws AnalysisException {
         if (partitionDesc == null && distributionDesc == null) {
             return;
         }
-
+        
         if (partitionDesc != null) {
             if (!(partitionDesc instanceof RangePartitionDesc)) {
                 throw new AnalysisException("Elasticsearch table only permit range partition");
             }
-
+            
             RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
             analyzePartitionDesc(rangePartitionDesc);
         }
-
+        
         if (distributionDesc != null) {
             throw new AnalysisException("could not support distribution clause");
         }
     }
-
+    
     private static void analyzePartitionDesc(RangePartitionDesc partDesc)
             throws AnalysisException {
         if (partDesc.getPartitionColNames() == null || partDesc.getPartitionColNames().isEmpty()) {
             throw new AnalysisException("No partition columns.");
         }
-
+        
         if (partDesc.getPartitionColNames().size() > 1) {
-            throw new AnalysisException("Elasticsearch table's parition column could only be a single column");
+            throw new AnalysisException(
+                    "Elasticsearch table's parition column could only be a single column");
         }
     }
     
-
     
     /**
      * get the json object from specified jsonObject
+     *
      * @param jsonObject
      * @param key
      * @return

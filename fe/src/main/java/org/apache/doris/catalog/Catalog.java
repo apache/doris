@@ -127,7 +127,7 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
-import org.apache.doris.external.elasticsearch.EsStateStore;
+import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -301,7 +301,7 @@ public class Catalog {
     private Daemon replayer;
     private Daemon timePrinter;
     private Daemon listener;
-    private EsStateStore esStateStore;  // it is a daemon, so add it here
+    private EsRepository esRepository;  // it is a daemon, so add it here
 
     private boolean isFirstTimeStartUp = false;
     private boolean isElectable;
@@ -510,7 +510,7 @@ public class Catalog {
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
 
-        this.esStateStore = new EsStateStore();
+        this.esRepository = new EsRepository();
 
         this.metaContext = new MetaContext();
         this.metaContext.setThreadLocalInfo();
@@ -1290,7 +1290,7 @@ public class Catalog {
         // load and export job label cleaner thread
         labelCleaner.start();
         // ES state store
-        esStateStore.start();
+        esRepository.start();
         // domain resolver
         domainResolver.start();
     }
@@ -1452,7 +1452,7 @@ public class Catalog {
             // ATTN: this should be done after load Db, and before loadAlterJob
             recreateTabletInvertIndex();
             // rebuild es state state
-            esStateStore.loadTableFromCatalog();
+            esRepository.loadTableFromCatalog();
 
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
@@ -4371,7 +4371,7 @@ public class Catalog {
         }
 
         if (table.getType() == TableType.ELASTICSEARCH) {
-            esStateStore.deRegisterTable(tableId);
+            esRepository.deRegisterTable(tableId);
         } else if (table.getType() == TableType.OLAP) {
             // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,
             // which make things easier.
@@ -4823,8 +4823,8 @@ public class Catalog {
         return this.masterIp;
     }
 
-    public EsStateStore getEsStateStore() {
-        return this.esStateStore;
+    public EsRepository getEsRepository() {
+        return this.esRepository;
     }
 
     public void setMaster(MasterInfo info) {
