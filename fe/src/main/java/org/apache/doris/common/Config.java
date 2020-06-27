@@ -1044,7 +1044,7 @@ public class Config extends ConfigBase {
      * Decide how often to check dynamic partition
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int dynamic_partition_check_interval_seconds = 600;
+    public static long dynamic_partition_check_interval_seconds = 600;
 
     /*
      * If set to true, dynamic partition feature will open
