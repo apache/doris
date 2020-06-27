@@ -241,7 +241,9 @@ visible_functions = [
         '15FunctionContextERKNS1_11DateTimeValE'],
 
     [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
-            '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_'],
+            '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_',
+            '_ZN5doris18TimestampFunctions18convert_tz_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris18TimestampFunctions16convert_tz_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
 
     [['years_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
             '_ZN5doris18TimestampFunctions10years_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
