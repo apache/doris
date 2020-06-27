@@ -884,6 +884,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_load_job = false;
+
+    /*
+     * if this is set to true, all load job will check db data quota when call begin txn api
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_check_data_quota_on_load = false;
+
+    /*
+     * One master daemon thread will update database used data quota for db txn manager every db_used_data_quota_update_interval_secs
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int db_used_data_quota_update_interval_secs = 300;
     
     /**
      * Load using hadoop cluster will be deprecated in future.

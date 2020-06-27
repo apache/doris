@@ -441,4 +441,9 @@ public class GlobalTransactionMgr implements Writable {
             }
         }
     }
+
+    public void updateDatabaseUsedQuotaData(long dbId, long usedQuotaDataBytes) throws AnalysisException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        dbTransactionMgr.updateDatabaseUsedQuotaData(usedQuotaDataBytes);
+    }
 }
