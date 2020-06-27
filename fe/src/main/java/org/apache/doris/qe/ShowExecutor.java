@@ -142,6 +142,7 @@ import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -1458,7 +1459,19 @@ public class ShowExecutor {
         AdminShowConfigStmt showStmt = (AdminShowConfigStmt) stmt;
         List<List<String>> results;
         try {
-            results = ConfigBase.getConfigInfo();
+            PatternMatcher matcher = null;
+            if (showStmt.getPattern() != null) {
+                matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                        CaseSensibility.CONFIG.getCaseSensibility());
+            }
+            results = ConfigBase.getConfigInfo(matcher);
+            // Sort all configs by config key.
+            Collections.sort(results, new Comparator<List<String>>() {
+                @Override
+                public int compare(List<String> o1, List<String> o2) {
+                    return o1.get(0).compareTo(o2.get(0));
+                }
+            });
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }

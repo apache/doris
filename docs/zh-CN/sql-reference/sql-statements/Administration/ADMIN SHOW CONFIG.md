@@ -31,7 +31,7 @@ under the License.
 
     语法：
 
-        ADMIN SHOW FRONTEND CONFIG;
+        ADMIN SHOW FRONTEND CONFIG [LIKE "pattern"];
 
     说明：
 

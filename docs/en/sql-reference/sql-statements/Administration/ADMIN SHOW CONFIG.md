@@ -31,7 +31,7 @@ This statement is used to show the configuration of the current cluster (current
 
 Grammar:
 
-ADMIN SHOW FRONTEND CONFIG;
+ADMIN SHOW FRONTEND CONFIG [LIKE "pattern"];
 
 Explain:
 
