@@ -200,6 +200,12 @@ There are two ways to configure FE configuration items:
 
 ### `consistency_check_start_time`
 
+### `db_used_data_quota_update_interval_secs`
+
+For better data load performance, in the check of whether the amount of data used by the database before data load exceeds the quota, we do not calculate the amount of data already used by the database in real time, but obtain the periodically updated value of the daemon thread.
+
+This configuration is used to set the time interval for updating the value of the amount of data used by the database.
+
 ### `default_rowset_type`
 
 ### `default_storage_medium`
@@ -260,6 +266,12 @@ This configuration can play a role in certain scenarios. Assume that the initial
 ### `edit_log_type`
 
 ### `enable_auth_check`
+
+### `enable_check_data_quota_on_load`
+
+This configuration is used to enable and disable the database data quota check function before data load. If the current database data volume is greater than or equal to the current database data volume quota, the data load job is rejected.
+ 
+The default value of this configuration is false.
 
 ### `enable_deploy_manager`
 

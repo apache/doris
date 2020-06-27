@@ -200,6 +200,12 @@ FE 的配置项有两种方式进行配置：
 
 ### `consistency_check_start_time`
 
+### `db_used_data_quota_update_interval_secs`
+
+为了更好的数据导入性能，在数据导入之前的数据库已使用的数据量是否超出配额的检查中，我们并不实时计算数据库已经使用的数据量，而是获取后台线程周期性更新的值。
+
+该配置用于设置更新数据库使用的数据量的值的时间间隔。
+
 ### `default_rowset_type`
 
 ### `default_storage_medium`
@@ -260,6 +266,10 @@ FE 的配置项有两种方式进行配置：
 ### `edit_log_type`
 
 ### `enable_auth_check`
+
+### `enable_check_data_quota_on_load`
+
+该配置用于开启和关闭数据导入前的数据库数据量配额检查功能。如果当前数据库的数据量已经大于等于目前的数据库数据量配额,则拒绝数据导入任务。该配置默认值为false。
 
 ### `enable_deploy_manager`
 
