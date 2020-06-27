@@ -53,6 +53,9 @@ public class UpdateDbUsedDataQuotaDaemon extends MasterDaemon {
                 if (Config.enable_check_data_quota_on_load) {
                     long usedDataQuotaBytes = db.getUsedDataQuotaWithLock();
                     globalTransactionMgr.updateDatabaseUsedQuotaData(dbId, usedDataQuotaBytes);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Update database[{}] used data quota bytes : {}.", db.getFullName(), usedDataQuotaBytes);
+                    }
                 }
             } catch (AnalysisException e) {
                 LOG.warn("Update database[" + dbId + "] used data quota failed", e);
