@@ -447,49 +447,32 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
 
             case TYPE_DATE:
             case TYPE_DATETIME: {
+                // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
                 if (col.IsNumber()) {
-                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64(), "+08:00")) {
-                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+                    // ES process date/datetime field would use millisecond timestamp for index or docvalue
+                    // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
+                    // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
+                    RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col, type));
+                } else if (col.IsArray() && pure_doc_value) {
+                    // this would happend just only when `enable_docvalue_scan = true`
+                    // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
+                    // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
+                    // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
+                    // date field's docvalue
+                    if (col[0].IsString()) {
+                        RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col[0], type));
+                        break;
                     }
-
-                    if (type == TYPE_DATE) {
-                        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
-                    } else {
-                        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-                    }
-                    break;
-                }
-                if (pure_doc_value && col.IsArray()) {
-                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col[0].GetInt64(), "+08:00")) {
-                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-                    }
-
-                    if (type == TYPE_DATE) {
-                        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
-                    } else {
-                        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-                    }
-                    break;
-                }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
-                if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-                }
-
-                if (type == TYPE_DATE) {
-                    ts_slot->cast_to_date();
+                    // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
+                    RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col[0], type));
                 } else {
-                    ts_slot->to_datetime();
+                    // this would happend just only when `enable_docvalue_scan = false`, and field has string format date from _source
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+                    RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col, type));
                 }
                 break;
             }
-
             default: {
                 DCHECK(false);
                 break;
@@ -500,4 +483,32 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
     *line_eof = false;
     return Status::OK();
 }
+
+Status ScrollParser::fill_date_slot_with_strval(void* slot, const rapidjson::Value& col, PrimitiveType type) {
+    DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
+    const std::string& val = col.GetString();
+    size_t val_size = col.GetStringLength();
+    if (!ts_slot->from_date_str(val.c_str(), val_size)) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        ts_slot->cast_to_date();
+    } else {
+        ts_slot->to_datetime();
+    }
+    return Status::OK();
+}
+
+Status ScrollParser::fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col, PrimitiveType type) {
+    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64() / 1000, "+08:00")) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+    } else {
+        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+    }
+    return Status::OK();
+}
+
 }
