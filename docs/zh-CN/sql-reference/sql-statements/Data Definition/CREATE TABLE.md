@@ -243,10 +243,11 @@ under the License.
     ```
 
        storage_medium：        用于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
-           storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
-                                   默认存放 30 天。
-                                   格式为："yyyy-MM-dd HH:mm:ss"
-           replication_num:        指定分区的副本数。默认为 3
+                               注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`. 
+       storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
+                               默认存放 30 天。
+                               格式为："yyyy-MM-dd HH:mm:ss"
+       replication_num:        指定分区的副本数。默认为 3
     
        当表为单分区表时，这些属性为表的属性。
            当表为两级分区时，这些属性为附属于每一个分区。

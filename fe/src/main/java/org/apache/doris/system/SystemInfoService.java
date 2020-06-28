@@ -40,6 +40,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,6 +59,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class SystemInfoService {
     private static final Logger LOG = LogManager.getLogger(SystemInfoService.class);
@@ -421,6 +423,7 @@ public class SystemInfoService {
      * @param shrinkNum
      * @return
      */
+    @Deprecated
     public List<Long> calculateDecommissionBackends(String clusterName, int shrinkNum) {
         LOG.info("calculate decommission backend in cluster: {}. decommission num: {}", clusterName, shrinkNum);
 
@@ -725,12 +728,24 @@ public class SystemInfoService {
         return classMap;
     }
 
+    public List<Long> seqChooseBackendIdsByStorageMedium(int backendNum, boolean needAlive, boolean isCreate,
+                                                                      String clusterName, TStorageMedium storageMedium) {
+        final List<Backend> backends = getClusterBackends(clusterName).stream().filter(v -> !v.diskExceedLimitByStorageMedium(storageMedium)).collect(Collectors.toList());
+        return seqChooseBackendIds(backendNum, needAlive, isCreate, clusterName, backends);
+    }
+
+    public List<Long> seqChooseBackendIds(int backendNum, boolean needAlive, boolean isCreate,
+                                                       String clusterName) {
+        final List<Backend> backends = getClusterBackends(clusterName).stream().filter(v -> !v.diskExceedLimit()).collect(Collectors.toList());
+        return seqChooseBackendIds(backendNum, needAlive, isCreate, clusterName, backends);
+    }
+
     // choose backends by round robin
     // return null if not enough backend
     // use synchronized to run serially
     public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean needAlive, boolean isCreate,
-            String clusterName) {
-        long lastBackendId = -1L;
+                                                       String clusterName, final List<Backend> srcBackends) {
+        long lastBackendId;
 
         if (clusterName.equals(DEFAULT_CLUSTER)) {
             if (isCreate) {
@@ -756,8 +771,6 @@ public class SystemInfoService {
             }
         }
 
-        // put backend with same host in same list
-        final List<Backend> srcBackends = getClusterBackends(clusterName);
         // host -> BE list
         Map<String, List<Backend>> backendMaps = Maps.newHashMap();
         for (Backend backend : srcBackends) {

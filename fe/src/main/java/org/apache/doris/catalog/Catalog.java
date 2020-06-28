@@ -436,6 +436,11 @@ public class Catalog {
         return this.tabletInvertedIndex;
     }
 
+    // only for test
+    public void setColocateTableIndex(ColocateTableIndex colocateTableIndex) {
+        this.colocateTableIndex = colocateTableIndex;
+    }
+
     public ColocateTableIndex getColocateTableIndex() {
         return this.colocateTableIndex;
     }
@@ -4282,7 +4287,11 @@ public class Catalog {
                 if (chooseBackendsArbitrary) {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
-                    chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
+                    if (Config.enable_strict_storage_medium_check) {
+                        chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
+                    } else {
+                        chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
+                    }
                     backendsPerBucketSeq.add(chosenBackendIds);
                 } else {
                     // get backends from existing backend sequence
@@ -4299,7 +4308,7 @@ public class Catalog {
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum, chosenBackendIds.size() + " vs. "+ replicationNum);
             }
 
-            if (backendsPerBucketSeq != null && groupId != null) {
+            if (groupId != null) {
                 colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             }
 
@@ -4309,6 +4318,15 @@ public class Catalog {
     }
 
     // create replicas for tablet with random chosen backends
+    private List<Long> chosenBackendIdBySeq(int replicationNum, String clusterName, TStorageMedium storageMedium) throws DdlException {
+        List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMedium(replicationNum,
+                true, true, clusterName, storageMedium);
+        if (chosenBackendIds == null) {
+            throw new DdlException("Failed to find enough host with storage medium is " + storageMedium + " in all backends. need: " + replicationNum);
+        }
+        return chosenBackendIds;
+    }
+
     private List<Long> chosenBackendIdBySeq(int replicationNum, String clusterName) throws DdlException {
         List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(replicationNum, true, true, clusterName);
         if (chosenBackendIds == null) {
@@ -5003,12 +5021,9 @@ public class Catalog {
         }
 
         // check if rollup has same name
-        if (table.getType() == TableType.OLAP) {
-            OlapTable olapTable = (OlapTable) table;
-            for (String idxName: olapTable.getIndexNameToId().keySet()) {
-                if (idxName.equals(newTableName)) {
-                    throw new DdlException("New name conflicts with rollup index name: " + idxName);
-                }
+        for (String idxName : table.getIndexNameToId().keySet()) {
+            if (idxName.equals(newTableName)) {
+                throw new DdlException("New name conflicts with rollup index name: " + idxName);
             }
         }
 
