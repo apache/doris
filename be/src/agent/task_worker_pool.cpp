@@ -727,7 +727,6 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             st = Status::RuntimeError(strings::Substitute("publish version failed. error=$0", res));
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            _s_report_version++;
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
 
