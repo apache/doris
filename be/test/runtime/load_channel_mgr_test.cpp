@@ -65,7 +65,7 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWr
     return open_status;
 }
 
-OLAPStatus DeltaWriter::write(Tuple* tuple) {
+OLAPStatus DeltaWriter::write(const void* data) {
     if (_k_tablet_recorder.find(_req.tablet_id) == std::end(_k_tablet_recorder)) {
         _k_tablet_recorder[_req.tablet_id] = 1;
     } else {

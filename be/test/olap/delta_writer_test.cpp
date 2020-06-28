@@ -402,7 +402,7 @@ TEST_F(TestDeltaWriter, write) {
         DecimalValue val_decimal(1.1);
         *(DecimalValue*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
 
-        res = delta_writer->write(tuple);
+        res = delta_writer->write(tuple->get_data());
         ASSERT_EQ(OLAP_SUCCESS, res);
     }
 

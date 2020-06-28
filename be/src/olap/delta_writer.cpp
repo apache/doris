@@ -155,12 +155,12 @@ OLAPStatus DeltaWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::write(Tuple* tuple) {
+OLAPStatus DeltaWriter::write(const void* data) {
     if (!_is_init) {
         RETURN_NOT_OK(init());
     }
 
-    _mem_table->insert(tuple);
+    _mem_table->insert(data);
 
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
@@ -193,7 +193,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
 }
 
 void DeltaWriter::_reset_mem_table() {
-    _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
+    _mem_table.reset(new RSMemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
                                   _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
                                   _mem_tracker.get()));
 }

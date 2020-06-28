@@ -103,7 +103,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
             return Status::InternalError(strings::Substitute(
                     "unknown tablet to append data, tablet=$0", tablet_id));
         }
-        auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
+        auto st = it->second->write(row_batch.get_row(i)->get_tuple(0)->get_data());
         if (st != OLAP_SUCCESS) {
             const std::string& err_msg = strings::Substitute(
                     "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",

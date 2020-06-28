@@ -29,7 +29,7 @@
 
 namespace doris {
 
-MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+RSMemTable::RSMemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker)
     : _tablet_id(tablet_id),
@@ -42,25 +42,28 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
       _rowset_writer(rowset_writer) {
 
     _schema_size = _schema->schema_size();
-    _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker));
+    _mem_tracker.reset(new MemTracker(-1, "RSMemTable", mem_tracker));
     _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
     _table_mem_pool.reset(new MemPool(_mem_tracker.get()));
     _skip_list = new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
 }
 
-MemTable::~MemTable() {
+RSMemTable::~RSMemTable() {
     delete _skip_list;
 }
 
-MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
+RSMemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
 
-int MemTable::RowCursorComparator::operator()(const char* left, const char* right) const {
+int RSMemTable::RowCursorComparator::operator()(const char* left, const char* right) const {
     ContiguousRow lhs_row(_schema, left);
     ContiguousRow rhs_row(_schema, right);
     return compare_row(lhs_row, rhs_row);
 }
 
-void MemTable::insert(const Tuple* tuple) {
+void RSMemTable::insert(const void* data) {
+    // input is 'const void*', we need to convert it to Tuple*
+    const Tuple* tuple = reinterpret_cast<const Tuple*>(data);
+
     bool overwritten = false;
     uint8_t* _tuple_buf = nullptr;
     if (_keys_type == KeysType::DUP_KEYS) {
@@ -95,7 +98,7 @@ void MemTable::insert(const Tuple* tuple) {
     _buffer_mem_pool->clear();
 }
 
-void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
+void RSMemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
     for (size_t i = 0; i < _slot_descs->size(); ++i) {
         auto cell = row->cell(i);
         const SlotDescriptor* slot = (*_slot_descs)[i];
@@ -107,12 +110,12 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
     }
 }
 
-void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
+void RSMemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
     agg_update_row(&dst_row, src_row, _table_mem_pool.get());
 }
 
-OLAPStatus MemTable::flush() {
+OLAPStatus RSMemTable::flush() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -130,7 +133,7 @@ OLAPStatus MemTable::flush() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close() {
+OLAPStatus RSMemTable::close() {
     return flush();
 }
 

@@ -62,7 +62,7 @@ public:
 
     OLAPStatus init();
 
-    OLAPStatus write(Tuple* tuple);
+    OLAPStatus write(const void* data);
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
     // wait for all memtables to be flushed.

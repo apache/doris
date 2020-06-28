@@ -35,18 +35,28 @@ class TabletSchema;
 class Tuple;
 class TupleDescriptor;
 
+
 class MemTable {
 public:
-    MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+    virtual int64_t tablet_id() const = 0;
+    virtual size_t memory_usage() const = 0;
+    virtual void insert(const void* data) = 0;
+    virtual OLAPStatus flush() = 0;
+    virtual OLAPStatus close() = 0;
+};
+
+class RSMemTable : public MemTable {
+public:
+    RSMemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker);
-    ~MemTable();
+    ~RSMemTable();
 
-    int64_t tablet_id() const { return _tablet_id; }
-    size_t memory_usage() const { return _mem_tracker->consumption(); }
-    void insert(const Tuple* tuple);
-    OLAPStatus flush();
-    OLAPStatus close();
+    int64_t tablet_id() const override { return _tablet_id; }
+    size_t memory_usage() const override { return _mem_tracker->consumption(); }
+    void insert(const void* data) override;
+    OLAPStatus flush() override;
+    OLAPStatus close() override;
 
 private:
     class RowCursorComparator {
