@@ -35,7 +35,7 @@ WTDMemTable::WTDMemTable(const doris::Schema* schema, fs::WritableBlock* wblock)
 }
 
 void WTDMemTable::insert(const void* data) {
-    // append(_buffer, row, sizeof(uint64_t)+*(uint64_t*)row)
+    // append(_buffer, row, sizeof(uint32_t)+*(uint32_t*)row)
     auto pos = reinterpret_cast<const uint8_t*>(data);
     auto array_size = sizeof(uint32_t) + (*reinterpret_cast<const uint32_t*>(pos));
     _buffer.insert(_buffer.end(), pos, pos + array_size);
