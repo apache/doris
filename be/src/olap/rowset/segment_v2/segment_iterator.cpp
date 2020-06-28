@@ -257,7 +257,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     for (auto& cid : cids) {
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
-        CondColumn* column_cond = _opts.conditions->get_column(cid);
+        CondColumn* column_cond = nullptr;
+        if (_opts.conditions != nullptr) {
+            column_cond = _opts.conditions->get_column(cid);
+        }
         RETURN_IF_ERROR(
                 _column_iterators[cid]->get_row_ranges_by_zone_map(
                         column_cond,
