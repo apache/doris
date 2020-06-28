@@ -312,7 +312,6 @@ LOAD LABEL db1.label1
 (
     DATA FROM TABLE hive_t1
     INTO TABLE tbl1
-    COLUMNS TERMINATED BY ","
     (k1,k2,k3)
     SET
     (
