@@ -171,7 +171,7 @@ public class Config extends ConfigBase {
      * Master FE will save image every *edit_log_roll_num* meta journals.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int edit_log_roll_num = 50000
+    public static int edit_log_roll_num = 50000;
       
     /**
      * Non-master FE will stop offering service
