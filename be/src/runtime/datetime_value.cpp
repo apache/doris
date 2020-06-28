@@ -16,6 +16,7 @@
 // under the License.
 
 #include "runtime/datetime_value.h"
+#include "util/timezone_utils.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -1518,7 +1519,7 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
 
 bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const{
     cctz::time_zone ctz;
-    if (!find_cctz_time_zone(timezone, ctz)) {
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
     return unix_timestamp(timestamp, ctz);
@@ -1533,7 +1534,7 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ct
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
     cctz::time_zone ctz;
-    if (!find_cctz_time_zone(timezone, ctz)) {
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
     return from_unixtime(timestamp, ctz);

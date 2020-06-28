@@ -121,7 +121,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
     }
-    DateTimeValue::find_cctz_time_zone(_timezone, _timezone_obj);
+    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 }
 
 RuntimeState::~RuntimeState() {
@@ -196,7 +196,7 @@ Status RuntimeState::init(
         _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
     }
-    DateTimeValue::find_cctz_time_zone(_timezone, _timezone_obj);
+    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 
     _exec_env = exec_env;
 
