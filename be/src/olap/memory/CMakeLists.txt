@@ -35,4 +35,6 @@ add_library(Memory STATIC
     row_block.cpp
     schema.cpp
     write_txn.cpp
+    wtd_memtable.cpp
+    wtd_reader.cpp
 )
