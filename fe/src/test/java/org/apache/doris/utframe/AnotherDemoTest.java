@@ -17,10 +17,12 @@
 
 package org.apache.doris.utframe;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -30,6 +32,8 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
@@ -107,12 +111,20 @@ public class AnotherDemoTest {
         backend.start();
 
         // add be
-        List<Pair<String, Integer>> bes = Lists.newArrayList();
-        bes.add(Pair.create(backend.getHost(), backend.getHeartbeatPort()));
-        Catalog.getCurrentSystemInfo().addBackends(bes, false, "default_cluster");
+        Backend be = new Backend(10001, backend.getHost(), backend.getHeartbeatPort());
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        DiskInfo diskInfo1 = new DiskInfo("/path1");
+        diskInfo1.setTotalCapacityB(1000000);
+        diskInfo1.setAvailableCapacityB(500000);
+        diskInfo1.setDataUsedCapacityB(480000);
+        disks.put(diskInfo1.getRootPath(), diskInfo1);
+        be.setDisks(ImmutableMap.copyOf(disks));
+        be.setAlive(true);
+        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        Catalog.getCurrentSystemInfo().addBackend(be);
 
         // sleep to wait first heartbeat
-        Thread.sleep(5000);
+        Thread.sleep(6000);
     }
 
     @AfterClass
