@@ -17,205 +17,94 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.HashDistributionDesc;
-import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.cluster.Cluster;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
+import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.util.HashMap;
+import java.io.File;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
+import java.util.UUID;
 
 public class ColocateTableTest {
-    private TableName dbTableName1;
-    private TableName dbTableName2;
-    private TableName dbTableName3;
-    private String dbName = "default:testDb";
-    private String groupName1 = "group1";
-    private String tableName1 = "t1";
-    private String tableName2 = "t2";
-    private String tableName3 = "t3";
-    private String clusterName = "default";
-    private List<Long> beIds = Lists.newArrayList();
-    private List<String> columnNames = Lists.newArrayList();
-    private List<ColumnDef> columnDefs = Lists.newArrayList();
-    private Map<String, String> properties = new HashMap<String, String>();
+    private static String runningDir = "fe/mocked/ColocateTableTest" + UUID.randomUUID().toString() + "/";
 
-    private Catalog catalog;
-    private Database db;
-    private Analyzer analyzer;
-
-    @Injectable
-    private ConnectContext connectContext;
-    @Injectable
-    private SystemInfoService systemInfoService;
-    @Injectable
-    private PaloAuth paloAuth;
-    @Injectable
-    private EditLog editLog;
+    private static ConnectContext connectContext;
+    private static String dbName = "testDb";
+    private static String fullDbName = "default_cluster:" + dbName;
+    private static String tableName1 = "t1";
+    private static String tableName2 = "t2";
+    private static String groupName = "group1";
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
 
-    @Before
-    public void setUp() throws Exception {
-        dbTableName1 = new TableName(dbName, tableName1);
-        dbTableName2 = new TableName(dbName, tableName2);
-        dbTableName3 = new TableName(dbName, tableName3);
+    @BeforeClass
+    public static void beforeClass() throws Exception {
+        UtFrameUtils.createMinDorisCluster(runningDir);
+        connectContext = UtFrameUtils.createDefaultCtx();
 
-        beIds.clear();
-        beIds.add(1L);
-        beIds.add(2L);
-        beIds.add(3L);
-
-        columnNames.clear();
-        columnNames.add("key1");
-        columnNames.add("key2");
-
-        columnDefs.clear();
-        columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
-        columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createVarchar(10))));
-
-        catalog = Deencapsulation.newInstance(Catalog.class);
-        analyzer = new Analyzer(catalog, connectContext);
-
-        new Expectations(analyzer) {
-            {
-                analyzer.getClusterName();
-                result = clusterName;
-            }
-        };
-
-        dbTableName1.analyze(analyzer);
-        dbTableName2.analyze(analyzer);
-        dbTableName3.analyze(analyzer);
-
-        Config.disable_colocate_join = false;
-
-        new Expectations(catalog) {
-            {
-                Catalog.getCurrentCatalog();
-                result = catalog;
-
-                Catalog.getCurrentCatalog();
-                result = catalog;
-
-                Catalog.getCurrentSystemInfo();
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                result = beIds;
-
-                catalog.getAuth();
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                result = true;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.DROP);
-                result = true; minTimes = 0; maxTimes = 1;
-            }
-        };
-
-        new Expectations() {
-            {
-                Deencapsulation.setField(catalog, "editLog", editLog);
-            }
-        };
-
-        initDatabase();
-        db = catalog.getDb(dbName);
-
-        new MockUp<AgentBatchTask>() {
-            @Mock
-            void run() {
-                return;
-            }
-        };
-
-        new MockUp<CountDownLatch>() {
-            @Mock
-            boolean await(long timeout, TimeUnit unit) {
-                return true;
-            }
-        };
     }
 
-    private void initDatabase() throws Exception {
-        CreateDbStmt dbStmt = new CreateDbStmt(true, dbName);
-        new Expectations(dbStmt) {
-            {
-                dbStmt.getClusterName();
-                result = clusterName;
-            }
-        };
+    @AfterClass
+    public static void tearDown() {
+            File file = new File(runningDir);
+            file.delete();
+    }
 
-        ConcurrentHashMap<String, Cluster> nameToCluster =  new ConcurrentHashMap<>();
-        nameToCluster.put(clusterName, new Cluster(clusterName, 1));
-        new Expectations() {
-            {
-                Deencapsulation.setField(catalog, "nameToCluster", nameToCluster);
-            }
-        };
-
-        catalog.createDb(dbStmt);
+    @Before
+    public void createDb() throws Exception {
+        String createDbStmtStr = "create database " + dbName;
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Catalog.getCurrentCatalog().setColocateTableIndex(new ColocateTableIndex());
     }
 
     @After
-    public void tearDown() throws Exception {
-        catalog.clear();
+    public void dropDb() throws Exception {
+        String dropDbStmtStr = "drop database " + dbName;
+        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
     }
 
-    private void createOneTable(int numBucket, Map<String, String> properties) throws Exception {
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName1, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-        catalog.createTable(stmt);
+    private static void createTable(String sql) throws Exception {
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
     @Test
     public void testCreateOneTable() throws Exception {
-        int numBucket = 1;
-
-        createOneTable(numBucket, properties);
+        createTable("create table " + dbName + "." + tableName1 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         long tableId = db.getTable(tableName1).getId();
 
         Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
@@ -232,35 +121,49 @@ public class ColocateTableTest {
 
         GroupId groupId = index.getGroup(tableId);
         List<Long> backendIds = index.getBackendsPerBucketSeq(groupId).get(0);
-        Assert.assertEquals(beIds, backendIds);
+        System.out.println(backendIds);
+        Assert.assertEquals(Collections.singletonList(10001L), backendIds);
 
-        String fullGroupName = dbId + "_" + groupName1;
+        String fullGroupName = dbId + "_" + groupName;
         Assert.assertEquals(tableId, index.getTableIdByGroup(fullGroupName));
         ColocateGroupSchema groupSchema = index.getGroupSchema(fullGroupName);
         Assert.assertNotNull(groupSchema);
         Assert.assertEquals(dbId, groupSchema.getGroupId().dbId);
-        Assert.assertEquals(numBucket, groupSchema.getBucketsNum());
-        Assert.assertEquals(3, groupSchema.getReplicationNum());
+        Assert.assertEquals(1, groupSchema.getBucketsNum());
+        Assert.assertEquals(1, groupSchema.getReplicationNum());
     }
 
     @Test
     public void testCreateTwoTableWithSameGroup() throws Exception {
-        int numBucket = 1;
+        createTable("create table " + dbName + "." + tableName1 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
-        createOneTable(numBucket, properties);
-
-        // create second table
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
-        CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null, "");
-        secondStmt.analyze(analyzer);
-        catalog.createTable(secondStmt);
+        createTable("create table " + dbName + "." + tableName2 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         long firstTblId = db.getTable(tableName1).getId();
         long secondTblId = db.getTable(tableName2).getId();
-        
+
         Assert.assertEquals(2, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());
         Assert.assertEquals(2, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
@@ -301,74 +204,118 @@ public class ColocateTableTest {
 
     @Test
     public void testBucketNum() throws Exception {
-        int firstBucketNum = 1;
-        createOneTable(firstBucketNum, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
-        int secondBucketNum = 2;
-        CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(secondBucketNum, Lists.newArrayList("key1")), properties, null, "");
-        secondStmt.analyze(analyzer);
+        createTable("create table " + dbName + "." + tableName1 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("Colocate tables must have same bucket num: 1");
+        createTable("create table " + dbName + "." + tableName2 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
-        catalog.createTable(secondStmt);
     }
 
     @Test
     public void testReplicationNum() throws Exception {
-        int bucketNum = 1;
-
-        createOneTable(bucketNum, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
-        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "2");
-        CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(bucketNum, Lists.newArrayList("key1")), properties, null, "");
-        secondStmt.analyze(analyzer);
+        createTable("create table " + dbName + "." + tableName1 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same replication num: 3");
-
-        catalog.createTable(secondStmt);
+        expectedEx.expectMessage("Colocate tables must have same replication num: 1");
+        createTable("create table " + dbName + "." + tableName2 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"2\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
     }
 
     @Test
     public void testDistributionColumnsSize() throws Exception {
-        int bucketNum = 1;
-        createOneTable(bucketNum, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
-        CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(bucketNum, Lists.newArrayList("key1", "key2")), properties, null, "");
-        childStmt.analyze(analyzer);
+        createTable("create table " + dbName + "." + tableName1 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables distribution columns size must be same : 1");
-
-        catalog.createTable(childStmt);
+        expectedEx.expectMessage("Colocate tables distribution columns size must be same : 2");
+        createTable("create table " + dbName + "." + tableName2 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
     }
 
     @Test
     public void testDistributionColumnsType() throws Exception {
-        int bucketNum = 1;
-
-        createOneTable(bucketNum, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
-        CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(bucketNum, Lists.newArrayList("key2")), properties, null, "");
-        childStmt.analyze(analyzer);
+        createTable("create table " + dbName + "." + tableName1 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage(
-                "Colocate tables distribution columns must have the same data type: key2 should be INT");
-
-        catalog.createTable(childStmt);
+        expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2 should be INT");
+        createTable("create table " + dbName + "." + tableName2 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
     }
 }

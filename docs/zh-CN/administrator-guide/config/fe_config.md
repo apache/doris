@@ -589,3 +589,10 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 
 ### `with_k8s_certs`
 
+### `enable_strict_storage_medium`
+
+该配置表示在建表时，检查集群中是否存在相应的存储介质。例如当用户指定建表时存储介质为`SSD`，但此时集群中只存在`HDD`的磁盘时,
+
+若该参数为`True`，则建表时会报错 `Failed to find enough host in all backends with storage medium with storage medium is SSD, need 3`.
+
+若该参数为`False`，则建表时不会报错，而是将表建立在存储介质为`HDD`的磁盘上。
