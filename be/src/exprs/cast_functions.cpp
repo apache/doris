@@ -235,9 +235,16 @@ BooleanVal CastFunctions::cast_to_boolean_val(FunctionContext* ctx, const String
     }
     StringParser::ParseResult result;
     BooleanVal ret;
-    ret.val = StringParser::string_to_bool(reinterpret_cast<char*>(val.ptr), val.len, &result);
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) { 
-        return BooleanVal::null();
+    IntVal int_val = cast_to_int_val(ctx, val);
+    if (!int_val.is_null && int_val.val == 0) {
+        ret.val = false;
+    } else if (!int_val.is_null && int_val.val == 1) {
+        ret.val = true;
+    } else {
+        ret.val = StringParser::string_to_bool(reinterpret_cast<char*>(val.ptr), val.len, &result);
+        if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) { 
+            return BooleanVal::null();
+        }
     }
     return ret;
 }
