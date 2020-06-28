@@ -322,7 +322,8 @@ namespace config {
     CONF_mInt32(olap_table_sink_send_interval_ms, "10");
 
     // Fragment thread pool
-    CONF_Int32(fragment_pool_thread_num, "64");
+    CONF_Int32(fragment_pool_thread_num_min, "64");
+    CONF_Int32(fragment_pool_thread_num_max, "512");
     CONF_Int32(fragment_pool_queue_size, "1024");
 
     //for cast

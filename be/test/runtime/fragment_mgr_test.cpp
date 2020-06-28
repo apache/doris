@@ -47,6 +47,10 @@ Status PlanFragmentExecutor::open() {
 
 void PlanFragmentExecutor::cancel() {}
 
+void PlanFragmentExecutor::set_abort() {
+    LOG(INFO) << "Plan Aborted";
+}
+
 void PlanFragmentExecutor::close() {}
 
 class FragmentMgrTest : public testing::Test {
@@ -57,9 +61,9 @@ protected:
     virtual void SetUp() {
         s_prepare_status = Status::OK();
         s_open_status = Status::OK();
-        LOG(INFO) << "fragment_pool_thread_num=" << config::fragment_pool_thread_num
-                  << ", pool_size=" << config::fragment_pool_queue_size;
-        config::fragment_pool_thread_num = 32;
+
+        config::fragment_pool_thread_num_min = 32;
+        config::fragment_pool_thread_num_max = 32;
         config::fragment_pool_queue_size = 1024;
     }
     virtual void TearDown() {}
@@ -115,6 +119,19 @@ TEST_F(FragmentMgrTest, PrepareFailed) {
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
     ASSERT_FALSE(mgr.exec_plan_fragment(params).ok());
+}
+
+TEST_F(FragmentMgrTest, OfferPoolFailed) {
+    // config::fragment_pool_thread_num = 1;
+    // config::fragment_pool_queue_size = 0;
+    // FragmentMgr mgr(nullptr);
+    // for (int i = 0; i < 8; ++i) {
+    //     TExecPlanFragmentParams params;
+    //     params.params.fragment_instance_id = TUniqueId();
+    //     params.params.fragment_instance_id.__set_hi(100 + i);
+    //     params.params.fragment_instance_id.__set_lo(200);
+    //     ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    // }
 }
 
 } // namespace doris
