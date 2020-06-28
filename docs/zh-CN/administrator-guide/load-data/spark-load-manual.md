@@ -95,20 +95,20 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 在Doris现有的导入流程中，全局字典的数据结构是基于Hive表实现的，保存了原始值到编码值的映射。
 ### 构建流程
-1. 读取上游数据源的数据，生成一张hive临时表，记为hive_table。
-2. 从hive_table中抽取待去重字段的去重值，生成一张新的hive表，记为distinct_value_table。
-3. 新建一张全局字典表，记为dict_table；一列为原始值，一列为编码后的值。
-4. 将distinct_value_table与dict_table做left join，计算出新增的去重值集合，然后对这个集合使用窗口函数进行编码，此时去重列原始值就多了一列编码后的值，最后将这两列的数据写回dict_table。
-5. 将dict_table与hive_table做join，完成hive_table中原始值替换成整型编码值的工作。
-6. hive_table会被下一步数据预处理的流程所读取，经过计算后导入到Doris中。
+1. 读取上游数据源的数据，生成一张hive临时表，记为`hive_table`。
+2. 从`hive_table`中抽取待去重字段的去重值，生成一张新的hive表，记为`distinct_value_table`。
+3. 新建一张全局字典表，记为`dict_table`；一列为原始值，一列为编码后的值。
+4. 将`distinct_value_table`与`dict_table`做left join，计算出新增的去重值集合，然后对这个集合使用窗口函数进行编码，此时去重列原始值就多了一列编码后的值，最后将这两列的数据写回`dict_table`。
+5. 将`dict_table`与`hive_table`做join，完成`hive_table`中原始值替换成整型编码值的工作。
+6. `hive_table`会被下一步数据预处理的流程所读取，经过计算后导入到Doris中。
 
 ## 数据预处理（DPP）
 ### 基本流程
 1. 从数据源读取数据，上游数据源可以是HDFS文件，也可以是Hive表。
-2. 对读取到的数据进行字段映射，表达式计算以及根据分区信息生成分桶字段bucket_id。
+2. 对读取到的数据进行字段映射，表达式计算以及根据分区信息生成分桶字段`bucket_id`。
 3. 根据Doris表的rollup元数据生成RollupTree。
 4. 遍历RollupTree，进行分层的聚合操作，下一个层级的rollup可以由上一个层的rollup计算得来。
-5. 每次完成聚合计算后，会对数据根据bucket_id进行分桶然后写入HDFS中。
+5. 每次完成聚合计算后，会对数据根据`bucket_id`进行分桶然后写入HDFS中。
 6. 后续broker会拉取HDFS中的文件然后导入Doris Be中。
 
 
