@@ -269,6 +269,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/options_test
 
 # Running memory engine Unittest
 ${DORIS_TEST_BINARY_DIR}/olap/memory/hash_index_test
+${DORIS_TEST_BINARY_DIR}/olap/memory/wtd_test
 
 # Running segment v2 test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
