@@ -93,7 +93,7 @@ public class EsRepository extends MasterDaemon {
             List<Table> tables = database.getTables();
             for (Table table : tables) {
                 if (table.getType() == TableType.ELASTICSEARCH) {
-                    esTables.put(table.getId(), (EsTable) table);
+                    registerTable((EsTable) table);
                 }
             }
         }

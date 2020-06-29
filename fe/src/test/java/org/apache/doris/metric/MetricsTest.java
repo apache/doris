@@ -36,7 +36,7 @@ public class MetricsTest {
     @Test
     public void testTcpMetrics() {
         List<Metric> metrics = MetricRepo.getMetricsByName("snmp");
-        Assert.assertEquals(2, metrics.size());
+        Assert.assertEquals(4, metrics.size());
         for (Metric metric : metrics) {
             GaugeMetric<Long> gm = (GaugeMetric<Long>) metric;
             if (gm.getLabels().get(0).getValue().equals("tcp_retrans_segs")) {
