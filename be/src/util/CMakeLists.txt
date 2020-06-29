@@ -95,6 +95,7 @@ set(UTIL_FILES
   threadpool.cpp
   trace.cpp
   trace_metrics.cpp
+  timezone_utils.cpp
 )
 
 if (WITH_MYSQL)
