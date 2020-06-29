@@ -17,27 +17,29 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 
-import com.google.common.base.Strings;
-
+import java.util.List;
 import java.util.Map;
 
 // clause which is used to modify partition properties
 public class ModifyPartitionClause extends AlterTableClause {
 
-    private String partitionName;
+    private List<String> partitionNames;
     private Map<String, String> properties;
+    private boolean needExpand = false;
 
-    public String getPartitionName() {
-        return partitionName;
+    public List<String> getPartitionNames() {
+        return partitionNames;
     }
 
-    public ModifyPartitionClause(String partitionName, Map<String, String> properties) {
+    public ModifyPartitionClause(List<String> partitionNames, Map<String, String> properties) {
         super(AlterOpType.MODIFY_PARTITION);
-        this.partitionName = partitionName;
+        this.partitionNames = partitionNames;
         this.properties = properties;
         // ATTN: currently, modify partition only allow 3 kinds of operations:
         // 1. modify replication num
@@ -50,8 +52,16 @@ public class ModifyPartitionClause extends AlterTableClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(partitionName)) {
-            throw new AnalysisException("Partition name is not set");
+        if (partitionNames == null || partitionNames.isEmpty()) {
+            throw new AnalysisException("Partition names is not set or empty");
+        }
+
+        if (partitionNames.stream().anyMatch(entity -> Strings.isNullOrEmpty(entity))) {
+            throw new AnalysisException("there are empty partition name");
+        }
+
+        if (partitionNames.stream().anyMatch(entity -> entity.equals("*"))) {
+            this.needExpand = true;
         }
 
         if (properties == null || properties.isEmpty()) {
@@ -64,11 +74,17 @@ public class ModifyPartitionClause extends AlterTableClause {
         return this.properties;
     }
 
+    public boolean isNeedExpand() {
+        return this.needExpand;
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY PARTITION ");
-        sb.append(partitionName);
+        sb.append("(");
+        sb.append(Joiner.on(", ").join(partitionNames));
+        sb.append(")");
         sb.append(" SET (");
         sb.append(new PrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");

@@ -1463,6 +1463,9 @@ public class SchemaChangeHandler extends AlterHandler {
         LOG.info("send clear alter task for table {}, number: {}", olapTable.getName(), batchTask.getTaskNum());
     }
 
+    /**
+     * Update all partitions' in-memory property of table
+     */
     public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws DdlException {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable;
@@ -1491,6 +1494,35 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    /**
+     * Update some specified partitions' in-memory property of table
+     */
+    public void updatePartitionsInMemoryMeta(Database db,
+                                             String tableName,
+                                             List<String> partitionNames,
+                                             Map<String, String> properties) throws DdlException {
+        OlapTable olapTable;
+        db.readLock();
+        try {
+            olapTable = (OlapTable)db.getTable(tableName);
+        } finally {
+            db.readUnlock();
+        }
+
+        boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+        if (isInMemory == olapTable.isInMemory()) {
+            return;
+        }
+
+        for(String partitionName : partitionNames) {
+            updatePartitionInMemoryMeta(db, olapTable.getName(), partitionName, isInMemory);
+        }
+    }
+
+    /**
+     * Update one specified partition's in-memory property by partition name of table
+     * This operation may return partial successfully, with a exception to inform user to retry
+     */
     public void updatePartitionInMemoryMeta(Database db,
                                             String tableName,
                                             String partitionName,

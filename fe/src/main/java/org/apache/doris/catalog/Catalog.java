@@ -3334,6 +3334,44 @@ public class Catalog {
         }
     }
 
+    /**
+     * Batch update partitions' properties
+     * caller should hold the db lock
+     */
+    public void modifyPartitionsProperty(Database db,
+                                         OlapTable olapTable,
+                                         List<String> partitionNames,
+                                         Map<String, String> properties)
+            throws DdlException {
+        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        if (olapTable.getState() != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
+        }
+
+        for (String partitionName : partitionNames) {
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition == null) {
+                throw new DdlException(
+                        "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
+            }
+        }
+
+        // If error occurs tell user which partition is wrong.
+        for (String partitionName : partitionNames) {
+            try {
+                modifyPartitionProperty(db, olapTable, partitionName, properties);
+            } catch (DdlException e) {
+                String errMsg = "Failed to update partition[" + partitionName + "]'s property. " +
+                        "The reason is [" + e.getMessage() + "]";
+                throw new DdlException(errMsg);
+            }
+        }
+    }
+
+    /**
+     * Update partition's properties
+     * caller should hold the db lock
+     */
     public void modifyPartitionProperty(Database db, OlapTable olapTable, String partitionName, Map<String, String> properties)
             throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());

@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.View;
@@ -203,12 +204,19 @@ public class Alter {
                     Catalog.getCurrentCatalog().replaceTempPartition(db, tableName, (ReplacePartitionClause) alterClause);
                 } else if (alterClause instanceof ModifyPartitionClause) {
                     ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
+                    if (clause.isNeedExpand()) {
+                        List<String> partitionNames = clause.getPartitionNames();
+                        partitionNames.clear();
+                        for (Partition partition : olapTable.getPartitions()) {
+                            partitionNames.add(partition.getName());
+                        }
+                    }
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                         needProcessOutsideDatabaseLock = true;
                     } else {
-                        String partitionName = clause.getPartitionName();
-                        Catalog.getCurrentCatalog().modifyPartitionProperty(db, olapTable, partitionName, properties);
+                        List<String> partitionNames = clause.getPartitionNames();
+                        Catalog.getCurrentCatalog().modifyPartitionsProperty(db, olapTable, partitionNames, properties);
                     }
                 } else if (alterClause instanceof AddPartitionClause) {
                     needProcessOutsideDatabaseLock = true;
@@ -238,17 +246,16 @@ public class Alter {
             } else if (alterClause instanceof ModifyPartitionClause) {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
-                String partitionName = clause.getPartitionName();
+                List<String> partitionNames = clause.getPartitionNames();
                 // currently, only in memory property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionInMemoryMeta(
-                        db, tableName, partitionName, isInMemory);
+                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsInMemoryMeta(
+                        db, tableName, partitionNames, properties);
 
                 db.writeLock();
                 try {
                     OlapTable olapTable = (OlapTable) db.getTable(tableName);
-                    Catalog.getCurrentCatalog().modifyPartitionProperty(db, olapTable, partitionName, properties);
+                    Catalog.getCurrentCatalog().modifyPartitionsProperty(db, olapTable, partitionNames, properties);
                 } finally {
                     db.writeUnlock();
                 }
