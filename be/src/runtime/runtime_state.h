@@ -31,6 +31,7 @@
 #include <sstream>
 #include <vector>
 
+#include "cctz/time_zone.h"
 #include "common/global_types.h"
 #include "util/logging.h"
 #include "runtime/mem_pool.h"
@@ -142,6 +143,9 @@ public:
     }
     const std::string& timezone() const {
         return _timezone;
+    }
+    const cctz::time_zone& timezone_obj() const {
+        return _timezone_obj;
     }
     const std::string& user() const {
         return _user;
@@ -536,6 +540,7 @@ private:
     //Query-global timestamp_ms
     int64_t _timestamp_ms;
     std::string _timezone;
+    cctz::time_zone _timezone_obj;
 
     TUniqueId _query_id;
     TUniqueId _fragment_instance_id;

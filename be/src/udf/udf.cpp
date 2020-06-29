@@ -417,6 +417,7 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len)
         len += buf_len;
     }
 }
+
 void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
     const uint8_t* buf2, size_t buf2_len) {
     if (UNLIKELY(len + buf_len + buf2_len > StringVal::MAX_LENGTH)) {
