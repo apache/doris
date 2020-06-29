@@ -171,6 +171,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     request.sync = true;
     request.commitInfos = std::move(ctx->commit_infos);
     request.__isset.commitInfos = true;
+    request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
 
     // set attachment if has
     TTxnCommitAttachment attachment;
