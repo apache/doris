@@ -107,6 +107,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
         _index_stream_lru_cache(NULL),
+        _file_cache(nullptr),
         _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
         _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
@@ -156,6 +157,8 @@ Status StorageEngine::_open() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
     _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
+
+    _file_cache.reset(new_lru_cache(config::file_descriptor_cache_capacity));
 
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
@@ -456,6 +459,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 
 void StorageEngine::_clear() {
     SAFE_DELETE(_index_stream_lru_cache);
+    _file_cache.reset();
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
@@ -503,7 +507,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
 void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "start clean file descritpor cache";
-    FileHandler::get_fd_cache()->prune();
+    _file_cache->prune();
     VLOG(10) << "end clean file descritpor cache";
 }
 
