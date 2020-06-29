@@ -204,6 +204,7 @@ public class Alter {
                     Catalog.getCurrentCatalog().replaceTempPartition(db, tableName, (ReplacePartitionClause) alterClause);
                 } else if (alterClause instanceof ModifyPartitionClause) {
                     ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
+                    // expand the partition names if it is 'Modify Partition(*)'
                     if (clause.isNeedExpand()) {
                         List<String> partitionNames = clause.getPartitionNames();
                         partitionNames.clear();

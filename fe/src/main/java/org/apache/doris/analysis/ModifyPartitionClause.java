@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import org.apache.doris.alter.AlterOpType;
@@ -27,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 
 // clause which is used to modify partition properties
+// 1. Modify Partition p1 set ("replication_num" = "3")
+// 2. Modify Partition (p1, p3, p4) set ("replication_num" = "3")
+// 3. Modify Partition (*) set ("replication_num" = "3")
 public class ModifyPartitionClause extends AlterTableClause {
 
     private List<String> partitionNames;
@@ -37,10 +41,12 @@ public class ModifyPartitionClause extends AlterTableClause {
         return partitionNames;
     }
 
+    // c'tor for non-star clause
     public ModifyPartitionClause(List<String> partitionNames, Map<String, String> properties) {
         super(AlterOpType.MODIFY_PARTITION);
         this.partitionNames = partitionNames;
         this.properties = properties;
+        this.needExpand = false;
         // ATTN: currently, modify partition only allow 3 kinds of operations:
         // 1. modify replication num
         // 2. modify data property
@@ -50,18 +56,27 @@ public class ModifyPartitionClause extends AlterTableClause {
         this.needTableStable = false;
     }
 
+    // c'tor for 'Modify Partition(*)' clause
+    private ModifyPartitionClause(Map<String, String> properties) {
+        super(AlterOpType.MODIFY_PARTITION);
+        this.partitionNames = Lists.newArrayList();
+        this.properties = properties;
+        this.needExpand = true;
+        this.needTableStable = false;
+    }
+
+    static public ModifyPartitionClause createStarClause(Map<String, String> properties) {
+        return new ModifyPartitionClause(properties);
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (partitionNames == null || partitionNames.isEmpty()) {
+        if (partitionNames == null || (!needExpand && partitionNames.isEmpty())) {
             throw new AnalysisException("Partition names is not set or empty");
         }
 
         if (partitionNames.stream().anyMatch(entity -> Strings.isNullOrEmpty(entity))) {
             throw new AnalysisException("there are empty partition name");
-        }
-
-        if (partitionNames.stream().anyMatch(entity -> entity.equals("*"))) {
-            this.needExpand = true;
         }
 
         if (properties == null || properties.isEmpty()) {
