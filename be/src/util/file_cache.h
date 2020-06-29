@@ -102,10 +102,26 @@ public:
     // The 'cache_name' is used to disambiguate amongst other file cache
     // instances. The cache will use 'max_open_files' as a soft upper bound on
     // the number of files open at any given time.
+    // for this constructor, _is_cache_own is set to true, indicating that _cache
+    // is only owned by this.
     FileCache(const std::string& cache_name, int max_open_files);
 
+    // Creates a new file cache with given cache.
+    //
+    // The 'cache_name' is used to disambiguate amongst other file cache
+    // instances. Please use this constructor only you want to share _cache
+    // with other.
+    // for this constructor, _is_cache_own is set to false, indicating that _cache
+    // is sharing with other (In most case, sharing _cache with storage engine).
+    FileCache(const std::string& cache_name, std::shared_ptr<Cache> cache);
+
     // Destroys the file cache.
-    ~FileCache() { }
+    ~FileCache() {
+        // If _cache is only owned by this, reset the shared_ptr of _cache.
+        if (_is_cache_own) {
+            _cache.reset();
+        }
+     }
 
     // find whether the file has been cached
     // if cached, return true and set the file_handle
@@ -121,7 +137,12 @@ private:
     std::string _cache_name;
 
     // Underlying cache instance. Caches opened files.
-    std::unique_ptr<Cache> _cache;
+    std::shared_ptr<Cache> _cache;
+
+    // Indicates weather _cache is only owned by this,
+    // gernerally, _cache can be shared by other, in 
+    // this case, _is_cache_own is set to false.
+    bool _is_cache_own = false;
 
     DISALLOW_COPY_AND_ASSIGN(FileCache);
 };
