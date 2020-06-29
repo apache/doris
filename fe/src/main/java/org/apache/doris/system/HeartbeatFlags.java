@@ -17,11 +17,7 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.SysVariableDesc;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.HeartbeatServiceConstants;
 
 import org.apache.logging.log4j.LogManager;
@@ -40,13 +36,8 @@ public class HeartbeatFlags {
 
     public long getHeartbeatFlags() {
         long heartbeatFlags = 0;
-        try {
-            String defaultRowsetType = VariableMgr.getValue(null, new SysVariableDesc(SessionVariable.DEFAULT_ROWSET_TYPE, SetType.GLOBAL));
-            if ("beta".equalsIgnoreCase(defaultRowsetType)) {
-                heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
-            }
-        } catch (AnalysisException e) {
-            LOG.warn("parse default rowset type failed.error:{}", e.getMessage());
+        if ("beta".equalsIgnoreCase(GlobalVariable.defaultRowsetType)) {
+            heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
         }
 
         return heartbeatFlags;

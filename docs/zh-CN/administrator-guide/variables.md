@@ -62,7 +62,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 > 注1：只有 ADMIN 用户可以设置变量的全局生效。
 > 注2：全局生效的变量不影响当前会话的变量值，仅影响新的会话中的变量。
 
-支持全局生效的变量包括：
+既支持当前会话生效又支持全局生效的变量包括：
 
 * `time_zone`
 * `wait_timeout`
@@ -73,6 +73,10 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+
+只支持全局生效的变量包括：
+
+* `default_rowset_type`
 
 同时，变量设置也支持常量表达式。如：
 
