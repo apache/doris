@@ -420,7 +420,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
         // skip the lower version rows;
         while (nullptr != _next_key) {
             auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
-             if (res != OLAP_SUCCESS) {
+            if (res != OLAP_SUCCESS) {
                 if (res != OLAP_ERR_DATA_EOF) {
                     return res;
                 }
