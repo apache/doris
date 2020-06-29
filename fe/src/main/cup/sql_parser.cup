@@ -2451,11 +2451,11 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, true);
     :}
-    | describe_command opt_verbose query_stmt:query
+    | describe_command opt_verbose:isVerbose query_stmt:query
     {:
-        query.setIsExplain(true, opt_verbose);
+        query.setIsExplain(true, isVerbose);
         RESULT = query;
-    :}
+    :}   
     | describe_command insert_stmt:stmt
     {:
         stmt.getQueryStmt().setIsExplain(true);
