@@ -19,11 +19,10 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 
+import java.util.List;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import java.util.List;
 
 public class MetricsTest {
 
@@ -39,10 +38,15 @@ public class MetricsTest {
         Assert.assertEquals(4, metrics.size());
         for (Metric metric : metrics) {
             GaugeMetric<Long> gm = (GaugeMetric<Long>) metric;
-            if (gm.getLabels().get(0).getValue().equals("tcp_retrans_segs")) {
+            String metricName = gm.getLabels().get(0).getValue();
+            if (metricName.equals("tcp_retrans_segs")) {
                 Assert.assertEquals(Long.valueOf(826271L), (Long) gm.getValue());
-            } else if (gm.getLabels().get(0).getValue().equals("tcp_in_errs")) {
+            } else if (metricName.equals("tcp_in_errs")) {
                 Assert.assertEquals(Long.valueOf(12712L), (Long) gm.getValue());
+            } else if (metricName.equals("tcp_in_segs")) {
+                Assert.assertEquals(Long.valueOf(1034019111L), (Long) gm.getValue());
+            } else if (metricName.equals("tcp_out_segs")) {
+                Assert.assertEquals(Long.valueOf(1166716939L), (Long) gm.getValue());
             } else {
                 Assert.fail();
             }
