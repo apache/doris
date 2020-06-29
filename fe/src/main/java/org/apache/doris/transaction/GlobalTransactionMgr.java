@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Transaction Manager
@@ -185,7 +186,9 @@ public class GlobalTransactionMgr implements Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        db.writeLock();
+        if (!db.tryWriteLock(timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get database write lock timeout, database=" + db.getFullName());
+        }
         try {
             commitTransaction(db.getId(), transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
