@@ -86,6 +86,6 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
-        return new ReplicasProcNode(replicas);
+        return new ReplicasProcNode(tabletId, replicas);
     }
 }
