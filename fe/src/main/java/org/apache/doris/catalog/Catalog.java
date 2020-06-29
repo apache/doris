@@ -3359,8 +3359,9 @@ public class Catalog {
         // If error occurs tell user which partition is wrong.
         for (String partitionName : partitionNames) {
             try {
-                modifyPartitionProperty(db, olapTable, partitionName, properties);
-            } catch (DdlException e) {
+                Map<String, String> partitionProperties = Maps.newHashMap(properties);
+                modifyPartitionProperty(db, olapTable, partitionName, partitionProperties);
+            } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s property. " +
                         "The reason is [" + e.getMessage() + "]";
                 throw new DdlException(errMsg);

@@ -1505,6 +1505,13 @@ public class SchemaChangeHandler extends AlterHandler {
         db.readLock();
         try {
             olapTable = (OlapTable)db.getTable(tableName);
+            for (String partitionName : partitionNames) {
+                Partition partition = olapTable.getPartition(partitionName);
+                if (partition == null) {
+                    throw new DdlException("Partition[" + partitionName + "] does not exist in " +
+                            "table[" + olapTable.getName() + "]");
+                }
+            }
         } finally {
             db.readUnlock();
         }
@@ -1515,7 +1522,13 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         for(String partitionName : partitionNames) {
-            updatePartitionInMemoryMeta(db, olapTable.getName(), partitionName, isInMemory);
+            try {
+                updatePartitionInMemoryMeta(db, olapTable.getName(), partitionName, isInMemory);
+            } catch (Exception e) {
+                String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. " +
+                        "The reason is [" + e.getMessage() + "]";
+                throw new DdlException(errMsg);
+            }
         }
     }
 
