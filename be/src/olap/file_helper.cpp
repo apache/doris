@@ -29,6 +29,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
+#include "olap/storage_engine.h"
 #include "util/debug_util.h"
 
 using std::string;
@@ -44,9 +45,20 @@ FileHandler::FileHandler() :
         _is_using_cache(false),
         _cache_handle(NULL) {
     static std::once_flag once_flag;
-    std::call_once(once_flag, [] {
-        _s_fd_cache = new_lru_cache(config::file_descriptor_cache_capacity);
-    });
+    #ifdef BE_TEST
+        std::call_once(once_flag, [] {
+            _s_fd_cache = new_lru_cache(config::file_descriptor_cache_capacity);
+        });
+    #else
+        // storage engine may not be opened when doris try to read and write 
+        // temp file under the storage root path. So we need to check it.
+        if (StorageEngine::instance() != nullptr && 
+                    StorageEngine::instance()->file_cache() != nullptr) {
+            std::call_once(once_flag, [] {
+                _s_fd_cache = StorageEngine::instance()->file_cache().get();
+            });
+        }
+    #endif
 }
 
 FileHandler::~FileHandler() {
@@ -82,6 +94,10 @@ OLAPStatus FileHandler::open(const string& file_name, int flag) {
 }
 
 OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
+    if (_s_fd_cache == nullptr) {
+        return open(file_name, flag);
+    }
+
     if (_fd != -1 && _file_name == file_name) {
         return OLAP_SUCCESS;
     }
@@ -151,7 +167,7 @@ OLAPStatus FileHandler::open_with_mode(const string& file_name, int flag, int mo
     return OLAP_SUCCESS;
 }
 
-OLAPStatus FileHandler::release() {
+OLAPStatus FileHandler::_release() {
     _s_fd_cache->release(_cache_handle);
     _cache_handle = NULL;
     _is_using_cache = false;
@@ -163,8 +179,8 @@ OLAPStatus FileHandler::close() {
         return OLAP_SUCCESS;
     }
 
-    if (_is_using_cache) {
-        release();
+    if (_is_using_cache && _s_fd_cache != nullptr) {
+        _release();
     } else {
         // try to sync page cache if have written some bytes
         if (_wr_length > 0) {

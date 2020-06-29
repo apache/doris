@@ -89,6 +89,10 @@ public:
         return _index_stream_lru_cache;
     }
 
+    std::shared_ptr<Cache> file_cache() {
+        return _file_cache;
+    }
+
     template<bool include_unused = false> std::vector<DataDir*> get_stores();
 
 
@@ -297,6 +301,15 @@ private:
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
 
+    // _file_cache is a lru_cache for file descriptors of files opened by doris,
+    // which can be shared by others. Why we need to share cache with others? 
+    // Beacuse a unique memory space is easier for management. For example,
+    // we can deal with segment v1's cache and segment v2's cache at same time.
+    // Note that, we must create _file_cache before sharing it with other. 
+    // (e.g. the storage engine's open function must be called earlier than 
+    // FileBlockManager created.)
+    std::shared_ptr<Cache> _file_cache;
+
     static StorageEngine* _s_instance;
 
     Mutex _gc_mutex;
@@ -313,6 +326,7 @@ private:
     std::vector<std::thread> _base_compaction_threads;
     // threads to check cumulative
     std::vector<std::thread> _cumulative_compaction_threads;
+    // threads to clean all file descriptor not actively in use
     std::thread _fd_cache_clean_thread;
     std::vector<std::thread> _path_gc_threads;
     // threads to scan disk paths
