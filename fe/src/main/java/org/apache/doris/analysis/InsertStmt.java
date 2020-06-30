@@ -744,6 +744,7 @@ public class InsertStmt extends DdlStmt {
     @Override
     public void reset() {
         super.reset();
+        targetPartitionIds.clear();
         queryStmt.reset();
         resultExprs.clear();
         exprByName.clear();
