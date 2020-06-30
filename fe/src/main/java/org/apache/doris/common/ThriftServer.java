@@ -48,17 +48,32 @@ public class ThriftServer {
     private TServer server;
     private Thread serverThread;
     private Set<TNetworkAddress> connects;
-    private static Map<Integer, ThriftServerType> idToThriftServerTypeMap = new HashMap<>();
 
     public enum ThriftServerType {
-        SIMPLE,
-        THREADED,
-        THREAD_POOL
-    }
+        // TSimplerServer
+        SIMPLE(0),
+        // TThreadedSelectorServer
+        THREADED(1),
+        // TThreadPoolServer
+        THREAD_POOL(2);
 
-    static {
-        for (ThriftServerType value : ThriftServerType.values()) {
-            idToThriftServerTypeMap.put(value.ordinal(), value);
+        private final int value;
+
+        ThriftServerType(int value) {
+            this.value = value;
+        }
+
+        public int getValue() {
+            return value;
+        }
+
+        public static ThriftServerType getThriftServerType(int value) {
+            for (ThriftServerType val : ThriftServerType.values()) {
+                if (val.getValue() == value) {
+                    return val;
+                }
+            }
+            return ThriftServerType.THREAD_POOL;
         }
     }
 
@@ -66,7 +81,7 @@ public class ThriftServer {
         this.port = port;
         this.processor = processor;
         this.connects = Sets.newConcurrentHashSet();
-        this.type = getThriftServerType(Config.thrift_server_type);
+        this.type = ThriftServerType.getThriftServerType(Config.thrift_server_type);
     }
 
     public ThriftServerType getType() {
@@ -151,13 +166,5 @@ public class ThriftServer {
 
     public void removeConnect(TNetworkAddress clientAddress) {
         connects.remove(clientAddress);
-    }
-
-    public ThriftServerType getThriftServerType(int id) {
-        ThriftServerType thriftServerType = idToThriftServerTypeMap.get(id);
-        if (thriftServerType == null) {
-            return ThriftServerType.THREAD_POOL;
-        }
-        return thriftServerType;
     }
 }
