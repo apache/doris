@@ -192,8 +192,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         VLOG(1) << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
     }
 
-    print_volume_ids(params.per_node_scan_ranges);
-
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
     _runtime_state->set_num_per_fragment_instances(params.num_senders);
 
@@ -231,13 +229,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _query_statistics.reset(new QueryStatistics());
     _sink->set_query_statistics(_query_statistics);
     return Status::OK();
-}
-
-void PlanFragmentExecutor::print_volume_ids(
-    const PerNodeScanRanges& per_node_scan_ranges) {
-    if (per_node_scan_ranges.empty()) {
-        return;
-    }
 }
 
 Status PlanFragmentExecutor::open() {
