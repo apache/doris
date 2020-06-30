@@ -106,6 +106,10 @@ public:
 
     // Only used by UT. Whether lazy-materialization-read is used by this iterator or not.
     virtual bool is_lazy_materialization_read() const { return false; }
+
+    // Return the data id such as segment id, used for keep the insert order when do
+    // merge sort in priority queue
+    virtual uint64_t data_id() const { return 0; }
 };
 
 }
