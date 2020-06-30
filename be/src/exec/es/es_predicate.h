@@ -205,7 +205,6 @@ public:
 
 private:
     Status build_disjuncts_list(const Expr* conjunct);
-    bool is_match_func(const Expr* conjunct);
     const SlotDescriptor* get_slot_desc(const SlotRef* slotRef);
 
     ExprContext* _context; 
