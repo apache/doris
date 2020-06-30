@@ -94,7 +94,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
 
 public class DeleteHandler implements Writable {
     private static final Logger LOG = LogManager.getLogger(DeleteHandler.class);
@@ -517,7 +516,19 @@ public class DeleteHandler implements Writable {
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {
                     // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
-                    throw new DdlException("Invalid column value[" + value + "]");
+                    throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
+                }
+            } else if (condition instanceof InPredicate) {
+                String value = null;
+                try {
+                    InPredicate inPredicate = (InPredicate) condition;
+                    for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
+                        value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
+                        LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                    }
+                } catch (AnalysisException e) {
+                    // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
+                    throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
                 }
             }
 
@@ -576,6 +587,19 @@ public class DeleteHandler implements Writable {
                     sb.append(" IS NULL");
                 }
                 deleteConditions.add(sb.toString());
+            } else if (condition instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) condition;
+                SlotRef slotRef = (SlotRef) inPredicate.getChild(0);
+                String columnName = slotRef.getColumnName();
+                StringBuilder strBuilder = new StringBuilder();
+                String notStr = inPredicate.isNotIn() ? "NOT " : "";
+                strBuilder.append(columnName).append(" " + notStr + "IN (");
+                for (int i = 1; i <= inPredicate.getInElementNum(); ++i) {
+                    strBuilder.append(inPredicate.getChild(i).toSql());
+                    strBuilder.append((i + 1 != inPredicate.getInElementNum()) ? ", " : "");
+                }
+                strBuilder.append(")");
+                deleteConditions.add(strBuilder.toString());
             }
         }
     }

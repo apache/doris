@@ -122,17 +122,17 @@ public class DeleteStmt extends DdlStmt {
                 throw new AnalysisException("Left expr of is_null predicate should be column name");
             }
             deleteConditions.add(isNullPredicate);
-        } else if (predicate instanceof  InPredicate) {
+        } else if (predicate instanceof InPredicate) {
             InPredicate inPredicate = (InPredicate) predicate;
             Expr leftExpr = inPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
                 throw new AnalysisException("Left expr of in predicate should be column name");
             }
             int inElementNum = inPredicate.getInElementNum();
-            if (inElementNum > 30) {
-                throw new AnalysisException("Element num of in predicate should not be more than 30");
+            if (inElementNum <= 0 || inElementNum > 30) {
+                throw new AnalysisException("Element num of in predicate should be more than 0 and not be more than 30");
             }
-            for (int i = 1; i < inPredicate.getInElementNum(); i++) {
+            for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                 Expr expr = inPredicate.getChild(i);
                 if (!(expr instanceof LiteralExpr)) {
                     throw new AnalysisException("Right expr of binary predicate should be value");
