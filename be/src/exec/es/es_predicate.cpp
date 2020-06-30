@@ -287,6 +287,9 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
     if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()) {
         std::string fname = conjunct->fn().name.function_name;
         if (fname == "esquery") {
+            if (conjunct->children().size() != 2) {
+                return Status::InternalError("build disjuncts failed: number of childs is not 2");
+            }
             Expr* expr = conjunct->get_child(1);
             ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
             vector<ExtLiteral> query_conditions;
@@ -294,7 +297,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             vector<ExtColumnDesc> cols;
             ExtPredicate* predicate = new ExtFunction(
                             TExprNodeType::FUNCTION_CALL,
-                            fname,
+                            "esquery",
                             cols,
                             query_conditions);
             if (_es_query_status.ok()) {

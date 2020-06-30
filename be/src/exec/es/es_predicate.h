@@ -179,7 +179,7 @@ struct ExtFunction : public ExtPredicate {
         values(values) {
     }
 
-    const std::string& func_name;
+    const std::string func_name;
     std::vector<ExtColumnDesc> cols;
     const std::vector<ExtLiteral> values;
 };
