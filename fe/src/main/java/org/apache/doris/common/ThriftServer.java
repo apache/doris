@@ -35,22 +35,38 @@ import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class ThriftServer {
     private static final Logger LOG = LogManager.getLogger(ThriftServer.class);
-    private ThriftServerType type = ThriftServerType.THREAD_POOL;
+    private ThriftServerType type;
     private int port;
     private TProcessor processor;
     private TServer server;
     private Thread serverThread;
     private Set<TNetworkAddress> connects;
+    private static Map<Integer, ThriftServerType> idToThriftServerTypeMap = new HashMap<>();
+
+    public enum ThriftServerType {
+        SIMPLE,
+        THREADED,
+        THREAD_POOL
+    }
+
+    static {
+        for (ThriftServerType value : ThriftServerType.values()) {
+            idToThriftServerTypeMap.put(value.ordinal(), value);
+        }
+    }
 
     public ThriftServer(int port, TProcessor processor) {
         this.port = port;
         this.processor = processor;
         this.connects = Sets.newConcurrentHashSet();
+        this.type = getThriftServerType(Config.thrift_server_type);
     }
 
     public ThriftServerType getType() {
@@ -95,9 +111,8 @@ public class ThriftServer {
                 case THREADED:
                     createThreadedServer();
                     break;
-                case THREAD_POOL:
+                default:
                     createThreadPoolServer();
-                    break;
             }
         } catch (TTransportException ex) {
             LOG.warn("create thrift server failed.", ex);
@@ -138,9 +153,11 @@ public class ThriftServer {
         connects.remove(clientAddress);
     }
 
-    public static enum ThriftServerType {
-        SIMPLE,
-        THREADED,
-        THREAD_POOL
+    public ThriftServerType getThriftServerType(int id) {
+        ThriftServerType thriftServerType = idToThriftServerTypeMap.get(id);
+        if (thriftServerType == null) {
+            return ThriftServerType.THREAD_POOL;
+        }
+        return thriftServerType;
     }
 }

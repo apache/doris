@@ -598,3 +598,13 @@ This configuration indicates that when the table is being built, it checks for t
 If this parameter is' True ', the error 'Failed to find enough host in all Backends with storage medium with storage medium is SSD, need 3'.
 
 If this parameter is' False ', no error is reported when the table is built. Instead, the table is built on a disk with 'HDD' as the storage medium.
+
+### `thrift_server_type`
+
+This configuration represents the service model used by The Thrift Service of FE, the configuration's type is INT.
+
+If the parameter is '0', then the 'TSimpleServer' model is used, which is generally not suitable for production environment and is only used for testing.
+
+If this parameter is '1', the 'TThreadedSelectorServer' model is used, which is the non-blocking I/O model and the master-slave Reactor model, which can respond to a large number of concurrent connection requests in a timely manner.
+
+If this parameter is '2', the 'TThreadPoolServer' model is used, which is a blocking I/O model that uses thread pools to handle user connections. Concurrent connections are limited by the number of thread pools, and the service model is used by default.
