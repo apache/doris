@@ -71,9 +71,8 @@ public class MysqlServer {
 
         // start accept thread
         listener = ThreadPoolManager.newDaemonCacheThreadPool(1, "MySQL-Protocol-Listener");
-        listenerFuture = listener.submit(new Listener());
-
         running = true;
+        listenerFuture = listener.submit(new Listener());
 
         return true;
     }
