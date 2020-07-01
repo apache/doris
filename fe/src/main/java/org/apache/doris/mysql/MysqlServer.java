@@ -102,7 +102,7 @@ public class MysqlServer {
         @Override
         public void run() {
             while (running && serverChannel.isOpen()) {
-                SocketChannel clientChannel = null;
+                SocketChannel clientChannel;
                 try {
                     clientChannel = serverChannel.accept();
                     if (clientChannel == null) {
