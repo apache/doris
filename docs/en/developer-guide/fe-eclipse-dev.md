@@ -144,3 +144,21 @@ You can directly start an FE process in Ecplise to facilitate debugging the code
     `mvn -npr eclipse:eclipse -Dskip.plugin=true`
     
     Then refresh the project in Eclipse. If it cannot be updated, it is recommended to delete the project and import it again according to this document.
+
+## Imports Order
+
+In order to maintain the Imports order of Java, please perform the following operations to set the Imports Order of the project.
+
+1. Create the file `fe_doris.importorder` and write the following:
+
+    ```
+    #Organize Import Order
+    #Wed Jul 01 16:42:47 CST 2020
+    4=javax
+    3=java
+    2=org
+    1=com
+    0=org.apache.doris
+    ```
+
+2. Open Eclipse Preferences, select `Java -> Code Style -> Organize Imports`. Click `Import` to import the above file.

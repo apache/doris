@@ -144,3 +144,21 @@ java.lang.Exception: Method xxxx should have no parameters
     `mvn -npr eclipse:eclipse -Dskip.plugin=true`
     
     之后在 Eclipse 中刷新工程即可。如无法更新，建议删除工程，并按照该文档重新导入一遍即可。
+
+## Import 顺序
+
+为了保持 Java 的 Import 顺序，请执行如下操作设定项目的 Import Order
+
+1. 创建文件 `fe_doris.importorder` 并写入以下内容：
+
+    ```
+    #Organize Import Order
+    #Wed Jul 01 16:42:47 CST 2020
+    4=javax
+    3=java
+    2=org
+    1=com
+    0=org.apache.doris
+    ```
+
+2. 打开 Eclipse 的偏好设置（Preferences），选择 `Java -> Code Style -> Organize Imports`。点击 `Import` 导入上述文件。
