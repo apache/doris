@@ -18,10 +18,10 @@
 package org.apache.doris.external.elasticsearch;
 
 
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.commons.lang.StringUtils;
 import org.json.JSONObject;
 
-import org.apache.doris.thrift.TNetworkAddress;
 
 public class EsShardRouting {
 
@@ -41,9 +41,8 @@ public class EsShardRouting {
         this.nodeId = nodeId;
     }
     
-    public static EsShardRouting parseShardRouting(String indexName, String shardKey,
-            JSONObject shardInfo, JSONObject nodesMap) {
-        String nodeId = shardInfo.getString("node");
+    public static EsShardRouting newSearchShard(String indexName, int shardId, boolean isPrimary,
+            String nodeId, JSONObject nodesMap) {
         JSONObject nodeInfo = nodesMap.getJSONObject(nodeId);
         String[] transportAddr = nodeInfo.getString("transport_address").split(":");
         // get thrift port from node info
@@ -53,9 +52,7 @@ public class EsShardRouting {
         if (!StringUtils.isEmpty(thriftPort)) {
             addr = new TNetworkAddress(transportAddr[0], Integer.parseInt(thriftPort));
         }
-        boolean isPrimary = shardInfo.getBoolean("primary");
-        return new EsShardRouting(indexName, Integer.parseInt(shardKey),
-                isPrimary, addr, nodeId);
+        return new EsShardRouting(indexName, shardId, isPrimary, addr, nodeId);
     }
     
     public int getShardId() {

@@ -19,11 +19,11 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.common.UserException;
 
-public class ExternalDataSourceException extends UserException {
+public class DorisEsException extends UserException {
 
     private static final long serialVersionUID = 7912833584319374692L;
 
-    public ExternalDataSourceException(String msg) {
+    public DorisEsException(String msg) {
         super(msg);
     }
 }
