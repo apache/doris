@@ -91,42 +91,10 @@ string DeleteConditionHandler::construct_sub_predicates(const TCondition& condit
     return condition_str;
 }
 
-OLAPStatus DeleteConditionHandler::check_condition_valid(
-        const TabletSchema& schema,
-        const TCondition& cond) {
-    // 检查指定列名的列是否存在
-    int field_index = _get_field_index(schema, cond.column_name);
-
-    if (field_index < 0) {
-        OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
-    }
-
-    // 检查指定的列是不是key，是不是float或doulbe类型
-    const TabletColumn& column = schema.column(field_index);
-
-    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
-            || column.type() == OLAP_FIELD_TYPE_DOUBLE
-            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
-        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type is float or double.";
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
-    }
-
-    // 检查删除条件中指定的过滤值是否符合每个类型自身的要求
-    // 1. 对于整数类型(int8,int16,in32,int64,uint8,uint16,uint32,uint64)，检查是否溢出
-    // 2. 对于decimal类型，检查是否超过建表时指定的精度和标度
-    // 3. 对于date和datetime类型，检查指定的过滤值是否符合日期格式以及是否指定错误的值
-    // 4. 对于string和varchar类型，检查指定的过滤值是否超过建表时指定的长度
-    if (cond.condition_values.size() != 1) {
-        OLAP_LOG_WARNING("invalid condition value size. [size=%ld]", cond.condition_values.size());
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
-    }
-    const string& value_str = cond.condition_values[0];
-
-    FieldType field_type = column.type();
+bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column, const TCondition& cond, const string& value_str) {
     bool valid_condition = false;
-
-    if ("IS" == cond.condition_op 
+    FieldType field_type = column.type();
+    if ("IS" == cond.condition_op
         && ("NULL" == value_str || "NOT NULL" == value_str)) {
         valid_condition = true;
     } else if (field_type == OLAP_FIELD_TYPE_TINYINT) {
@@ -160,13 +128,49 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     } else {
         OLAP_LOG_WARNING("unknown field type. [type=%d]", field_type);
     }
+    return valid_condition;
+}
 
-    if (valid_condition) {
-        return OLAP_SUCCESS;
-    } else {
-        LOG(WARNING) << "invalid condition value. [value=" << value_str << "]";
+OLAPStatus DeleteConditionHandler::check_condition_valid(
+        const TabletSchema& schema,
+        const TCondition& cond) {
+    // 检查指定列名的列是否存在
+    int field_index = _get_field_index(schema, cond.column_name);
+
+    if (field_index < 0) {
+        OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
+
+    // 检查指定的列是不是key，是不是float或doulbe类型
+    const TabletColumn& column = schema.column(field_index);
+
+    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
+            || column.type() == OLAP_FIELD_TYPE_DOUBLE
+            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type is float or double.";
+        return OLAP_ERR_DELETE_INVALID_CONDITION;
+    }
+
+    // 检查删除条件中指定的过滤值是否符合每个类型自身的要求
+    // 1. 对于整数类型(int8,int16,in32,int64,uint8,uint16,uint32,uint64)，检查是否溢出
+    // 2. 对于decimal类型，检查是否超过建表时指定的精度和标度
+    // 3. 对于date和datetime类型，检查指定的过滤值是否符合日期格式以及是否指定错误的值
+    // 4. 对于string和varchar类型，检查指定的过滤值是否超过建表时指定的长度
+    if ("*=" != cond.condition_op && "!*=" != cond.condition_op && cond.condition_values.size() != 1) {
+        OLAP_LOG_WARNING("invalid condition value size. [size=%ld]", cond.condition_values.size());
+        return OLAP_ERR_DELETE_INVALID_CONDITION;
+    }
+
+    for (int i = 0; i < cond.condition_values.size(); i++) {
+        const string& value_str = cond.condition_values[i];
+        if (!is_condition_value_valid(column, cond, value_str)) {
+            LOG(WARNING) << "invalid condition value. [value=" << value_str << "]";
+            return OLAP_ERR_DELETE_INVALID_CONDITION;
+        }
+    }
+
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus DeleteConditionHandler::_check_version_valid(std::vector<Version>* all_file_versions,

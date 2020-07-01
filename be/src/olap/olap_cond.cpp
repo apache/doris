@@ -57,61 +57,31 @@ using doris::ColumnStatistics;
 namespace doris {
 
 static CondOp parse_op_type(const string& op) {
-    if (op.size() > 2) {
+    if (op.size() > 3) {
         return OP_NULL;
     }
 
-    CondOp op_type = OP_NULL;
-    if (op.compare("=") == 0) {
+    if (op == "=") {
         return OP_EQ;
-    }
-
-    if (0 == strcasecmp(op.c_str(), "is")) {
+    } else if (0 == strcasecmp(op.c_str(), "is")) {
         return OP_IS;
+    } else if (op == "!=") {
+        return OP_NE;
+    } else if (op == "*=") {
+        return OP_IN;
+    } else if (op == "!*=") {
+        return OP_NOT_IN;
+    } else if (op == ">=") {
+        return OP_GE;
+    } else if (op == ">>") {
+        return OP_GT;
+    } else if (op == "<=") {
+        return OP_LE;
+    } else if (op == "<<") {
+        return OP_LT;
     }
 
-    // Maybe we can just use string compare.
-    // Like:
-    //     if (op == "!=") {
-    //         op_type = OP_NE;
-    //     } else if (op == "*") {
-    //         op_type = OP_IN;
-    //     } else if (op == ">=) {
-    //     ...    
-
-    switch (op.c_str()[0]) {
-    case '!':
-        op_type = OP_NE;
-        break;
-    case '*':
-        op_type = OP_IN;
-        break;
-    case '>':
-        switch (op.c_str()[1]) {
-        case '=':
-            op_type = OP_GE;
-            break;
-        default:
-            op_type = OP_GT;
-            break;
-        }
-        break;
-    case '<':
-        switch (op.c_str()[1]) {
-        case '=':
-            op_type = OP_LE;
-            break;
-        default:
-            op_type = OP_LT;
-            break;
-        }
-        break;
-    default:
-        op_type = OP_NULL;
-        break;
-    }
-
-    return op_type;
+    return OP_NULL;
 }
 
 Cond::Cond() : op(OP_NULL), operand_field(nullptr) {
@@ -127,7 +97,7 @@ Cond::~Cond() {
 OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
-    if (op == OP_NULL || (op != OP_IN && tcond.condition_values.size() != 1)) {
+    if (op == OP_NULL || (op != OP_IN && op != OP_NOT_IN && tcond.condition_values.size() != 1)) {
         OLAP_LOG_WARNING("Condition op type is invalid. [name=%s, op=%d, size=%d]",
                          tcond.column_name.c_str(), op, tcond.condition_values.size());
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -147,7 +117,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
             f->set_not_null();
         }
         operand_field = f.release();
-    } else if (op != OP_IN) {
+    } else if (op != OP_IN && op != OP_NOT_IN) {
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
@@ -217,6 +187,14 @@ bool Cond::eval(const RowCursorCell& cell) const {
         }
         return false;
     }
+    case OP_NOT_IN: {
+        for (const WrapperField* field : operand_set) {
+            if (field->field()->compare_cell(*field, cell) == 0) {
+                return false;
+            }
+        }
+        return true;
+    }
     case OP_IS: {
         if (operand_field->is_null() == cell.is_null()) {
             return true;
@@ -264,12 +242,22 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
     case OP_IN: {
         FieldSet::const_iterator it = operand_set.begin();
         for (; it != operand_set.end(); ++it) {
-            if ((*it)->cmp(statistic.first) >= 0 
+            if ((*it)->cmp(statistic.first) >= 0
                     && (*it)->cmp(statistic.second) <= 0) {
                 return true;
             }
         }
         break;
+    }
+    case OP_NOT_IN: {
+        FieldSet::const_iterator it = operand_set.begin();
+        for (; it != operand_set.end(); ++it) {
+            if ((*it)->cmp(statistic.first) == 0
+                && (*it)->cmp(statistic.second) == 0) {
+                return false;
+            }
+        }
+        return true;
     }
     case OP_IS: {
         if (operand_field->is_null()) {
@@ -392,6 +380,18 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
         }
         if (it == operand_set.end()) {
             ret = DEL_SATISFIED;
+        }
+        return ret;
+    }
+    case OP_NOT_IN: {
+        ret = DEL_PARTIAL_SATISFIED;
+        FieldSet::const_iterator it = operand_set.begin();
+        for (; it != operand_set.end(); ++it) {
+            if ((*it)->cmp(stat.first) == 0
+                && (*it)->cmp(stat.second) == 0) {
+                    ret = DEL_NOT_SATISFIED;
+                    break;
+            }
         }
         return ret;
     }

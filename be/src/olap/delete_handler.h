@@ -68,6 +68,8 @@ private:
         LOG(WARNING) << "invalid field name. name='" << field_name;
         return -1;
     }
+
+    bool is_condition_value_valid(const TabletColumn& column, const TCondition& cond, const string& value);
 };
 
 // 表示一个删除条件

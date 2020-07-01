@@ -162,7 +162,7 @@ public class PushTask extends AgentTask {
                     } else if (condition instanceof InPredicate) {
                         InPredicate inPredicate = (InPredicate) condition;
                         String columnName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
-                        String op = inPredicate.isNotIn() ? "NOT IN" : "IN";
+                        String op = inPredicate.isNotIn() ? "!*=" : "*=";
                         tCondition.setColumn_name(columnName);
                         tCondition.setCondition_op(op);
                         for (int i = 1; i <= inPredicate.getInElementNum(); i++) {

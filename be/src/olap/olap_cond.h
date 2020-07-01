@@ -46,7 +46,8 @@ enum CondOp {
     OP_GE = 5,      // greater or equal
     OP_IN = 6,      // IN
     OP_IS = 7,      // is null or not null
-    OP_NULL = 8    // invalid OP
+    OP_NULL = 8,     // invalid OP
+    OP_NOT_IN = 9    // not in
 };
 
 // Hash functor for IN set
