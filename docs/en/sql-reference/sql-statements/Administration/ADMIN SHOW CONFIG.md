@@ -49,5 +49,15 @@ The implications of the results are as follows:
 
 ADMIN SHOW FRONTEND CONFIG;
 
+2. Search for a configuration of the current Fe node with like predicate
+
+mysql> ADMIN SHOW FRONTEND CONFIG LIKE '%check_java_version%';
++--------------------+-------+---------+-----------+------------+---------+
+| Key                | Value | Type    | IsMutable | MasterOnly | Comment |
++--------------------+-------+---------+-----------+------------+---------+
+| check_java_version | true  | boolean | false     | false      |         |
++--------------------+-------+---------+-----------+------------+---------+
+1 row in set (0.00 sec)
+
 ## keyword
 ADMIN,SHOW,CONFIG
