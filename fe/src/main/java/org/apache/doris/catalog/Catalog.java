@@ -1844,7 +1844,6 @@ public class Catalog {
             LOG.info("finished replay transactionState from image");
             return newChecksum;
         }
-        LOG.info("finished replay transactionState from image");
         return checksum;
     }
 
