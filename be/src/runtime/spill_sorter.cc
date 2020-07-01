@@ -1047,7 +1047,8 @@ SpillSorter::SpillSorter(const TupleRowComparator& compare_less_than,
     _initial_runs_counter(NULL),
     _num_merges_counter(NULL),
     _in_mem_sort_timer(NULL),
-    _sorted_data_size(NULL) {
+    _sorted_data_size(NULL),
+    _spilled(false){
 }
 
 SpillSorter::~SpillSorter() {
@@ -1109,6 +1110,7 @@ Status SpillSorter::add_batch(RowBatch* batch) {
             // The current run is full. Sort it and begin the next one.
             RETURN_IF_ERROR(sort_run());
             RETURN_IF_ERROR(_sorted_runs.back()->unpin_all_blocks());
+	    _spilled = true;
             _unsorted_run = _obj_pool.add(
                     new Run(this, _output_row_desc->tuple_descriptors()[0], true));
             RETURN_IF_ERROR(_unsorted_run->init());
@@ -1333,4 +1335,4 @@ Status SpillSorter::create_merger(int num_runs) {
     return Status::OK();
 }
 
-} // namespace impala
+} // namespace doris 
