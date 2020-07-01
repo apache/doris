@@ -18,7 +18,6 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
@@ -29,7 +28,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 
