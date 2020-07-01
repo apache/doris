@@ -64,7 +64,7 @@ public class EsFieldInfos {
      * @return fieldsContext and docValueContext
      * @throws Exception
      */
-    public static EsFieldInfos fromMapping(List<Column> colList, String indexName, String indexMapping, String docType) throws ExternalDataSourceException {
+    public static EsFieldInfos fromMapping(List<Column> colList, String indexName, String indexMapping, String docType) throws DorisEsException {
         JSONObject jsonObject = new JSONObject(indexMapping);
         // the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keys();
@@ -103,7 +103,7 @@ public class EsFieldInfos {
             properties = rootSchema.optJSONObject("properties");
         }
         if (properties == null) {
-            throw new ExternalDataSourceException( "index[" + indexName + "] type[" + docType + "] mapping not found for the Elasticsearch Cluster");
+            throw new DorisEsException( "index[" + indexName + "] type[" + docType + "] mapping not found for the Elasticsearch Cluster");
         }
         return parseProperties(colList, properties);
     }

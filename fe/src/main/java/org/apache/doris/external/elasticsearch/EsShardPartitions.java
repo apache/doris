@@ -20,12 +20,15 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.thrift.TNetworkAddress;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -47,17 +50,17 @@ public class EsShardPartitions {
         this.partitionDesc = null;
         this.partitionKey = null;
     }
-    
+
     /**
      * Parse shardRoutings from the json
-     * @param indexName indexName(alias or really name)
+     *
+     * @param indexName    indexName(alias or really name)
      * @param searchShards the return value of _search_shards
      * @return shardRoutings is used for searching
      */
-    public static EsShardPartitions findShardPartitions(String indexName, String searchShards) throws ExternalDataSourceException {
+    public static EsShardPartitions findShardPartitions(String indexName, String searchShards) throws DorisEsException {
         EsShardPartitions indexState = new EsShardPartitions(indexName);
         JSONObject jsonObject = new JSONObject(searchShards);
-        JSONObject nodesMap = jsonObject.getJSONObject("nodes");
         JSONArray shards = jsonObject.getJSONArray("shards");
         int length = shards.length();
         for (int i = 0; i < length; i++) {
@@ -65,14 +68,20 @@ public class EsShardPartitions {
             JSONArray shardsArray = shards.getJSONArray(i);
             int arrayLength = shardsArray.length();
             for (int j = 0; j < arrayLength; j++) {
-                JSONObject shard = shardsArray.getJSONObject(j);
-                String shardState = shard.getString("state");
+                JSONObject indexShard = shardsArray.getJSONObject(j);
+                String shardState = indexShard.getString("state");
                 if ("STARTED".equalsIgnoreCase(shardState) || "RELOCATING".equalsIgnoreCase(shardState)) {
                     try {
-                        singleShardRouting.add(EsShardRouting.parseShardRouting(shardState, String.valueOf(i), shard, nodesMap));
+                        singleShardRouting.add(
+                                EsShardRouting.newSearchShard(
+                                        indexShard.getString("index"),
+                                        indexShard.getInt("shard"),
+                                        indexShard.getBoolean("primary"),
+                                        indexShard.getString("node"),
+                                        jsonObject.getJSONObject("nodes")));
                     } catch (Exception e) {
-                        throw new ExternalDataSourceException( "index[" + indexName + "] findShardPartitions error");
-                    }
+                        LOG.error("fetch index [{}] shard partitions failure", indexName, e);
+                        throw new DorisEsException("fetch [" + indexName + "] shard partitions failure [" + e.getMessage() + "]");                   }
                 }
             }
             if (singleShardRouting.isEmpty()) {
@@ -142,6 +151,6 @@ public class EsShardPartitions {
     @Override
     public String toString() {
         return "EsIndexState [indexName=" + indexName + ", partitionDesc=" + partitionDesc + ", partitionKey="
-            + partitionKey + "]";
+                + partitionKey + "]";
     }
 }
