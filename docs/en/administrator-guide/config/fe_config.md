@@ -601,10 +601,10 @@ If this parameter is' False ', no error is reported when the table is built. Ins
 
 ### `thrift_server_type`
 
-This configuration represents the service model used by The Thrift Service of FE, the configuration's type is INT.
+This configuration represents the service model used by The Thrift Service of FE, is of type String and is case-insensitive.
 
-If the parameter is '0', then the 'TSimpleServer' model is used, which is generally not suitable for production environment and is only used for testing.
+If this parameter is 'SIMPLE', then the 'TSimpleServer' model is used, which is generally not suitable for production and is limited to test use.
 
-If this parameter is '1', the 'TThreadedSelectorServer' model is used, which is the non-blocking I/O model and the master-slave Reactor model, which can respond to a large number of concurrent connection requests in a timely manner.
+If the parameter is 'THREADED', then the 'TThreadedSelectorServer' model is used, which is a non-blocking I/O model, namely the master-slave Reactor model, which can timely respond to a large number of concurrent connection requests and performs well in most scenarios.
 
-If this parameter is '2', the 'TThreadPoolServer' model is used, which is a blocking I/O model that uses thread pools to handle user connections. Concurrent connections are limited by the number of thread pools, and the service model is used by default.
+If this parameter is `THREAD_POOL`, then the `TThreadPoolServer` model is used, the model for blocking I/O model, USES the thread pool to handle user connections, the number of simultaneous connections are limited by the number of thread pool, if we can estimate the number of concurrent requests in advance, and tolerant enough thread resources cost, change model will have a better performance, the use of the service model.

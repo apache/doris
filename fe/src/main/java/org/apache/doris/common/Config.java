@@ -1113,9 +1113,9 @@ public class Config extends ConfigBase {
     public static boolean enable_spark_load = false;
 
     /**
-     * Define thrift server's thread model, default is THREAD_POOL model
+     * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
-    public static int thrift_server_type = 2;
+    public static String thrift_server_type = ThriftServer.THREAD_POOL;
 }
 

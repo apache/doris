@@ -35,8 +35,6 @@ import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 
@@ -49,27 +47,31 @@ public class ThriftServer {
     private Thread serverThread;
     private Set<TNetworkAddress> connects;
 
+    public static final String SIMPLE = "SIMPLE";
+    public static final String THREADED = "THREADED";
+    public static final String THREAD_POOL = "THREAD_POOL";
+
     public enum ThriftServerType {
         // TSimplerServer
-        SIMPLE(0),
+        SIMPLE(ThriftServer.SIMPLE),
         // TThreadedSelectorServer
-        THREADED(1),
+        THREADED(ThriftServer.THREADED),
         // TThreadPoolServer
-        THREAD_POOL(2);
+        THREAD_POOL(ThriftServer.THREAD_POOL);
 
-        private final int value;
+        private final String value;
 
-        ThriftServerType(int value) {
+        ThriftServerType(String value) {
             this.value = value;
         }
 
-        public int getValue() {
+        public String getValue() {
             return value;
         }
 
-        public static ThriftServerType getThriftServerType(int value) {
+        public static ThriftServerType getThriftServerType(String value) {
             for (ThriftServerType val : ThriftServerType.values()) {
-                if (val.getValue() == value) {
+                if (val.getValue().equalsIgnoreCase(value)) {
                     return val;
                 }
             }
