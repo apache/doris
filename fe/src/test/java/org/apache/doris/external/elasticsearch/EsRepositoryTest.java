@@ -91,7 +91,7 @@ public class EsRepositoryTest {
         
     }
     
-    @Test(expected = ExternalDataSourceException.class)
+    @Test(expected = DorisEsException.class)
     public void testSetErrorType() throws Exception {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
                 .getDb(CatalogTestUtil.testDb1)
@@ -101,7 +101,7 @@ public class EsRepositoryTest {
     }
     
     @Test
-    public void testSetTableState() throws ExternalDataSourceException, DdlException {
+    public void testSetTableState() throws DorisEsException, DdlException {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
                 .getDb(CatalogTestUtil.testDb1)
                 .getTable(CatalogTestUtil.testEsTableId1);

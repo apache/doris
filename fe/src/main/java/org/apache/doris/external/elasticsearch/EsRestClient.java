@@ -95,7 +95,7 @@ public class EsRestClient {
         String path = indexName + "/_mapping";
         String indexMapping = execute(path);
         if (indexMapping == null) {
-            throw new ExternalDataSourceException( "index[" + indexName + "] not found for the Elasticsearch Cluster");
+            throw new DorisEsException( "index[" + indexName + "] not found for the Elasticsearch Cluster");
         }
         return EsFieldInfos.fromMapping(colList, indexName, indexMapping, docType);
     }
@@ -105,7 +105,7 @@ public class EsRestClient {
         String path = indexName + "/_search_shards";
         String searchShards = execute(path);
         if (searchShards == null) {
-            throw new ExternalDataSourceException( "index[" + indexName + "] search_shards not found for the Elasticsearch Cluster");
+            throw new DorisEsException( "index[" + indexName + "] search_shards not found for the Elasticsearch Cluster");
         }
         return EsShardPartitions.findShardPartitions(indexName, searchShards);
     }

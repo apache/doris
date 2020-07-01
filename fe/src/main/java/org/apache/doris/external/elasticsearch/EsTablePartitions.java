@@ -17,12 +17,6 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -31,10 +25,18 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.thrift.TNetworkAddress;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 /**
  * save the dynamic info parsed from es cluster state such as shard routing, partition info
@@ -56,7 +58,7 @@ public class EsTablePartitions {
     }
 
     public static EsTablePartitions fromShardPartitions(EsTable esTable, EsShardPartitions shardPartitions)
-            throws ExternalDataSourceException, DdlException {
+            throws DorisEsException, DdlException {
         EsTablePartitions esTablePartitions = new EsTablePartitions();
         RangePartitionInfo partitionInfo = null;
         if (esTable.getPartitionInfo() != null) {
@@ -82,7 +84,7 @@ public class EsTablePartitions {
                 LOG.debug("begin to parse es table [{}] state from search shards, "
                         + "with no partition info", esTable.getName());
             } else {
-                throw new ExternalDataSourceException("es table only support range partition, "
+                throw new DorisEsException("es table only support range partition, "
                         + "but current partition type is "
                         + esTable.getPartitionInfo().getType());
             }
