@@ -117,18 +117,19 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              Set<Pair<Long, Integer>> tabletWithoutPartitionId) {
-        long start = 0L;
-        readLock();
-        try {
-            LOG.info("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
-            start = System.currentTimeMillis();
-            for (TTablet backendTablet : backendTablets.values()) {
-                for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
-                    if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
-                        tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash()));
-                    }
+
+        for (TTablet backendTablet : backendTablets.values()) {
+            for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
+                if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
+                    tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash()));
                 }
             }
+        }
+
+        readLock();
+        long start = System.currentTimeMillis();
+        try {
+            LOG.info("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 // traverse replicas in meta with this backend
@@ -315,8 +316,8 @@ public class TabletInvertedIndex {
     }
     
     /**
-     * if be's report version < fe's meta version, or tablet is unused, it means some version is missing in BE
-     * because of some unrecoverable failure.
+     * Be will set `used' to false for bad replicas and `version_miss' to true for replicas with hole
+     * in their version chain. In either case, those replicas need to be fixed by TabletScheduler.
      */
     private boolean needRecover(Replica replicaInFe, int schemaHashInFe, TTabletInfo backendTabletInfo) {
         if (replicaInFe.getState() != ReplicaState.NORMAL) {
