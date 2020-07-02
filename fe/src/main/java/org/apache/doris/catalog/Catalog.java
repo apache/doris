@@ -162,6 +162,7 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.DatabaseInfo;
@@ -3344,6 +3345,7 @@ public class Catalog {
                                          Map<String, String> properties)
             throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
         if (olapTable.getState() != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
         }
@@ -3360,20 +3362,31 @@ public class Catalog {
         for (String partitionName : partitionNames) {
             try {
                 Map<String, String> partitionProperties = Maps.newHashMap(properties);
-                modifyPartitionProperty(db, olapTable, partitionName, partitionProperties);
+                ModifyPartitionInfo info =
+                        modifyPartitionProperty(db, olapTable, partitionName, partitionProperties, false);
+                modifyPartitionInfos.add(info);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s property. " +
                         "The reason is [" + e.getMessage() + "]";
+                BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
+                editLog.logBatchModifyPartition(info);
                 throw new DdlException(errMsg);
             }
         }
+
+        BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
+        editLog.logBatchModifyPartition(info);
     }
 
     /**
      * Update partition's properties
      * caller should hold the db lock
      */
-    public void modifyPartitionProperty(Database db, OlapTable olapTable, String partitionName, Map<String, String> properties)
+    public ModifyPartitionInfo modifyPartitionProperty(Database db,
+                                                       OlapTable olapTable,
+                                                       String partitionName,
+                                                       Map<String, String> properties,
+                                                       boolean needLog)
             throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
         if (olapTable.getState() != OlapTableState.NORMAL) {
@@ -3468,7 +3481,12 @@ public class Catalog {
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
                 newDataProperty, newReplicationNum, isInMemory);
-        editLog.logModifyPartition(info);
+        if (needLog) {
+            editLog.logModifyPartition(info);
+        }
+
+        LOG.info("finish modify partition[{}-{}-{}]", db.getId(), olapTable.getId(), partitionName);
+        return info;
     }
 
     public void replayModifyPartition(ModifyPartitionInfo info) {

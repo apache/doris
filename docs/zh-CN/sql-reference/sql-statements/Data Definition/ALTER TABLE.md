@@ -64,7 +64,7 @@ under the License.
             
     3. 修改分区属性
         语法：
-            MODIFY PARTITION (p1[, p2, ...]) SET ("key" = "value", ...)
+            MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
         说明：
             1) 当前支持修改分区的下列属性：
                 - storage_medium

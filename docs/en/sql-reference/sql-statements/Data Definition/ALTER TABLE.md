@@ -64,7 +64,7 @@ under the License.
             
     3. Modify the partition properties
         grammar:
-            MODIFY PARTITION (p1[, p2, ...]) SET ("key" = "value", ...)
+            MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
         Description:
             1) The following attributes of the modified partition are currently supported.
                 - storage_medium

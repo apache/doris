@@ -65,7 +65,7 @@ public class ModifyPartitionClause extends AlterTableClause {
         this.needTableStable = false;
     }
 
-    static public ModifyPartitionClause createStarClause(Map<String, String> properties) {
+    public static ModifyPartitionClause createStarClause(Map<String, String> properties) {
         return new ModifyPartitionClause(properties);
     }
 

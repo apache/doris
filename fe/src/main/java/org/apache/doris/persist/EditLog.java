@@ -215,6 +215,13 @@ public class EditLog {
                     catalog.replayModifyPartition(info);
                     break;
                 }
+                case OperationType.OP_BATCH_MODIFY_PARTITION: {
+                    BatchModifyPartitionsInfo info = (BatchModifyPartitionsInfo) journal.getData();
+                    for(ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
+                        catalog.replayModifyPartition(modifyPartitionInfo);
+                    }
+                    break;
+                }
                 case OperationType.OP_ERASE_TABLE: {
                     Text tableId = (Text) journal.getData();
                     catalog.replayEraseTable(Long.parseLong(tableId.toString()));
@@ -918,8 +925,16 @@ public class EditLog {
         logEdit(OperationType.OP_RECOVER_PARTITION, info);
     }
 
+    public void logModifyPartitions(ModifyPartitionInfo info) {
+
+    }
+
     public void logModifyPartition(ModifyPartitionInfo info) {
         logEdit(OperationType.OP_MODIFY_PARTITION, info);
+    }
+
+    public void logBatchModifyPartition(BatchModifyPartitionsInfo info) {
+        logEdit(OperationType.OP_BATCH_MODIFY_PARTITION, info);
     }
 
     public void logDropTable(DropInfo info) {

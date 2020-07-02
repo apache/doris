@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.FeMetaVersion;
@@ -28,11 +29,17 @@ import java.io.IOException;
 
 public class ModifyPartitionInfo implements Writable {
 
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "dataProperty")
     private DataProperty dataProperty;
+    @SerializedName(value = "replicationNum")
     private short replicationNum;
+    @SerializedName(value = "isInMemory")
     private boolean isInMemory;
 
     public ModifyPartitionInfo() {
