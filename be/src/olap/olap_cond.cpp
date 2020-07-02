@@ -245,11 +245,9 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         for (; it != operand_set.end(); ++it) {
             if ((*it)->cmp(statistic.first) >= 0
                     && (*it)->cmp(statistic.second) <= 0) {
-                LOG(INFO) << "hit in ";
                 return true;
             }
         }
-        LOG(INFO) << "in not hit " << statistic.first << ":" << statistic.second;
         break;
     }
     case OP_NOT_IN: {
@@ -257,11 +255,9 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         for (; it != operand_set.end(); ++it) {
             if ((*it)->cmp(statistic.first) == 0
                 && (*it)->cmp(statistic.second) == 0) {
-                LOG(INFO) << "return false";
                 return false;
             }
         }
-        LOG(INFO) << statistic.first << ":" << statistic.second << ":" << "true";
         return true;
     }
     case OP_IS: {
@@ -375,7 +371,6 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                 break;
             }
         }
-        LOG(INFO) << "deleted state " << ret;
         return ret;
     }
     case OP_NOT_IN: {
@@ -388,7 +383,6 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                     break;
             }
         }
-        LOG(INFO) << "delete satisfied " << ret;
         return ret;
     }
     case OP_IS: {
@@ -696,7 +690,7 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
         // if the size of condcolumn vector is zero,
         // the delete condtion is not satisfied.
         ret = DEL_NOT_SATISFIED;
-    } else if (true == del_partial_satisfied) {
+    } else if (del_partial_satisfied) {
         ret = DEL_PARTIAL_SATISFIED;
     } else {
         ret = DEL_SATISFIED;

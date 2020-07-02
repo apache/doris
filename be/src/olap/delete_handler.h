@@ -52,13 +52,6 @@ public:
 
 private:
 
-    // 检查指定的删除条件版本是否符合要求；
-    // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_VERSION；符合要求返回OLAP_SUCCESS
-    OLAPStatus _check_version_valid(std::vector<Version>* all_file_versions, const int32_t filter_version);
-
-    // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
-    int _check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version);
-
     int32_t _get_field_index(const TabletSchema& schema, const std::string& field_name) const {
         for (int i = 0; i < schema.num_columns(); i++) {
             if (schema.column(i).name() == field_name) {
@@ -102,10 +95,6 @@ public:
     DeleteHandler() : _is_inited(false) {}
     ~DeleteHandler() {}
 
-    bool get_init_status() const {
-        return _is_inited;
-    }
-
     // 初始化handler，将从Header文件中取出小于等于指定版本号的删除条件填充到_del_conds中
     // 调用前需要先对Header文件加读锁
     //
@@ -137,9 +126,6 @@ public:
     bool empty() const {
         return _del_conds.empty();
     }
-
-    // 返回handler中存有的所有删除条件的版本号
-    std::vector<int32_t> get_conds_version();
 
     // 销毁handler对象
     void finalize();

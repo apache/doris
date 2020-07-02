@@ -76,8 +76,6 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
                 LOG(INFO) << "add condition values " << condition_value;
             }
             LOG(INFO) << "store one sub-delete condition. condition=" << condition;
-            LOG(INFO) << del_pred->in_predicates_size();
-            LOG(INFO) << del_pred->in_predicates().size();
         } else {
             string condition_str = construct_sub_predicates(condition);
             del_pred->add_sub_predicates(condition_str);
@@ -187,47 +185,6 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeleteConditionHandler::_check_version_valid(std::vector<Version>* all_file_versions,
-        const int32_t filter_version) {
-    // 找到当前最大的delta文件版本号
-    int max_delta_version = -1;
-    vector<Version>::const_iterator version_iter = all_file_versions->begin();
-
-    for (; version_iter != all_file_versions->end(); ++version_iter) {
-        if (version_iter->second > max_delta_version) {
-            max_delta_version = version_iter->second;
-        }
-    }
-
-    if (filter_version == max_delta_version || filter_version == max_delta_version + 1) {
-        return OLAP_SUCCESS;
-    } else {
-        OLAP_LOG_WARNING("invalid delete condition version. [version=%d, max_delta_version=%d]",
-                         filter_version, max_delta_version);
-        return OLAP_ERR_DELETE_INVALID_VERSION;
-    }
-}
-
-int DeleteConditionHandler::_check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version) {
-    if (delete_conditions.empty()) {
-        return -1;
-    }
-
-    int index = 0;
-
-    while (index != delete_conditions.size()) {
-        DeletePredicatePB temp = delete_conditions.Get(index);
-
-        if (temp.version() == cond_version) {
-            return index;
-        }
-
-        ++index;
-    }
-
-    return -1;
-}
-
 bool DeleteHandler::_parse_condition(const std::string& condition_str, TCondition* condition) {
     bool matched = true;
     smatch what;
@@ -279,7 +236,7 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
         if (it->version() > version) {
             continue;
         }
-        LOG(INFO) << "iter version " << it->version();
+
         DeleteConditions temp;
         temp.filter_version = it->version();
 
@@ -291,7 +248,6 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
         }
 
         temp.del_cond->set_tablet_schema(&schema);
-        LOG(INFO) << "normal predicate size" << it->sub_predicates_size();
         for (int i = 0; i != it->sub_predicates_size(); ++i) {
             TCondition condition;
             if (!_parse_condition(it->sub_predicates(i), &condition)) {
@@ -307,7 +263,6 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
             }
         }
 
-        LOG(INFO) << "in predicate size " << it->in_predicates_size();
         for (int i = 0; i != it->in_predicates_size(); ++i) {
             TCondition condition;
             const InPredicatePB& in_predicate = it->in_predicates(i);
@@ -352,17 +307,6 @@ bool DeleteHandler::is_filter_data(const int32_t data_version,
     }
 
     return false;
-}
-
-vector<int32_t> DeleteHandler::get_conds_version() {
-    vector<int32_t> conds_version;
-    vector<DeleteConditions>::const_iterator cond_iter = _del_conds.begin();
-
-    for (; cond_iter != _del_conds.end(); ++cond_iter) {
-        conds_version.push_back(cond_iter->filter_version);
-    }
-
-    return conds_version;
 }
 
 void DeleteHandler::finalize() {
