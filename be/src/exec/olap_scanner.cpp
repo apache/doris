@@ -58,10 +58,7 @@ OlapScanner::OlapScanner(
             _direct_conjunct_size(parent->_direct_conjunct_size) {
     _reader.reset(new Reader());
     DCHECK(_reader.get() != NULL);
-    _ctor_status = _prepare(scan_range, key_ranges, parent->_olap_filter, parent->_is_null_vector);
-    if (!_ctor_status.ok()) {
-        LOG(WARNING) << "OlapScanner preapre failed, status:" << _ctor_status.get_error_msg();
-    }
+
     _rows_read_counter = parent->rows_read_counter();
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }
@@ -69,7 +66,7 @@ OlapScanner::OlapScanner(
 OlapScanner::~OlapScanner() {
 }
 
-Status OlapScanner::_prepare(
+Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls) {
     // Get olap table
@@ -123,7 +120,6 @@ Status OlapScanner::_prepare(
 }
 
 Status OlapScanner::open() {
-    RETURN_IF_ERROR(_ctor_status);
     SCOPED_TIMER(_parent->_reader_init_timer);
 
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {

@@ -59,6 +59,12 @@ public:
 
     ~OlapScanner();
 
+    Status prepare(
+        const TPaloScanRange& scan_range,
+        const std::vector<OlapScanRange*>& key_ranges,
+        const std::vector<TCondition>& filters,
+        const std::vector<TCondition>& is_nulls);
+
     Status open();
 
     Status get_batch(RuntimeState* state, RowBatch* batch, bool* eof);
@@ -86,11 +92,6 @@ public:
         return _tablet->data_dir()->path();
     }
 private:
-    Status _prepare(
-        const TPaloScanRange& scan_range,
-        const std::vector<OlapScanRange*>& key_ranges,
-        const std::vector<TCondition>& filters,
-        const std::vector<TCondition>& is_nulls);
     Status _init_params(
         const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
