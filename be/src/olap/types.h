@@ -125,8 +125,8 @@ const bool get_convert_type_info(const FieldType from_type, const FieldType to_t
     }
 
 private:
-    typedef std::pair<FieldType, FieldType> key_t;
-    std::unordered_set<key_t,  bool> _convert_type_set;
+    typedef std::pair<FieldType, FieldType> convert_type_pair;
+    std::unordered_set<convert_type_pair> _convert_type_set;
 
     DISALLOW_COPY_AND_ASSIGN(ConvertTypeResolver);
 };
