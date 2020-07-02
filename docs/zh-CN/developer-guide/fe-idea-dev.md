@@ -1,6 +1,6 @@
 ---
 {
-    "title": "windows下fe开发环境搭建",
+    "title": "FE 开发环境搭建 - Intellj IDEA",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# apache doris windows下fe开发环境搭建
+# 使用 Intellj IDEA 搭建 FE 开发环境
 
 ## 1.环境准备
 
@@ -40,17 +40,17 @@ $ sh build.sh --clean --fe
 
 然后将 gensrc目录打包，拿出来，如下图
 
-![image-20200624124200704](../../.vuepress/public/images/DEBUG1.png)
+![](/images/DEBUG1.png)
 
 2.在windows下解压gensrc.tar.gz,解压后的目录如下图：
 
-![image-20200624124420766](../../.vuepress/public/images/DEBUG2.png)
+![](/images/DEBUG2.png)
 
 3.进入build/java,将红色框出的部分整个拷贝到源码的fe/src/main/java目录下
 
 
 
-![image-20200624124550741](../../.vuepress/public/images/DEBUG3.png)
+![](/images/DEBUG3.png)
 
 ## 2.调试
 
@@ -58,7 +58,7 @@ $ sh build.sh --clean --fe
 
 2.在fe目录下创建下面红框标出的目录，并将webroot里的内容拷贝进去
 
-![image-20200624125009183](../../.vuepress/public/images/DEBUG4.png)
+![](/images/DEBUG4.png)
 
 ## 3.配置conf/fe.conf
 
@@ -143,7 +143,7 @@ mysql_service_nio_enabled = true
 
 在IDEA中设置运行环境变量
 
-![image-20200624125409626](../../.vuepress/public/images/DEBUG5.png)
+![](/images/DEBUG5.png)
 
 ## 5.启动fe
 

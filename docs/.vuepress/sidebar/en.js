@@ -461,7 +461,11 @@ module.exports = [
   {
     title: "Developer Guide",
     directoryPath: "developer-guide/",
-    children: ["debug-tool", "format-code"],
+    children: [
+        "debug-tool",
+        "format-code",
+        "fe-eclipse-dev"
+    ],
   },
   {
     title: "Apache Community",
