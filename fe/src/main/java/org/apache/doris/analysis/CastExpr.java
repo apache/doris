@@ -99,10 +99,6 @@ public class CastExpr extends Expr {
                 if (toType.isNull()) {
                     continue;
                 }
-                // Disable casting from string to boolean
-                if (fromType.isStringType() && toType.isBoolean()) {
-                    continue;
-                }
                 // Disable casting from boolean to decimal or datetime or date
                 if (fromType.isBoolean() &&
                         (toType.equals(Type.DECIMAL) || toType.equals(Type.DECIMALV2) ||

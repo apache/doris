@@ -33,7 +33,7 @@ public:
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const LargeIntVal& val);
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const FloatVal& val);
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const DoubleVal& val);
-    // static BooleanVal cast_to_boolean_val(FunctionContext* context, const StringVal& val);
+    static BooleanVal cast_to_boolean_val(FunctionContext* context, const StringVal& val);
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const DateTimeVal& val);
 
     static TinyIntVal cast_to_tiny_int_val(FunctionContext* context, const BooleanVal& val);
