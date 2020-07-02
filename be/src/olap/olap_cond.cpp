@@ -134,7 +134,6 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         operand_field = f.release();
     } else {
         for (auto& operand : tcond.condition_values) {
-            LOG(INFO) << "operand " << operand;
             std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
             if (f == NULL) {
                 OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
@@ -181,14 +180,11 @@ bool Cond::eval(const RowCursorCell& cell) const {
     case OP_GE:
         return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
     case OP_IN: {
-        LOG(INFO) << "in size " << operand_set.size();
         for (const WrapperField* field : operand_set) {
             if (field->field()->compare_cell(*field, cell) == 0) {
-                LOG(INFO) << "hit the cell";
                 return true;
             }
         }
-        LOG(INFO) << "not hit cell";
         return false;
     }
     case OP_NOT_IN: {
@@ -197,7 +193,6 @@ bool Cond::eval(const RowCursorCell& cell) const {
                 return false;
             }
         }
-        LOG(INFO) << "olap cond return true";
         return true;
     }
     case OP_IS: {

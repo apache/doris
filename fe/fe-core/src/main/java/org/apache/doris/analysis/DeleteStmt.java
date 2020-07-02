@@ -129,8 +129,9 @@ public class DeleteStmt extends DdlStmt {
                 throw new AnalysisException("Left expr of in predicate should be column name");
             }
             int inElementNum = inPredicate.getInElementNum();
-            if (inElementNum <= 0 || inElementNum > 30) {
-                throw new AnalysisException("Element num of in predicate should be more than 0 and not be more than 30");
+            int maxAllowedInElementNumOfDelete = ConnectContext.get().getSessionVariable().getMaxAllowedInElementNumOfDelete();
+            if (inElementNum > maxAllowedInElementNumOfDelete) {
+                throw new AnalysisException("Element num of in predicate should not be more than " + maxAllowedInElementNumOfDelete);
             }
             for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                 Expr expr = inPredicate.getChild(i);
