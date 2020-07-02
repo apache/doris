@@ -309,8 +309,7 @@ bool RowBlockChanger::change_row_block(
                 // 从ref_column 写入 i列。
             } else if (newtype == OLAP_FIELD_TYPE_VARCHAR && reftype == OLAP_FIELD_TYPE_CHAR) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
-                for (size_t row_index = 0, new_row_index = 0;
-                        row_index < ref_block->row_block_info().row_num; ++row_index) {
+                for (size_t row_index = 0, new_row_index = 0; row_index < ref_block->row_block_info().row_num; ++row_index) {
                     // 不需要的row，每次处理到这个row时就跳过
                     if (need_filter_data && is_data_left_vec[row_index] == 0) {
                         continue;
@@ -337,18 +336,7 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
                     }
                 }
-            } else if ((reftype == OLAP_FIELD_TYPE_FLOAT && newtype == OLAP_FIELD_TYPE_DOUBLE)
-                || (reftype == OLAP_FIELD_TYPE_INT && newtype == OLAP_FIELD_TYPE_DATE)
-                || (reftype == OLAP_FIELD_TYPE_DATE && newtype == OLAP_FIELD_TYPE_DATETIME)
-                || (reftype == OLAP_FIELD_TYPE_DATETIME && newtype == OLAP_FIELD_TYPE_DATE)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_DATE)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_FLOAT)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_DOUBLE)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_TINYINT)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_SMALLINT)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_INT)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_BIGINT)
-                || (reftype == OLAP_FIELD_TYPE_VARCHAR && newtype == OLAP_FIELD_TYPE_LARGEINT)) {
+            } else if (ConvertTypeResolver::instance()->get_convert_type_info(reftype, newtype)) {
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block->row_block_info().row_num; ++row_index) {
                     // Skip filtered rows
