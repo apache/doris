@@ -43,7 +43,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts,
                             std::unique_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
         std::unique_ptr<ColumnReader> reader_local(
-                new ColumnReader(opts, meta, num_rows, file_name));
+                new ScalarColumnReader(opts, meta, num_rows, file_name));
         RETURN_IF_ERROR(reader_local->init());
         *reader = std::move(reader_local);
         return Status::OK();
@@ -79,10 +79,6 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
 
 ColumnReader::~ColumnReader() = default;
 
-TypeInfo* ColumnReader::get_type_info_for_read() {
-    return get_type_info(&_meta);
-}
-
 Status ColumnReader::init() {
     _type_info = get_type_info_for_read();
     if (_type_info == nullptr) {
@@ -115,11 +111,6 @@ Status ColumnReader::init() {
         return Status::Corruption(Substitute(
                 "Bad file $0: missing ordinal index for column $1", _file_name, _meta.column_id()));
     }
-    return Status::OK();
-}
-
-Status ColumnReader::new_iterator(ColumnIterator** iterator) {
-    *iterator = new FileColumnIterator(this);
     return Status::OK();
 }
 
@@ -324,7 +315,16 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ArrayColumnReader::~ArrayColumnReader() = default;
+Status ScalarColumnReader::new_iterator(ColumnIterator** iterator) {
+    *iterator = new FileColumnIterator(this);
+    return Status::OK();
+}
+
+TypeInfo* ScalarColumnReader::get_type_info_for_read() {
+    return get_type_info(&_meta);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 Status ArrayColumnReader::new_iterator(ColumnIterator** iterator) {
     ColumnIterator* item_iterator;
@@ -341,8 +341,6 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* offset_reader, Co
 : FileColumnIterator(offset_reader) {
     _item_iterator.reset(item_reader);
 }
-
-ArrayFileColumnIterator::~ArrayFileColumnIterator() = default;
 
 Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     RETURN_IF_ERROR(FileColumnIterator::init(opts));
@@ -364,7 +362,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         return Status::OK();
     }
 
-    // 2. Becuase we should read n + 1 offsets, so read one more here.
+    // 2. Because we should read n + 1 offsets, so read one more here.
     if (_page->data_decoder->has_remaining()) { // not _page->has_remaining()
         size_t i = 1;
         _page->data_decoder->peek_next_batch(&i, &ordinal_view); // not null
@@ -389,11 +387,11 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
 
     // 4. read child column's data and generate collections.
     ColumnBlock* collection_block = dst->column_block();
-    ListColumnVectorBatch* collection_batch =
-            reinterpret_cast<ListColumnVectorBatch*>(collection_block->vector_batch());
+    auto* collection_batch =
+            reinterpret_cast<ArrayColumnVectorBatch*>(collection_block->vector_batch());
     size_t start_offset = dst->current_offset();
     size_t end_offset = start_offset + *n;
-    ordinal_t* ordinals = reinterpret_cast<ordinal_t *>(ordinal_block.data());
+    auto* ordinals = reinterpret_cast<ordinal_t *>(ordinal_block.data());
     collection_batch->put_item_ordinal(ordinals, start_offset, *n + 1);
 
     size_t size_to_read = ordinals[*n] - ordinals[0];

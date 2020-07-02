@@ -19,27 +19,13 @@
 
 namespace doris {
 
-ColumnVectorBatch::~ColumnVectorBatch() {
-    SAFE_DELETE_ARRAY(_null_signs);
-}
+ColumnVectorBatch::~ColumnVectorBatch() = default;
 
 Status ColumnVectorBatch::resize(size_t new_cap) {
     if (_nullable) {
-        reallocate_buffer(_capacity, new_cap, reinterpret_cast<uint8_t**>(&_null_signs));
+        _null_signs.resize(new_cap);
     }
     _capacity = new_cap;
-    return Status::OK();
-}
-
-Status ColumnVectorBatch::reallocate_buffer(size_t copy_bytes, size_t new_cap, uint8_t** _buf_ptr) {
-    const uint8_t* old_buf = *_buf_ptr;
-    if (old_buf) {
-        *_buf_ptr = new uint8_t[new_cap];
-        memcpy(*_buf_ptr, old_buf, copy_bytes);
-        delete[] old_buf;
-    } else {
-        *_buf_ptr = new uint8_t[new_cap];
-    }
     return Status::OK();
 }
 
@@ -48,15 +34,69 @@ Status ColumnVectorBatch::create(size_t init_capacity,
         const TypeInfo* type_info,
         std::unique_ptr<ColumnVectorBatch>* column_vector_batch) {
     if (is_scalar_type(type_info->type())) {
-        std::unique_ptr<ColumnVectorBatch> local(
-                new ScalarColumnVectorBatch(type_info, is_nullable));
+        std::unique_ptr<ColumnVectorBatch> local;
+        switch (type_info->type()) {
+            case OLAP_FIELD_TYPE_BOOL:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_BOOL>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_TINYINT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_TINYINT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_SMALLINT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_SMALLINT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_INT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_INT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_UNSIGNED_INT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_INT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_BIGINT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_BIGINT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_LARGEINT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_FLOAT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_DOUBLE:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DOUBLE>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_DECIMAL:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_DATE:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_DATETIME:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_CHAR:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_CHAR>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_VARCHAR:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_HLL:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_HLL>::CppType>(type_info, is_nullable));
+                break;
+            case OLAP_FIELD_TYPE_OBJECT:
+                local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_OBJECT>::CppType>(type_info, is_nullable));
+                break;
+            default:
+                return Status::NotSupported("unsupported type for ColumnVectorBatch: " + std::to_string(type_info->type()));
+        }
         RETURN_IF_ERROR(local->resize(init_capacity));
         *column_vector_batch = std::move(local);
         return Status::OK();
     } else {
         switch (type_info->type()) {
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            std::unique_ptr<ColumnVectorBatch> local(new ListColumnVectorBatch(type_info, is_nullable, init_capacity));
+            std::unique_ptr<ColumnVectorBatch> local(new ArrayColumnVectorBatch(type_info, is_nullable, init_capacity));
             RETURN_IF_ERROR(local->resize(init_capacity));
             *column_vector_batch = std::move(local);
             return Status::OK();
@@ -67,67 +107,41 @@ Status ColumnVectorBatch::create(size_t init_capacity,
     }
 }
 
-ScalarColumnVectorBatch::ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
-: ColumnVectorBatch(type_info, is_nullable) {
-}
-ScalarColumnVectorBatch::~ScalarColumnVectorBatch() {
-    SAFE_DELETE_ARRAY(_data);
+template <class ScalarType>
+ScalarColumnVectorBatch<ScalarType>::ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
+: ColumnVectorBatch(type_info, is_nullable), _data(0) {
 }
 
-Status ScalarColumnVectorBatch::resize(size_t new_cap) {
+template <class ScalarType>
+ScalarColumnVectorBatch<ScalarType>::~ScalarColumnVectorBatch() = default;
+
+template <class ScalarType>
+Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
     if (capacity() < new_cap) { // before first init, _capacity is 0.
-        size_t type_size = type_info()->size();
-        auto copy_bytes = capacity() * type_size;
-        size_t new_data_size = new_cap * type_size;
-        reallocate_buffer(copy_bytes, new_data_size, &_data);
-        return ColumnVectorBatch::resize(new_cap);
-    }
-    return Status::OK();
-}
-
-uint8_t* ScalarColumnVectorBatch::data() const { return _data; }
-
-const uint8_t* ScalarColumnVectorBatch::cell_ptr(size_t idx) const { return _data + idx * type_info()->size(); }
-
-uint8_t* ScalarColumnVectorBatch::mutable_cell_ptr(size_t idx) const { return _data + idx * type_info()->size(); }
-
-ListColumnVectorBatch::ListColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
-: ColumnVectorBatch(type_info, is_nullable) {
-    auto list_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
-    ColumnVectorBatch::create(init_capacity * 2, true, list_type_info->item_type_info(), &_elements);
-}
-
-ListColumnVectorBatch::~ListColumnVectorBatch() {
-    SAFE_DELETE_ARRAY(_data);
-    SAFE_DELETE_ARRAY(_item_offsets);
-}
-
-Status ListColumnVectorBatch::resize(size_t new_cap) {
-    if (capacity() < new_cap) {
-        size_t collection_type_size = sizeof(Collection);
-        size_t copy_bytes = capacity() * collection_type_size;
-        size_t new_data_size = new_cap * collection_type_size;
-        RETURN_IF_ERROR(reallocate_buffer(copy_bytes, new_data_size, reinterpret_cast<uint8_t**>(&_data)));
-
-        size_t offset_type_size = sizeof(size_t);
-        size_t offset_copy_bytes = (capacity() + 1) * offset_type_size;
-        size_t new_offset_size = (new_cap + 1) * offset_type_size;
-        RETURN_IF_ERROR(reallocate_buffer(offset_copy_bytes, new_offset_size, reinterpret_cast<uint8_t**>(&_item_offsets)));
-
         RETURN_IF_ERROR(ColumnVectorBatch::resize(new_cap));
+        _data.resize(new_cap);
     }
     return Status::OK();
 }
 
-uint8_t* ListColumnVectorBatch::data() const { return reinterpret_cast<uint8*>(_data); }
+ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
+: ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(0) {
+    auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
+    ColumnVectorBatch::create(init_capacity * 2, true, array_type_info->item_type_info(), &_elements);
+}
 
-const uint8_t* ListColumnVectorBatch::cell_ptr(size_t idx) const { return reinterpret_cast<const uint8*>(_data + idx); }
+ArrayColumnVectorBatch::~ArrayColumnVectorBatch() = default;
 
-uint8_t* ListColumnVectorBatch::mutable_cell_ptr(size_t idx) const { return reinterpret_cast<uint8*>(_data + idx); }
+Status ArrayColumnVectorBatch::resize(size_t new_cap) {
+    if (capacity() < new_cap) {
+        RETURN_IF_ERROR(ColumnVectorBatch::resize(new_cap));
+        _data.resize(new_cap);
+        _item_offsets.resize(new_cap + 1);
+    }
+    return Status::OK();
+}
 
-size_t ListColumnVectorBatch::item_offset(size_t idx) const { return _item_offsets[idx]; }
-
-void ListColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx, size_t size) {
+void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx, size_t size) {
     size_t first_offset = _item_offsets[start_idx];
     segment_v2::ordinal_t first_ordinal = ordinals[0];
     size_t i = 0;
@@ -136,14 +150,81 @@ void ListColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, si
     }
 }
 
-void ListColumnVectorBatch::transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx) {
+void ArrayColumnVectorBatch::transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx) {
     for (size_t idx = start_idx; idx < end_idx; ++idx) {
         if (!is_null_at(idx)) {
-            _data[idx] = Collection(_elements->mutable_cell_ptr(_item_offsets[idx]),
-            _item_offsets[idx + 1] - _item_offsets[idx],
-            _elements->get_null_signs(_item_offsets[idx]));
+            _data[idx] = Collection(
+                    _elements->mutable_cell_ptr(_item_offsets[idx]),
+                    _item_offsets[idx + 1] - _item_offsets[idx],
+                    const_cast<bool *>(&_elements->null_signs()[_item_offsets[idx]])
+                    );
         }
     }
 }
+
+template <class T>
+DataBuffer<T>::DataBuffer(size_t new_size): buf(nullptr), current_size(0), current_capacity(0) {
+    resize(new_size);
+}
+
+template <class T>
+DataBuffer<T>::~DataBuffer(){
+    SAFE_DELETE_ARRAY(buf);
+}
+
+template <class T>
+void DataBuffer<T>::resize(size_t new_size) {
+    reserve(new_size);
+    current_size = new_size;
+}
+
+template <class T>
+void DataBuffer<T>::reserve(size_t new_capacity) {
+    if (new_capacity > current_capacity || !buf) {
+        if (buf) {
+            T* buf_old = buf;
+            buf = new T[new_capacity];
+            memcpy(buf, buf_old, sizeof(T) * current_capacity);
+            SAFE_DELETE_ARRAY(buf_old);
+        } else {
+            buf = new T[new_capacity];
+        }
+        current_capacity = new_capacity;
+    }
+}
+//
+//template <>
+//void DataBuffer<decimal12_t>::reserve(size_t new_capacity) {
+//    if (new_capacity > current_capacity || !buf) {
+//        if (buf) {
+//            decimal12_t* buf_old = buf;
+//            buf = new decimal12_t[new_capacity];
+//            for (size_t i = 0; i < current_capacity; ++i) {
+//                buf[i] = buf_old[i];
+//            }
+//            SAFE_DELETE_ARRAY(buf_old);
+//        } else {
+//            buf = new decimal12_t[new_capacity];
+//        }
+//        current_capacity = new_capacity;
+//    }
+//}
+//
+//template <>
+//void DataBuffer<uint24_t>::reserve(size_t new_capacity) {
+//    if (new_capacity > current_capacity || !buf) {
+//        if (buf) {
+//            uint24_t* buf_old = buf;
+//            buf = new uint24_t[new_capacity];
+//            for (size_t i = 0; i < current_capacity; ++i) {
+//                buf[i] = buf_old[i];
+//            }
+//            SAFE_DELETE_ARRAY(buf_old);
+//        } else {
+//            buf = new uint24_t[new_capacity];
+//        }
+//        current_capacity = new_capacity;
+//    }
+//}
 
 } // namespace doris

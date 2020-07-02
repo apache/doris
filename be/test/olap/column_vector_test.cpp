@@ -82,7 +82,7 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
     std::unique_ptr<ColumnVectorBatch> cvb;
     ASSERT_TRUE(ColumnVectorBatch::create(list_init_size, true, list_type_info, &cvb).ok());
 
-    ListColumnVectorBatch* list_cvb = reinterpret_cast<ListColumnVectorBatch*>(cvb.get());
+    ArrayColumnVectorBatch* list_cvb = reinterpret_cast<ArrayColumnVectorBatch*>(cvb.get());
     ColumnVectorBatch* item_cvb = list_cvb->elements();
 
     // first write

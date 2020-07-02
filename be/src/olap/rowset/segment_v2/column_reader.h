@@ -91,12 +91,12 @@ public:
     virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(ColumnIterator** iterator);
+    virtual Status new_iterator(ColumnIterator** iterator) = 0;
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     // Seek to the first entry in the column.
-    virtual Status seek_to_first(OrdinalPageIndexIterator* iter);
+    Status seek_to_first(OrdinalPageIndexIterator* iter);
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
@@ -106,7 +106,7 @@ public:
     bool is_nullable() const { return _meta.is_nullable(); }
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
-    const TypeInfo* type_info() const { return _type_info; }
+//    const TypeInfo* type_info() const { return _type_info; }
 
     bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
     bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
@@ -133,9 +133,8 @@ public:
     // Now, we call this method in ColumnReader::create.
     Status init();
 
-    virtual TypeInfo* get_type_info_for_read();
+    virtual TypeInfo* get_type_info_for_read() = 0;
 
-protected:
     ColumnReader(const ColumnReaderOptions& opts,
                  const ColumnMetaPB& meta,
                  uint64_t num_rows,
@@ -203,18 +202,31 @@ private:
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 };
 
+class ScalarColumnReader : public ColumnReader {
+public:
+    explicit ScalarColumnReader(const ColumnReaderOptions& opts,
+                               const ColumnMetaPB& meta,
+                               uint64_t num_rows,
+                               const std::string& file_name)
+            : ColumnReader(opts, meta, num_rows, file_name) {}
+    ~ScalarColumnReader() override = default;
+    Status new_iterator(ColumnIterator** iterator) override;
+protected:
+    TypeInfo* get_type_info_for_read() override;
+};
+
 class ArrayColumnReader : public ColumnReader {
 public:
-    ArrayColumnReader(const ColumnReaderOptions& opts,
+    explicit ArrayColumnReader(const ColumnReaderOptions& opts,
                       const ColumnMetaPB& meta,
                       uint64_t num_rows,
                       const std::string& file_name, std::unique_ptr<ColumnReader> item_reader)
                       : ColumnReader(opts, meta, num_rows, file_name), _item_reader(std::move(item_reader)) {}
-    ~ArrayColumnReader() override;
+    ~ArrayColumnReader() override = default;
 
     Status new_iterator(ColumnIterator** iterator) override;
 protected:
-    TypeInfo* get_type_info_for_read() override ;
+    TypeInfo* get_type_info_for_read() override;
 
 private:
     std::unique_ptr<ColumnReader> _item_reader;
@@ -225,8 +237,8 @@ private:
 // Base iterator to read one column data
 class ColumnIterator {
 public:
-    ColumnIterator() { }
-    virtual ~ColumnIterator() { }
+    ColumnIterator() = default;
+    virtual ~ColumnIterator() = default;
 
     virtual Status init(const ColumnIteratorOptions& opts) {
         _opts = opts;
@@ -282,7 +294,7 @@ protected:
 // This iterator is used to read column data from file
 class FileColumnIterator : public ColumnIterator {
 public:
-    FileColumnIterator(ColumnReader* reader);
+    explicit FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
 
     Status seek_to_first() override;
@@ -334,12 +346,20 @@ private:
     // This value will be reset when a new seek is issued
     OrdinalPageIndexIterator _page_iter;
 };
+//
+//class ScalarFileColumnIterator : public FileColumnIterator {
+//public:
+//    explicit ScalarFileColumnIterator(ColumnReader* reader);
+//
+//    ~ScalarFileColumnIterator() override = default;
+//
+//};
 
 class ArrayFileColumnIterator : public FileColumnIterator {
 public:
     explicit ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader);
 
-    ~ArrayFileColumnIterator() override;
+    ~ArrayFileColumnIterator() override = default;
 
     // page indexes those are DEL_PARTIAL_SATISFIED
     std::unordered_set<uint32_t> _delete_partial_statisfied_pages;

@@ -58,7 +58,7 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
             for (uint16_t i = 0; i < _selected_size; ++i) {
                 uint16_t row_idx = _selection_vector[i];
                 dst->get_row(i, helper);
-                bool is_null = column_block(cid).is_null(row_idx);
+                bool is_null = _column_vector_batches[cid]->is_null_at(row_idx);
                 if (is_null) {
                     helper->set_null(cid);
                 } else {

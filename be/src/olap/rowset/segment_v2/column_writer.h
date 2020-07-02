@@ -83,7 +83,7 @@ public:
             BitmapChange(&nullmap, 0, cell.is_null());
             return append_nullable(&nullmap, cell.cell_ptr(), 1);
         } else {
-            return append(cell.cell_ptr(), 1);
+            return append_not_nulls(cell.cell_ptr(), 1);
         }
     }
 
@@ -96,7 +96,7 @@ public:
     }
 
     Status append_nulls(size_t num_rows);
-    Status append(const void* data, size_t num_rows);
+    Status append_not_nulls(const void* data, size_t num_rows);
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
     Status append_nullable_by_null_signs(const bool* null_signs, const void* data, size_t num_rows);
 
@@ -116,8 +116,6 @@ protected:
     ColumnWriter(const ColumnWriterOptions& opts,
                  std::unique_ptr<Field> field,
                  fs::WritableBlock* output_file);
-    // used in init() for set _encoding_info and create page builder.
-    virtual Status create_page_builder(PageBuilder** page_builder);
 
     // used for append not null data.
     virtual Status _append_data(const uint8_t** ptr, size_t num_rows);
@@ -184,7 +182,6 @@ private:
     PageHead _pages;
     ordinal_t _first_rowid = 0;
 
-
     const BlockCompressionCodec* _compress_codec = nullptr;
 
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
@@ -195,13 +192,11 @@ private:
 
 class ArrayColumnWriter : public ColumnWriter {
 public:
-    ~ArrayColumnWriter() override;
+    ~ArrayColumnWriter() override = default;
 
     Status init() override ;
 
 protected:
-    // used in init() for create page builder.
-    Status create_page_builder(PageBuilder** page_builder) override;
 
     Status _append_data(const uint8_t** ptr, size_t num_rows) override;
 

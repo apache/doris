@@ -152,29 +152,22 @@ ColumnWriter::~ColumnWriter() {
     }
 }
 
-Status ColumnWriter::create_page_builder(PageBuilder** page_builder) {
-    RETURN_IF_ERROR(EncodingInfo::get(_field->type_info(), _opts.meta->encoding(), &_encoding_info));
-    // create page builder
-    PageBuilder* local = nullptr;
-    PageBuilderOptions opts;
-    opts.data_page_size = _opts.data_page_size;
-    RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &local));
-    if (local == nullptr) {
-        return Status::NotSupported(
-                Substitute("Failed to create page builder for type $0 and encoding $1",
-                           _field->type(), _opts.meta->encoding()));
-    } else {
-        *page_builder = local;
-        return Status::OK();
-    }
-}
-
 Status ColumnWriter::init() {
     RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
 
     PageBuilder* page_builder = nullptr;
-    RETURN_IF_ERROR(create_page_builder(&page_builder));
+
+    RETURN_IF_ERROR(EncodingInfo::get(_field->type_info(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
+    // create page builder
+    PageBuilderOptions opts;
+    opts.data_page_size = _opts.data_page_size;
+    RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
+    if (page_builder == nullptr) {
+        return Status::NotSupported(
+                Substitute("Failed to create page builder for type $0 and encoding $1",
+                           _field->type(), _opts.meta->encoding()));
+    }
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
     DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
@@ -213,7 +206,7 @@ Status ColumnWriter::append_nulls(size_t num_rows) {
     return Status::OK();
 }
 
-Status ColumnWriter::append(const void* data, size_t num_rows) {
+Status ColumnWriter::append_not_nulls(const void* data, size_t num_rows) {
     return _append_data((const uint8_t**)&data, num_rows);
 }
 
@@ -284,7 +277,7 @@ Status ColumnWriter::append_nullable_by_null_signs(const bool* null_signs, const
         if (null_signs[i]) {
             RETURN_IF_ERROR(append_nulls(1));
         } else {
-            RETURN_IF_ERROR(append(ptr, 1));
+            RETURN_IF_ERROR(append_not_nulls(ptr, 1));
         }
         ptr += _field->size();
     }
@@ -441,27 +434,6 @@ ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts,
                                    fs::WritableBlock* output_file,
                          std::unique_ptr<ColumnWriter> item_writer):
         ColumnWriter(opts, std::move(field), output_file), _item_writer(std::move(item_writer)) {}
-
-Status ArrayColumnWriter::create_page_builder(PageBuilder** page_builder) {
-    TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
-    RETURN_IF_ERROR(EncodingInfo::get(bigint_type_info, _opts.meta->encoding(), &_encoding_info));
-
-    PageBuilder* local = nullptr;
-    PageBuilderOptions opts;
-    opts.data_page_size = _opts.data_page_size;
-    _opts.meta->set_encoding(_encoding_info->encoding());
-
-    RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &local));
-    if (local == nullptr) {
-        return Status::NotSupported(
-                Substitute("Failed to create page builder for type LIST encoding $0",
-                           _opts.meta->encoding()));
-    } else {
-        *page_builder = local;
-        return Status::OK();
-    }
-}
-ArrayColumnWriter::~ArrayColumnWriter() = default;
 
 Status ArrayColumnWriter::init() {
     if (_opts.need_zone_map) {

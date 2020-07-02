@@ -24,11 +24,66 @@
 
 namespace doris {
 
+template <class T>
+class DataBuffer {
+private:
+    T* buf;
+    // current size
+    size_t current_size;
+    // maximal capacity (actual allocated memory)
+    size_t current_capacity;
+
+public:
+    explicit DataBuffer(size_t size = 0);
+    ~DataBuffer();
+    T* data() {
+        return buf;
+    }
+
+    const T* data() const {
+        return buf;
+    }
+
+    size_t size() {
+        return current_size;
+    }
+
+    size_t capacity() {
+        return current_capacity;
+    }
+
+    T& operator[](size_t i) {
+        return buf[i];
+    }
+
+    T& operator[](size_t i) const {
+        return buf[i];
+    }
+
+    void reserve(size_t _size);
+    void resize(size_t _size);
+};
+
+template class DataBuffer<bool>;
+template class DataBuffer<int8_t>;
+template class DataBuffer<int16_t>;
+template class DataBuffer<int32_t>;
+template class DataBuffer<uint32_t>;
+template class DataBuffer<int64_t>;
+template class DataBuffer<uint64_t>;
+template class DataBuffer<int128_t>;
+template class DataBuffer<float>;
+template class DataBuffer<double>;
+template class DataBuffer<decimal12_t>;
+template class DataBuffer<uint24_t>;
+template class DataBuffer<Slice>;
+template class DataBuffer<Collection>;
+
 // struct that contains column data(null bitmap), data array in sub class.
 class ColumnVectorBatch {
 public:
     explicit ColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
-    : _type_info(type_info), _capacity(0), _nullable(is_nullable) {}
+    : _type_info(type_info), _capacity(0), _delete_state(DEL_NOT_SATISFIED), _nullable(is_nullable), _null_signs(0) {}
 
     virtual ~ColumnVectorBatch();
 
@@ -38,23 +93,29 @@ public:
 
     bool is_nullable() const { return _nullable; }
 
-    inline bool is_null_at(size_t row_idx) const {
+    bool is_null_at(size_t row_idx) {
         return _nullable && _null_signs[row_idx];
     }
 
-    inline void set_is_null(size_t idx, bool is_null) const {
+    void set_is_null(size_t idx, bool is_null) {
         if (_nullable) {
             _null_signs[idx] = is_null;
         }
     }
 
-    inline void set_null_bits(size_t offset, size_t num_rows, bool val) const {
+    void set_null_bits(size_t offset, size_t num_rows, bool val) {
         for (size_t i = 0; i < num_rows; ++i) {
             set_is_null(offset + i, val);
         }
     }
 
-    inline bool* get_null_signs(size_t idx) { return _null_signs + idx; }
+    const bool* null_signs() const { return _null_signs.data(); }
+
+    void set_delete_state(DelCondSatisfied delete_state) {
+        _delete_state = delete_state;
+    }
+
+    DelCondSatisfied delete_state() const { return _delete_state; }
 
     /**
      * Change the number of slots to at least the given capacity.
@@ -70,7 +131,7 @@ public:
     virtual const uint8_t* cell_ptr(size_t idx) const = 0;
 
     // Get thr idx's cell_ptr for write
-    virtual uint8_t* mutable_cell_ptr(size_t idx) const = 0;
+    virtual uint8_t* mutable_cell_ptr(size_t idx) = 0;
 
 
     static Status create(size_t init_capacity,
@@ -78,16 +139,15 @@ public:
                          const TypeInfo* type_info,
                          std::unique_ptr<ColumnVectorBatch>* column_vector_batch);
 
-protected:
-    static Status reallocate_buffer(size_t old_cap, size_t new_cap, uint8_t** _buf);
-
 private:
     const TypeInfo* _type_info;
     size_t _capacity;
+    DelCondSatisfied _delete_state;
     const bool _nullable;
-    bool* _null_signs = nullptr;
+    DataBuffer<bool> _null_signs;
 };
 
+template <class ScalarCppType>
 class ScalarColumnVectorBatch : public ColumnVectorBatch {
 public:
     explicit ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable);
@@ -97,36 +157,44 @@ public:
     Status resize(size_t new_cap) override;
 
     // Get the start of the data.
-    uint8_t* data() const override;
+    uint8_t* data() const override { return const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(_data.data())); }
 
     // Get the idx's cell_ptr
-    const uint8_t* cell_ptr(size_t idx) const override;
+    const uint8_t* cell_ptr(size_t idx) const override { return reinterpret_cast<uint8_t *>(&_data[idx]); }
 
     // Get thr idx's cell_ptr for write
-    uint8_t* mutable_cell_ptr(size_t idx) const override;
+    uint8_t* mutable_cell_ptr(size_t idx) override { return reinterpret_cast<uint8_t *>(&_data[idx]); }
 
 private:
-    uint8_t* _data = nullptr;
+    DataBuffer<ScalarCppType> _data;
 };
 
-class ListColumnVectorBatch : public ColumnVectorBatch {
+class ArrayColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ListColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity);
-    ~ListColumnVectorBatch() override;
+    explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity);
+    ~ArrayColumnVectorBatch() override;
     Status resize(size_t new_cap) override;
 
     ColumnVectorBatch* elements() const { return _elements.get(); }
 
     // Get the start of the data.
-    uint8_t* data() const override;
+    uint8_t* data() const override {
+        return reinterpret_cast<uint8 *>(const_cast<Collection *>(_data.data()));
+    }
 
     // Get the idx's cell_ptr
-    const uint8_t* cell_ptr(size_t idx) const override;
+    const uint8_t* cell_ptr(size_t idx) const override {
+        return reinterpret_cast<const uint8*>(&_data[idx]);
+    }
 
     // Get thr idx's cell_ptr for write
-    uint8_t* mutable_cell_ptr(size_t idx) const override;
+    uint8_t* mutable_cell_ptr(size_t idx) override {
+        return reinterpret_cast<uint8*>(&_data[idx]);
+    }
 
-    size_t item_offset(size_t idx) const;
+    size_t item_offset(size_t idx) const {
+        return _item_offsets[idx];
+    }
 
     // From `start_idx`, put `size` ordinals to _item_offsets
     // Ex:
@@ -139,12 +207,26 @@ public:
     void transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx);
 
 private:
-    Collection* _data = nullptr;
+    DataBuffer<Collection> _data;
 
     std::unique_ptr<ColumnVectorBatch> _elements;
 
     // Stores each collection's start offsets in _elements.
-    size_t* _item_offsets = nullptr;
+    DataBuffer<size_t> _item_offsets;
 };
+
+template class ScalarColumnVectorBatch<bool>;
+template class ScalarColumnVectorBatch<int8_t>;
+template class ScalarColumnVectorBatch<int16_t>;
+template class ScalarColumnVectorBatch<int32_t>;
+template class ScalarColumnVectorBatch<uint32_t>;
+template class ScalarColumnVectorBatch<int64_t>;
+template class ScalarColumnVectorBatch<uint64_t>;
+template class ScalarColumnVectorBatch<int128_t>;
+template class ScalarColumnVectorBatch<float>;
+template class ScalarColumnVectorBatch<double>;
+template class ScalarColumnVectorBatch<decimal12_t>;
+template class ScalarColumnVectorBatch<uint24_t>;
+template class ScalarColumnVectorBatch<Slice>;
 
 } // namespace doris

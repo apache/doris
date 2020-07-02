@@ -352,7 +352,7 @@ void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num
 
 
 TEST_F(ColumnReaderWriterTest, test_list_type) {
-    size_t num_list = 1024 * 1024;
+    size_t num_list = 10; //24 * 1024;
     size_t num_item = num_list * 3;
 
     uint8_t* list_is_null = new uint8_t[BitmapSize(num_list)];

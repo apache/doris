@@ -27,14 +27,15 @@ namespace doris {
 
 class MemPool;
 class TypeInfo;
-class ColumnBlockCell;
+struct ColumnBlockCell;
 
 // Block of data belong to a single column.
 // It doesn't own any data, user should keep the life of input data.
+// TODO llj Remove this class
 class ColumnBlock {
 public:
     ColumnBlock(ColumnVectorBatch* batch, MemPool* pool)
-        : _batch(batch), _delete_state(DEL_NOT_SATISFIED), _pool(pool) { }
+        : _batch(batch), _pool(pool) { }
 
     const TypeInfo* type_info() const { return _batch->type_info(); }
     uint8_t* data() const { return _batch->data(); }
@@ -57,17 +58,14 @@ public:
 
     ColumnBlockCell cell(size_t idx) const;
 
-    size_t nrows() const { return _batch->capacity(); }
-
     void set_delete_state(DelCondSatisfied delete_state) {
-        _delete_state = delete_state;
+        _batch->set_delete_state(delete_state);
     }
 
-    DelCondSatisfied delete_state() const { return _delete_state; }
+    DelCondSatisfied delete_state() const { return _batch->delete_state(); }
 
 private:
     ColumnVectorBatch* _batch;
-    DelCondSatisfied _delete_state;
     MemPool* _pool;
 };
 
@@ -95,7 +93,6 @@ public:
         : _block(block), _row_offset(row_offset) {
     }
     void advance(size_t skip) { _row_offset += skip; }
-    size_t first_row_index() const { return _row_offset; }
     ColumnBlock* column_block() { return _block; }
     const TypeInfo* type_info() const { return _block->type_info(); }
     MemPool* pool() const { return _block->pool(); }

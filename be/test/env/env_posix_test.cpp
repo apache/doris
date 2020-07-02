@@ -155,7 +155,7 @@ TEST_F(EnvPosixTest, random_rw) {
 
         Slice read_slices[3] {slice1, slice2, slice3};
         st = rfile->readv_at(0, read_slices, 3);
-        LOG(INFO) << st.to_string();
+        ArrayColumnVectorBatch(INFO) << st.to_string();
         ASSERT_TRUE(st.ok());
         ASSERT_STREQ("abc", std::string(slice1.data, slice1.size).c_str());
         ASSERT_STREQ("bcd", std::string(slice2.data, slice2.size).c_str());
@@ -168,7 +168,7 @@ TEST_F(EnvPosixTest, random_rw) {
         // end of file
         st = rfile->read_at(102, slice4);
         ASSERT_EQ(TStatusCode::END_OF_FILE, st.code());
-        LOG(INFO) << "st=" << st.to_string();
+        ArrayColumnVectorBatch(INFO) << "st=" << st.to_string();
     }
     // SequentialFile
     {
