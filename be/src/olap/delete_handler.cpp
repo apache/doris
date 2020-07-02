@@ -25,6 +25,7 @@
 #include <boost/regex.hpp>
 #include <errno.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <json2pb/pb_to_json.h>
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
@@ -73,9 +74,10 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
             in_pred->set_is_not_in(is_not_in);
             for (const auto& condition_value : condition.condition_values) {
                 in_pred->add_values(condition_value);
-                LOG(INFO) << "add condition values " << condition_value;
             }
-            LOG(INFO) << "store one sub-delete condition. condition=" << condition;
+            string condition_str;
+            json2pb::ProtoMessageToJson(*in_pred, &condition_str);
+            LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
         } else {
             string condition_str = construct_sub_predicates(condition);
             del_pred->add_sub_predicates(condition_str);

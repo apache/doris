@@ -73,6 +73,7 @@ Variables that support both session-level and global-level setting include:
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+* `max_allowed_in_element_num_of_delete`
 
 Variables that support only global-level setting include:
 
@@ -234,7 +235,11 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `lower_case_table_names`
 
     Used for compatibility with MySQL clients. Cannot be set. Table names in current Doris are case sensitive by default.
-    
+
+* `max_allowed_in_element_num_of_delete`
+
+    Used to limit element num of InPredicate in delete statement.  
+
 * `max_allowed_packet`
 
     Used for compatible JDBC connection pool C3P0. No practical effect.
