@@ -321,6 +321,8 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
 // 粗略检查date或者datetime类型是否正确
 bool valid_datetime(const std::string& value_str);
 
+bool valid_bool(const std::string& value_str);
+
 #define OLAP_LOG_WRITE(level, fmt, arg...) \
     do { \
         char buf[10240] = {0}; \
