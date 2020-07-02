@@ -116,7 +116,6 @@ private:
     bool _need_agg_finalize = true;
     bool _has_update_counter = false;
 
-    Status _ctor_status;
     int _tuple_idx = 0;
     int _direct_conjunct_size = 0;
 
