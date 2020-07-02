@@ -190,6 +190,8 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     if (_contains_rowset(rowset->rowset_id())) {
         return OLAP_SUCCESS;
     }
+    // If has same version rs and it is the max version rs of this tablet, remove it.
+    _drop_rowset_if_version_conflict(rowset);
     // Otherwise, the version shoud be not contained in any existing rowset.
     RETURN_NOT_OK(_contains_version(rowset->version()));
 
@@ -305,6 +307,10 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     if (_contains_rowset(rowset->rowset_id())) {
         return OLAP_SUCCESS;
     }
+
+    // If has same version rs and it is the max version rs of this tablet, remove it.
+    _drop_rowset_if_version_conflict(rowset);
+
     RETURN_NOT_OK(_contains_version(rowset->version()));
 
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
@@ -824,6 +830,33 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
         ss << missed_versions[i] << ",";
     }
     LOG(WARNING) << ss.str();
+}
+
+bool Tablet::_drop_rowset_if_version_conflict(const RowsetSharedPtr& rowset) {
+    if (rowset == nullptr) {
+        return false;
+    }
+    Version insert_version = {rowset->start_version(), rowset->end_version()};
+    Version max_version = _tablet_meta->max_version();
+    if (insert_version != max_version) {
+        return false;
+    }
+
+    RowsetSharedPtr exist_rs = get_rowset_by_version(insert_version);
+    // if a rs is created by doris 0.10 exists, remove it.
+    if (exist_rs != nullptr) {
+        vector<RowsetSharedPtr> to_add;
+        vector<RowsetSharedPtr> to_delete;
+        to_delete.push_back(exist_rs);
+        modify_rowsets(to_add, to_delete);
+        std::stringstream ss;
+        ss << "Remove rs " << exist_rs->rowset_id().to_string();
+        ss << " in " << full_name();
+        ss << " for version conflict with " << rowset->rowset_id().to_string();
+        LOG(WARNING) << ss.str();
+        return true;
+    }
+    return false;
 }
 
 OLAPStatus Tablet::_contains_version(const Version& version) {

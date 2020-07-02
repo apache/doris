@@ -230,6 +230,7 @@ private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
+    bool _drop_rowset_if_version_conflict(const RowsetSharedPtr& rowset);
     OLAPStatus _contains_version(const Version& version);
     void _max_continuous_version_from_begining_unlocked(Version* version,
                                                         VersionHash* v_hash) const ;
