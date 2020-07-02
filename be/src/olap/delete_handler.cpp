@@ -50,7 +50,7 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
         const TabletSchema& schema,
         const std::vector<TCondition>& conditions,
         DeletePredicatePB* del_pred) {
-    if (conditions.size() == 0) {
+    if (conditions.empty()) {
         LOG(WARNING) << "invalid parameters for store_cond."
                      << " condition_size=" << conditions.size();
         return OLAP_ERR_DELETE_INVALID_PARAMETERS;
@@ -66,9 +66,23 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
 
     // 存储删除条件
     for (const TCondition& condition : conditions) {
-        string condition_str = construct_sub_predicates(condition);
-        del_pred->add_sub_predicates(condition_str);
-        LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
+        if (condition.condition_values.size() > 1) {
+            InPredicatePB* in_pred = del_pred->add_in_predicates();
+            in_pred->set_column_name(condition.column_name);
+            bool is_not_in = condition.condition_op == "!*=";
+            in_pred->set_is_not_in(is_not_in);
+            for (const auto& condition_value : condition.condition_values) {
+                in_pred->add_values(condition_value);
+                LOG(INFO) << "add condition values " << condition_value;
+            }
+            LOG(INFO) << "store one sub-delete condition. condition=" << condition;
+            LOG(INFO) << del_pred->in_predicates_size();
+            LOG(INFO) << del_pred->in_predicates().size();
+        } else {
+            string condition_str = construct_sub_predicates(condition);
+            del_pred->add_sub_predicates(condition_str);
+            LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
+        }
     }
     del_pred->set_version(-1);
 
@@ -195,7 +209,7 @@ OLAPStatus DeleteConditionHandler::_check_version_valid(std::vector<Version>* al
 }
 
 int DeleteConditionHandler::_check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version) {
-    if (delete_conditions.size() == 0) {
+    if (delete_conditions.empty()) {
         return -1;
     }
 
@@ -221,7 +235,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     try {
         // Condition string format
         const char* const CONDITION_STR_PATTERN =
-                "(\\w+)\\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\\*=)|(?:IS))\\s*((?:[\\S ]+)?)";
+                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:!\*=)|(?:IS))\s*((?:[\S ]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
@@ -238,7 +252,6 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     if (!matched) {
         return false;
     }
-
     condition->column_name = what[1].str();
     condition->condition_op = what[2].str();
     condition->condition_values.push_back(what[3].str());
@@ -266,19 +279,19 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
         if (it->version() > version) {
             continue;
         }
-
+        LOG(INFO) << "iter version " << it->version();
         DeleteConditions temp;
         temp.filter_version = it->version();
 
         temp.del_cond = new(std::nothrow) Conditions();
 
-        if (temp.del_cond == NULL) {
+        if (temp.del_cond == nullptr) {
             LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         temp.del_cond->set_tablet_schema(&schema);
-
+        LOG(INFO) << "normal predicate size" << it->sub_predicates_size();
         for (int i = 0; i != it->sub_predicates_size(); ++i) {
             TCondition condition;
             if (!_parse_condition(it->sub_predicates(i), &condition)) {
@@ -287,6 +300,26 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
                 return OLAP_ERR_DELETE_INVALID_PARAMETERS;
             }
 
+            OLAPStatus res = temp.del_cond->append_condition(condition);
+            if (OLAP_SUCCESS != res) {
+                OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);
+                return res;
+            }
+        }
+
+        LOG(INFO) << "in predicate size " << it->in_predicates_size();
+        for (int i = 0; i != it->in_predicates_size(); ++i) {
+            TCondition condition;
+            const InPredicatePB& in_predicate = it->in_predicates(i);
+            condition.__set_column_name(in_predicate.column_name());
+            if (in_predicate.is_not_in()) {
+                condition.__set_condition_op("!*=");
+            } else {
+                condition.__set_condition_op("*=");
+            }
+            for (const auto& value : in_predicate.values()) {
+                condition.condition_values.push_back(value);
+            }
             OLAPStatus res = temp.del_cond->append_condition(condition);
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);

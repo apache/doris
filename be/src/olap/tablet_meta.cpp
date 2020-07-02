@@ -599,6 +599,7 @@ void TabletMeta::add_delete_predicate(const DeletePredicatePB& delete_predicate,
     DeletePredicatePB* del_pred = _del_pred_array.Add();
     del_pred->set_version(version);
     *del_pred->mutable_sub_predicates() = delete_predicate.sub_predicates();
+    *del_pred->mutable_in_predicates() = delete_predicate.in_predicates();
 }
 
 void TabletMeta::remove_delete_predicate_by_version(const Version& version) {

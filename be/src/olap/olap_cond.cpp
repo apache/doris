@@ -134,6 +134,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         operand_field = f.release();
     } else {
         for (auto& operand : tcond.condition_values) {
+            LOG(INFO) << "operand " << operand;
             std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
             if (f == NULL) {
                 OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
@@ -180,11 +181,14 @@ bool Cond::eval(const RowCursorCell& cell) const {
     case OP_GE:
         return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
     case OP_IN: {
+        LOG(INFO) << "in size " << operand_set.size();
         for (const WrapperField* field : operand_set) {
             if (field->field()->compare_cell(*field, cell) == 0) {
+                LOG(INFO) << "hit the cell";
                 return true;
             }
         }
+        LOG(INFO) << "not hit cell";
         return false;
     }
     case OP_NOT_IN: {
@@ -193,14 +197,11 @@ bool Cond::eval(const RowCursorCell& cell) const {
                 return false;
             }
         }
+        LOG(INFO) << "olap cond return true";
         return true;
     }
     case OP_IS: {
-        if (operand_field->is_null() == cell.is_null()) {
-            return true;
-        } else {
-            return false;
-        }
+        return operand_field->is_null() == cell.is_null();
     }
     default:
         // Unknown operation type, just return false
@@ -244,9 +245,11 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         for (; it != operand_set.end(); ++it) {
             if ((*it)->cmp(statistic.first) >= 0
                     && (*it)->cmp(statistic.second) <= 0) {
+                LOG(INFO) << "hit in ";
                 return true;
             }
         }
+        LOG(INFO) << "in not hit " << statistic.first << ":" << statistic.second;
         break;
     }
     case OP_NOT_IN: {
@@ -254,24 +257,18 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         for (; it != operand_set.end(); ++it) {
             if ((*it)->cmp(statistic.first) == 0
                 && (*it)->cmp(statistic.second) == 0) {
+                LOG(INFO) << "return false";
                 return false;
             }
         }
+        LOG(INFO) << statistic.first << ":" << statistic.second << ":" << "true";
         return true;
     }
     case OP_IS: {
         if (operand_field->is_null()) {
-            if (statistic.first->is_null()) {
-                return true;
-            } else {
-                return false;
-            }
+            return statistic.first->is_null();
         } else {
-            if (!statistic.second->is_null()) {
-                return true;
-            } else {
-                return false;
-            }
+            return !statistic.second->is_null();
         }
     }
     default:
@@ -378,9 +375,7 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                 break;
             }
         }
-        if (it == operand_set.end()) {
-            ret = DEL_SATISFIED;
-        }
+        LOG(INFO) << "deleted state " << ret;
         return ret;
     }
     case OP_NOT_IN: {
@@ -393,6 +388,7 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                     break;
             }
         }
+        LOG(INFO) << "delete satisfied " << ret;
         return ret;
     }
     case OP_IS: {
@@ -491,12 +487,7 @@ bool Cond::eval(const segment_v2::BloomFilter* bf) const {
     }
     case OP_IS: {
         // IS [NOT] NULL can only used in to filter IS NULL predicate.
-        if (operand_field->is_null()) {
-            return bf->test_bytes(nullptr, 0);
-        } else {
-            // is not null
-            return !bf->test_bytes(nullptr, 0);
-        }
+        return operand_field->is_null() == bf->test_bytes(nullptr, 0);
     }
     default:
         break;
