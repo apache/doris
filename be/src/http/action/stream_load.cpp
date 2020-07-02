@@ -397,6 +397,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     } else {
         request.__set_strip_outer_array(false);
     }
+    if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
+        request.__set_sequence_col(http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
+    }
+
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     }

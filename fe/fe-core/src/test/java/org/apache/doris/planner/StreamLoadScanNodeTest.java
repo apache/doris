@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
@@ -70,6 +71,9 @@ public class StreamLoadScanNodeTest {
 
     @Injectable
     ConnectContext connectContext;
+
+    @Injectable
+    Database db;
 
     @Injectable
     OlapTable dstTable;
@@ -130,10 +134,47 @@ public class StreamLoadScanNodeTest {
 
         return columns;
     }
+
+    List<Column> getSequenceColSchema() {
+        List<Column> columns = Lists.newArrayList();
+
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        k1.setIsKey(true);
+        k1.setIsAllowNull(false);
+        columns.add(k1);
+
+        Column k2 = new Column("k2", ScalarType.createVarchar(25));
+        k2.setIsKey(true);
+        k2.setIsAllowNull(true);
+        columns.add(k2);
+
+        // sequence column, it's hidden column
+        Column sequenceCol = new Column(Column.SEQUENCE_COL, PrimitiveType.BIGINT);
+        sequenceCol.setIsKey(false);
+        sequenceCol.setAggregationType(AggregateType.REPLACE, false);
+        sequenceCol.setIsAllowNull(false);
+        sequenceCol.setIsVisible(false);
+        columns.add(sequenceCol);
+
+        // sequence column, it's visible column for user, it's equals to the hidden column
+        Column visibleSequenceCol = new Column("visible_sequence_col", PrimitiveType.BIGINT);
+        visibleSequenceCol.setIsKey(false);
+        visibleSequenceCol.setAggregationType(AggregateType.REPLACE, false);
+        visibleSequenceCol.setIsAllowNull(true);
+        columns.add(visibleSequenceCol);
+
+        Column v1 = new Column("v1", ScalarType.createVarchar(25));
+        v1.setIsKey(false);
+        v1.setAggregationType(AggregateType.REPLACE, false);
+        v1.setIsAllowNull(false);
+        columns.add(v1);
+
+        return columns;
+    }
     
     private StreamLoadScanNode getStreamLoadScanNode(TupleDescriptor dstDesc, TStreamLoadPutRequest request)
             throws UserException {
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, null);
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, db);
         StreamLoadScanNode scanNode = new StreamLoadScanNode(streamLoadTask.getId(), new PlanNodeId(1), dstDesc, dstTable, streamLoadTask);
         return scanNode;
     }
@@ -197,7 +238,7 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1, k2, v1");
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, null);
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, db);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
         scanNode.init(analyzer);
@@ -273,7 +314,7 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k2");
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, null);
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, db);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -321,7 +362,7 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_STREAM);
         request.setColumns("k1,k2, v1=" + FunctionSet.HLL_HASH + "(k2)");
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, null);
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, db);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
         scanNode.init(analyzer);
@@ -642,5 +683,147 @@ public class StreamLoadScanNodeTest {
         List<ImportColumnDesc> columnExprs = Lists.newArrayList();
         columnExprs.add(new ImportColumnDesc("c3", new FunctionCallExpr("func", Lists.newArrayList())));
         Load.initColumns(table, columnExprs, null, null, null, null, null, null);
+    }
+
+    @Test
+    public void testSequenceColumnWithSetColumns() throws UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getSequenceColSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            System.out.println(column);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        new Expectations() {
+            {
+                db.getTable(anyInt);
+                result = dstTable;
+                minTimes = 0;
+                dstTable.hasSequenceCol();
+                result = true;
+            }
+        };
+
+        new Expectations() {
+            {
+                dstTable.getColumn("k1");
+                result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn("k2");
+                result = columns.stream().filter(c -> c.getName().equals("k2")).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn(Column.SEQUENCE_COL);
+                result = columns.stream().filter(c -> c.getName().equals(Column.SEQUENCE_COL)).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn("visible_sequence_col");
+                result = columns.stream().filter(c -> c.getName().equals("visible_sequence_col")).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn("v1");
+                result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+                minTimes = 0;
+                // there is no "source_sequence" column in the Table
+                dstTable.getColumn("source_sequence");
+                result = null;
+                minTimes = 0;
+            }
+        };
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1,k2,source_sequence,v1");
+        request.setFileType(TFileType.FILE_STREAM);
+        request.setSequence_col("source_sequence");
+        StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test
+    public void testSequenceColumnWithoutSetColumns() throws UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getSequenceColSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        new Expectations() {
+            {
+                db.getTable(anyInt);
+                result = dstTable;
+                minTimes = 0;
+                dstTable.hasSequenceCol();
+                result = true;
+            }
+        };
+
+        new Expectations() {
+            {
+                dstTable.getBaseSchema(anyBoolean); result = columns;
+                dstTable.getFullSchema(); result = columns;
+
+                dstTable.getColumn("k1");
+                result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn("k2");
+                result = columns.stream().filter(c -> c.getName().equals("k2")).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn(Column.SEQUENCE_COL);
+                result = columns.stream().filter(c -> c.getName().equals(Column.SEQUENCE_COL)).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn("visible_sequence_col");
+                result = columns.stream().filter(c -> c.getName().equals("visible_sequence_col")).findFirst().get();
+                minTimes = 0;
+
+                dstTable.getColumn("v1");
+                result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+                minTimes = 0;
+
+                dstTable.hasSequenceCol();
+                result = true;
+                minTimes = 0;
+            }
+        };
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setFileType(TFileType.FILE_STREAM);
+        request.setSequence_col("visible_sequence_col");
+        StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
     }
 }

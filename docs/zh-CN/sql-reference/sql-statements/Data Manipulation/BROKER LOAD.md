@@ -71,6 +71,7 @@ under the License.
             [SET (k1 = func(k2))]
             [WHERE predicate]
             [DELETE ON label=true]
+            [ORDER BY source_sequence]
 
         说明：
             file_path: 
@@ -121,6 +122,11 @@ under the License.
             delete_on_predicates:
 
             表示删除条件，仅在 merge type 为MERGE 时有意义，语法与where 相同
+            
+            ORDER BY:
+            
+            只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
+
     3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
@@ -460,7 +466,18 @@ under the License.
         "timeout" = "3600",
         "max_filter_ratio" = "0.1"
         );
-             
+        
+    14. 导入时指定source_sequence列，保证UNIQUE_KEYS表中的替换顺序：
+        LOAD LABEL example_db.label_sequence
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,source_sequence,v1,v2)
+         ORDER BY source_sequence
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
+         
 ## keyword
 
     BROKER,LOAD

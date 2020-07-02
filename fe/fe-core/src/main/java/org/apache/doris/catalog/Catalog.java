@@ -3709,6 +3709,17 @@ public class Catalog {
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
+        // analyse sequence column
+        Type sequenceColType = null;
+        try {
+            sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
+            if (sequenceColType != null) {
+                olapTable.setSequenceInfo(sequenceColType);
+            }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
         // analyze version info
         Pair<Long, Long> versionInfo = null;
         try {

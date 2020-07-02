@@ -735,7 +735,7 @@ public class Load {
             // check mapping column exist in table
             // check function
             // convert mapping column and func arg columns to schema format
-            
+
             // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
             // their names. These columns are invisible to user, but we need to generate data for these columns.
             // So we add column mappings for these column.
@@ -750,7 +750,7 @@ public class Load {
                         if (mappingExpr != null) {
                             /*
                              * eg:
-                             * (A, C) SET (B = func(xx)) 
+                             * (A, C) SET (B = func(xx))
                              * ->
                              * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
                              */
@@ -779,10 +779,10 @@ public class Load {
                          */
                         // do nothing
                     }
-                    
+
                 }
             }
-            
+
             LOG.debug("after add shadow column. parsedColumnExprList: {}, columnToHadoopFunction: {}",
                     parsedColumnExprList, columnToHadoopFunction);
 
@@ -974,6 +974,11 @@ public class Load {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         List<ImportColumnDesc> copiedColumnExprs = Lists.newArrayList(columnExprs);
+        // check whether the OlapTable has sequenceCol
+        boolean hasSequenceCol = false;
+        if (tbl instanceof OlapTable && ((OlapTable)tbl).hasSequenceCol()) {
+            hasSequenceCol = true;
+        }
 
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
@@ -981,6 +986,10 @@ public class Load {
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
+                // columnExprs has sequence column, don't need to generate the sequence column
+                if (hasSequenceCol && column.isSequenceColumn()) {
+                    continue;
+                }
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
@@ -1129,7 +1138,7 @@ public class Load {
      * The hadoop function includes: replace_value, strftime, time_format, alignment_timestamp, default_value, now.
      * It rewrites those function with real function name and param.
      * For the other function, the expr only go through this function and the origin expr is returned.
-     * 
+     *
      * @param columnName
      * @param originExpr
      * @return
@@ -1158,7 +1167,7 @@ public class Load {
                  * We will convert this based on different cases:
                  * case 1: k1 = replace_value(null, anyval);
                  *     to: k1 = if (k1 is not null, k1, anyval);
-                 * 
+                 *
                  * case 2: k1 = replace_value(anyval1, anyval2);
                  *     to: k1 = if (k1 is not null, if(k1 != anyval1, k1, anyval2), null);
                  */
@@ -1231,7 +1240,7 @@ public class Load {
                 /*
                  * change to:
                  * UNIX_TIMESTAMP(DATE_FORMAT(FROM_UNIXTIME(ts), "%Y-01-01 00:00:00"));
-                 * 
+                 *
                  */
 
                 // FROM_UNIXTIME

@@ -18,6 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -27,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
+import org.apache.doris.system.SystemInfoService;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,11 +47,47 @@ public class DataDescriptionTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
+    @Mocked
+    private Database db;
+    @Mocked
+    private OlapTable tbl;
+    @Mocked
+    private Analyzer analyzer;
+    @Mocked
+    private Catalog catalog;
 
     @Before
-    public void setUp() {
+    public void setUp() throws AnalysisException {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = SystemInfoService.DEFAULT_CLUSTER;
+
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testCluster:testDb";
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getDb(anyString);
+                minTimes = 0;
+                result = db;
+
+                db.getTable(anyString);
+                minTimes = 0;
+                result = tbl;
+
+            }
+        };
     }
 
     @Test
@@ -79,7 +119,7 @@ public class DataDescriptionTest {
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, false, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr);
+                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, false, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
         desc.analyze("testDb");
         Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
         Assert.assertEquals("1 = 1", desc.getWhereExpr().toSql());
@@ -180,7 +220,7 @@ public class DataDescriptionTest {
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, true, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr);
+                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, true, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
         desc.analyze("testDb");
     }
 
@@ -266,5 +306,43 @@ public class DataDescriptionTest {
                 Assert.fail();
             }
         }
+    }
+
+    @Test
+    public void testAnalyzeSequenceColumnNormal() throws AnalysisException {
+        DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
+                Lists.newArrayList("k1", "k2", "source_sequence","v1"), new ColumnSeparator("\t"),
+                null, null,false, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+        new Expectations() {
+            {
+                tbl.getName();
+                minTimes = 0;
+                result = "testTable";
+
+                tbl.hasSequenceCol();
+                minTimes = 0;
+                result =true;
+            }
+        };
+        desc.analyze("testDb");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testAnalyzeSequenceColumnWithoutSourceSequence() throws AnalysisException {
+        DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
+                Lists.newArrayList("k1", "k2","v1"), new ColumnSeparator("\t"),
+                null, null,false, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+        new Expectations() {
+            {
+                tbl.getName();
+                minTimes = 0;
+                result = "testTable";
+
+                tbl.hasSequenceCol();
+                minTimes = 0;
+                result =true;
+            }
+        };
+        desc.analyze("testDb");
     }
 }

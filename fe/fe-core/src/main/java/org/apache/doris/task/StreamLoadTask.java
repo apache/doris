@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import org.apache.doris.analysis.ColumnSeparator;
@@ -26,8 +27,10 @@ import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -70,6 +73,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
     private Expr deleteCondition;
+    private String sequenceCol;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -164,6 +168,10 @@ public class StreamLoadTask implements LoadTaskInfo {
         return deleteCondition;
     }
 
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
@@ -237,6 +245,11 @@ public class StreamLoadTask implements LoadTaskInfo {
             columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
         }  else if (mergeType == LoadTask.MergeType.DELETE) {
             columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+        }
+        if (request.isSetSequence_col()) {
+            sequenceCol = request.getSequence_col();
+            // add expr for sequence column
+            columnExprDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
         }
     }
 

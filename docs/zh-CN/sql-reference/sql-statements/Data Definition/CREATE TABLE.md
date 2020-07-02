@@ -253,7 +253,7 @@ under the License.
            当表为两级分区时，这些属性为附属于每一个分区。
            如果希望不同分区有不同属性。可以通过 ADD PARTITION 或 MODIFY PARTITION 进行操作
 
-    2 如果 Engine 类型为 olap, 可以指定某列使用 bloom filter 索引
+    2) 如果 Engine 类型为 olap, 可以指定某列使用 bloom filter 索引
            bloom filter 索引仅适用于查询条件为 in 和 equal 的情况，该列的值越分散效果越好
            目前只支持以下情况的列:除了 TINYINT FLOAT DOUBLE 类型以外的 key 列及聚合方法为 REPLACE 的 value 列
 
@@ -305,6 +305,15 @@ under the License.
         )   
 ```
     当 in_memory 属性为 true 时，Doris会尽可能将该表的数据和索引Cache到BE 内存中
+    
+    7) 创建UNIQUE_KEYS表时，可以指定一个sequence列，当KEY列相同时，将按照sequence列进行REPLACE(较大值替换较小值，否则无法替换)
+
+```
+        PROPERTIES (
+            "function_column.sequence_type" = 'Date',
+        );
+```
+    sequence_type用来指定sequence列的类型，可以为整型和时间类型
 ## example
 
 1. 创建一个 olap 表，使用 HASH 分桶，使用列存，相同key的记录进行聚合

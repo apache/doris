@@ -166,6 +166,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setKeysType(keysType.toThrift());
         tSchema.setStorageType(storageType);
         int deleteSign = -1;
+        int sequenceCol = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();
         for (int i = 0; i < columns.size(); i++) {
             Column column = columns.get(i);
@@ -184,9 +185,13 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isDeleteSignColumn()) {
                 deleteSign = i;
             }
+            if (column.isSequenceColumn()) {
+                sequenceCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
+        tSchema.setSequence_col_idx(sequenceCol);
 
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();

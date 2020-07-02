@@ -554,6 +554,7 @@ struct TStreamLoadPutRequest {
     26: optional string json_root
     27: optional Types.TMergeType merge_type
     28: optional string delete_condition
+    29: optional string sequence_col
 }
 
 struct TStreamLoadPutResult {

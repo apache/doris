@@ -119,6 +119,9 @@ public class OlapTable extends Table {
 
     private String colocateGroup;
 
+    private boolean hasSequenceCol;
+    private Type sequenceType;
+
     private TableIndexes indexes;
     
     // In former implementation, base index id is same as table id.
@@ -143,6 +146,8 @@ public class OlapTable extends Table {
         this.indexes = null;
       
         this.tableProperty = null;
+
+        this.hasSequenceCol = false;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
@@ -794,6 +799,42 @@ public class OlapTable extends Table {
     public void setBloomFilterInfo(Set<String> bfColumns, double bfFpp) {
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public void setSequenceInfo(Type type) {
+        this.hasSequenceCol = true;
+        this.sequenceType = type;
+
+        // sequence column is value column with REPLACE aggregate type
+        Column sequenceCol = new Column(Column.SEQUENCE_COL, type, false, AggregateType.REPLACE, false, null, "", false);
+        // add sequence column at last
+        fullSchema.add(sequenceCol);
+        nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            List<Column> schema = indexMeta.getSchema();
+            schema.add(sequenceCol);
+        }
+    }
+
+    public Column getSequenceCol() {
+        for (Column column : getBaseSchema()) {
+            if (column.isSequenceColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public Boolean hasSequenceCol() {
+        return getSequenceCol() != null;
+    }
+
+    public Type getSequenceType() {
+        if (getSequenceCol() == null) {
+            return null;
+        } else {
+            return getSequenceCol().getType();
+        }
     }
 
     public void setIndexes(List<Index> indexes) {
