@@ -710,10 +710,9 @@ Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
     // Transfer resources to _prev_tuple_pool when enough resources have accumulated
     // and the _prev_tuple_pool has already been transfered to an output batch.
 
-    // The memory limit of _curr_tuple_pool is set by the fixed value MAX_TUPLE_POOL_SIZE
+    // The memory limit of _curr_tuple_pool is set by the fixed value 
     // The size is specified as 8MB, which is used in the extremely strict memory limit.
-    // Eg: exec_mem_limit < 100MB may cause memory exeecded limit problem. So change it to half of block size
-    // to prevent the problem.
+    // Eg: exec_mem_limit < 100MB may cause memory exeecded limit problem. So change it to half of max block size to prevent the problem.
     // TODO: Should we keep the buffer of _curr_tuple_pool or release the memory occupied ASAP?
     if (_curr_tuple_pool->total_allocated_bytes() > state->block_mgr2()->max_block_size() / 2 &&
             (_prev_pool_last_result_idx == -1 || _prev_pool_last_window_idx == -1)) {
