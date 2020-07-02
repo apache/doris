@@ -229,6 +229,26 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const StringVa
   return sv;
 }
 
+BooleanVal CastFunctions::cast_to_boolean_val(FunctionContext* ctx, const StringVal& val) {
+    if (val.is_null) {
+        return BooleanVal::null(); 
+    }
+    StringParser::ParseResult result;
+    BooleanVal ret;
+    IntVal int_val = cast_to_int_val(ctx, val);
+    if (!int_val.is_null && int_val.val == 0) {
+        ret.val = false;
+    } else if (!int_val.is_null && int_val.val == 1) {
+        ret.val = true;
+    } else {
+        ret.val = StringParser::string_to_bool(reinterpret_cast<char*>(val.ptr), val.len, &result);
+        if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) { 
+            return BooleanVal::null();
+        }
+    }
+    return ret;
+}
+
 #if 0
 StringVal CastFunctions::CastToChar(FunctionContext* ctx, const StringVal& val) {
   if (val.is_null) return StringVal::null();
