@@ -203,7 +203,7 @@ struct ConvertTypeMapHash {
 class ConvertTypeResolver {
 DECLARE_SINGLETON(ConvertTypeResolver);
 public:
-    const bool get_convert_type_info(const FieldType from_type, const FieldType to_type) const {
+    bool get_convert_type_info(const FieldType from_type, const FieldType to_type) const {
         return _convert_type_set.find(std::make_pair(from_type, to_type)) != _convert_type_set.end();
     }
 
@@ -249,6 +249,8 @@ ConvertTypeResolver::ConvertTypeResolver() {
 
     add_convert_type_mapping<OLAP_FIELD_TYPE_INT, OLAP_FIELD_TYPE_DATE>();
 }
+
+ConvertTypeResolver::~ConvertTypeResolver() {}
 
 bool RowBlockChanger::change_row_block(
         const RowBlock* ref_block,
