@@ -2,8 +2,10 @@
 *.pyc
 be/output
 be/build
+be/build_Release
 be/ut_build
 output
+docs/contents
 docs/.temp
 docs/.vuepress/dist
 docs/node_modules
