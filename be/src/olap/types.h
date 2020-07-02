@@ -112,56 +112,6 @@ private:
 
 extern TypeInfo* get_type_info(FieldType field_type);
 
-class ConvertTypeResolver {
-DECLARE_SINGLETON(ConvertTypeResolver);
-public:
-const bool get_convert_type_info(const FieldType from_type, const FieldType to_type) const {
-        return _convert_type_set.find(std::make_pair(from_type, to_type)) != _convert_type_set.end();
-    }
-
-    template<FieldType from_type, FieldType to_type>
-    void add_convert_type_mapping() {
-        _convert_type_set.emplace(std::make_pair(from_type, to_type));
-    }
-
-private:
-    typedef std::pair<FieldType, FieldType> convert_type_pair;
-    std::unordered_set<convert_type_pair> _convert_type_set;
-
-    DISALLOW_COPY_AND_ASSIGN(ConvertTypeResolver);
-};
-
-ConvertTypeResolver::ConvertTypeResolver() {
-    // supported type convert should annotate in doc:
-    // http://doris.incubator.apache.org/master/zh-CN/sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html#description
-    // from varchar type
-    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_TINYINT>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_SMALLINT>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_INT>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_BIGINT>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_LARGEINT>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_FLOAT>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_DATE>();
-
-    // to varchar type
-    add_convert_type_mapping<OLAP_FIELD_TYPE_TINYINT, OLAP_FIELD_TYPE_VARCHAR>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_SMALLINT, OLAP_FIELD_TYPE_VARCHAR>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_INT, OLAP_FIELD_TYPE_VARCHAR>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_BIGINT, OLAP_FIELD_TYPE_VARCHAR>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_LARGEINT, OLAP_FIELD_TYPE_VARCHAR>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_FLOAT, OLAP_FIELD_TYPE_VARCHAR>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_DOUBLE, OLAP_FIELD_TYPE_VARCHAR>();
-    add_convert_type_mapping<OLAP_FIELD_TYPE_DECIMAL, OLAP_FIELD_TYPE_VARCHAR>();
-
-    add_convert_type_mapping<OLAP_FIELD_TYPE_DATE, OLAP_FIELD_TYPE_DATETIME>();
-
-    add_convert_type_mapping<OLAP_FIELD_TYPE_DATETIME, OLAP_FIELD_TYPE_DATE>();
-
-    add_convert_type_mapping<OLAP_FIELD_TYPE_FLOAT, OLAP_FIELD_TYPE_DOUBLE>();
-
-    add_convert_type_mapping<OLAP_FIELD_TYPE_INT, OLAP_FIELD_TYPE_DATE>();
-}
-
 // support following formats when convert varchar to date
 static const std::vector<std::string> DATE_FORMATS {
     "%Y-%m-%d",
