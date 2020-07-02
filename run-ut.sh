@@ -308,7 +308,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/key_coder_test
 ${DORIS_TEST_BINARY_DIR}/olap/page_cache_test
 ${DORIS_TEST_BINARY_DIR}/olap/hll_test
 ${DORIS_TEST_BINARY_DIR}/olap/selection_vector_test
-${DORIS_TEST_BINARY_DIR}/olap/push_handler_test
+# ${DORIS_TEST_BINARY_DIR}/olap/push_handler_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test

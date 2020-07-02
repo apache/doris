@@ -14,16 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+//
 
-package org.apache.doris.external.elasticsearch;
+#pragma once
 
-import org.apache.doris.common.UserException;
+#include "cctz/time_zone.h"
+#include <re2/re2.h>
 
-public class ExternalDataSourceException extends UserException {
+namespace doris {
 
-    private static final long serialVersionUID = 7912833584319374692L;
+class TimezoneUtils {
+public:
+    static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
-    public ExternalDataSourceException(String msg) {
-        super(msg);
-    }
+public:
+    static const std::string default_time_zone;
+
+private:
+    // RE2 obj is thread safe
+    static RE2 time_zone_offset_format_reg;
+};
 }

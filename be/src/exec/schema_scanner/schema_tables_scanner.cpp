@@ -19,7 +19,7 @@
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
-#include "runtime/datetime_value.h"
+//#include "runtime/datetime_value.h"
 
 namespace doris
 {
@@ -187,7 +187,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
             tuple->set_not_null(_tuple_desc->slots()[14]->null_indicator_offset());
             void *slot = tuple->get_slot(_tuple_desc->slots()[14]->tuple_offset());
             DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
-            time_slot->from_unixtime(create_time, TimezoneDatabase::default_time_zone);
+            time_slot->from_unixtime(create_time, TimezoneUtils::default_time_zone);
         }
 
     }
@@ -204,7 +204,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
             tuple->set_not_null(_tuple_desc->slots()[16]->null_indicator_offset());
             void *slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
             DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
-            time_slot->from_unixtime(check_time, TimezoneDatabase::default_time_zone);
+            time_slot->from_unixtime(check_time, TimezoneUtils::default_time_zone);
         }
     }
     // collation

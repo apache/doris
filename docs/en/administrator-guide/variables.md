@@ -62,7 +62,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 > Note 1: Only ADMIN users can set variable at global-level.
 > Note 2: Global-level variables do not affect variable values in the current session, only variables in new sessions.
 
-Variables that support global-level setting include:
+Variables that support both session-level and global-level setting include:
 
 * `time_zone`
 * `wait_timeout`
@@ -73,6 +73,10 @@ Variables that support global-level setting include:
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+
+Variables that support only global-level setting include:
+
+* `default_rowset_type`
 
 At the same time, variable settings also support constant expressions. Such as:
 

@@ -112,7 +112,11 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
-        '15FunctionContextERKNS1_6IntValERKNS1_9StringValE'],
+        '15FunctionContextERKNS1_6IntValERKNS1_9StringValE',
+        '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE'],
     [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE'],
     [['curtime', 'current_time'], 'TIME', [],
@@ -214,10 +218,18 @@ visible_functions = [
         '15FunctionContextERKNS1_9StringValES6_'],
     [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
-        '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE'],
+        '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE',
+        '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE'],
     [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
-        '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE'],
+        '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE',
+        '_ZN5doris18TimestampFunctions14format_prepareEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
+        '15FunctionContextENS2_18FunctionStateScopeE'],
     [['date', 'to_date'], 'DATE', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7to_dateEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
@@ -229,7 +241,9 @@ visible_functions = [
         '15FunctionContextERKNS1_11DateTimeValE'],
 
     [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
-            '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_'],
+            '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_',
+            '_ZN5doris18TimestampFunctions18convert_tz_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris18TimestampFunctions16convert_tz_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
 
     [['years_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
             '_ZN5doris18TimestampFunctions10years_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],

@@ -23,13 +23,13 @@
 
 #include "common/logging.h"
 #include "util/logging.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
 class DateTimeValueTest : public testing::Test {
 public:
     DateTimeValueTest() {
-        TimezoneDatabase::init();
     }
 
 protected:
@@ -295,15 +295,15 @@ TEST_F(DateTimeValueTest, from_unixtime) {
     char str[MAX_DTVALUE_STR_LEN];
     DateTimeValue value;
 
-    value.from_unixtime(570672000, TimezoneDatabase::default_time_zone);
+    value.from_unixtime(570672000, TimezoneUtils::default_time_zone);
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 08:00:00", str);
     
-    value.from_unixtime(253402271999, TimezoneDatabase::default_time_zone);
+    value.from_unixtime(253402271999, TimezoneUtils::default_time_zone);
     value.to_string(str);
     ASSERT_STREQ("9999-12-31 23:59:59", str);
     
-    value.from_unixtime(0, TimezoneDatabase::default_time_zone);
+    value.from_unixtime(0, TimezoneUtils::default_time_zone);
     value.to_string(str);
     ASSERT_STREQ("1970-01-01 08:00:00", str);
 
@@ -316,26 +316,26 @@ TEST_F(DateTimeValueTest, unix_timestamp) {
     DateTimeValue value;
     int64_t timestamp;
     value.from_date_int64(19691231);
-    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    value.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone);
     ASSERT_EQ(-115200, timestamp);
     value.from_date_int64(19700101);
-    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    value.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone);
     ASSERT_EQ(0 - 28800, timestamp);
     value.from_date_int64(19700102);
-    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    value.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone);
     ASSERT_EQ(86400 - 28800, timestamp);
     value.from_date_int64(19880201000000);
-    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    value.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone);
     ASSERT_EQ(570672000 - 28800, timestamp);
     value.from_date_int64(20380119);
-    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    value.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone);
     ASSERT_EQ(2147472000 - 28800, timestamp);
     value.from_date_int64(20380120);
-    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    value.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone);
     ASSERT_EQ(2147529600, timestamp);
 	
     value.from_date_int64(10000101);
-    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    value.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone);
     ASSERT_EQ(-30610252800, timestamp);
 }
 
