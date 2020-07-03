@@ -17,7 +17,6 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.catalog.Column;
 import org.apache.http.HttpHeaders;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,37 +25,38 @@ import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.map.DeserializationConfig;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
+
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
 public class EsRestClient {
-    
+
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
     private ObjectMapper mapper;
-    
+
     {
         mapper = new ObjectMapper();
         mapper.configure(DeserializationConfig.Feature.USE_ANNOTATIONS, false);
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
-    
+
     private static OkHttpClient networkClient = new OkHttpClient.Builder()
             .readTimeout(10, TimeUnit.SECONDS)
             .build();
-    
+
     private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
     private int currentNodeIndex = 0;
-    
+
     public EsRestClient(String[] nodes, String authUser, String authPassword) {
         this.nodes = nodes;
         this.builder = new Request.Builder();
@@ -66,7 +66,7 @@ public class EsRestClient {
         }
         this.currentNode = nodes[currentNodeIndex];
     }
-    
+
     private void selectNextNode() {
         currentNodeIndex++;
         // reroute, because the previously failed node may have already been restored
@@ -75,8 +75,8 @@ public class EsRestClient {
         }
         currentNode = nodes[currentNodeIndex];
     }
-    
-    public Map<String, EsNodeInfo> getHttpNodes() throws Exception {
+
+    public Map<String, EsNodeInfo> getHttpNodes() throws DorisEsException {
         Map<String, Map<String, Object>> nodesData = get("_nodes/http", "nodes");
         if (nodesData == null) {
             return Collections.emptyMap();
@@ -90,35 +90,67 @@ public class EsRestClient {
         }
         return nodesMap;
     }
-    
-    public EsFieldInfos getFieldInfos(String indexName, String docType, List<Column> colList) throws Exception {
-        String path = indexName + "/_mapping";
-        String indexMapping = execute(path);
-        if (indexMapping == null) {
-            throw new DorisEsException( "index[" + indexName + "] not found for the Elasticsearch Cluster");
+
+    /**
+     * Get remote ES Cluster version
+     *
+     * @return
+     * @throws Exception
+     */
+    public EsMajorVersion version() throws DorisEsException {
+        Map<String, Object> result = get("/", null);
+        if (result == null) {
+            throw new DorisEsException("Unable to retrieve ES main cluster info.");
         }
-        return EsFieldInfos.fromMapping(colList, indexName, indexMapping, docType);
+        Map<String, String> versionBody = (Map<String, String>) result.get("version");
+        return EsMajorVersion.parse(versionBody.get("number"));
     }
 
-    
-    public EsShardPartitions getShardPartitions(String indexName) throws Exception {
+    /**
+     * Get mapping for indexName
+     *
+     * @param indexName
+     * @return
+     * @throws Exception
+     */
+    public String getMapping(String indexName, boolean includeTypeName) throws DorisEsException {
+        String path = indexName + "/_mapping";
+        if (includeTypeName) {
+            path += "?include_type_name=true";
+        }
+        String indexMapping = execute(path);
+        if (indexMapping == null) {
+            throw new DorisEsException("index[" + indexName + "] not found");
+        }
+        return indexMapping;
+    }
+
+
+    /**
+     * Get Shard location
+     *
+     * @param indexName
+     * @return
+     * @throws DorisEsException
+     */
+    public EsShardPartitions searchShards(String indexName) throws DorisEsException {
         String path = indexName + "/_search_shards";
         String searchShards = execute(path);
         if (searchShards == null) {
-            throw new DorisEsException( "index[" + indexName + "] search_shards not found for the Elasticsearch Cluster");
+            throw new DorisEsException("request index [" + indexName + "] search_shards failure");
         }
         return EsShardPartitions.findShardPartitions(indexName, searchShards);
     }
-    
+
     /**
      * execute request for specific path，it will try again nodes.length times if it fails
      *
      * @param path the path must not leading with '/'
      * @return response
      */
-    private String execute(String path) throws Exception {
+    private String execute(String path) throws DorisEsException {
         int retrySize = nodes.length;
-        Exception scratchExceptionForThrow = null;
+        DorisEsException scratchExceptionForThrow = null;
         for (int i = 0; i < retrySize; i++) {
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
@@ -144,7 +176,7 @@ public class EsRestClient {
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
-                scratchExceptionForThrow = e;
+                scratchExceptionForThrow = new DorisEsException(e.getMessage());
             } finally {
                 if (response != null) {
                     response.close();
@@ -158,11 +190,11 @@ public class EsRestClient {
         }
         return null;
     }
-    
-    public <T> T get(String q, String key) throws Exception {
+
+    public <T> T get(String q, String key) throws DorisEsException {
         return parseContent(execute(q), key);
     }
-    
+
     @SuppressWarnings("unchecked")
     private <T> T parseContent(String response, String key) {
         Map<String, Object> map = Collections.emptyMap();
@@ -171,6 +203,7 @@ public class EsRestClient {
             map = mapper.readValue(jsonParser, Map.class);
         } catch (IOException ex) {
             LOG.error("parse es response failure: [{}]", response);
+            throw new DorisEsException(ex.getMessage());
         }
         return (T) (key != null ? map.get(key) : map);
     }

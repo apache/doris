@@ -19,122 +19,94 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+
 import org.json.JSONObject;
-import java.util.HashMap;
+
 import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 
 /**
- * It is used to hold the field information obtained from es, currently including the fields and docValue,
- * it will eventually be added to the EsTable
- **/
-public class EsFieldInfos {
-    
-    private static final Logger LOG = LogManager.getLogger(EsFieldInfos.class);
+ * Get index mapping from remote ES Cluster, and resolved `keyword` and `doc_values` field
+ * Later we can use it to parse all relevant indexes
+ */
+public class MappingPhase implements SearchPhase {
 
-    // userId => userId.keyword
-    private Map<String, String> fieldsContext;
+    private EsRestClient client;
 
-    // city => city.raw
-    private Map<String, String> docValueContext;
-    
-    public EsFieldInfos(Map<String, String> fieldsContext, Map<String, String> docValueContext) {
-        this.fieldsContext = fieldsContext;
-        this.docValueContext = docValueContext;
+    // json response for `{index}/_mapping` API
+    private String jsonMapping;
+
+    private boolean includeTypeName = false;
+
+    public MappingPhase(EsRestClient client) {
+        this.client = client;
     }
-    
-    public Map<String, String> getFieldsContext() {
-        return fieldsContext;
+
+    @Override
+    public void preProcess(SearchContext context) {
+        if (context.version() != null && context.version().onOrAfter(EsMajorVersion.V_7_X)) {
+            includeTypeName = true;
+        }
     }
-    
-    public Map<String, String> getDocValueContext() {
-        return docValueContext;
+
+    @Override
+    public void execute(SearchContext context) throws DorisEsException {
+        jsonMapping = client.getMapping(context.sourceIndex(), includeTypeName);
     }
-    
+
+    @Override
+    public void postProcess(SearchContext context) {
+        resolveFields(context, jsonMapping);
+    }
+
+
     /**
      * Parse the required field information from the json
-     * @param colList table column
-     * @param indexName indexName(alias or really name)
-     * @param indexMapping the return value of _mapping
-     * @param docType The docType used by the index
-     * @return fieldsContext and docValueContext
+     *
+     * @param searchContext the current associated column searchContext
+     * @param indexMapping  the return value of _mapping
+     * @return fetchFieldsContext and docValueFieldsContext
      * @throws Exception
      */
-    public static EsFieldInfos fromMapping(List<Column> colList, String indexName, String indexMapping, String docType) throws DorisEsException {
+    public void resolveFields(SearchContext searchContext, String indexMapping) throws DorisEsException {
         JSONObject jsonObject = new JSONObject(indexMapping);
         // the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keys();
         String docKey = keys.next();
         JSONObject docData = jsonObject.optJSONObject(docKey);
-        //{
-        //  "mappings": {
-        //    "doc": {
-        //      "dynamic": "strict",
-        //      "properties": {
-        //        "time": {
-        //          "type": "long"
-        //        },
-        //        "type": {
-        //          "type": "keyword"
-        //        },
-        //        "userId": {
-        //          "type": "text",
-        //          "fields": {
-        //            "keyword": {
-        //              "type": "keyword"
-        //            }
-        //          }
-        //        }
-        //      }
-        //    }
-        //  }
-        //}
         JSONObject mappings = docData.optJSONObject("mappings");
-        JSONObject rootSchema = mappings.optJSONObject(docType);
+        JSONObject rootSchema = mappings.optJSONObject(searchContext.type());
         JSONObject properties;
-        // no type in es7
+        // After (include) 7.x, type was removed from ES mapping, default type is `_doc`
+        // https://www.elastic.co/guide/en/elasticsearch/reference/7.0/removal-of-types.html
         if (rootSchema == null) {
+            if (searchContext.type().equals("_doc") == false) {
+                throw new DorisEsException("index[" + searchContext.sourceIndex() + "]'s type must be exists, "
+                        + " and after ES7.x type must be `_doc`, but found ["
+                        + searchContext.type() + "], for table ["
+                        + searchContext.esTable().getName() + "]");
+            }
             properties = mappings.optJSONObject("properties");
         } else {
             properties = rootSchema.optJSONObject("properties");
         }
         if (properties == null) {
-            throw new DorisEsException( "index[" + indexName + "] type[" + docType + "] mapping not found for the Elasticsearch Cluster");
+            throw new DorisEsException("index[" + searchContext.sourceIndex() + "] type[" + searchContext.type() + "] mapping not found for the ES Cluster");
         }
-        return parseProperties(colList, properties);
-    }
-
-    // get fields information in properties
-    private static EsFieldInfos parseProperties(List<Column> colList, JSONObject properties) {
-        if (properties == null) {
-            return null;
-        }
-        Map<String, String> fieldsMap = new HashMap<>();
-        Map<String, String> docValueMap = new HashMap<>();
-        for (Column col : colList) {
+        for (Column col : searchContext.columns()) {
             String colName = col.getName();
+            // if column exists in Doris Table but no found in ES's mapping, we choose to ignore this situation?
             if (!properties.has(colName)) {
                 continue;
             }
             JSONObject fieldObject = properties.optJSONObject(colName);
-            String keywordField = getKeywordField(fieldObject, colName);
-            if (StringUtils.isNotEmpty(keywordField)) {
-                fieldsMap.put(colName, keywordField);
-            }
-            String docValueField = getDocValueField(fieldObject, colName);
-            if (StringUtils.isNotEmpty(docValueField)) {
-                docValueMap.put(colName, docValueField);
-            }
+
+            resolveKeywordFields(searchContext, fieldObject, colName);
+            resolveDocValuesFields(searchContext, fieldObject, colName);
         }
-        return new EsFieldInfos(fieldsMap, docValueMap);
     }
 
     // get a field of keyword type in the fields
-    private static String getKeywordField(JSONObject fieldObject, String colName) {
+    private void resolveKeywordFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
         String fieldType = fieldObject.optString("type");
         // string-type field used keyword type to generate predicate
         // if text field type seen, we should use the `field` keyword type?
@@ -145,15 +117,14 @@ public class EsFieldInfos {
                     JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
                     // just for text type
                     if ("keyword".equals(innerTypeObject.optString("type"))) {
-                        return colName + "." + key;
+                        searchContext.fetchFieldsContext().put(colName, colName + "." + key);
                     }
                 }
             }
         }
-        return null;
     }
-    
-    private static String getDocValueField(JSONObject fieldObject, String colName) {
+
+    private void resolveDocValuesFields(SearchContext searchContext, JSONObject fieldObject, String colName) {
         String fieldType = fieldObject.optString("type");
         String docValueField = null;
         if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
@@ -175,16 +146,16 @@ public class EsFieldInfos {
                     }
                 }
             }
-            return docValueField;
-        }
-        // set doc_value = false manually
-        if (fieldObject.has("doc_values")) {
-            boolean docValue = fieldObject.optBoolean("doc_values");
-            if (!docValue) {
-                return docValueField;
+        } else {
+            // set doc_value = false manually
+            if (fieldObject.has("doc_values")) {
+                boolean docValue = fieldObject.optBoolean("doc_values");
+                if (!docValue) {
+                    return;
+                }
             }
+            docValueField = colName;
         }
-        docValueField = colName;
-        return docValueField;
+        searchContext.docValueFieldsContext().put(colName, docValueField);
     }
 }

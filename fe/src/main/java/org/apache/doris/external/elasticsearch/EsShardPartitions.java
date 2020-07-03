@@ -59,7 +59,8 @@ public class EsShardPartitions {
      * @return shardRoutings is used for searching
      */
     public static EsShardPartitions findShardPartitions(String indexName, String searchShards) throws DorisEsException {
-        EsShardPartitions indexState = new EsShardPartitions(indexName);
+
+        EsShardPartitions partitions = new EsShardPartitions(indexName);
         JSONObject jsonObject = new JSONObject(searchShards);
         JSONArray shards = jsonObject.getJSONArray("shards");
         int length = shards.length();
@@ -87,9 +88,9 @@ public class EsShardPartitions {
             if (singleShardRouting.isEmpty()) {
                 LOG.warn("could not find a healthy allocation for [{}][{}]", indexName, i);
             }
-            indexState.addShardRouting(i, singleShardRouting);
+            partitions.addShardRouting(i, singleShardRouting);
         }
-        return indexState;
+        return partitions;
     }
 
     public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo) {
