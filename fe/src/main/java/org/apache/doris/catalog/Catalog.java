@@ -1546,6 +1546,7 @@ public class Catalog {
             isDefaultClusterCreated = dis.readBoolean();
         }
 
+        LOG.info("finished replay header from image");
         return newChecksum;
     }
 
@@ -1556,6 +1557,7 @@ public class Catalog {
         masterHttpPort = dis.readInt();
         newChecksum ^= masterHttpPort;
 
+        LOG.info("finished replay masterInfo from image");
         return newChecksum;
     }
 
@@ -1580,6 +1582,7 @@ public class Catalog {
             }
             return newChecksum;
         }
+        LOG.info("finished replay frontends from image");
         return checksum;
     }
 
@@ -1597,7 +1600,7 @@ public class Catalog {
             }
             globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
         }
-
+        LOG.info("finished replay databases from image");
         return newChecksum;
     }
 
@@ -1683,6 +1686,7 @@ public class Catalog {
             }
         }
 
+        LOG.info("finished replay loadJob from image");
         return newChecksum;
     }
 
@@ -1699,7 +1703,7 @@ public class Catalog {
                 exportMgr.unprotectAddJob(job);
             }
         }
-
+        LOG.info("finished replay exportJob from image");
         return newChecksum;
     }
 
@@ -1714,6 +1718,7 @@ public class Catalog {
                 newChecksum = loadAlterJob(dis, newChecksum, type);
             }
         }
+        LOG.info("finished replay alterJob from image");
         return newChecksum;
     }
 
@@ -1800,6 +1805,7 @@ public class Catalog {
             getBackupHandler().readFields(dis);
         }
         getBackupHandler().setCatalog(this);
+        LOG.info("finished replay backupHandler from image");
         return checksum;
     }
 
@@ -1812,6 +1818,7 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_82) {
             this.deleteHandler = DeleteHandler.read(dis);
         }
+        LOG.info("finished replay deleteHandler from image");
         return checksum;
     }
 
@@ -1825,6 +1832,7 @@ public class Catalog {
             // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
             auth.readFields(dis);
         }
+        LOG.info("finished replay paloAuth from image");
         return checksum;
     }
 
@@ -1833,6 +1841,7 @@ public class Catalog {
             int size = dis.readInt();
             long newChecksum = checksum ^ size;
             globalTransactionMgr.readFields(dis);
+            LOG.info("finished replay transactionState from image");
             return newChecksum;
         }
         return checksum;
@@ -1851,6 +1860,7 @@ public class Catalog {
                 globalTransactionMgr.addDatabaseTransactionMgr(dbId);
             }
         }
+        LOG.info("finished replay recycleBin from image");
         return checksum;
     }
 
@@ -1858,6 +1868,7 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
             Catalog.getCurrentColocateIndex().readFields(dis);
         }
+        LOG.info("finished replay colocateTableIndex from image");
         return checksum;
     }
 
@@ -1865,6 +1876,7 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
             Catalog.getCurrentCatalog().getRoutineLoadManager().readFields(dis);
         }
+        LOG.info("finished replay routineLoadJobs from image");
         return checksum;
     }
 
@@ -1872,6 +1884,7 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
             loadManager.readFields(in);
         }
+        LOG.info("finished replay loadJobsV2 from image");
         return checksum;
     }
 
@@ -1887,6 +1900,7 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
             smallFileMgr.readFields(in);
         }
+        LOG.info("finished replay smallFiles from image");
         return checksum;
     }
 
@@ -2190,6 +2204,7 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
             VariableMgr.read(in);
         }
+        LOG.info("finished replay globalVariable from image");
         return checksum;
     }
 
@@ -6101,6 +6116,7 @@ public class Catalog {
                 nameToCluster.put(cluster.getName(), cluster);
             }
         }
+        LOG.info("finished replay cluster from image");
         return checksum;
     }
 
@@ -6650,7 +6666,7 @@ public class Catalog {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_78) {
             Catalog.getCurrentPluginMgr().readFields(dis);
         }
-
+        LOG.info("finished replay plugins from image");
         return checksum;
     }
 
