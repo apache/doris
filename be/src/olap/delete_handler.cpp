@@ -100,6 +100,11 @@ string DeleteConditionHandler::construct_sub_predicates(const TCondition& condit
     if ("IS" == op) {
         condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
     } else {
+        if (op == "*=") {
+            op = "=";
+        } else if (op == "!*=") {
+            op = "!=";
+        }
         condition_str = condition.column_name + op + condition.condition_values[0];
     }
     return condition_str;
@@ -194,7 +199,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     try {
         // Condition string format
         const char* const CONDITION_STR_PATTERN =
-                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:!\*=)|(?:IS))\s*((?:[\S ]+)?))";
+                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*((?:[\S ]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {

@@ -88,11 +88,13 @@ public:
     }
 
     CondOp op;
-    // valid when op is not OP_IN
+    // valid when op is not OP_IN and OP_NOT_IN
     WrapperField* operand_field;
-    // valid when op is OP_IN
+    // valid when op is OP_IN or OP_NOT_IN
     typedef std::unordered_set<const WrapperField*, FieldHash, FieldEqual> FieldSet;
     FieldSet operand_set;
+    WrapperField* min_value_field;
+    WrapperField* max_value_field;
 };
 
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上

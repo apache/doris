@@ -84,7 +84,7 @@ static CondOp parse_op_type(const string& op) {
     return OP_NULL;
 }
 
-Cond::Cond() : op(OP_NULL), operand_field(nullptr) {
+Cond::Cond() : op(OP_NULL), operand_field(nullptr), min_value_field(nullptr), max_value_field(nullptr) {
 }
 
 Cond::~Cond() {
@@ -92,6 +92,8 @@ Cond::~Cond() {
     for (auto& it : operand_set) {
         delete it;
     }
+    min_value_field = nullptr;
+    max_value_field = nullptr;
 }
 
 OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
@@ -146,6 +148,14 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
                                  tcond.column_name.c_str(), operand.c_str(), op);
                 return res;
             }
+            if (min_value_field == nullptr || f->cmp(min_value_field) > 0) {
+                min_value_field = f.get();
+            }
+
+            if (max_value_field == nullptr || f->cmp(max_value_field) < 0) {
+                max_value_field = f.get();
+            }
+
             auto insert_reslut = operand_set.insert(f.get());
             if (!insert_reslut.second) {
                 LOG(WARNING) << "Duplicate operand in in-predicate.[condition=" << operand << "]";
@@ -179,21 +189,10 @@ bool Cond::eval(const RowCursorCell& cell) const {
         return operand_field->field()->compare_cell(*operand_field, cell) < 0;
     case OP_GE:
         return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
-    case OP_IN: {
-        for (const WrapperField* field : operand_set) {
-            if (field->field()->compare_cell(*field, cell) == 0) {
-                return true;
-            }
-        }
-        return false;
-    }
+    case OP_IN:
+        return operand_set.find((const WrapperField*) &cell) != operand_set.end();
     case OP_NOT_IN: {
-        for (const WrapperField* field : operand_set) {
-            if (field->field()->compare_cell(*field, cell) == 0) {
-                return false;
-            }
-        }
-        return true;
+        return operand_set.find((const WrapperField*) &cell) == operand_set.end();
     }
     case OP_IS: {
         return operand_field->is_null() == cell.is_null();
@@ -236,24 +235,11 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         return operand_field->cmp(statistic.second) <= 0;
     }
     case OP_IN: {
-        FieldSet::const_iterator it = operand_set.begin();
-        for (; it != operand_set.end(); ++it) {
-            if ((*it)->cmp(statistic.first) >= 0
-                    && (*it)->cmp(statistic.second) <= 0) {
-                return true;
-            }
-        }
-        break;
+        return (min_value_field->cmp(statistic.first) >= 0 && min_value_field->cmp(statistic.second) <= 0) ||
+                (max_value_field->cmp(statistic.first) >= 0 && max_value_field->cmp(statistic.second) <= 0);
     }
     case OP_NOT_IN: {
-        FieldSet::const_iterator it = operand_set.begin();
-        for (; it != operand_set.end(); ++it) {
-            if ((*it)->cmp(statistic.first) == 0
-                && (*it)->cmp(statistic.second) == 0) {
-                return false;
-            }
-        }
-        return true;
+        return min_value_field->cmp(statistic.second) > 0 || max_value_field->cmp(statistic.first) < 0;
     }
     case OP_IS: {
         if (operand_field->is_null()) {
