@@ -860,7 +860,9 @@ Status AnalyticEvalNode::close(RuntimeState* state) {
         _input_stream->close();
     }
 
-    state->block_mgr2()->clear_reservations(client_);
+    if (client_ != nullptr) {
+        state->block_mgr2()->clear_reservations(client_);
+    }
     // Close all evaluators and fn ctxs. If an error occurred in Init or rrepare there may
     // be fewer ctxs than evaluators. We also need to Finalize if _curr_tuple was created
     // in Open.
