@@ -37,14 +37,18 @@
 #include "util/uid_util.h"
 #include "util/stack_util.h"
 
+using boost::join;
 using std::deque;
 using std::endl;
 using std::greater;
+using std::list;
 using std::pair;
 using std::priority_queue;
 using std::shared_ptr;
 using std::string;
+using std::unique_ptr;
 using std::vector;
+using std::weak_ptr;
 using strings::Substitute;
 
 namespace doris {
@@ -66,7 +70,7 @@ static std::shared_ptr<MemTracker> root_tracker;
 static GoogleOnceType root_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::CreateRootTracker() {
-  root_tracker = MemTracker::CreateTracker(-1, "root", std::shared_ptr<MemTracker>());
+  root_tracker.reset(new MemTracker(-1, "root", std::shared_ptr<MemTracker>()));
   root_tracker->Init();
 }
 
@@ -81,7 +85,7 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(
   } else {
       real_parent = GetRootTracker();
   }
-  shared_ptr<MemTracker> tracker = std:move(MemTracker::CreateTracker(byte_limit, label, real_parent, log_usage_if_zero));
+  shared_ptr<MemTracker> tracker(new MemTracker(byte_limit, label, real_parent, log_usage_if_zero));
   real_parent->AddChildTracker(tracker);
   tracker->Init();
 
@@ -98,62 +102,62 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(
   } else {
       real_parent = GetRootTracker();
   }
-  shared_ptr<MemTracker> tracker = std::move(MemTracker::CreateTracker(profile, byte_limit, label, real_parent));
+  shared_ptr<MemTracker> tracker(new MemTracker(profile, byte_limit, label, real_parent));
   real_parent->AddChildTracker(tracker);
   tracker->Init();
 
   return tracker;
 }
 
-MemTracker::MemTracker(
-    int64_t byte_limit, const string& label, const std::shared_ptr<MemTracker>& parent, bool auto_unregister, bool log_usage_if_zero)
-  : limit_(byte_limit),
-    soft_limit_(CalcSoftLimit(byte_limit)),
-    label_(label),
-    parent_(parent),
-    consumption_(&local_counter_),
-    local_counter_(TUnit::BYTES),
-    consumption_metric_(nullptr),
-    log_usage_if_zero_(log_usage_if_zero),
-    num_gcs_metric_(nullptr),
-    bytes_freed_by_last_gc_metric_(nullptr),
-    bytes_over_limit_metric_(nullptr),
-    limit_metric_(nullptr) {
-  Init();
+MemTracker::MemTracker(int64_t byte_limit, const string& label,
+                       const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero)
+        : limit_(byte_limit),
+          soft_limit_(CalcSoftLimit(byte_limit)),
+          label_(label),
+          parent_(parent),
+          consumption_(&local_counter_),
+          local_counter_(TUnit::BYTES),
+          consumption_metric_(nullptr),
+          log_usage_if_zero_(log_usage_if_zero),
+          num_gcs_metric_(nullptr),
+          bytes_freed_by_last_gc_metric_(nullptr),
+          bytes_over_limit_metric_(nullptr),
+          limit_metric_(nullptr) {
+    Init();
 }
 
-MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit,
-    const std::string& label, const std::shared_ptr<MemTracker>& parent)
-  : limit_(byte_limit),
-    soft_limit_(CalcSoftLimit(byte_limit)),
-    label_(label),
-    parent_(parent),
-    consumption_(profile->AddHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES)),
-    local_counter_(TUnit::BYTES),
-    consumption_metric_(nullptr),
-    log_usage_if_zero_(true),
-    num_gcs_metric_(nullptr),
-    bytes_freed_by_last_gc_metric_(nullptr),
-    bytes_over_limit_metric_(nullptr),
-    limit_metric_(nullptr) {
-  Init();
+MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit, const std::string& label,
+                       const std::shared_ptr<MemTracker>& parent)
+        : limit_(byte_limit),
+          soft_limit_(CalcSoftLimit(byte_limit)),
+          label_(label),
+          parent_(parent),
+          consumption_(profile->AddHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES)),
+          local_counter_(TUnit::BYTES),
+          consumption_metric_(nullptr),
+          log_usage_if_zero_(true),
+          num_gcs_metric_(nullptr),
+          bytes_freed_by_last_gc_metric_(nullptr),
+          bytes_over_limit_metric_(nullptr),
+          limit_metric_(nullptr) {
+    Init();
 }
 
-MemTracker::MemTracker(IntGauge* consumption_metric,
-    int64_t byte_limit, const string& label, const std::shared_ptr<MemTracker>& parent)
-  : limit_(byte_limit),
-    soft_limit_(CalcSoftLimit(byte_limit)),
-    label_(label),
-    parent_(parent),
-    consumption_(&local_counter_),
-    local_counter_(TUnit::BYTES),
-    consumption_metric_(consumption_metric),
-    log_usage_if_zero_(true),
-    num_gcs_metric_(nullptr),
-    bytes_freed_by_last_gc_metric_(nullptr),
-    bytes_over_limit_metric_(nullptr),
-    limit_metric_(nullptr) {
-  Init();
+MemTracker::MemTracker(IntGauge* consumption_metric, int64_t byte_limit, const string& label,
+                       const std::shared_ptr<MemTracker>& parent)
+        : limit_(byte_limit),
+          soft_limit_(CalcSoftLimit(byte_limit)),
+          label_(label),
+          parent_(parent),
+          consumption_(&local_counter_),
+          local_counter_(TUnit::BYTES),
+          consumption_metric_(consumption_metric),
+          log_usage_if_zero_(true),
+          num_gcs_metric_(nullptr),
+          bytes_freed_by_last_gc_metric_(nullptr),
+          bytes_over_limit_metric_(nullptr),
+          limit_metric_(nullptr) {
+    Init();
 }
 
 void MemTracker::Init() {
@@ -208,9 +212,15 @@ int64_t MemTracker::GetPoolMemReserved() {
   DCHECK(!pool_name_.empty());
   DCHECK_EQ(limit_, -1) << LogUsage(UNLIMITED_DEPTH);
 
+  // Use cache to avoid holding child_trackers_lock_
+  list<weak_ptr<MemTracker>> children;
+  {
+    lock_guard<SpinLock> l(child_trackers_lock_);
+    children = child_trackers_;
+  }
+
   int64_t mem_reserved = 0L;
-  lock_guard<SpinLock> l(child_trackers_lock_);
-  for (const auto& child_weak : child_trackers_) {
+  for (const auto& child_weak : children) {
     std::shared_ptr<MemTracker> child = child_weak.lock();
     if (child) {
       int64_t child_limit = child->limit();
@@ -220,7 +230,7 @@ int64_t MemTracker::GetPoolMemReserved() {
         mem_reserved += std::min(child_limit, MemInfo::physical_mem());
       } else {
         DCHECK(query_exec_finished || child_limit == -1)
-                    << child->LogUsage(UNLIMITED_DEPTH);
+            << child->LogUsage(UNLIMITED_DEPTH);
         mem_reserved += child->consumption();
       }
     }
@@ -244,7 +254,7 @@ MemTracker* PoolMemTrackerRegistry::GetRequestPoolMemTracker(
       new MemTracker(-1, Substitute(REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT, pool_name),
           ExecEnv::GetInstance()->process_mem_tracker());
   tracker->pool_name_ = pool_name;
-  pool_to_mem_trackers_.emplace(pool_name, std::unique_ptr<MemTracker>(tracker));
+  pool_to_mem_trackers_.emplace(pool_name, unique_ptr<MemTracker>(tracker));
   return tracker;
 }
 
@@ -273,13 +283,15 @@ void MemTracker::ListTrackers(vector<shared_ptr<MemTracker>>* trackers) {
     to_process.pop_back();
 
     trackers->push_back(t);
+    list<weak_ptr<MemTracker>> children;
     {
       lock_guard<SpinLock> l(t->child_trackers_lock_);
-      for (const auto& child_weak : t->child_trackers_) {
-        shared_ptr<MemTracker> child = child_weak.lock();
-        if (child) {
-          to_process.emplace_back(std::move(child));
-        }
+      children = t->child_trackers_;
+    }
+    for (const auto& child_weak : children) {
+      shared_ptr<MemTracker> child = child_weak.lock();
+      if (child) {
+        to_process.emplace_back(std::move(child));
       }
     }
   }
@@ -380,11 +392,12 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
   string new_prefix = Substitute("  $0", prefix);
   int64_t child_consumption;
   string child_trackers_usage;
+  list<weak_ptr<MemTracker>> children;
   {
     lock_guard<SpinLock> l(child_trackers_lock_);
-    child_trackers_usage = LogUsage(max_recursive_depth - 1, new_prefix,
-        child_trackers_, &child_consumption);
+    children = child_trackers_;
   }
+  child_trackers_usage = LogUsage(max_recursive_depth - 1, new_prefix, children, &child_consumption);
   if (!child_trackers_usage.empty()) ss << "\n" << child_trackers_usage;
 
   if (parent_ == nullptr) {
@@ -401,20 +414,20 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
 }
 
 string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
-    const std::list<std::weak_ptr<MemTracker>>& trackers, int64_t* logged_consumption) {
+    const list<weak_ptr<MemTracker>>& trackers, int64_t* logged_consumption) {
   *logged_consumption = 0;
   vector<string> usage_strings;
   for (const auto& tracker_weak : trackers) {
-    std::shared_ptr<MemTracker> tracker = tracker_weak.lock();
+    shared_ptr<MemTracker> tracker = tracker_weak.lock();
     if (tracker) {
       int64_t tracker_consumption;
       string usage_string = tracker->LogUsage(max_recursive_depth, prefix,
-                                              &tracker_consumption);
+          &tracker_consumption);
       if (!usage_string.empty()) usage_strings.push_back(usage_string);
       *logged_consumption += tracker_consumption;
     }
   }
-  return boost::join(usage_strings, "\n");
+  return join(usage_strings, "\n");
 }
 
 string MemTracker::LogTopNQueries(int limit) {
@@ -430,16 +443,20 @@ string MemTracker::LogTopNQueries(int limit) {
     min_pq.pop();
   }
   std::reverse(usage_strings.begin(), usage_strings.end());
-  return boost::join(usage_strings, "\n");
+  return join(usage_strings, "\n");
 }
 
 void MemTracker::GetTopNQueries(
     priority_queue<pair<int64_t, string>, vector<pair<int64_t, string>>,
         greater<pair<int64_t, string>>>& min_pq,
     int limit) {
-  lock_guard<SpinLock> l(child_trackers_lock_);
-  for (const auto& child_weak : child_trackers_) {
-    std::shared_ptr<MemTracker> child = child_weak.lock();
+  list<weak_ptr<MemTracker>> children;
+  {
+    lock_guard<SpinLock> l(child_trackers_lock_);
+    children = child_trackers_;
+  }
+  for (const auto& child_weak : children) {
+    shared_ptr<MemTracker> child = child_weak.lock();
     if (child) {
       if (!child->is_query_mem_tracker_) {
         child->GetTopNQueries(min_pq, limit);
@@ -463,7 +480,7 @@ Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
     const std::string& details, int64_t failed_allocation_size) {
   DCHECK_GE(failed_allocation_size, 0);
   stringstream ss;
-  if (details.size() != 0) ss << details << endl;
+  if (!details.empty()) ss << details << endl;
   if (failed_allocation_size != 0) {
     if (mtracker != nullptr) ss << mtracker->label();
     ss << " could not allocate "
