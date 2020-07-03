@@ -81,10 +81,6 @@ public class EsTable extends Table {
 
     private Map<String, String> tableContext = new HashMap<>();
 
-    private Map<String, String> docValueContext = new HashMap<>();
-
-    private Map<String, String> fieldsContext = new HashMap<>();
-
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
     private Throwable lastMetaDataSyncException = null;
 
