@@ -397,7 +397,7 @@ Status BrokerScanNode::scanner_scan(
             if (_runtime_state->is_cancelled()) {
                 return Status::Cancelled("Cancelled");
             }
-            // Queue size Must be samller than _max_buffered_batches
+            // Queue size Must be smaller than _max_buffered_batches
             _batch_queue.push_back(row_batch);
 
             // Notify reader to 
