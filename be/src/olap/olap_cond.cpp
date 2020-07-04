@@ -189,10 +189,17 @@ bool Cond::eval(const RowCursorCell& cell) const {
         return operand_field->field()->compare_cell(*operand_field, cell) < 0;
     case OP_GE:
         return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
-    case OP_IN:
-        return operand_set.find((const WrapperField*) &cell) != operand_set.end();
+    case OP_IN: {
+        WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
+        auto ret = operand_set.find(&wrapperField) != operand_set.end();
+        wrapperField.release_field_and_cell();
+        return ret;
+    }
     case OP_NOT_IN: {
-        return operand_set.find((const WrapperField*) &cell) == operand_set.end();
+        WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
+        auto ret = operand_set.find(&wrapperField) == operand_set.end();
+        wrapperField.release_field_and_cell();
+        return ret;
     }
     case OP_IS: {
         return operand_field->is_null() == cell.is_null();
