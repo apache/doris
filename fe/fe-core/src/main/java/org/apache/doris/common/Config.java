@@ -889,7 +889,7 @@ public class Config extends ConfigBase {
      * if this is set to true, all load job will check db data quota when call begin txn api
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_check_data_quota_on_load = false;
+    public static boolean enable_check_data_quota_on_load = true;
 
     /*
      * One master daemon thread will update database used data quota for db txn manager every db_used_data_quota_update_interval_secs

@@ -250,7 +250,7 @@ public class DatabaseTransactionMgr {
                                  TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         if (Config.enable_check_data_quota_on_load) {
-           checkDatabaseDataQuota();
+            checkDatabaseDataQuota();
         }
 
         writeLock();
