@@ -127,6 +127,9 @@ public:
         return _del_conds.empty();
     }
 
+    // 返回handler中存有的所有删除条件的版本号
+    std::vector<int32_t> get_conds_version();
+
     // 销毁handler对象
     void finalize();
 

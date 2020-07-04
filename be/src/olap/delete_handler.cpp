@@ -316,6 +316,17 @@ bool DeleteHandler::is_filter_data(const int32_t data_version,
     return false;
 }
 
+vector<int32_t> DeleteHandler::get_conds_version() {
+    vector<int32_t> conds_version;
+    vector<DeleteConditions>::const_iterator cond_iter = _del_conds.begin();
+
+    for (; cond_iter != _del_conds.end(); ++cond_iter) {
+        conds_version.push_back(cond_iter->filter_version);
+    }
+
+    return conds_version;
+}
+
 void DeleteHandler::finalize() {
     if (!_is_inited) {
         return;
