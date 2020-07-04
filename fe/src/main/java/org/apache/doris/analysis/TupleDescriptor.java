@@ -313,4 +313,22 @@ public class TupleDescriptor {
                 .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
                 .toString();
     }
+
+    public String getExplainString() {
+        StringBuilder builder = new StringBuilder();
+        String prefix = "  ";
+        String tblStr = (getTable() == null ? "null" : getTable().getName());
+
+        builder.append(MoreObjects.toStringHelper(this)
+                .add("id", id.asInt())
+                .add("tbl", tblStr)
+                .add("byteSize", byteSize)
+                .add("materialized", isMaterialized)
+                .toString());
+        builder.append("\n");
+        for (SlotDescriptor slot : slots) {
+            builder.append(slot.getExplainString(prefix)).append("\n");
+        }
+        return builder.toString();
+    }
 }

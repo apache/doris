@@ -175,4 +175,14 @@ public class DescriptorTable {
         out.append("\n ");
         return out.toString();
     }
+
+    public String getExplainString() {
+        StringBuilder out = new StringBuilder();
+        out.append("tuples:\n");
+        for (TupleDescriptor desc : tupleDescs.values()) {
+            out.append(desc.getExplainString() + "\n");
+        }
+        out.append("\n ");
+        return out.toString();
+    }
 }
