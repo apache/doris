@@ -347,28 +347,30 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
         return ret;
     }
     case OP_IN: {
-        FieldSet::const_iterator it = operand_set.begin();
-        for (; it != operand_set.end(); ++it) {
-            if ((*it)->cmp(stat.first) >= 0
-                && (*it)->cmp(stat.second) <= 0) {
-                if (stat.first->cmp(stat.second) == 0) {
-                    ret = DEL_SATISFIED;
-                } else {
-                    ret = DEL_PARTIAL_SATISFIED;
-                }
-                break;
+        if (stat.first->cmp(stat.second) == 0) {
+            if (operand_set.find(stat.first) != operand_set.end()) {
+                ret = DEL_SATISFIED;
+            } else {
+                ret = DEL_NOT_SATISFIED;
+            }
+        } else {
+            if ((min_value_field->cmp(stat.first) >= 0 && min_value_field->cmp(stat.second) <= 0) ||
+                (max_value_field->cmp(stat.first) >= 0 && max_value_field->cmp(stat.second) <= 0)) {
+                ret = DEL_PARTIAL_SATISFIED;
             }
         }
         return ret;
     }
     case OP_NOT_IN: {
-        ret = DEL_PARTIAL_SATISFIED;
-        FieldSet::const_iterator it = operand_set.begin();
-        for (; it != operand_set.end(); ++it) {
-            if ((*it)->cmp(stat.first) == 0
-                && (*it)->cmp(stat.second) == 0) {
-                    ret = DEL_NOT_SATISFIED;
-                    break;
+        if (stat.first->cmp(stat.second) == 0) {
+            if (operand_set.find(stat.first) == operand_set.end()) {
+                ret = DEL_SATISFIED;
+            } else {
+                ret = DEL_NOT_SATISFIED;
+            }
+        } else {
+            if (min_value_field->cmp(stat.second) > 0 || max_value_field->cmp(stat.first) < 0) {
+                ret = DEL_PARTIAL_SATISFIED;
             }
         }
         return ret;
