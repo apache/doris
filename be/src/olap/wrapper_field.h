@@ -37,7 +37,7 @@ public:
     WrapperField(Field* rep, size_t variable_len, bool is_string_type);
 
     // only used to wrapped content of row cursor cell to find element in wrapped field set
-    // do not delete rep and field_buf, should call release_field_and_cell before deconstructed
+    // do not delete rep, should call release_field before deconstructed
     WrapperField(Field* rep, const RowCursorCell& row_cursor_cell);
 
     virtual ~WrapperField() {
@@ -98,9 +98,8 @@ public:
     const Field* field() const { return _rep; }
 
     // should be only called by WrapperField which constructed by RowCursorCell
-    void release_field_and_cell() {
+    void release_field() {
         _rep = nullptr;
-        _field_buf = nullptr;
     }
 
     int cmp(const WrapperField* field) const {

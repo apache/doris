@@ -192,13 +192,13 @@ bool Cond::eval(const RowCursorCell& cell) const {
     case OP_IN: {
         WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
         auto ret = operand_set.find(&wrapperField) != operand_set.end();
-        wrapperField.release_field_and_cell();
+        wrapperField.release_field();
         return ret;
     }
     case OP_NOT_IN: {
         WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
         auto ret = operand_set.find(&wrapperField) == operand_set.end();
-        wrapperField.release_field_and_cell();
+        wrapperField.release_field();
         return ret;
     }
     case OP_IS: {
