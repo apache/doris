@@ -66,7 +66,7 @@ public class AlterTableStmtTest {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         ops.add(new DropColumnClause("col2", "", null));
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops, true);
         stmt.analyze(analyzer);
         Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` DROP COLUMN `col1`, \nDROP COLUMN `col2`",
                 stmt.toSql());
@@ -79,7 +79,7 @@ public class AlterTableStmtTest {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "testTbl", null));
         ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "testTbl", null));
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops, true);
         stmt.analyze(analyzer);
         Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n" +
                         " `index2` (`col2`, `col3`) FROM `testTbl`",
@@ -92,7 +92,7 @@ public class AlterTableStmtTest {
     public void testNoTable() throws AnalysisException, UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
-        AlterTableStmt stmt = new AlterTableStmt(null, ops);
+        AlterTableStmt stmt = new AlterTableStmt(null, ops, true);
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
@@ -101,7 +101,7 @@ public class AlterTableStmtTest {
     @Test(expected = AnalysisException.class)
     public void testNoClause() throws AnalysisException, UserException {
         List<AlterClause> ops = Lists.newArrayList();
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops, true);
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");

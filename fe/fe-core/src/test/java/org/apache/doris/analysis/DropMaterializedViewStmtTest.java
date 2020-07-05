@@ -39,7 +39,7 @@ public class DropMaterializedViewStmtTest {
 
     @Test
     public void testEmptyMVName(@Injectable TableName tableName) {
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "", tableName);
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "", tableName, true);
         try {
             stmt.analyze(analyzer);
             Assert.fail();
@@ -57,7 +57,7 @@ public class DropMaterializedViewStmtTest {
                 result = false;
             }
         };
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", tableName);
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", tableName, true);
         try {
             stmt.analyze(analyzer);
             Assert.fail();

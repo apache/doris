@@ -30,10 +30,12 @@ import java.util.List;
 public class AlterTableStmt extends DdlStmt {
     private TableName tbl;
     private List<AlterClause> ops;
+    private boolean needCheckCommitedTxns;
 
-    public AlterTableStmt(TableName tbl, List<AlterClause> ops) {
+    public AlterTableStmt(TableName tbl, List<AlterClause> ops, boolean needCheckCommitedTxns) {
         this.tbl = tbl;
         this.ops = ops;
+        this.needCheckCommitedTxns = needCheckCommitedTxns;
     }
 
     public void setTableName(String newTableName) {
@@ -46,6 +48,10 @@ public class AlterTableStmt extends DdlStmt {
 
     public List<AlterClause> getOps() {
         return ops;
+    }
+
+    public boolean isNeedCheckCommitedTxns() {
+        return needCheckCommitedTxns;
     }
 
 

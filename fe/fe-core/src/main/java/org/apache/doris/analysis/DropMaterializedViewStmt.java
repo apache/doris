@@ -41,11 +41,13 @@ public class DropMaterializedViewStmt extends DdlStmt {
     private String mvName;
     private TableName tableName;
     private boolean ifExists;
+    private boolean needCheckCommitedTxns;
 
-    public DropMaterializedViewStmt(boolean ifExists, String mvName, TableName tableName) {
+    public DropMaterializedViewStmt(boolean ifExists, String mvName, TableName tableName, boolean needCheckCommitedTxns) {
         this.mvName = mvName;
         this.tableName = tableName;
         this.ifExists = ifExists;
+        this.needCheckCommitedTxns = needCheckCommitedTxns;
     }
 
     public String getMvName() {
@@ -58,6 +60,10 @@ public class DropMaterializedViewStmt extends DdlStmt {
 
     public boolean isIfExists() {
         return ifExists;
+    }
+
+    public boolean isNeedCheckCommitedTxns() {
+        return needCheckCommitedTxns;
     }
 
     @Override
