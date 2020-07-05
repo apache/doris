@@ -275,7 +275,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges delete_condition_row_ranges = RowRanges::create_single(0);
         for (auto& delete_column_condition : delete_condition->columns()) {
             const int32_t cid = delete_column_condition.first;
-            CondColumn* column_cond = _opts.conditions->get_column(cid);
+            CondColumn* column_cond = nullptr;
+            if (_opts.conditions != nullptr) {
+                column_cond = _opts.conditions->get_column(cid);
+            }
             RowRanges single_delete_condition_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(
                     _column_iterators[cid]->get_row_ranges_by_zone_map(
