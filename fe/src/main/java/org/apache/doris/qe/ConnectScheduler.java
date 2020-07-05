@@ -32,9 +32,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // 查询请求的调度器
@@ -53,14 +54,14 @@ public class ConnectScheduler {
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
     //    Let timeout is 10m, and 5000 qps, then there are up to 3000000 tasks in scheduler.
     // 2. Use a thread to poll maybe lose some accurate, but is enough to us.
-    private Timer checkTimer;
+    private ScheduledExecutorService checkTimer = ThreadPoolManager.newScheduledThreadPool(1,
+            "Connect-Scheduler-Check-Timer");
 
     public ConnectScheduler(int maxConnections) {
         this.maxConnections = maxConnections;
         numberConnection = 0;
         nextConnectionId = new AtomicInteger(0);
-        checkTimer = new Timer("ConnectScheduler Check Timer", true);
-        checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000);
+        checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000L, TimeUnit.MILLISECONDS);
     }
 
     private class TimeoutChecker extends TimerTask {
