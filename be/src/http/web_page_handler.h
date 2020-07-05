@@ -45,7 +45,6 @@ public:
 
     void handle(HttpRequest *req) override;
 
-
     // Register a route 'path'.
     // If 'is_on_nav_bar' is true, a link to the page will be placed on the navbar
     // in the header of styled pages. The link text is given by 'alias'.
