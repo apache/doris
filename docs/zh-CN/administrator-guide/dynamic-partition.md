@@ -106,7 +106,11 @@ under the License.
 * `dynamic_partition.buckets`
 
     动态创建的分区所对应的分桶数量。
-    
+  
+* `dynamic_partition.replication_num`
+
+    动态创建的分区所对应的副本数量，如果不填写，则默认为该表创建时指定的副本数量。
+
 * `dynamic_partition.start_day_of_week`
 
     当 `time_unit` 为 `WEEK` 时，该参数用于指定每周的起始点。取值为 1 到 7。其中 1 表示周一，7 表示周日。默认为 1，即表示每周以周一为起始点。
