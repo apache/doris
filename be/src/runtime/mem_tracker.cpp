@@ -109,55 +109,49 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(
   return tracker;
 }
 
-MemTracker::MemTracker(int64_t byte_limit, const string& label,
-                       const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero)
-        : limit_(byte_limit),
-          soft_limit_(CalcSoftLimit(byte_limit)),
-          label_(label),
-          parent_(parent),
-          consumption_(&local_counter_),
-          local_counter_(TUnit::BYTES),
-          consumption_metric_(nullptr),
-          log_usage_if_zero_(log_usage_if_zero),
-          num_gcs_metric_(nullptr),
-          bytes_freed_by_last_gc_metric_(nullptr),
-          bytes_over_limit_metric_(nullptr),
-          limit_metric_(nullptr) {
-    Init();
+MemTracker::MemTracker(
+    int64_t byte_limit, const string& label, const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero)
+  : limit_(byte_limit),
+    soft_limit_(CalcSoftLimit(byte_limit)),
+    label_(label),
+    parent_(parent),
+    consumption_(std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)),
+    consumption_metric_(nullptr),
+    log_usage_if_zero_(log_usage_if_zero),
+    num_gcs_metric_(nullptr),
+    bytes_freed_by_last_gc_metric_(nullptr),
+    bytes_over_limit_metric_(nullptr),
+    limit_metric_(nullptr) {
 }
 
-MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit, const std::string& label,
-                       const std::shared_ptr<MemTracker>& parent)
-        : limit_(byte_limit),
-          soft_limit_(CalcSoftLimit(byte_limit)),
-          label_(label),
-          parent_(parent),
-          consumption_(profile->AddHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES)),
-          local_counter_(TUnit::BYTES),
-          consumption_metric_(nullptr),
-          log_usage_if_zero_(true),
-          num_gcs_metric_(nullptr),
-          bytes_freed_by_last_gc_metric_(nullptr),
-          bytes_over_limit_metric_(nullptr),
-          limit_metric_(nullptr) {
-    Init();
+MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit,
+    const std::string& label, const std::shared_ptr<MemTracker>& parent)
+  : limit_(byte_limit),
+    soft_limit_(CalcSoftLimit(byte_limit)),
+    label_(label),
+    parent_(parent),
+    consumption_(profile->AddHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES)),
+    consumption_metric_(nullptr),
+    log_usage_if_zero_(true),
+    num_gcs_metric_(nullptr),
+    bytes_freed_by_last_gc_metric_(nullptr),
+    bytes_over_limit_metric_(nullptr),
+    limit_metric_(nullptr) {
 }
 
-MemTracker::MemTracker(IntGauge* consumption_metric, int64_t byte_limit, const string& label,
-                       const std::shared_ptr<MemTracker>& parent)
-        : limit_(byte_limit),
-          soft_limit_(CalcSoftLimit(byte_limit)),
-          label_(label),
-          parent_(parent),
-          consumption_(&local_counter_),
-          local_counter_(TUnit::BYTES),
-          consumption_metric_(consumption_metric),
-          log_usage_if_zero_(true),
-          num_gcs_metric_(nullptr),
-          bytes_freed_by_last_gc_metric_(nullptr),
-          bytes_over_limit_metric_(nullptr),
-          limit_metric_(nullptr) {
-    Init();
+MemTracker::MemTracker(IntGauge* consumption_metric,
+    int64_t byte_limit, const string& label, const std::shared_ptr<MemTracker>& parent)
+  : limit_(byte_limit),
+    soft_limit_(CalcSoftLimit(byte_limit)),
+    label_(label),
+    parent_(parent),
+    consumption_(std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)),
+    consumption_metric_(consumption_metric),
+    log_usage_if_zero_(true),
+    num_gcs_metric_(nullptr),
+    bytes_freed_by_last_gc_metric_(nullptr),
+    bytes_over_limit_metric_(nullptr),
+    limit_metric_(nullptr) {
 }
 
 void MemTracker::Init() {

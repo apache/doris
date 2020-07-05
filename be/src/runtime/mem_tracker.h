@@ -529,11 +529,8 @@ class MemTracker : public std::enable_shared_from_this<MemTracker> {
   /// is unregistered.
   std::shared_ptr<MemTracker> parent_;
 
-  /// in bytes; not owned
-  RuntimeProfile::HighWaterMarkCounter* consumption_;
-
-  /// holds consumption_ counter if not tied to a profile
-  RuntimeProfile::HighWaterMarkCounter local_counter_;
+  /// in bytes
+  std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> consumption_;
 
   /// If non-NULL, used to measure consumption (in bytes) rather than the values provided
   /// to Consume()/Release(). Only used for the process tracker, thus parent_ should be

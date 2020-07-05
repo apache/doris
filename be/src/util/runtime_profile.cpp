@@ -382,10 +382,27 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
 ADD_COUNTER_IMPL(AddHighWaterMarkCounter, HighWaterMarkCounter);
 //ADD_COUNTER_IMPL(AddConcurrentTimerCounter, ConcurrentTimerCounter);
 
+std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> RuntimeProfile::AddSharedHighWaterMarkCounter(
+    const std::string& name, TUnit::type unit, const std::string& parent_counter_name) {
+    DCHECK_EQ(_is_averaged_profile, false);
+    boost::lock_guard<boost::mutex> l(_counter_map_lock);
+    DCHECK(_counter_map.find(name) == _counter_map.end());
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+        _counter_map.find(parent_counter_name) != _counter_map.end());
+    std::shared_ptr<HighWaterMarkCounter> counter = std::make_shared<HighWaterMarkCounter>(unit);
+    _shared_counter_pool.push_back(counter);
+    _counter_map[name] = counter.get();
+    std::set<std::string>* child_counters =
+        find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
+    return counter;
+}
+
 RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TUnit::type type,
                                                      const std::string& parent_counter_name) {
     boost::lock_guard<boost::mutex> l(_counter_map_lock);
 
+    // TODO(yingchun): Can we ensure that 'name' is not exist in '_counter_map'? Use CHECK instead?
     if (_counter_map.find(name) != _counter_map.end()) {
         // TODO: should we make sure that we don't return existing derived counters?
         return _counter_map[name];
