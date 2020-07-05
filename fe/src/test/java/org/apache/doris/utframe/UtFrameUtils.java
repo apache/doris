@@ -217,7 +217,7 @@ public class UtFrameUtils {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
+            return planner.getExplainString(planner.getFragments(), TExplainLevel.NORMAL);
         } else {
             return ctx.getState().getErrorMessage();
         }

@@ -244,7 +244,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_KEY, KW_KEYS, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
     KW_LOCAL, KW_LOCATION,
-    KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
+    KW_MATERIALIZED, KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
     KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
@@ -261,7 +261,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
-    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW, KW_MATERIALIZED,
+    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
     KW_YEAR;
 
@@ -467,6 +467,7 @@ nonterminal IndexDef.IndexType opt_index_type;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
 nonterminal Boolean opt_builtin;
+nonterminal Boolean opt_verbose;
 
 nonterminal Boolean opt_tmp;
 
@@ -2430,6 +2431,16 @@ opt_builtin ::=
     :}
     ;
 
+opt_verbose ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_VERBOSE
+    {:
+        RESULT = true;
+    :}
+    ;
+
 // Describe statement
 describe_stmt ::=
     describe_command table_name:table
@@ -2440,11 +2451,11 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, true);
     :}
-    | describe_command query_stmt:query
+    | describe_command opt_verbose:isVerbose query_stmt:query
     {:
-        query.setIsExplain(true);
+        query.setIsExplain(true, isVerbose);
         RESULT = query;
-    :}
+    :}   
     | describe_command insert_stmt:stmt
     {:
         stmt.getQueryStmt().setIsExplain(true);
@@ -4487,6 +4498,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_LOCATION:id
     {: RESULT = id; :}
+    | KW_MATERIALIZED:id
+    {: RESULT = id; :}
     | KW_MERGE:id
     {: RESULT = id; :}
     | KW_MODIFY:id
@@ -4597,9 +4610,9 @@ keyword ::=
     {: RESULT = id; :}
     | KW_VALUE:id
     {: RESULT = id; :}
-    | KW_VIEW:id
+    | KW_VERBOSE:id
     {: RESULT = id; :}
-    | KW_MATERIALIZED:id
+    | KW_VIEW:id
     {: RESULT = id; :}
     | KW_WARNINGS:id
     {: RESULT = id; :}

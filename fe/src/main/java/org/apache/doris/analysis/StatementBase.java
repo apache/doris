@@ -37,6 +37,8 @@ public abstract class StatementBase implements ParseNode {
 
     // True if this QueryStmt is the top level query from an EXPLAIN <query>
     protected boolean isExplain = false;
+    // True if the describe_stmt print verbose information, if `isVerbose` is true, `isExplain` must be set to true.
+    protected boolean isVerbose = false;
 
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -78,9 +80,9 @@ public abstract class StatementBase implements ParseNode {
 
     public Analyzer getAnalyzer() { return analyzer; }
     public boolean isAnalyzed() { return analyzer != null; }
-    public void setIsExplain(boolean isExplain) { this.isExplain = isExplain; }
+    public void setIsExplain(boolean isExplain, boolean isVerbose) { this.isExplain = isExplain;  this.isVerbose = isVerbose;}
     public boolean isExplain() { return isExplain; }
-
+    public boolean isVerbose() { return isVerbose; }
     /*
      * Print SQL syntax corresponding to this node.
      * 
