@@ -69,8 +69,8 @@ Status ThriftRpcHelper::rpc(
         try {
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "retrying call frontend service after " << 1 << " ms, address="
-                    << address << ", reason=" << e.what();
+            LOG(WARNING) << "retrying call frontend service after " << config::thrift_client_retry_interval_ms
+                << " ms, address=" << address << ", reason=" << e.what();
             SleepFor(MonoDelta::FromMilliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
