@@ -535,9 +535,6 @@ namespace config {
 
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_load_tablet_failure, "false");
-
-    // Directory where BE's website files placed.
-    CONF_String(www_path, "${DORIS_HOME}/www");
 } // namespace config
 
 } // namespace doris

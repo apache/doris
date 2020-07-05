@@ -79,7 +79,7 @@ void WebPageHandler::handle(HttpRequest* req) {
 
     if (handler == nullptr) {
         // Try to handle static file request
-        do_file_response(config::www_path + req->raw_path(), req);
+        do_file_response(std::string(getenv("DORIS_HOME")) + "/www/" + req->raw_path(), req);
         // Has replied in do_file_response, so we return here.
         return;
     }
