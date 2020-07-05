@@ -21,6 +21,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Sets;
 
+import org.apache.hadoop.hdfs.DFSClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TProcessor;
@@ -98,7 +99,7 @@ public class ThriftServer {
 
     private void createThreadedServer() throws TTransportException {
         TThreadedSelectorServer.Args args =
-          new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port)).protocolFactory(
+          new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
             new TBinaryProtocol.Factory()).processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool");
         args.executorService(threadPoolExecutor);

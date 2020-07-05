@@ -468,6 +468,12 @@ If the system is found to be in a high-stress scenario and a large number of thr
 
 ### `tc_use_memory_min`
 
+### `thrift_client_retry_interval_ms`
+
+* Type: int64
+* Description: Used to set retry interval for thrift client in be to avoid avalanche disaster in fe thrift server, the unit is ms.
+* Default: 1000
+
 ### `thrift_connect_timeout_seconds`
 
 ### `thrift_rpc_timeout_ms`
