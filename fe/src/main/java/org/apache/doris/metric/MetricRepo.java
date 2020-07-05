@@ -22,6 +22,7 @@ import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -42,7 +43,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
-import java.util.Timer;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetricRepo {
@@ -84,7 +86,7 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
-    private static Timer metricTimer = new Timer();
+    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newScheduledThreadPool(1, "Metric-Timer-Pool");
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
     public static synchronized void init() {
@@ -249,7 +251,7 @@ public final class MetricRepo {
         isInit.set(true);
 
         if (Config.enable_metric_calculator) {
-            metricTimer.scheduleAtFixedRate(metricCalculator, 0, 15 * 1000 /* 15s */);
+            metricTimer.scheduleAtFixedRate(metricCalculator, 0, 15 * 1000L, TimeUnit.MILLISECONDS);
         }
     }
 

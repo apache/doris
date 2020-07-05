@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.logging.log4j.LogManager;
@@ -27,6 +28,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 
 // MySQL protocol network service
 public class MysqlServer {
@@ -37,7 +40,8 @@ public class MysqlServer {
     private ServerSocketChannel serverChannel = null;
     private ConnectScheduler scheduler = null;
     // used to accept connect request from client
-    private Thread listener;
+    private ThreadPoolExecutor listener;
+    private Future listenerFuture;
 
     public MysqlServer(int port, ConnectScheduler scheduler) {
         this.port = port;
@@ -66,9 +70,9 @@ public class MysqlServer {
         }
 
         // start accept thread
-        listener = new Thread(new Listener(), "MySQL Protocol Listener");
+        listener = ThreadPoolManager.newDaemonCacheThreadPool(1, "MySQL-Protocol-Listener");
         running = true;
-        listener.start();
+        listenerFuture = listener.submit(new Listener());
 
         return true;
     }
@@ -87,8 +91,8 @@ public class MysqlServer {
 
     public void join() {
         try {
-            listener.join();
-        } catch (InterruptedException e) {
+            listenerFuture.get();
+        } catch (Exception e) {
             // just return
             LOG.warn("Join MySQL server exception.", e);
         }
@@ -98,7 +102,7 @@ public class MysqlServer {
         @Override
         public void run() {
             while (running && serverChannel.isOpen()) {
-                SocketChannel clientChannel = null;
+                SocketChannel clientChannel;
                 try {
                     clientChannel = serverChannel.accept();
                     if (clientChannel == null) {
