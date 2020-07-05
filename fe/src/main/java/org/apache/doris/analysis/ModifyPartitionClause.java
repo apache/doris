@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
@@ -98,7 +98,11 @@ public class ModifyPartitionClause extends AlterTableClause {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY PARTITION ");
         sb.append("(");
-        sb.append(Joiner.on(", ").join(partitionNames));
+        if (needExpand) {
+            sb.append("*");
+        } else {
+            sb.append(Joiner.on(", ").join(partitionNames));
+        }
         sb.append(")");
         sb.append(" SET (");
         sb.append(new PrintableMap<String, String>(properties, "=", true, false));
