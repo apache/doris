@@ -266,6 +266,15 @@ rapidjson::Value* JsonFunctions::get_json_object(
     return match_value(*parsed_paths, document, document->GetAllocator());
 }
 
+rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
+        const std::string& json_path,
+        rapidjson::Value* document,
+        rapidjson::Document::AllocatorType& mem_allocator) {
+
+    std::vector<JsonPath> vec;
+    parse_json_paths(json_path, &vec);
+    return get_json_array_from_parsed_json(vec, document, mem_allocator);
+}
 
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::vector<JsonPath>& parsed_paths,

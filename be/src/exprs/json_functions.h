@@ -88,6 +88,13 @@ public:
             rapidjson::Value* document,
             rapidjson::Document::AllocatorType& mem_allocator);
 
+    // this is only for test, it will parse the json path inside,
+    // so that we can easily pass a json path as string.
+    static rapidjson::Value* get_json_array_from_parsed_json(
+            const std::string& jsonpath,
+            rapidjson::Value* document,
+            rapidjson::Document::AllocatorType& mem_allocator);
+
     static void json_path_prepare(
             doris_udf::FunctionContext*,
             doris_udf::FunctionContext::FunctionStateScope);
