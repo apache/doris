@@ -25,6 +25,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -93,6 +94,9 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTable("dynamic_partition_normal");
+        Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().getReplicationNum(), DynamicPartitionProperty.NOT_SET_REPLICATION_NUM);
     }
 
     @Test
@@ -398,5 +402,40 @@ public class DynamicPartitionTableTest {
         expectedException.expect(DdlException.class);
         expectedException.expectMessage("errCode = 2, detailMessage = Unknown or incorrect time zone: 'invalid'");
         createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testSetDynamicPartitionReplicationNum() throws Exception {
+        String tableName = "dynamic_partition_replication_num";
+        String createOlapTblStmt = "CREATE TABLE test.`" + tableName + "` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.replication_num\" = \"2\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTable(tableName);
+        Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().getReplicationNum(), 2);
     }
 }
