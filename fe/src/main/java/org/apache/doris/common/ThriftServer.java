@@ -21,7 +21,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Sets;
 
-import org.apache.hadoop.hdfs.DFSClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TProcessor;
