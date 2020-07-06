@@ -602,7 +602,6 @@ Status JsonReader::_handle_complex_json(Tuple* tuple, const std::vector<SlotDesc
     }
 }
 
-// 
 Status JsonReader::read(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
     if (_parsed_jsonpaths.empty()) { // input is a simple json-string
         return _handle_simple_json(tuple, slot_descs, tuple_pool, eof);
