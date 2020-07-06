@@ -3329,6 +3329,16 @@ public class Catalog {
         if (isTempPartition) {
             olapTable.dropTempPartition(partitionName, true);
         } else {
+            if (clause.isNeedCheckCommitedTxns()) {
+                if (clause.isNeedCheckCommitedTxns()) {
+                    if (true) {
+                        throw new DdlException("There are still some commited txns cannot be aborted in table ["
+                                + olapTable.getName() + "] partition [" + partitionName + "], please wait for GlobalTransactionMgr to" +
+                                " finish publish tasks. If you don't need to recover partition, use DROPP PARTITION stmt (double P).");
+                    }
+                }
+
+            }
             olapTable.dropPartition(db.getId(), partitionName);
         }
 
