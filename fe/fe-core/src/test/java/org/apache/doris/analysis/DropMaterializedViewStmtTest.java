@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -39,7 +38,7 @@ public class DropMaterializedViewStmtTest {
 
     @Test
     public void testEmptyMVName(@Injectable TableName tableName) {
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "", tableName, true);
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "", tableName);
         try {
             stmt.analyze(analyzer);
             Assert.fail();
@@ -57,7 +56,7 @@ public class DropMaterializedViewStmtTest {
                 result = false;
             }
         };
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", tableName, true);
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", tableName);
         try {
             stmt.analyze(analyzer);
             Assert.fail();

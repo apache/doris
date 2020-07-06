@@ -2678,6 +2678,13 @@ public class Catalog {
             Database db = this.fullNameToDb.get(dbName);
             db.writeLock();
             try {
+                if (stmt.isNeedCheckCommitedTxns()) {
+                    if (true) {
+                        throw new DdlException("There are still some commited txns cannot be aborted in db ["
+                                + dbName + "], please wait for GlobalTransactionMgr to finish publish tasks." +
+                                " If you don't need to recover db, use DROPP DATABASE stmt (double P).");
+                    }
+                }
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
                     // We try to drop a hard link.
                     final DropLinkDbAndUpdateDbInfo info = new DropLinkDbAndUpdateDbInfo();
@@ -4281,6 +4288,14 @@ public class Catalog {
             } else {
                 if (table instanceof View) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+                }
+            }
+
+            if (stmt.isNeedCheckCommitedTxns()) {
+                if (true) {
+                    throw new DdlException("There are still some commited txns cannot be aborted in table ["
+                            + table.getName() + "], please wait for GlobalTransactionMgr to finish publish tasks." +
+                            " If you don't need to recover table, use DROPP TABLE stmt (double P).");
                 }
             }
 

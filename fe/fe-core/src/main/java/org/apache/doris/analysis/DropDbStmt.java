@@ -33,12 +33,12 @@ import com.google.common.base.Strings;
 public class DropDbStmt extends DdlStmt {
     private boolean ifExists;
     private String dbName;
-    private boolean needCheckCommitdTxns;
+    private boolean needCheckCommitedTxns;
 
-    public DropDbStmt(boolean ifExists, String dbName, boolean needCheckCommitdTxns) {
+    public DropDbStmt(boolean ifExists, String dbName, boolean needCheckCommitedTxns) {
         this.ifExists = ifExists;
         this.dbName = dbName;
-        this.needCheckCommitdTxns = needCheckCommitdTxns;
+        this.needCheckCommitedTxns = needCheckCommitedTxns;
     }
 
     public boolean isSetIfExists() {
@@ -49,8 +49,8 @@ public class DropDbStmt extends DdlStmt {
         return this.dbName;
     }
 
-    public boolean isNeedCheckCommitdTxns() {
-        return this.needCheckCommitdTxns;
+    public boolean isNeedCheckCommitedTxns() {
+        return this.needCheckCommitedTxns;
     }
 
     @Override

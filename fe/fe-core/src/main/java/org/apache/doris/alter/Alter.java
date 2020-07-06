@@ -143,7 +143,6 @@ public class Alter {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
                         + "Do not allow doing DROP ops");
             }
-
             // drop materialized view
             ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
 
