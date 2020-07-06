@@ -2679,7 +2679,7 @@ public class Catalog {
             db.writeLock();
             try {
                 if (stmt.isNeedCheckCommitedTxns()) {
-                    if (true) {
+                    if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                         throw new DdlException("There are still some commited txns cannot be aborted in db ["
                                 + dbName + "], please wait for GlobalTransactionMgr to finish publish tasks." +
                                 " If you don't need to recover db, use DROPP DATABASE stmt (double P).");
@@ -3331,11 +3331,15 @@ public class Catalog {
         } else {
             if (clause.isNeedCheckCommitedTxns()) {
                 if (clause.isNeedCheckCommitedTxns()) {
-                    if (true) {
-                        throw new DdlException("There are still some commited txns cannot be aborted in table ["
-                                + olapTable.getName() + "] partition [" + partitionName + "], please wait for GlobalTransactionMgr to" +
-                                " finish publish tasks. If you don't need to recover partition, use DROPP PARTITION stmt (double P).");
+                    Partition partition = olapTable.getPartition(partitionName);
+                    if (partition != null) {
+                        if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
+                            throw new DdlException("There are still some commited txns cannot be aborted in table ["
+                                    + olapTable.getName() + "] partition [" + partitionName + "], please wait for GlobalTransactionMgr to" +
+                                    " finish publish tasks. If you don't need to recover partition, use DROPP PARTITION stmt (double P).");
+                        }
                     }
+
                 }
 
             }
@@ -4302,7 +4306,7 @@ public class Catalog {
             }
 
             if (stmt.isNeedCheckCommitedTxns()) {
-                if (true) {
+                if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException("There are still some commited txns cannot be aborted in table ["
                             + table.getName() + "], please wait for GlobalTransactionMgr to finish publish tasks." +
                             " If you don't need to recover table, use DROPP TABLE stmt (double P).");
