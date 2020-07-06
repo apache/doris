@@ -781,7 +781,7 @@ public class SingleNodePlanner {
                     selectFailed |= true;
                     TupleId tupleId = olapScanNode.getTupleId();
                     selectStmt.updateDisableTuplesMVRewriter(tupleId);
-                    LOG.info("MV rewriter of tuple [] will be disable", tupleId);
+                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
                     continue;
                 }
                 olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),

@@ -64,8 +64,6 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
-import org.apache.doris.qe.QueryDetail;
-import org.apache.doris.qe.QueryDetailQueue;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -441,6 +439,11 @@ public class StmtExecutor {
             try {
                 analyzeAndGenerateQueryPlan(tQueryOptions);
             } catch (MVSelectFailedException e) {
+                /**
+                 * If there is MVSelectFailedException after the first planner, there will be error mv rewritten in query.
+                 * So, the query should be reanalyzed without mv rewritten and planner again.
+                 * Attention: Only error rewritten tuple is forbidden to mv rewrite in the second time.
+                 */
                 resetAnalyzerAndStmt();
                 analyzeAndGenerateQueryPlan(tQueryOptions);
             } catch (UserException e) {

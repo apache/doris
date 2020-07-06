@@ -54,19 +54,19 @@ import java.util.Set;
  */
 public class CreateMaterializedViewStmt extends DdlStmt {
     public static final String MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
-    public static final Map<String, MVColumnPattern> fnNameToPattern;
+    public static final Map<String, MVColumnPattern> FN_NAME_TO_PATTERN;
 
     static {
-        fnNameToPattern = Maps.newHashMap();
-        fnNameToPattern.put(AggregateType.SUM.name().toLowerCase(),
+        FN_NAME_TO_PATTERN = Maps.newHashMap();
+        FN_NAME_TO_PATTERN.put(AggregateType.SUM.name().toLowerCase(),
                 new MVColumnOneChildPattern(AggregateType.SUM.name().toLowerCase()));
-        fnNameToPattern.put(AggregateType.MIN.name().toLowerCase(),
+        FN_NAME_TO_PATTERN.put(AggregateType.MIN.name().toLowerCase(),
                 new MVColumnOneChildPattern(AggregateType.MIN.name().toLowerCase()));
-        fnNameToPattern.put(AggregateType.MAX.name().toLowerCase(),
+        FN_NAME_TO_PATTERN.put(AggregateType.MAX.name().toLowerCase(),
                 new MVColumnOneChildPattern(AggregateType.MAX.name().toLowerCase()));
-        fnNameToPattern.put("count", new MVColumnOneChildPattern("count"));
-        fnNameToPattern.put("bitmap_union", new MVColumnBitmapUnionPattern());
-        fnNameToPattern.put("hll_union", new MVColumnHLLUnionPattern());
+        FN_NAME_TO_PATTERN.put("count", new MVColumnOneChildPattern("count"));
+        FN_NAME_TO_PATTERN.put("bitmap_union", new MVColumnBitmapUnionPattern());
+        FN_NAME_TO_PATTERN.put("hll_union", new MVColumnHLLUnionPattern());
     }
 
     private String mvName;
@@ -187,7 +187,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // Function must match pattern.
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItem.getExpr();
                 String functionName = functionCallExpr.getFnName().getFunction();
-                MVColumnPattern mvColumnPattern = fnNameToPattern.get(functionName.toLowerCase());
+                MVColumnPattern mvColumnPattern = FN_NAME_TO_PATTERN.get(functionName.toLowerCase());
                 if (mvColumnPattern == null) {
                     throw new AnalysisException(
                             "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());

@@ -98,7 +98,7 @@ public class ToBitmapToSlotRefRule implements ExprRewriteRule {
         return rewriteExpr(fnNameString, queryColumnSlotRef, mvColumn, analyzer);
     }
 
-    public Expr rewriteExpr(String fnName, SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {
+    private Expr rewriteExpr(String fnName, SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {
         Preconditions.checkNotNull(mvColumn);
         Preconditions.checkNotNull(queryColumnSlotRef);
         TableName tableName = queryColumnSlotRef.getTableName();

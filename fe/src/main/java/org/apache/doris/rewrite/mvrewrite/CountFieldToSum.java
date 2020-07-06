@@ -79,7 +79,7 @@ public class CountFieldToSum implements ExprRewriteRule {
         return rewriteExpr(fnChild0, mvColumn, analyzer);
     }
 
-    public Expr rewriteExpr(SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {
+    private Expr rewriteExpr(SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {
         Preconditions.checkNotNull(mvColumn);
         Preconditions.checkNotNull(queryColumnSlotRef);
         TableName tableName = queryColumnSlotRef.getTableName();
