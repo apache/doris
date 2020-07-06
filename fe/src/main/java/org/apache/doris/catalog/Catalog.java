@@ -3393,7 +3393,7 @@ public class Catalog {
             }
             // 3. in memory
             boolean oldInMemory = partitionInfo.getIsInMemory(partition.getId());
-            if (hasInMemory) {
+            if (hasInMemory && (newInMemory != oldInMemory)) {
                 partitionInfo.setIsInMemory(partition.getId(), newInMemory);
             }
             // 4. tablet type
