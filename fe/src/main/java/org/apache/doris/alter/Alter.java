@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -213,6 +214,8 @@ public class Alter {
                         }
                     }
                     Map<String, String> properties = clause.getProperties();
+                    // pre check the related properties
+                    ModifyPartitionClause.preCheck(Maps.newHashMap(properties));
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                         needProcessOutsideDatabaseLock = true;
                     } else {

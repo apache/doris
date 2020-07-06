@@ -64,6 +64,7 @@ import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
+import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RangePartitionDesc;
@@ -3343,7 +3344,7 @@ public class Catalog {
                                          OlapTable olapTable,
                                          List<String> partitionNames,
                                          Map<String, String> properties)
-            throws DdlException {
+            throws DdlException, AnalysisException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
         if (olapTable.getState() != OlapTableState.NORMAL) {
@@ -3358,22 +3359,52 @@ public class Catalog {
             }
         }
 
-        // If error occurs tell user which partition is wrong.
-        for (String partitionName : partitionNames) {
-            try {
-                Map<String, String> partitionProperties = Maps.newHashMap(properties);
-                ModifyPartitionInfo info =
-                        modifyPartitionProperty(db, olapTable, partitionName, partitionProperties, false);
-                modifyPartitionInfos.add(info);
-            } catch (Exception e) {
-                String errMsg = "Failed to update partition[" + partitionName + "]'s property. " +
-                        "The reason is [" + e.getMessage() + "]";
-                BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
-                editLog.logBatchModifyPartition(info);
-                throw new DdlException(errMsg);
-            }
+        boolean hasInMemory = false;
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+            hasInMemory = true;
         }
 
+        // check properties here
+        ModifyPartitionClause.preCheck(Maps.newHashMap(properties));
+        // 1. data property
+        DataProperty newDataProperty =
+                PropertyAnalyzer.analyzeDataProperty(properties, null);
+        // 2. replication num
+        short newReplicationNum =
+                PropertyAnalyzer.analyzeReplicationNum(properties, (short) -1);
+        // 3. in memory
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+        // 4. tablet type
+        TTabletType tTabletType =
+                PropertyAnalyzer.analyzeTabletType(properties);
+
+        // modify meta here
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        for (String partitionName : partitionNames) {
+            Partition partition = olapTable.getPartition(partitionName);
+            // 1. date property
+            if (newDataProperty != null) {
+                partitionInfo.setDataProperty(partition.getId(), newDataProperty);
+            }
+            // 2. replication num
+            if (newReplicationNum != (short) -1) {
+                partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
+            }
+            // 3. in memory
+            if (hasInMemory) {
+                partitionInfo.setIsInMemory(partition.getId(), isInMemory);
+            }
+            // 4. tablet type
+            if (tTabletType != partitionInfo.getTabletType(partition.getId())) {
+                partitionInfo.setTabletType(partition.getId(), tTabletType);
+            }
+            ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
+                    newDataProperty, newReplicationNum, isInMemory);
+            modifyPartitionInfos.add(info);
+        }
+
+        // log here
         BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
         editLog.logBatchModifyPartition(info);
     }
@@ -3385,8 +3416,7 @@ public class Catalog {
     public ModifyPartitionInfo modifyPartitionProperty(Database db,
                                                        OlapTable olapTable,
                                                        String partitionName,
-                                                       Map<String, String> properties,
-                                                       boolean needLog)
+                                                       Map<String, String> properties)
             throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
         if (olapTable.getState() != OlapTableState.NORMAL) {
@@ -3481,9 +3511,7 @@ public class Catalog {
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
                 newDataProperty, newReplicationNum, isInMemory);
-        if (needLog) {
-            editLog.logModifyPartition(info);
-        }
+        editLog.logModifyPartition(info);
 
         LOG.info("finish modify partition[{}-{}-{}]", db.getId(), olapTable.getId(), partitionName);
         return info;
