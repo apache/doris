@@ -73,7 +73,6 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
-* `max_allowed_in_element_num_of_delete`
 
 只支持全局生效的变量包括：
 
@@ -235,10 +234,6 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     用于兼容 MySQL 客户端。不可设置。当前 Doris 中的表名默认为大小写敏感。
 
-* `max_allowed_in_element_num_of_delete`
-
-    用于限制delete语句中谓词in的元素数量。     
-    
 * `max_allowed_packet`
 
     用于兼容 JDBC 连接池 C3P0。 无实际作用。
