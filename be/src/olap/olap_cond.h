@@ -38,16 +38,16 @@ class WrapperField;
 class RowCursorCell;
 
 enum CondOp {
+    OP_NULL = -1,   // invalid op
     OP_EQ = 0,      // equal
     OP_NE = 1,      // not equal
     OP_LT = 2,      // less than
     OP_LE = 3,      // less or equal
     OP_GT = 4,      // greater than
     OP_GE = 5,      // greater or equal
-    OP_IN = 6,      // IN
+    OP_IN = 6,      // in
     OP_IS = 7,      // is null or not null
-    OP_NULL = 8,     // invalid OP
-    OP_NOT_IN = 9    // not in
+    OP_NOT_IN = 8   // not in
 };
 
 // Hash functor for IN set

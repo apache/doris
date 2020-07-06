@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -129,7 +130,7 @@ public class DeleteStmt extends DdlStmt {
                 throw new AnalysisException("Left expr of in predicate should be column name");
             }
             int inElementNum = inPredicate.getInElementNum();
-            int maxAllowedInElementNumOfDelete = ConnectContext.get().getSessionVariable().getMaxAllowedInElementNumOfDelete();
+            int maxAllowedInElementNumOfDelete = Config.max_allowed_in_element_num_of_delete;
             if (inElementNum > maxAllowedInElementNumOfDelete) {
                 throw new AnalysisException("Element num of in predicate should not be more than " + maxAllowedInElementNumOfDelete);
             }

@@ -105,7 +105,6 @@ public class SessionVariable implements Serializable, Writable {
     // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
     public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
     public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
-    public static final String MAX_ALLOWED_IN_ELEMENT_NUM_OF_DELETE = "max_allowed_in_element_num_of_delete";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -263,8 +262,6 @@ public class SessionVariable implements Serializable, Writable {
     private int maxScanKeyNum = -1;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     private int maxPushdownConditionsPerColumn = -1;
-    @VariableMgr.VarAttr(name = MAX_ALLOWED_IN_ELEMENT_NUM_OF_DELETE)
-    private int maxAllowedInElementNumOfDelete = 1024;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -510,14 +507,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
         this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
-    }
-
-    public int getMaxAllowedInElementNumOfDelete() {
-        return maxAllowedInElementNumOfDelete;
-    }
-
-    public void setMaxAllowedInElementNumOfDelete(int maxAllowedInElementNumOfDelete) {
-        this.maxAllowedInElementNumOfDelete = maxAllowedInElementNumOfDelete;
     }
 
     // Serialize to thrift object

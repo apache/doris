@@ -56,8 +56,10 @@ using doris::ColumnStatistics;
 
 namespace doris {
 
+#define MAX_OP_STR_LENGTH  3
+
 static CondOp parse_op_type(const string& op) {
-    if (op.size() > 3) {
+    if (op.size() > MAX_OP_STR_LENGTH) {
         return OP_NULL;
     }
 
@@ -242,8 +244,7 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         return operand_field->cmp(statistic.second) <= 0;
     }
     case OP_IN: {
-        return (min_value_field->cmp(statistic.first) >= 0 && min_value_field->cmp(statistic.second) <= 0) ||
-                (max_value_field->cmp(statistic.first) >= 0 && max_value_field->cmp(statistic.second) <= 0);
+        return min_value_field->cmp(statistic.second) <= 0 && max_value_field->cmp(statistic.first) >= 0;
     }
     case OP_NOT_IN: {
         return min_value_field->cmp(statistic.second) > 0 || max_value_field->cmp(statistic.first) < 0;
@@ -354,8 +355,7 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                 ret = DEL_NOT_SATISFIED;
             }
         } else {
-            if ((min_value_field->cmp(stat.first) >= 0 && min_value_field->cmp(stat.second) <= 0) ||
-                (max_value_field->cmp(stat.first) >= 0 && max_value_field->cmp(stat.second) <= 0)) {
+            if (min_value_field->cmp(stat.second) <= 0 && max_value_field->cmp(stat.first) >= 0) {
                 ret = DEL_PARTIAL_SATISFIED;
             }
         }

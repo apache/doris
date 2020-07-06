@@ -377,6 +377,10 @@ FE 的配置项有两种方式进行配置：
 
 ### `max_agent_task_threads_num`
 
+### `max_allowed_in_element_num_of_delete`
+    
+该配置被用于限制delete语句中谓词in的元素数量。默认值为1024。 
+
 ### `max_allowed_packet`
 
 ### `max_backend_down_time_second`

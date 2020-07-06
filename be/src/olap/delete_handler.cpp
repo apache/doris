@@ -75,9 +75,9 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
             for (const auto& condition_value : condition.condition_values) {
                 in_pred->add_values(condition_value);
             }
-            string condition_str;
-            json2pb::ProtoMessageToJson(*in_pred, &condition_str);
-            LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
+
+            LOG(INFO) << "store one sub-delete condition. condition name=" << in_pred->column_name()
+                      << "condition size=" << in_pred->values().size();
         } else {
             string condition_str = construct_sub_predicates(condition);
             del_pred->add_sub_predicates(condition_str);
