@@ -2678,11 +2678,11 @@ public class Catalog {
             Database db = this.fullNameToDb.get(dbName);
             db.writeLock();
             try {
-                if (stmt.isNeedCheckCommitedTxns()) {
+                if (stmt.isNeedCheckCommittedTxns()) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
-                        throw new DdlException("There are still some commited txns cannot be aborted in db ["
-                                + dbName + "], please wait for GlobalTransactionMgr to finish publish tasks." +
-                                " If you don't need to recover db, use DROPP DATABASE stmt (double P).");
+                       throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
+                               "The database [" + dbName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
+                               " please use \"DROPP database\".");
                     }
                 }
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
@@ -3329,19 +3329,15 @@ public class Catalog {
         if (isTempPartition) {
             olapTable.dropTempPartition(partitionName, true);
         } else {
-            if (clause.isNeedCheckCommitedTxns()) {
-                if (clause.isNeedCheckCommitedTxns()) {
-                    Partition partition = olapTable.getPartition(partitionName);
-                    if (partition != null) {
-                        if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
-                            throw new DdlException("There are still some commited txns cannot be aborted in table ["
-                                    + olapTable.getName() + "] partition [" + partitionName + "], please wait for GlobalTransactionMgr to" +
-                                    " finish publish tasks. If you don't need to recover partition, use DROPP PARTITION stmt (double P).");
-                        }
+            if (clause.isNeedCheckCommittedTxns()) {
+                Partition partition = olapTable.getPartition(partitionName);
+                if (partition != null) {
+                    if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
+                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed." +
+                                " The partition [" + partitionName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
+                                " please use \"DROPP partition\".");
                     }
-
                 }
-
             }
             olapTable.dropPartition(db.getId(), partitionName);
         }
@@ -4305,11 +4301,11 @@ public class Catalog {
                 }
             }
 
-            if (stmt.isNeedCheckCommitedTxns()) {
+            if (stmt.isNeedCheckCommittedTxns()) {
                 if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
-                    throw new DdlException("There are still some commited txns cannot be aborted in table ["
-                            + table.getName() + "], please wait for GlobalTransactionMgr to finish publish tasks." +
-                            " If you don't need to recover table, use DROPP TABLE stmt (double P).");
+                    throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
+                            "The table [" + tableName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
+                            " please use \"DROPP table\".");
                 }
             }
 

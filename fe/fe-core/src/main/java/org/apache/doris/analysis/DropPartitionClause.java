@@ -32,15 +32,15 @@ public class DropPartitionClause extends AlterTableClause {
     private String partitionName;
     // true if this is to drop a temp partition
     private boolean isTempPartition;
-    private boolean needCheckCommitedTxns;
+    private boolean needCheckCommittedTxns;
 
-    public DropPartitionClause(boolean ifExists, String partitionName, boolean isTempPartition, boolean needCheckCommitedTxns) {
+    public DropPartitionClause(boolean ifExists, String partitionName, boolean isTempPartition, boolean needCheckCommittedTxns) {
         super(AlterOpType.DROP_PARTITION);
         this.ifExists = ifExists;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
         this.needTableStable = false;
-        this.needCheckCommitedTxns = needCheckCommitedTxns;
+        this.needCheckCommittedTxns = needCheckCommittedTxns;
     }
 
     public boolean isSetIfExists() {
@@ -55,8 +55,8 @@ public class DropPartitionClause extends AlterTableClause {
         return isTempPartition;
     }
 
-    public boolean isNeedCheckCommitedTxns() {
-        return needCheckCommitedTxns;
+    public boolean isNeedCheckCommittedTxns() {
+        return needCheckCommittedTxns;
     }
 
     @Override

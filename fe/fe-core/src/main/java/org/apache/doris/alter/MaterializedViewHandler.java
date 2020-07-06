@@ -701,6 +701,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processDropMaterializedView(DropMaterializedViewStmt dropMaterializedViewStmt, Database db,
             OlapTable olapTable) throws DdlException, MetaNotFoundException {
+        Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
         try {
             String mvName = dropMaterializedViewStmt.getMvName();
             // Step1: check drop mv index operation

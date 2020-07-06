@@ -32,20 +32,20 @@ public class DropTableStmt extends DdlStmt {
     private boolean ifExists;
     private final TableName tableName;
     private final boolean isView;
-    private boolean needCheckCommitedTxns;
+    private boolean needCheckCommittedTxns;
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean needCheckCommitedTxns) {
+    public DropTableStmt(boolean ifExists, TableName tableName, boolean needCheckCommittedTxns) {
         this.ifExists = ifExists;
         this.tableName = tableName;
         this.isView = false;
-        this.needCheckCommitedTxns = needCheckCommitedTxns;
+        this.needCheckCommittedTxns = needCheckCommittedTxns;
     }
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean isView, boolean needCheckCommitedTxns) {
+    public DropTableStmt(boolean ifExists, TableName tableName, boolean isView, boolean needCheckCommittedTxns) {
         this.ifExists = ifExists;
         this.tableName = tableName;
         this.isView = isView;
-        this.needCheckCommitedTxns = needCheckCommitedTxns;
+        this.needCheckCommittedTxns = needCheckCommittedTxns;
     }
 
     public boolean isSetIfExists() {
@@ -64,8 +64,8 @@ public class DropTableStmt extends DdlStmt {
         return isView;
     }
 
-    public boolean isNeedCheckCommitedTxns() {
-        return this.needCheckCommitedTxns;
+    public boolean isNeedCheckCommittedTxns() {
+        return this.needCheckCommittedTxns;
     }
 
     @Override
