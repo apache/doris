@@ -169,7 +169,7 @@ under the License.
         `key_type(k1[,k2 ...])`
     说明：
         数据按照指定的key列进行排序，且根据不同的key_type具有不同特性。
-        key_type支持一下类型：
+        key_type支持以下类型：
                 AGGREGATE KEY:key列相同的记录，value列按照指定的聚合类型进行聚合，
                              适合报表、多维分析等业务场景。
                 UNIQUE KEY:key列相同的记录，value列按导入顺序进行覆盖，
