@@ -849,11 +849,8 @@ bool Tablet::_drop_rowset_if_version_conflict(const RowsetSharedPtr& rowset) {
         vector<RowsetSharedPtr> to_delete;
         to_delete.push_back(exist_rs);
         modify_rowsets(to_add, to_delete);
-        std::stringstream ss;
-        ss << "Remove rs " << exist_rs->rowset_id().to_string();
-        ss << " in " << full_name();
-        ss << " for version conflict with " << rowset->rowset_id().to_string();
-        LOG(WARNING) << ss.str();
+        LOG(WARNING) << "Remove rs " << exist_rs->rowset_id().to_string() << " in " << full_name()
+        << " for version conflict with " << rowset->rowset_id().to_string();
         return true;
     }
     return false;
