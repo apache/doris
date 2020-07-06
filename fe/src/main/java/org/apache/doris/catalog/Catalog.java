@@ -3373,7 +3373,7 @@ public class Catalog {
         short newReplicationNum =
                 PropertyAnalyzer.analyzeReplicationNum(properties, (short) -1);
         // 3. in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
+        boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         // 4. tablet type
         TTabletType tTabletType =
@@ -3392,15 +3392,16 @@ public class Catalog {
                 partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
             }
             // 3. in memory
+            boolean oldInMemory = partitionInfo.getIsInMemory(partition.getId());
             if (hasInMemory) {
-                partitionInfo.setIsInMemory(partition.getId(), isInMemory);
+                partitionInfo.setIsInMemory(partition.getId(), newInMemory);
             }
             // 4. tablet type
             if (tTabletType != partitionInfo.getTabletType(partition.getId())) {
                 partitionInfo.setTabletType(partition.getId(), tTabletType);
             }
             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                    newDataProperty, newReplicationNum, isInMemory);
+                    newDataProperty, newReplicationNum, hasInMemory ? newInMemory : oldInMemory);
             modifyPartitionInfos.add(info);
         }
 
