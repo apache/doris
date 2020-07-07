@@ -256,7 +256,7 @@ public class CatalogTestUtil {
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.HOSTS, "xxx");
-        properties.put(EsTable.INDEX, "indexa");
+        properties.put(EsTable.INDEX, "doe");
         properties.put(EsTable.TYPE, "doc");
         properties.put(EsTable.PASSWORD, "");
         properties.put(EsTable.USER, "root");

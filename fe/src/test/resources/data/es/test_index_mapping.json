@@ -1,0 +1,24 @@
+{
+  "test": {
+    "mappings": {
+      "doc": {
+        "properties": {
+          "k1": {
+            "type": "long"
+          },
+          "k2": {
+            "type": "keyword"
+          },
+          "k3": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
