@@ -232,6 +232,8 @@ namespace config {
     CONF_mInt32(pending_data_expire_time_sec, "1800");
     // inc_rowset expired interval
     CONF_mInt32(inc_rowset_expired_sec, "1800");
+    // inc_rowset snapshot rs sweep time interval
+    CONF_mInt32(tablet_rowset_expired_snapshot_sweep_time, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "3600");
     CONF_Int32(min_garbage_sweep_interval, "180");

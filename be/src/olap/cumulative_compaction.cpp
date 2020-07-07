@@ -65,9 +65,10 @@ OLAPStatus CumulativeCompaction::compact() {
     DorisMetrics::instance()->cumulative_compaction_bytes_total.increment(_input_rowsets_size);
     TRACE("save cumulative compaction metrics");
 
+    // delay garbage operation
     // 7. garbage collect input rowsets after cumulative compaction 
-    RETURN_NOT_OK(gc_unused_rowsets());
-    TRACE("unused rowsets have been moved to GC queue");
+    // RETURN_NOT_OK(gc_unused_rowsets());
+    // TRACE("unused rowsets have been moved to GC queue");
 
     return OLAP_SUCCESS;
 }

@@ -23,16 +23,32 @@
 #include "olap/rowset/rowset_meta.h"
 
 namespace doris {
-
+/// RowsetGraph class which is implemented to build and maintain total versions of rowsets. 
+/// This class use adjacency-matrix represent rowsets version and links. A vertex is a version 
+/// and a link is the _version object of a rowset (from start version to end version).
+/// Use this class, when given a spec_version, we can get a version path which is the shortest path
+/// in the graph.
 class RowsetGraph {
 public:
-    void construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas);
-    void reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+    /// Use rs_metas to construct the graph including vertex and edges, and return the
+    /// max_version in metas.
+    void construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
+                                int64_t& max_version);
+    /// Reconstruct the graph, begin construction the vertex vec and edges list will be cleared.
+    void reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
+                                  int64_t& max_version);
+    /// Add a version to this graph, graph will add the vesion and edge in version.
     void add_version_to_graph(const Version& version);
+    /// Delete a version from graph. Notice that this del operation only remove this edges and 
+    /// remain the vertex.
     OLAPStatus delete_version_from_graph(const Version& version);
+    /// Given a spec_version, this method can find a version path which is the shortest path
+    /// in the graph. The version paths are added to version_path as return info.
     OLAPStatus capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path) const;
+
 private:
+    /// Private method add a version to graph. 
     void _add_vertex_to_graph(int64_t vertex_value);
 
     // OLAP version contains two parts, [start_version, end_version]. In order
@@ -47,6 +63,109 @@ private:
     std::unordered_map<int64_t, int64_t> _vertex_index_map;
 };
 
-}  // namespace doris
+/// VersionTracker class which is implemented to maintain compacted version path of rowsets. 
+/// This compaction info of a rowset includes start version, end version and the create time.
+class VersionTracker {
+public:
+    /// VersionTracker construction function. Use rowset version and create time to build a VersionTracker.
+    VersionTracker(Version version, int64_t create_time)
+            : _version(version.first, version.second), _create_time(create_time) {}
+
+    ~VersionTracker() {}
+
+    /// Return the rowset version of VersionTracker record.
+    Version version() const { return _version; }
+    /// Return the rowset create_time of VersionTracker record.
+    int64_t get_create_time() { return _create_time; }
+
+    /// Compare two version trackers.
+    bool operator!=(const VersionTracker& rhs) const {
+        return _version.first != rhs._version.first || _version.second != rhs._version.second;
+    }
+
+    /// Compare two version trackers.
+    bool operator==(const VersionTracker& rhs) const {
+        return _version.first == rhs._version.first && _version.second == rhs._version.second;
+    }
+
+    /// Judge if a tracker contains the other.
+    bool contains(const VersionTracker& other) const {
+        return _version.first <= other._version.first && _version.second >= other._version.second;
+    }
+
+private:
+    Version _version;
+    int64_t _create_time;
+};
+
+using VersionTrackerSharedPtr = std::shared_ptr<VersionTracker>;
+using PathVersionListSharedPtr = std::shared_ptr<std::vector<VersionTrackerSharedPtr>>;
+
+/// VersionedRowsetTracker class is responsible to track all rowsets version links of a tablet.
+/// This class not only records the graph of all versions, but also records the paths which will be removed
+/// after the path is expired.
+class VersionedRowsetTracker {
+public:
+    /// Construct rowsets version tracker by rs_metas and expired snapshot rowsets.
+    void construct_versioned_tracker(
+            const std::vector<RowsetMetaSharedPtr>& rs_metas,
+            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+
+    /// Reconstruct rowsets version tracker by rs_metas and expired snapshot rowsets.
+    void reconstruct_versioned_tracker(
+            const std::vector<RowsetMetaSharedPtr>& rs_metas,
+            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+
+    /// Add a version to tracker, this version is a new version rowset, not merged rowset.
+    void add_version(const Version& version);
+
+    /// Add a version path with expired_snapshot_rs_metas, this versions in version path
+    /// are merged rowsets.  These rowsets are tracked and removed after they are expired.
+    /// TabletManager sweep these rowsets using tracker by timing.
+    void add_expired_path_version(
+            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+
+    /// Given a spec_version, this method can find a version path which is the shortest path
+    /// in the graph. The version paths are added to version_path as return info.
+    /// If this version not in main version, version_path can be included expired rowset.
+    OLAPStatus capture_consistent_versions(const Version& spec_version,
+                                           std::vector<Version>* version_path) const;
+
+    /// Capture all expired path version.
+    /// When the last rowset createtime of a path greater than expired time  which can be expressed
+    /// "now() - tablet_rowset_expired_snapshot_sweep_time" , this path will be remained.
+    /// Otherwise, this path will be added to versions.
+    void capture_expired_path_version(int64_t expired_snapshot_sweep_endtime,
+                                      std::vector<int64_t>* path_version) const;
+
+    /// Fetch all versions in a path_version.
+    void fetch_path_version(int64_t path_version, std::vector<Version>& version_path);
+
+    /// Fetch all versions in a path_version, as the same time remove this path from the tracker.
+    /// Next time, fetch this path, it will return empty. 
+    void fetch_and_delete_path_version(int64_t path_version, std::vector<Version>& version_path);
+
+    /// Print all expired version path in a tablet.
+    void _print_current_state();
+
+private:
+    /// Construct rowsets version tracker with expired snapshot rowsets
+    void _construct_versioned_tracker(
+            const std::vector<RowsetMetaSharedPtr>& rs_metas,
+            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+
+private:
+    // This variable records the id of path version which will be dispatched to next path version, 
+    // it is not persisted.
+    int64_t _next_path_version = 1;
+    
+    // path_version -> list of path version,
+    // This variable is used to maintain the map from path version and it's all version. 
+    std::unordered_map<int64_t, PathVersionListSharedPtr> _expired_snapshot_rs_path_map;
+
+    RowsetGraph _rowset_graph;
+};
+
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_ROWSET_GRAPH_H

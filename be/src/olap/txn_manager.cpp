@@ -309,7 +309,8 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
                       << " partition_id: " << key.first
                       << ", txn_id: " << key.second
                       << ", tablet: " << tablet_info.to_string()
-                      << ", rowsetid: " << rowset_ptr->rowset_id();
+                      << ", rowsetid: " << rowset_ptr->rowset_id()
+                      << ", version: " << version.first <<"," << version.second;
             if (it->second.empty()) {
                 txn_tablet_map.erase(it);
                 _clear_txn_partition_map_unlocked(transaction_id, partition_id);

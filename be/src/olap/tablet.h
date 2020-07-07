@@ -101,6 +101,11 @@ public:
 
     OLAPStatus add_inc_rowset(const RowsetSharedPtr& rowset);
     void delete_expired_inc_rowsets();
+    /// Delete expired snapshot rowset by timing. This delete policy uses now() munis 
+    /// config::tablet_rowset_expired_snapshot_sweep_time to compute the deadline of expired rowset 
+    /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
+    /// need to delete flag.
+    void delete_expired_snapshot_rowset();
 
     OLAPStatus capture_consistent_versions(const Version& spec_version,
                                            vector<Version>* version_path) const;
@@ -235,14 +240,17 @@ private:
                                                         VersionHash* v_hash) const ;
     RowsetSharedPtr _rowset_with_largest_size();
     void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
+    /// Delete expired snapshot rowset by version. This method not only delete the version in expired rowset map,
+    /// but also delete the version in rowset meta vector.
+    void _delete_expired_snapshot_rowset_by_version(const Version& version);
     OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
                                                     vector<RowsetSharedPtr>* rowsets) const;
 
 private:
     static const int64_t kInvalidCumulativePoint = -1;
 
-    RowsetGraph _rs_graph;
-
+    VersionedRowsetTracker _versioned_rs_tracker;
+    
     DorisCallOnce<OLAPStatus> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
     // it will be used in econ-mode in the future
@@ -267,7 +275,10 @@ private:
     // _inc_rs_version_map may do not exist in _rs_version_map.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
-
+    // This variable _expired_snapshot_rs_version_map is used to record these rowsets which are be compacted.
+    // These _expired_snapshot rowsets are been removed when rowsets' pathVersion is expired, 
+    // this policy is judged and computed by VersionedRowsetTracker.
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _expired_snapshot_rs_version_map;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
