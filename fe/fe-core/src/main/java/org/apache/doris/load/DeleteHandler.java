@@ -593,10 +593,10 @@ public class DeleteHandler implements Writable {
                 String columnName = slotRef.getColumnName();
                 StringBuilder strBuilder = new StringBuilder();
                 String notStr = inPredicate.isNotIn() ? "NOT " : "";
-                strBuilder.append(columnName).append(" " + notStr + "IN (");
+                strBuilder.append(columnName).append(" ").append(notStr).append("IN (");
                 for (int i = 1; i <= inPredicate.getInElementNum(); ++i) {
                     strBuilder.append(inPredicate.getChild(i).toSql());
-                    strBuilder.append((i + 1 != inPredicate.getInElementNum()) ? ", " : "");
+                    strBuilder.append((i != inPredicate.getInElementNum()) ? ", " : "");
                 }
                 strBuilder.append(")");
                 deleteConditions.add(strBuilder.toString());
