@@ -54,7 +54,7 @@ public class ConnectScheduler {
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
     //    Let timeout is 10m, and 5000 qps, then there are up to 3000000 tasks in scheduler.
     // 2. Use a thread to poll maybe lose some accurate, but is enough to us.
-    private ScheduledExecutorService checkTimer = ThreadPoolManager.newScheduledThreadPool(1,
+    private ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "Connect-Scheduler-Check-Timer");
 
     public ConnectScheduler(int maxConnections) {

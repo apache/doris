@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 public class FixedTimePublisher {
     private static FixedTimePublisher INSTANCE;
 
-    private ScheduledThreadPoolExecutor scheduler = ThreadPoolManager.newScheduledThreadPool(1, "Fixed-Time-Publisher");
+    private ScheduledThreadPoolExecutor scheduler = ThreadPoolManager.newDaemonScheduledThreadPool(1, "Fixed-Time-Publisher");
     private ClusterStatePublisher publisher;
 
     public FixedTimePublisher(ClusterStatePublisher publisher) {

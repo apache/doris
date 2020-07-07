@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * ThreadPoolManager is a helper class for construct daemon thread pool with limit thread and memory resource.
  * thread names in thread pool are formatted as poolName-ID, where ID is a unique, sequentially assigned integer.
- * it provide three functions to construct thread pool now.
+ * it provide for functions to construct thread pool now.
  *
  * 1. newDaemonCacheThreadPool
  *    Wrapper over newCachedThreadPool with additional maxNumThread limit.
@@ -47,6 +47,8 @@ import java.util.concurrent.TimeUnit;
  *    Wrapper over newCachedThreadPool with additional blocking queue capacity limit.
  * 3. newDaemonThreadPool
  *    Wrapper over ThreadPoolExecutor, user can use it to construct thread pool more flexibly.
+ * 4. newDaemonScheduledThreadPool
+ *    Wrapper over ScheduledThreadPoolExecutor, but without thread num limit now(NOTICE).
  *
  *  All thread pool constructed by ThreadPoolManager will be added to the nameToThreadPoolMap,
  *  so the thread pool name in fe must be unique.
@@ -114,9 +116,12 @@ public class ThreadPoolManager {
         return threadPool;
     }
 
-    public static ScheduledThreadPoolExecutor newScheduledThreadPool(int maxNumThread, String poolName) {
+    // Now, we have no thread num limit in ScheduledThreadPoolExecutor,
+    // so it may cause oom when there are too many threads in ScheduledThreadPoolExecutor
+    // Please use this api with caution.
+    public static ScheduledThreadPoolExecutor newDaemonScheduledThreadPool(int corePoolSize, String poolName) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
-        ScheduledThreadPoolExecutor scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(maxNumThread, threadFactory);
+        ScheduledThreadPoolExecutor scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(corePoolSize, threadFactory);
         nameToThreadPoolMap.put(poolName, scheduledThreadPoolExecutor);
         return scheduledThreadPoolExecutor;
     }
