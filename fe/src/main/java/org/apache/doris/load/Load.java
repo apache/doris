@@ -314,8 +314,16 @@ public class Load {
             formatType = params.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
         }
 
-        DataDescription dataDescription = new DataDescription(tableName, new PartitionNames(false, partitionNames),
-                filePaths, columnNames, columnSeparator, formatType, false, null);
+        DataDescription dataDescription = new DataDescription(
+                tableName,
+                partitionNames != null ? new PartitionNames(false, partitionNames) : null,
+                filePaths,
+                columnNames,
+                columnSeparator,
+                formatType,
+                false,
+                null
+        );
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
         // parse hll param pair
