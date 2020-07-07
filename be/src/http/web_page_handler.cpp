@@ -107,41 +107,46 @@ void WebPageHandler::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, content.str());
 }
 
-static const std::string PAGE_HEADER =
-        "<!DOCTYPE html>"
-        " <html>"
-        "   <head><title>Doris</title>"
-        " <link href='www/bootstrap/css/bootstrap.min.css' rel='stylesheet' media='screen'>"
-        "  <style>"
-        "  body {"
-        "    padding-top: 60px; "
-        "  }"
-        "  </style>"
-        " </head>"
-        " <body>";
+static const std::string PAGE_HEADER = R"(
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Doris</title>
+    <meta charset='utf-8'/>
+    <link href='/bootstrap/css/bootstrap.min.css' rel='stylesheet' media='screen' />
+    <link href='/bootstrap/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
+    <script src='/jquery-3.2.1.min.js' defer></script>
+    <script src='/bootstrap/js/bootstrap.min.js' defer></script>
+    <script src='/bootstrap/js/bootstrap-table.min.js' defer></script>
+    <script src='/doris.js' defer></script>
+    <link href='/doris.css' rel='stylesheet' />
+  </head>
+  <body>
+)";
 
-static const std::string PAGE_FOOTER = "</div></body></html>";
+static const std::string NAVIGATION_BAR_PREFIX = R"(
+    <nav class="navbar navbar-default">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <a class="navbar-brand" style="padding-top: 5px;" href="/">
+            <img src="/logo.png" width='40' height='40' alt="Doris" />
+          </a>
+        </div>
+        <div id="navbar" class="navbar-collapse collapse">
+          <ul class="nav navbar-nav">
+)";
 
-static const std::string NAVIGATION_BAR_PREFIX =
-        "<div class='navbar navbar-inverse navbar-fixed-top'>"
-        "      <div class='navbar-inner'>"
-        "        <div class='container'>"
-        "          <a class='btn btn-navbar' data-toggle='collapse' data-target='.nav-collapse'>"
-        "            <span class='icon-bar'></span>"
-        "            <span class='icon-bar'></span>"
-        "            <span class='icon-bar'></span>"
-        "          </a>"
-        "          <a class='brand' href='/'>Doris</a>"
-        "          <div class='nav-collapse collapse'>"
-        "            <ul class='nav'>";
+static const std::string NAVIGATION_BAR_SUFFIX = R"(
+          </ul>
+        </div><!--/.nav-collapse -->
+      </div><!--/.container-fluid -->
+    </nav>
+)";
 
-static const std::string NAVIGATION_BAR_SUFFIX =
-        "            </ul>"
-        "          </div>"
-        "        </div>"
-        "      </div>"
-        "    </div>"
-        "    <div class='container'>";
+static const std::string PAGE_FOOTER = R"(
+  </body>
+</html>
+)";
 
 void WebPageHandler::bootstrap_page_header(std::stringstream* output) {
     boost::mutex::scoped_lock lock(_map_lock);
