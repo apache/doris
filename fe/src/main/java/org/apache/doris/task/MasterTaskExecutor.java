@@ -20,7 +20,6 @@ package org.apache.doris.task;
 import com.google.common.collect.Maps;
 
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.Daemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -28,39 +27,27 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 
-public class MasterTaskExecutor extends Daemon {
+public class MasterTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterTaskExecutor.class);
 
     private ThreadPoolExecutor executor;
     private Map<Long, Future<?>> runningTasks;
+    public ScheduledThreadPoolExecutor scheduledThreadPool;
 
     public MasterTaskExecutor(String name, int threadNum) {
-        super(name, 1000L);
         executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "_pool");
         runningTasks = Maps.newHashMap();
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool");
     }
 
-    @Override
-    protected void runOneCycle() {
-        try {
-            synchronized (runningTasks) {
-                Iterator<Entry<Long, Future<?>>> iterator = runningTasks.entrySet().iterator();
-                while (iterator.hasNext()) {
-                    Entry<Long, Future<?>> entry = iterator.next();
-                    Future<?> future = entry.getValue();
-                    if (future.isDone()) {
-                        iterator.remove();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOG.error("check task error", e);
-        }
+    public void start() {
+        scheduledThreadPool.scheduleAtFixedRate(new TaskChecker(), 0L, 1000L, TimeUnit.MILLISECONDS);
     }
-
 
     /**
      * submit task to task executor
@@ -88,6 +75,26 @@ public class MasterTaskExecutor extends Daemon {
     public int getTaskNum() {
         synchronized (runningTasks) {
             return runningTasks.size();
+        }
+    }
+
+    private class TaskChecker implements Runnable {
+        @Override
+        public void run() {
+            try {
+                synchronized (runningTasks) {
+                    Iterator<Entry<Long, Future<?>>> iterator = runningTasks.entrySet().iterator();
+                    while (iterator.hasNext()) {
+                        Entry<Long, Future<?>> entry = iterator.next();
+                        Future<?> future = entry.getValue();
+                        if (future.isDone()) {
+                            iterator.remove();
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                LOG.error("check task error", e);
+            }
         }
     }
 }
