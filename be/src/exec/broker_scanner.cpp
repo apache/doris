@@ -34,7 +34,6 @@
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
-#include "json_scanner.h"
 #include "util/utf8_check.h"
 
 namespace doris {
