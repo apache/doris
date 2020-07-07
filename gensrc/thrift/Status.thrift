@@ -73,7 +73,8 @@ enum TStatusCode {
     UNINITIALIZED       = 42,
     CONFIGURATION_ERROR = 43,
     INCOMPLETE          = 44,
-    OLAP_ERR_VERSION_ALREADY_MERGED = 45
+    OLAP_ERR_VERSION_ALREADY_MERGED = 45,
+    DATA_QUALITY_ERROR  = 46
 }
 
 struct TStatus {

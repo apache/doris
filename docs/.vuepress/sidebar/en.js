@@ -54,6 +54,7 @@ module.exports = [
           "routine-load-manual",
           "insert-into-manual",
           "delete-manual",
+          "load-json-format",
         ],
         sidebarDepth: 2,
       },
