@@ -21,6 +21,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
@@ -86,6 +87,9 @@ public class ModifyPartitionClause extends AlterTableClause {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
+
+        // check properties here
+        preCheck(Maps.newHashMap(properties));
     }
 
     // pre check the following properties' legality before modifying partition.
