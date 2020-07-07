@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.elasticsearch;
 
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
@@ -24,7 +25,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,7 +36,8 @@ import java.util.Map;
 
 
 /**
- * It is used to call es api to get shard allocation state
+ * It is responsible for loading all ES external table's meta-data such as `fields`, `partitions` periodically,
+ * playing the `repo` role at Doris On ES
  */
 public class EsRepository extends MasterDaemon {
 
@@ -69,8 +73,7 @@ public class EsRepository extends MasterDaemon {
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
-                EsRestClient client = esClients.get(esTable.getId());
-                esTable.syncESIndexMeta(client);
+                esTable.syncTableMetaData(esClients.get(esTable.getId()));
             } catch (Throwable e) {
                 LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
                 esTable.setEsTablePartitions(null);

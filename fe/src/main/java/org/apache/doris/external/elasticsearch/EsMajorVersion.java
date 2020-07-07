@@ -20,14 +20,18 @@ package org.apache.doris.external.elasticsearch;
 
 /**
  * Elasticsearch major version information, useful to check client's query compatibility with the Rest API.
- *
+ * <p>
  * reference es-hadoop:
- *
  */
 public class EsMajorVersion {
+
+    public static final EsMajorVersion V_0_X = new EsMajorVersion((byte) 0, "0.x");
+    public static final EsMajorVersion V_1_X = new EsMajorVersion((byte) 1, "1.x");
+    public static final EsMajorVersion V_2_X = new EsMajorVersion((byte) 2, "2.x");
     public static final EsMajorVersion V_5_X = new EsMajorVersion((byte) 5, "5.x");
     public static final EsMajorVersion V_6_X = new EsMajorVersion((byte) 6, "6.x");
     public static final EsMajorVersion V_7_X = new EsMajorVersion((byte) 7, "7.x");
+    public static final EsMajorVersion V_8_X = new EsMajorVersion((byte) 8, "8.x");
     public static final EsMajorVersion LATEST = V_7_X;
 
     public final byte major;
@@ -62,7 +66,16 @@ public class EsMajorVersion {
         return version.major >= major;
     }
 
-    public static EsMajorVersion parse(String version) throws Exception {
+    public static EsMajorVersion parse(String version) throws DorisEsException {
+        if (version.startsWith("0.")) {
+            return new EsMajorVersion((byte) 0, version);
+        }
+        if (version.startsWith("1.")) {
+            return new EsMajorVersion((byte) 1, version);
+        }
+        if (version.startsWith("2.")) {
+            return new EsMajorVersion((byte) 2, version);
+        }
         if (version.startsWith("5.")) {
             return new EsMajorVersion((byte) 5, version);
         }
@@ -72,8 +85,12 @@ public class EsMajorVersion {
         if (version.startsWith("7.")) {
             return new EsMajorVersion((byte) 7, version);
         }
-        throw new Exception("Unsupported/Unknown Elasticsearch version [" + version + "]." +
-                "Highest supported version is [" + LATEST.version + "]. You may need to upgrade ES-Hadoop.");
+        // used for the next released ES version
+        if (version.startsWith("8.")) {
+            return new EsMajorVersion((byte) 8, version);
+        }
+        throw new DorisEsException("Unsupported/Unknown ES Cluster version [" + version + "]." +
+                "Highest supported version is [" + LATEST.version + "].");
     }
 
     @Override
