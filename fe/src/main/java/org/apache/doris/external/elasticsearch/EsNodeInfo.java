@@ -38,7 +38,7 @@ public class EsNodeInfo {
     private boolean hasThrift;
     private TNetworkAddress thriftAddress;
 
-    public EsNodeInfo(String id, Map<String, Object> map) throws Exception {
+    public EsNodeInfo(String id, Map<String, Object> map) throws DorisEsException {
         this.id = id;
         EsMajorVersion version = EsMajorVersion.parse((String) map.get("version"));
         this.name = (String) map.get("name");
