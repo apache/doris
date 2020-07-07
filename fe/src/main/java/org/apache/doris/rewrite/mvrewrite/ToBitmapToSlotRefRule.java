@@ -37,9 +37,9 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-/*
-Rewrite bitmap_union(to_bitmap(c1)) to bitmap_union(mv_bitmap_c1)
-Rewrite bitmap_union_count(to_bitmap(c1)) to bitmap_union_count(mv_bitmap_c1)
+/**
+ * Rewrite bitmap_union(to_bitmap(c1)) to bitmap_union(mv_bitmap_c1)
+ * Rewrite bitmap_union_count(to_bitmap(c1)) to bitmap_union_count(mv_bitmap_c1)
  */
 public class ToBitmapToSlotRefRule implements ExprRewriteRule {
 

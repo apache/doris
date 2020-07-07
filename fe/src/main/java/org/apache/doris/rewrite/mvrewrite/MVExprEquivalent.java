@@ -21,10 +21,10 @@ import org.apache.doris.analysis.Expr;
 
 import com.google.common.collect.ImmutableList;
 
-/*
-Only support the once match from originExpr and newExpr
-TODO：one query expr could be calculate by a group by mv columns
-TODO: mvExprEqual(queryexpr, mvColumnExprList)
+/**
+ * Only support the once match from originExpr and newExpr
+ * TODO：one query expr could be calculate by a group by mv columns
+ * TODO: mvExprEqual(queryexpr, mvColumnExprList)
  */
 public class MVExprEquivalent {
 
