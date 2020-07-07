@@ -85,41 +85,54 @@ private:
     bool _scanner_eof;
 };
 
-
 class JsonDataInternal {
 public:
     JsonDataInternal(rapidjson::Value* v);
-    ~JsonDataInternal();
+    ~JsonDataInternal() {}
     rapidjson::Value::ConstValueIterator get_next();
+    rapidjson::Value* get_value() { return _json_values; }
+    bool is_null() const { return _json_values == nullptr; }
 
 private:
     rapidjson::Value* _json_values;
-    rapidjson::Value::ConstValueIterator  _iterator;
+    rapidjson::Value::ConstValueIterator _iterator;
 };
 
+struct JsonPath;
+// Reader to parse the json.
+// For most of its methods which return type is Status,
+// return Status::OK() if process succeed or encounter data quality error.
+// return other error Status if encounter other errors.
 class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile, FileReader* file_reader,
             std::string& jsonpath, bool strip_outer_array);
     ~JsonReader();
+
+    Status init(); // must call before use
+
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
 
 private:
-    void init_jsonpath(std::string& jsonpath);
-    void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len);
-    size_t get_data_by_jsonpath(const std::vector<SlotDescriptor*>& slot_descs);
-    Status parse_json_doc(bool* eof);
-    Status set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid);
-    Status set_tuple_value_from_map(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid);
-    Status handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
+    Status _handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
+    Status _handle_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
+    Status _handle_flat_array_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
+    Status _handle_nested_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
 
-    Status handle_nest_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
-    Status handle_flat_array_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
-    Status handle_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
-    Status write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc, Tuple* tuple, MemPool* tuple_pool);
-    void close();
+    void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len);
+    void _assemble_jmap(const std::vector<SlotDescriptor*>& slot_descs);
+    Status _parse_json_doc(bool* eof);
+    void _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid);
+    Status _set_tuple_value_from_jmap(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid);
+    void _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc, Tuple* tuple, MemPool* tuple_pool, bool* valid);
+    std::string _print_json_value(const rapidjson::Value& value);
+    std::string _print_jsonpath(const std::vector<JsonPath>& path);
+
+    void _close();
 
 private:
+    // origin json path
+    std::string _jsonpath;
     int _next_line;
     int _total_lines;
     RuntimeState* _state;
@@ -128,15 +141,9 @@ private:
     FileReader*_file_reader;
     bool _closed;
     bool _strip_outer_array;
-    /**
-     * _parse_jsonpath_flag == 1, jsonpath is valid
-     * _parse_jsonpath_flag == 0, jsonpath is empty, default
-     * _parse_jsonpath_flag == -1, jsonpath parse is error, it will return ERROR
-     */
-    short _parse_jsonpath_flag;
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;
-    rapidjson::Document _jsonpaths_doc;
+    std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     rapidjson::Document _json_doc;
     //key: column name
     std::unordered_map<std::string, JsonDataInternal> _jmap;
