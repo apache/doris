@@ -206,6 +206,14 @@ bool EvHttpServer::register_handler(
     return result;
 }
 
+void EvHttpServer::register_static_file_handler(HttpHandler* handler) {
+    DCHECK(handler != nullptr);
+    DCHECK(_static_file_handler == nullptr);
+    pthread_rwlock_wrlock(&_rw_lock);
+    _static_file_handler = handler;
+    pthread_rwlock_unlock(&_rw_lock);
+}
+
 int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     std::unique_ptr<HttpRequest> request(new HttpRequest(ev_req));
     auto res = request->init_from_evhttp();
@@ -247,6 +255,10 @@ HttpHandler* EvHttpServer::_find_handler(HttpRequest* req) {
     switch (req->method()) {
     case GET:
         _get_handlers.retrieve(path, &handler, req->params());
+        // Static file handler is a fallback handler
+        if (handler == nullptr) {
+            handler = _static_file_handler;
+        }
         break;
     case PUT:
         _put_handlers.retrieve(path, &handler, req->params());

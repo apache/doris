@@ -535,7 +535,6 @@ namespace config {
 
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_load_tablet_failure, "false");
-
 } // namespace config
 
 } // namespace doris

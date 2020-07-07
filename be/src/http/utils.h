@@ -21,6 +21,7 @@
 
 #include "common/utils.h"
 #include "http/http_common.h"
+#include "http/http_request.h"
 
 namespace doris {
 
@@ -34,4 +35,9 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth);
 
+void do_file_response(const std::string& dir_path, HttpRequest *req);
+
+void do_dir_response(const std::string& dir_path, HttpRequest *req);
+
+std::string get_content_type(const std::string& file_name);
 }
