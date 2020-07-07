@@ -2682,7 +2682,7 @@ public class Catalog {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
                                "The database [" + dbName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                               " please use \"DROPP database\".");
+                               " please use \"DROP database force\".");
                     }
                 }
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
@@ -3335,7 +3335,7 @@ public class Catalog {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
                         throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed." +
                                 " The partition [" + partitionName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                                " please use \"DROPP partition\".");
+                                " please use \"DROP partition force\".");
                     }
                 }
             }
@@ -4305,7 +4305,7 @@ public class Catalog {
                 if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
                             "The table [" + tableName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                            " please use \"DROPP table\".");
+                            " please use \"DROP table force\".");
                 }
             }
 
