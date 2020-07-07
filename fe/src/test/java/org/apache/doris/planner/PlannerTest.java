@@ -18,8 +18,10 @@
 package org.apache.doris.planner;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -32,6 +34,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -231,6 +234,78 @@ public class PlannerTest {
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "UNION"));
         Assert.assertEquals(3, StringUtils.countMatches(plan9, "INTERSECT"));
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "EXCEPT"));
+    }
+
+    @Test
+    public void testPushDown() throws Exception{
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        UtFrameUtils.createMinDorisCluster(runningDir);
+        String createDbStmtStr = "create database db1;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        // 3. create table tbl1
+        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
+                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        String sql1 =
+                "SELECT\n" +
+                "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
+                "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
+                "    k4\n" +
+                "FROM\n" +
+                "(\n" +
+                "    SELECT\n" +
+                "        k1,\n" +
+                "        k2,\n" +
+                "        k3,\n" +
+                "        SUM(k4) AS k4\n" +
+                "    FROM  db1.tbl1\n" +
+                "    WHERE k1 = 0\n" +
+                "        AND k4 = 1\n" +
+                "        AND k3 = 'foo'\n" +
+                "    GROUP BY \n" +
+                "    GROUPING SETS (\n" +
+                "        (k1),\n" +
+                "        (k1, k2),\n" +
+                "        (k1, k3),\n" +
+                "        (k1, k2, k3)\n" +
+                "    )\n" +
+                ") t\n" +
+                "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
+        StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+        stmtExecutor1.execute();
+        Planner planner1 = stmtExecutor1.planner();
+        List<PlanFragment> fragments1 = planner1.getFragments();
+        Assert.assertEquals("if",
+                fragments1.get(0).getPlanRoot().conjuncts.get(0).getChild(0).getFn().functionName());
+        Assert.assertEquals(3, fragments1.get(0).getPlanRoot().getChild(0).getChild(0).conjuncts.size());
+
+        String sql2 =
+                "SELECT\n" +
+                        "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
+                        "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
+                        "    k4\n" +
+                        "FROM\n" +
+                        "(\n" +
+                        "    SELECT\n" +
+                        "        k1,\n" +
+                        "        k2,\n" +
+                        "        k3,\n" +
+                        "        SUM(k4) AS k4\n" +
+                        "    FROM  db1.tbl1\n" +
+                        "    WHERE k1 = 0\n" +
+                        "        AND k4 = 1\n" +
+                        "        AND k3 = 'foo'\n" +
+                        "    GROUP BY k1, k2, k3\n" +
+                        ") t\n" +
+                        "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
+        StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
+        stmtExecutor2.execute();
+        Planner planner2 = stmtExecutor2.planner();
+        List<PlanFragment> fragments2 = planner2.getFragments();
+        Assert.assertEquals(4, fragments2.get(0).getPlanRoot().getChild(0).conjuncts.size());
+
     }
 
 }
