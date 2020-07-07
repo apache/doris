@@ -1621,6 +1621,23 @@ public class SingleNodePlanner {
             default:
                 throw new AnalysisException("not supported set operations: " + operation);
         }
+        // If it is a union or other same operation, there are only two possibilities,
+        // one is the root node, and the other is a distinct node in front, so the setOperationDistinctPlan will
+        // be aggregate node, if this is a mixed operation
+        // e.g. :
+        // a union b -> result == null
+        // a union b union all c -> result == null -> result == AggregationNode
+        // a union all b except c -> result == null -> result == UnionNode
+        // a union b except c -> result == null -> result == AggregationNode
+        if (result != null && result instanceof SetOperationNode) {
+            Preconditions.checkState(!result.getClass().equals(setOpNode.getClass()));
+            setOpNode.addChild(result, setOperationStmt.getResultExprs());
+        } else if (result != null) {
+            Preconditions.checkState(setOperationStmt.hasDistinctOps());
+            Preconditions.checkState(result instanceof AggregationNode);
+            setOpNode.addChild(result,
+                    setOperationStmt.getDistinctAggInfo().getGroupingExprs());
+        }
         for (SetOperationStmt.SetOperand op : setOperands) {
             if (op.getAnalyzer().hasEmptyResultSet()) {
                 unmarkCollectionSlots(op.getQueryStmt());
@@ -1642,23 +1659,6 @@ public class SingleNodePlanner {
                 continue;
             }
             setOpNode.addChild(opPlan, op.getQueryStmt().getResultExprs());
-        }
-        // If it is a union or other same operation, there are only two possibilities,
-        // one is the root node, and the other is a distinct node in front, so the setOperationDistinctPlan will
-        // be aggregate node, if this is a mixed operation
-        // e.g. :
-        // a union b -> result == null
-        // a union b union all c -> result == null -> result == AggregationNode
-        // a union all b except c -> result == null -> result == UnionNode
-        // a union b except c -> result == null -> result == AggregationNode
-        if (result != null && result instanceof SetOperationNode) {
-            Preconditions.checkState(!result.getClass().equals(setOpNode.getClass()));
-            setOpNode.addChild(result, setOperationStmt.getResultExprs());
-        } else if (result != null) {
-            Preconditions.checkState(setOperationStmt.hasDistinctOps());
-            Preconditions.checkState(result instanceof AggregationNode);
-            setOpNode.addChild(result,
-                    setOperationStmt.getDistinctAggInfo().getGroupingExprs());
         }
         setOpNode.init(analyzer);
         return setOpNode;
@@ -2111,4 +2111,3 @@ public class SingleNodePlanner {
         return analyzer.getUnassignedConjuncts(tupleIds);
     }
 }
-

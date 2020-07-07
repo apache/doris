@@ -231,6 +231,16 @@ public class PlannerTest {
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "UNION"));
         Assert.assertEquals(3, StringUtils.countMatches(plan9, "INTERSECT"));
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "EXCEPT"));
+
+        String sql10 = "select 499 union select 670 except select 499";
+        StmtExecutor stmtExecutor10 = new StmtExecutor(ctx, sql10);
+        stmtExecutor10.execute();
+        Planner planner10 = stmtExecutor10.planner();
+        List<PlanFragment> fragments10 = planner10.getFragments();
+        Assert.assertTrue(fragments10.get(0).getPlanRoot().getFragment()
+                .getPlanRoot().getChild(0) instanceof AggregationNode);
+        Assert.assertTrue(fragments10.get(0).getPlanRoot()
+                .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
     }
 
 }
