@@ -39,7 +39,7 @@ static const char* FIELD_SCROLL_ID = "_scroll_id";
 static const char* FIELD_HITS = "hits";
 static const char* FIELD_INNER_HITS = "hits";
 static const char* FIELD_SOURCE = "_source";
-static const char* FIELD_TOTAL = "total";
+static const char* FIELD_ID = "_id";
 
 
 // get the original json data type
@@ -200,7 +200,6 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
 
 ScrollParser::ScrollParser(bool doc_value_mode) :
     _scroll_id(""),
-    _total(0),
     _size(0),
     _line_index(0),
     _doc_value_mode(doc_value_mode) {
@@ -210,6 +209,8 @@ ScrollParser::~ScrollParser() {
 }
 
 Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
+    // rely on `_size !=0 ` to determine whether scroll ends
+    _size = 0;
     _document_node.Parse(scroll_result.c_str());
     if (_document_node.HasParseError()) {
         std::stringstream ss;
@@ -228,37 +229,18 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     }
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
     const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
-    const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
-    // after es 7.x "total": { "value": 1, "relation": "eq" }
-    // it is not necessary to parse `total`, this logic would be removed the another pr.
-    if (field_total.IsObject()) {
-        const rapidjson::Value &field_relation_value = field_total["relation"];
-        std::string relation = field_relation_value.GetString();
-        // maybe not happend on scoll sort mode, for logically rigorous
-        if ("eq" != relation) {
-            return Status::InternalError("Could not identify exact hit count for search response");
-        }
-        const rapidjson::Value &field_total_value = field_total["value"];
-        _total = field_total_value.GetInt();
-    } else {
-        _total = field_total.GetInt();
-    }
-    // just used for the first scroll, maybe we should remove this logic from the `get_next`
-    if (_total == 0) {
+    // if has no inner hits, there has no data in this index
+    if (!outer_hits_node.HasMember(FIELD_INNER_HITS)) {
         return Status::OK();
     }
-
-    VLOG(1) << "es_scan_reader parse scroll result: " << scroll_result;
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     // this happened just the end of scrolling
     if (!inner_hits_node.IsArray()) {
         return Status::OK();
     }
-
-    rapidjson::Document::AllocatorType& a = _document_node.GetAllocator();
-    _inner_hits_node.CopyFrom(inner_hits_node, a);
+    _inner_hits_node.CopyFrom(inner_hits_node, _document_node.GetAllocator());
+    // how many documents contains in this batch
     _size = _inner_hits_node.Size();
-
     return Status::OK();
 }
 
@@ -268,10 +250,6 @@ int ScrollParser::get_size() {
 
 const std::string& ScrollParser::get_scroll_id() {
     return _scroll_id;
-}
-
-int ScrollParser::get_total() {
-    return _total;
 }
 
 Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
@@ -294,6 +272,42 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
 
         if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        // _id field must exists in every document, this is guaranteed by ES
+        // if _id was found in tuple, we would get `_id` value from inner-hit node
+        // json-format response would like below:
+        //    "hits": {
+        //            "hits": [
+        //                {
+        //                    "_id": "UhHNc3IB8XwmcbhBk1ES",
+        //                    "_source": {
+        //                          "k": 201,
+        //                    }
+        //                }
+        //            ]
+        //        }
+        if (slot_desc->col_name() == FIELD_ID) {
+            // actually this branch will not be reached, this is guaranteed by Doris FE.
+            if (pure_doc_value) {
+                std::stringstream ss;
+                ss << "obtain `_id` is not supported in doc_values mode";
+                return Status::RuntimeError(ss.str());
+            }
+            tuple->set_not_null(slot_desc->null_indicator_offset());
+            void* slot = tuple->get_slot(slot_desc->tuple_offset());
+            // obj[FIELD_ID] must not be NULL
+            std::string _id = obj[FIELD_ID].GetString();
+            size_t len = _id.length();
+            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(len));
+            if (UNLIKELY(buffer == NULL)) {
+                string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
+                            len, "string slot");
+                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, len);
+            }
+            memcpy(buffer, _id.data(), len);
+            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
+            reinterpret_cast<StringValue*>(slot)->len = len;
             continue;
         }
 
@@ -433,49 +447,32 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
 
             case TYPE_DATE:
             case TYPE_DATETIME: {
+                // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
                 if (col.IsNumber()) {
-                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64(), "+08:00")) {
-                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+                    // ES process date/datetime field would use millisecond timestamp for index or docvalue
+                    // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
+                    // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
+                    RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col, type));
+                } else if (col.IsArray() && pure_doc_value) {
+                    // this would happend just only when `enable_docvalue_scan = true`
+                    // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
+                    // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
+                    // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
+                    // date field's docvalue
+                    if (col[0].IsString()) {
+                        RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col[0], type));
+                        break;
                     }
-
-                    if (type == TYPE_DATE) {
-                        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
-                    } else {
-                        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-                    }
-                    break;
-                }
-                if (pure_doc_value && col.IsArray()) {
-                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col[0].GetInt64(), "+08:00")) {
-                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-                    }
-
-                    if (type == TYPE_DATE) {
-                        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
-                    } else {
-                        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-                    }
-                    break;
-                }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
-                if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-                }
-
-                if (type == TYPE_DATE) {
-                    ts_slot->cast_to_date();
+                    // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
+                    RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col[0], type));
                 } else {
-                    ts_slot->to_datetime();
+                    // this would happend just only when `enable_docvalue_scan = false`, and field has string format date from _source
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+                    RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col, type));
                 }
                 break;
             }
-
             default: {
                 DCHECK(false);
                 break;
@@ -486,4 +483,32 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
     *line_eof = false;
     return Status::OK();
 }
+
+Status ScrollParser::fill_date_slot_with_strval(void* slot, const rapidjson::Value& col, PrimitiveType type) {
+    DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
+    const std::string& val = col.GetString();
+    size_t val_size = col.GetStringLength();
+    if (!ts_slot->from_date_str(val.c_str(), val_size)) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        ts_slot->cast_to_date();
+    } else {
+        ts_slot->to_datetime();
+    }
+    return Status::OK();
+}
+
+Status ScrollParser::fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col, PrimitiveType type) {
+    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64() / 1000, "+08:00")) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+    } else {
+        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+    }
+    return Status::OK();
+}
+
 }

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -47,7 +46,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.Month;
-import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
@@ -152,6 +150,19 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkReplicationNum(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.REPLICATION_NUM);
+        }
+        try {
+            if (Integer.parseInt(val) <= 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
+            }
+        } catch (NumberFormatException e) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
+        }
+    }
+
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
         if (properties == null) {
             return false;
@@ -162,6 +173,7 @@ public class DynamicPartitionUtil {
                 properties.containsKey(DynamicPartitionProperty.END) ||
                 properties.containsKey(DynamicPartitionProperty.PREFIX) ||
                 properties.containsKey(DynamicPartitionProperty.BUCKETS) ||
+                properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM) ||
                 properties.containsKey(DynamicPartitionProperty.ENABLE) ||
                 properties.containsKey(DynamicPartitionProperty.START_DAY_OF_WEEK) ||
                 properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH);
@@ -180,6 +192,7 @@ public class DynamicPartitionUtil {
         String timeZone = properties.get(DynamicPartitionProperty.TIME_ZONE);
         String end = properties.get(DynamicPartitionProperty.END);
         String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
+        String replicationNum = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         if (!((Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
@@ -207,7 +220,7 @@ public class DynamicPartitionUtil {
                 throw new DdlException("Must assign dynamic_partition.buckets properties");
             }
             if (Strings.isNullOrEmpty(timeZone)) {
-                properties.put(DynamicPartitionProperty.TIME_ZONE, ZoneId.systemDefault().toString());
+                properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSystemTimeZone().getID());
             }
         }
         return true;
@@ -284,6 +297,12 @@ public class DynamicPartitionUtil {
             TimeUtils.checkTimeZoneValidAndStandardize(val);
             properties.remove(DynamicPartitionProperty.TIME_ZONE);
             analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
+        }
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
+            checkReplicationNum(val);
+            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_NUM, val);
         }
         return analyzedProperties;
     }
@@ -439,18 +458,6 @@ public class DynamicPartitionUtil {
     private static String getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime zonedDateTime, String format) {
         ZonedDateTime timeWithoutHourMinuteSecond = zonedDateTime.withHour(0).withMinute(0).withSecond(0);
         return DateTimeFormatter.ofPattern(format).format(timeWithoutHourMinuteSecond);
-    }
-
-    public static int estimateReplicateNum(OlapTable table) {
-        int replicateNum = table.getDefaultReplicationNum();
-        long maxPartitionId = 0;
-        for (Partition partition: table.getPartitions()) {
-            if (partition.getId() > maxPartitionId) {
-                maxPartitionId = partition.getId();
-                replicateNum = table.getPartitionInfo().getReplicationNum(partition.getId());
-            }
-        }
-        return replicateNum;
     }
 
     /**

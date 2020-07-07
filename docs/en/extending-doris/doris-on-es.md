@@ -130,8 +130,8 @@ The following parameters are accepted by ES table:
 Parameter | Description
 ---|---
 **hosts** | ES Cluster Connection Address, maybe one or more node, load-balance is also accepted
-**index** | the related ES index name
-**type** | the type for this index，If not specified, `_doc` will be used
+**index** | the related ES index name, alias is supported, and if you use doc_value, you need to use the real name
+**type** | the type for this index, If not specified, `_doc` will be used
 **user** | username for ES
 **password** | password for the user
 
@@ -452,6 +452,67 @@ select * from es_table where esquery(k4, ' {
 
 4. After calculating the result, return it to client
 
+## Best Practices
+
+### Suggestions for using Date type fields
+
+The use of Datetype fields in ES is very flexible, but in Doris On ES, if the type of the Date type field is not set properly, it will cause the filter condition can not be pushed down.
+
+When creating an index, do maximum format compatibility with the setting of the Date type format:
+
+```
+ "dt": {
+     "type": "date",
+     "format": "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd||epoch_millis"
+ }
+```
+
+When creating this field in Doris, it is recommended to set it to `date` or `datetime`, and it can also be set to `varchar` type. The following SQL statements can be used to directly push the filter condition down to ES
+
+
+```
+select * from doe where k2 > '2020-06-21';
+
+select * from doe where k2 < '2020-06-21 12:00:00'; 
+
+select * from doe where k2 < 1593497011; 
+
+select * from doe where k2 < now();
+
+select * from doe where k2 < date_format(now(), '%Y-%m-%d');
+```
+
+`Notice`:
+
+* If you don’t set the format for the time type field In ES, the default format for Date-type field is
+
+```
+strict_date_optional_time||epoch_millis
+```
+* If the date field indexed into ES is unix timestamp, it needs to be converted to `ms`, and the internal timestamp of ES is processed according to `ms` unit, otherwise Doris On ES will display wrong column data
+
+### Fetch ES metadata field `_id`
+
+When indexing documents without specifying `_id`, ES will assign a globally unique `_id` field  to each document. Users can also specify a `_id` with special represent some business meaning for the document when indexing; if needed, Doris On ES can get the value of this field by adding the `_id` field of type `varchar` when creating the ES external table
+
+```
+CREATE EXTERNAL TABLE `doe` (
+  `_id` varchar COMMENT "",
+  `city`  varchar COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://127.0.0.1:8200",
+"user" = "root",
+"password" = "root",
+"index" = "doe",
+"type" = "doc"
+}
+```
+`Notice`:
+
+1. The filtering condition of the `_id` field only supports two types: `=` and `in`
+2. The `_id` field can only be of type `varchar`
+
 ## Q&A
 
 1. ES Version Requirements
@@ -469,6 +530,3 @@ select * from es_table where esquery(k4, ' {
 4. Whether the aggregation operation can be pushed down
 
    At present, Doris On ES does not support push-down operations such as sum, avg, min/max, etc., all documents satisfying the conditions are obtained from the ES in batch flow, and then calculated in Doris
-   
-5. Filters for date type fields cannot be pushed down
-   Due to the time format problem, the date type field will not be pushed down in most cases; the date type filtering can be in the form of a string, and the date format needs to be completely consistent with ES

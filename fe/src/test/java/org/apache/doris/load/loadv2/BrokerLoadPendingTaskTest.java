@@ -64,7 +64,7 @@ public class BrokerLoadPendingTaskTest {
         };
         new MockUp<BrokerUtil>() {
             @Mock
-            public void parseBrokerFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses) {
+            public void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses) {
                 fileStatuses.add(tBrokerFileStatus);
             }
         };

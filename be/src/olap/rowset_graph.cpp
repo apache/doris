@@ -24,10 +24,10 @@
 
 namespace doris {
 
-OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+void RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     if (rs_metas.empty()) {
         VLOG(3) << "there is no version in the header.";
-        return OLAP_SUCCESS;
+        return;
     }
 
     // Distill vertex values from versions in TabletMeta.
@@ -50,12 +50,7 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
         }
 
         // Add vertex to graph.
-        OLAPStatus status = _add_vertex_to_graph(vertex_values[i]);
-        if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to add vertex to version graph. vertex=" << vertex_values[i];
-            return status;
-        }
-
+        _add_vertex_to_graph(vertex_values[i]);
         last_vertex_value = vertex_values[i];
     }
 
@@ -70,32 +65,22 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
         // Add reverse edge from end_version to start_version.
         _version_graph[end_vertex_index].edges.push_front(start_vertex_index);
     }
-    return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+void RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     _version_graph.clear();
     _vertex_index_map.clear();
-    return construct_rowset_graph(rs_metas);
+    construct_rowset_graph(rs_metas);
 }
 
-OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
+void RowsetGraph::add_version_to_graph(const Version& version) {
     // Add version.first as new vertex of version graph if not exist.
     int64_t start_vertex_value = version.first;
     int64_t end_vertex_value = version.second + 1;
 
     // Add vertex to graph.
-    OLAPStatus status = _add_vertex_to_graph(start_vertex_value);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add vertex to version graph. vertex=" << start_vertex_value;
-        return status;
-    }
-
-    status = _add_vertex_to_graph(end_vertex_value);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add vertex to version graph. vertex=" << end_vertex_value;
-        return status;
-    }
+    _add_vertex_to_graph(start_vertex_value);
+    _add_vertex_to_graph(end_vertex_value);
 
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
     int64_t end_vertex_index = _vertex_index_map[end_vertex_value];
@@ -106,8 +91,6 @@ OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
 
     // We add reverse edge(from end_version to start_version) to graph
     _version_graph[end_vertex_index].edges.push_front(start_vertex_index);
-
-    return OLAP_SUCCESS;
 }
 
 OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
@@ -130,16 +113,15 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
+void RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
     // Vertex with vertex_value already exists.
     if (_vertex_index_map.find(vertex_value) != _vertex_index_map.end()) {
         VLOG(3) << "vertex with vertex value already exists. value=" << vertex_value;
-        return OLAP_SUCCESS;
+        return;
     }
 
     _version_graph.emplace_back(Vertex(vertex_value));
     _vertex_index_map[vertex_value] = _version_graph.size() - 1;
-    return OLAP_SUCCESS;
 }
 
 OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,

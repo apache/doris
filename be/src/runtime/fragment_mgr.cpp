@@ -23,29 +23,30 @@
 #include <gperftools/profiler.h>
 #include <boost/bind.hpp>
 
+#include <thrift/protocol/TDebugProtocol.h>
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "common/resource_tls.h"
-#include "service/backend_options.h"
-#include "runtime/plan_fragment_executor.h"
-#include "runtime/exec_env.h"
-#include "runtime/datetime_value.h"
-#include "util/stopwatch.hpp"
-#include "util/debug_util.h"
-#include "util/doris_metrics.h"
-#include "util/thrift_util.h"
-#include "util/url_coding.h"
-#include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
+#include "gen_cpp/DataSinks_types.h"
+#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/DataSinks_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/QueryPlanExtra_types.h"
-#include <thrift/protocol/TDebugProtocol.h>
+#include "gen_cpp/Types_types.h"
+#include "gutil/strings/substitute.h"
+#include "runtime/client_cache.h"
+#include "runtime/datetime_value.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/plan_fragment_executor.h"
+#include "service/backend_options.h"
+#include "util/debug_util.h"
+#include "util/doris_metrics.h"
+#include "util/stopwatch.hpp"
+#include "util/thrift_util.h"
+#include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -209,7 +210,8 @@ Status FragmentExecState::execute() {
             CgroupsMgr::apply_system_cgroup();
         }
 
-        _executor.open();
+        WARN_IF_ERROR(_executor.open(), strings::Substitute("Got error while opening fragment $0",
+                                                            print_id(_fragment_instance_id)));
         _executor.close();
     }
     DorisMetrics::instance()->fragment_requests_total.increment(1);

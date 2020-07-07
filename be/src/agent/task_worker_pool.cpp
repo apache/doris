@@ -344,9 +344,8 @@ void* TaskWorkerPool::_create_tablet_worker_thread_callback(void* arg_this) {
         } else {
             ++_s_report_version;
             // get path hash of the created tablet
-            BaseTabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->
-                    get_base_tablet(create_tablet_req.tablet_id,
-                                    create_tablet_req.tablet_schema.schema_hash);
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                    create_tablet_req.tablet_id, create_tablet_req.tablet_schema.schema_hash);
             DCHECK(tablet != nullptr);
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->table_id();
@@ -400,8 +399,8 @@ void* TaskWorkerPool::_drop_tablet_worker_thread_callback(void* arg_this) {
         TStatusCode::type status_code = TStatusCode::OK;
         vector<string> error_msgs;
         TStatus task_status;
-        BaseTabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->
-                get_base_tablet(drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
+        TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -619,7 +618,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 #endif
 
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
-                  << " priority: " << priority;
+                << " priority: " << priority << " push_type: " << push_req.push_type;
         vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
@@ -646,7 +645,8 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
         }
 
         if (status == DORIS_SUCCESS) {
-            VLOG(3) << "push ok.signature: " << agent_task_req.signature;
+            VLOG(3) << "push ok. signature: " << agent_task_req.signature 
+                << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
             ++_s_report_version;
@@ -727,7 +727,6 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             st = Status::RuntimeError(strings::Substitute("publish version failed. error=$0", res));
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            _s_report_version++;
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
 
@@ -828,8 +827,8 @@ void* TaskWorkerPool::_update_tablet_meta_worker_thread_callback(void* arg_this)
         TStatus task_status;
 
         for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
-            BaseTabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->
-                    get_base_tablet(tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                    tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
             if (tablet == nullptr) {
                 LOG(WARNING) << "could not find tablet when update partition id"
                              << " tablet_id=" << tablet_meta_info.tablet_id
@@ -1105,14 +1104,14 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             disk.__set_used(root_path_info.is_used);
             disks[root_path_info.path] = disk;
 
-            DorisMetrics::instance()->disks_total_capacity.set_metric(
-                root_path_info.path, root_path_info.disk_capacity);
-            DorisMetrics::instance()->disks_avail_capacity.set_metric(
-                root_path_info.path, root_path_info.available);
-            DorisMetrics::instance()->disks_data_used_capacity.set_metric(
-                root_path_info.path, root_path_info.data_used_capacity);
-            DorisMetrics::instance()->disks_state.set_metric(
-                root_path_info.path, root_path_info.is_used ? 1L : 0L);
+            DorisMetrics::instance()->disks_total_capacity.set_metric(root_path_info.path,
+                                                          root_path_info.disk_capacity);
+            DorisMetrics::instance()->disks_avail_capacity.set_metric(root_path_info.path,
+                                                          root_path_info.available);
+            DorisMetrics::instance()->disks_data_used_capacity.set_metric(root_path_info.path,
+                                                              root_path_info.data_used_capacity);
+            DorisMetrics::instance()->disks_state.set_metric(root_path_info.path,
+                                                 root_path_info.is_used ? 1L : 0L);
         }
         request.__set_disks(disks);
 

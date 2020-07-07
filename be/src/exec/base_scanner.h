@@ -42,6 +42,7 @@ struct ScannerCounter {
     int64_t num_rows_filtered;  // unqualified rows (unmatch the dest schema, or no partition)
     int64_t num_rows_unselected; // rows filterd by predicates
 };
+
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params, ScannerCounter* counter);

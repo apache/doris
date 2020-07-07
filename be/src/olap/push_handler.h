@@ -22,8 +22,10 @@
 #include <string>
 #include <vector>
 
+#include "exec/base_scanner.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
@@ -60,6 +62,11 @@ public:
     int64_t write_bytes() const { return _write_bytes; }
     int64_t write_rows() const { return _write_rows; }
 private:
+    OLAPStatus _convert_v2(
+            TabletSharedPtr cur_tablet,
+            TabletSharedPtr new_tablet_vec,
+            RowsetSharedPtr* cur_rowset,
+            RowsetSharedPtr* new_rowset);
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
     OLAPStatus _convert(
@@ -207,6 +214,44 @@ private:
     size_t _max_compressed_buf_size;
     size_t _row_num;
     size_t _next_row_start;
+};
+
+class PushBrokerReader {
+public:
+    PushBrokerReader() 
+        : _ready(false),
+          _eof(false) {}
+    ~PushBrokerReader() {}
+
+    OLAPStatus init(const Schema* schema,
+                    const TBrokerScanRange& t_scan_range,
+                    const TDescriptorTable& t_desc_tbl);
+    OLAPStatus next(ContiguousRow* row);
+    void print_profile();
+
+    OLAPStatus close() {
+        _ready = false;
+        return OLAP_SUCCESS;
+    }
+    bool eof() {
+        return _eof;
+    }
+    MemPool* mem_pool() {
+        return _mem_pool.get();
+    }
+
+private:
+    bool _ready;
+    bool _eof;
+    TupleDescriptor* _tuple_desc;
+    Tuple* _tuple;
+    const Schema* _schema;
+    std::unique_ptr<RuntimeState> _runtime_state;
+    RuntimeProfile* _runtime_profile;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<ScannerCounter> _counter;
+    std::unique_ptr<BaseScanner> _scanner;
 };
 
 }  // namespace doris

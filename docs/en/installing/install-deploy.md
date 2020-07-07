@@ -274,6 +274,7 @@ View the status of Follower or Observer. Connect to any booted FE using mysql-cl
 > 1. The number of Follower FEs (including Leaders) must be odd. It is recommended that a maximum of three constituent high availability (HA) modes be deployed.
 > 2. When FE is in a highly available deployment (1 Leader, 2 Follower), we recommend that the reading service capability of FE be extended by adding Observer FE. Of course, you can continue to add Follower FE, but it's almost unnecessary.
 > 3. Usually a FE node can handle 10-20 BE nodes. It is suggested that the total number of FE nodes should be less than 10. Usually three can meet most of the needs.
+> 4. The helper cannot point to the FE itself, it must point to one or more existing running Master/Follower FEs.
 
 #### Delete FE nodes
 

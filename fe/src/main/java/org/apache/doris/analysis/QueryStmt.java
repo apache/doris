@@ -285,27 +285,26 @@ public abstract class QueryStmt extends StatementBase {
         }
 
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
-        // order by w/o limit and offset in inline views, union operands and insert statements
+        // order by w/o limit and offset in inline views, set operands and insert statements
         // are ignored.
-        // TODO chenhao, open this when we don't limit rows subquery returns by SortNode.
-        /*if (!hasLimit() && !hasOffset() && !analyzer.isRootAnalyzer()) {
-         *   evaluateOrderBy = false;
-         *   // Return a warning that the order by was ignored.
-         *   StringBuilder strBuilder = new StringBuilder();
-         *   strBuilder.append("Ignoring ORDER BY clause without LIMIT or OFFSET: ");
-         *   strBuilder.append("ORDER BY ");
-         *   strBuilder.append(orderByElements.get(0).toSql());
-         *   for (int i = 1; i < orderByElements.size(); ++i) {
-         *       strBuilder.append(", ").append(orderByElements.get(i).toSql());
-         *   }
-         *   strBuilder.append(".\nAn ORDER BY appearing in a view, subquery, union operand, ");
-         *   strBuilder.append("or an insert/ctas statement has no effect on the query result ");
-         *   strBuilder.append("unless a LIMIT and/or OFFSET is used in conjunction ");
-         *   strBuilder.append("with the ORDER BY.");
-         * } else {
-         */
-        evaluateOrderBy = true;
-        //}
+        if (!hasLimit() && !hasOffset() && !analyzer.isRootAnalyzer()) {
+            evaluateOrderBy = false;
+            // Return a warning that the order by was ignored.
+            StringBuilder strBuilder = new StringBuilder();
+            strBuilder.append("Ignoring ORDER BY clause without LIMIT or OFFSET: ");
+            strBuilder.append("ORDER BY ");
+            strBuilder.append(orderByElements.get(0).toSql());
+            for (int i = 1; i < orderByElements.size(); ++i) {
+                strBuilder.append(", ").append(orderByElements.get(i).toSql());
+            }
+            strBuilder.append(".\nAn ORDER BY appearing in a view, subquery, union operand, ");
+            strBuilder.append("or an insert/ctas statement has no effect on the query result ");
+            strBuilder.append("unless a LIMIT and/or OFFSET is used in conjunction ");
+            strBuilder.append("with the ORDER BY.");
+            LOG.info(strBuilder.toString());
+        } else {
+            evaluateOrderBy = true;
+        }
     }
 
     /**

@@ -21,6 +21,7 @@ import mockit.Expectations;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -97,7 +98,7 @@ public class GrantStmtTest {
     @Test
     public void testResourceNormal() throws UserException {
         // TODO(wyb): spark-load
-        GrantStmt.disableGrantResource = false;
+        Config.enable_spark_load = true;
 
         String resourceName = "spark0";
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);

@@ -222,6 +222,12 @@ public class FEFunctions {
         return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
     }
 
+    @FEFunction(name = "utc_timestamp", argTypes = {}, returnType = "DATETIME")
+    public static DateLiteral utcTimestamp() throws AnalysisException {
+        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getOrSystemTimeZone("+00:00"))),
+                Type.DATETIME);
+    }
+
     /**
      ------------------------------------------------------------------------------
      */

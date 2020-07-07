@@ -259,10 +259,10 @@ public class BackendLoadStatistic {
         }
     }
 
-    public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacity, long beTotalReplicaNum,
+    public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
             double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
         
-        double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacity);
+        double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacityB);
         double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
                 : usedCapacityPercent / avgClusterUsedCapacityPercent;
         double replicaNumProportion = avgClusterReplicaNumPerBackend <= 0 ? 0.0

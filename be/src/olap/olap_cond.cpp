@@ -569,11 +569,11 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
             break;
         }
     }
-    if (true == del_not_statified || 0 == _conds.size()) {
+    if (del_not_statified || _conds.empty()) {
         // if the size of condcolumn vector is zero,
         // the delete condtion is not satisfied.
         ret = DEL_NOT_SATISFIED;
-    } else if (true == del_partial_statified) {
+    } else if (del_partial_statified) {
         ret = DEL_PARTIAL_SATISFIED;
     } else {
         ret = DEL_SATISFIED;

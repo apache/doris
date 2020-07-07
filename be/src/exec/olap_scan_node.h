@@ -18,12 +18,9 @@
 #ifndef  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 #define  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/recursive_mutex.hpp>
-#include <boost/thread/thread.hpp>
+#include <boost/variant/static_visitor.hpp>
+#include <boost/thread.hpp>
+#include <condition_variable>
 #include <queue>
 
 #include "exec/olap_common.h"
@@ -192,10 +189,10 @@ private:
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
-    boost::scoped_ptr<ObjectPool> _scanner_pool;
+    std::unique_ptr<ObjectPool> _scanner_pool;
 
-    // Thread group for transfer thread
     boost::thread_group _transfer_thread;
+
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
 
@@ -205,14 +202,14 @@ private:
     // queued to avoid freeing attached resources prematurely (row batches will never depend
     // on resources attached to earlier batches in the queue).
     // This lock cannot be taken together with any other locks except _lock.
-    boost::mutex _row_batches_lock;
-    boost::condition_variable _row_batch_added_cv;
-    boost::condition_variable _row_batch_consumed_cv;
+    std::mutex _row_batches_lock;
+    std::condition_variable _row_batch_added_cv;
+    std::condition_variable _row_batch_consumed_cv;
 
     std::list<RowBatchInterface*> _materialized_row_batches;
 
-    boost::mutex _scan_batches_lock;
-    boost::condition_variable _scan_batch_added_cv;
+    std::mutex _scan_batches_lock;
+    std::condition_variable _scan_batch_added_cv;
     int32_t _scanner_task_finish_count;
 
     std::list<RowBatchInterface*> _scan_row_batches;
@@ -225,7 +222,6 @@ private:
     bool _transfer_done;
     size_t _direct_conjunct_size;
 
-    boost::posix_time::time_duration _wait_duration;
     int _total_assign_num;
     int _nice;
 

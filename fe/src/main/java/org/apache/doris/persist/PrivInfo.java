@@ -20,6 +20,8 @@ package org.apache.doris.persist;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -117,15 +119,12 @@ public class PrivInfo implements Writable {
             out.writeBoolean(false);
         }
 
-        // TODO(wyb): spark-load
-        /*
         if (resourcePattern != null) {
             out.writeBoolean(true);
             resourcePattern.write(out);
         } else {
             out.writeBoolean(false);
         }
-         */
 
         if (privs != null) {
             out.writeBoolean(true);
@@ -159,14 +158,11 @@ public class PrivInfo implements Writable {
             tblPattern = TablePattern.read(in);
         }
 
-        // TODO(wyb): spark-load
-        /*
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
             if (in.readBoolean()) {
                 resourcePattern = ResourcePattern.read(in);
             }
         }
-         */
 
         if (in.readBoolean()) {
             privs = PrivBitSet.read(in);

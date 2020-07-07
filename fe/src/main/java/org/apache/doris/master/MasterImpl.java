@@ -37,6 +37,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
@@ -383,6 +384,22 @@ public class MasterImpl {
                     if (replica != null) {
                         deleteJob.addFinishedReplica(pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
+                    }
+                }
+            } else if (pushTask.getPushType() == TPushType.LOAD_V2) {
+                long loadJobId = pushTask.getLoadJobId();
+                org.apache.doris.load.loadv2.LoadJob job = Catalog.getCurrentCatalog().getLoadManager().getLoadJob(loadJobId);
+                if (job == null) {
+                    throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
+                }
+                for (int i = 0; i < tabletMetaList.size(); i++) {
+                    TabletMeta tabletMeta = tabletMetaList.get(i);
+                    checkReplica(finishTabletInfos.get(i), tabletMeta);
+                    long tabletId = tabletIds.get(i);
+                    Replica replica = findRelatedReplica(olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
+                    // if the replica is under schema change, could not find the replica with aim schema hash
+                    if (replica != null) {
+                        ((SparkLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
                     }
                 }
             }

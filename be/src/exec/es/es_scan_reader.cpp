@@ -28,7 +28,9 @@
 
 namespace doris {
 
-const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,_id";
+// hits.hits._id used for obtain ES document `_id`
+const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
+// hits.hits._score used for processing field not exists in one batch
 const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
 
 const std::string REQUEST_SCROLL_PATH = "_scroll";
@@ -160,7 +162,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         _eos = true;
     } else {
         _scroll_id = scroll_parser->get_scroll_id();
-        if (scroll_parser->get_total() == 0) {
+        if (scroll_parser->get_size() == 0) {
             _eos = true;
             return Status::OK();
         }

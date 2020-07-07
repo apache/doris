@@ -38,13 +38,19 @@ public:
                 MemPool* mem_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
-    int get_total();
     int get_size();
+
+private:
+    // helper method for processing date/datetime cols with rapidjson::Value
+    // type is used for distinguish date and datetime
+    // fill date slot with string format date
+    Status fill_date_slot_with_strval(void* slot, const rapidjson::Value& col, PrimitiveType type);
+    // fill date slot with timestamp
+    Status fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col, PrimitiveType type);
 
 private:
 
     std::string _scroll_id;
-    int _total;
     int _size;
     rapidjson::SizeType _line_index;
 

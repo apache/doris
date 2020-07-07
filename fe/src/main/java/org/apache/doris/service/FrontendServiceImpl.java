@@ -120,6 +120,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
 
@@ -758,11 +759,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
-
+        long timeoutMs = request.isSetThrift_rpc_timeout_ms() ? request.getThrift_rpc_timeout_ms() : 5000;
         boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         db, request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                        5000, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+                        timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
         if (ret) {
             // if commit and publish is success, load can be regarded as success
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
@@ -820,7 +821,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) throws TException {
+    public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}, load id: {}, backend: {}",
                  request.getDb(), request.getTbl(), request.getTxnId(), DebugUtil.printId(request.getLoadId()),
@@ -861,8 +862,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
-
-        db.readLock();
+        long timeoutMs = request.isSetThrift_rpc_timeout_ms() ? request.getThrift_rpc_timeout_ms() : 5000;
+        if (!db.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get database read lock timeout, database=" + fullDbName);
+        }
         try {
             Table table = db.getTable(request.getTbl());
             if (table == null) {

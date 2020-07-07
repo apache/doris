@@ -17,11 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -29,6 +25,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
+
+import mockit.Mock;
+import mockit.MockUp;
 
 public class DescribeStmtTest {
     private Analyzer analyzer;
@@ -52,10 +51,6 @@ public class DescribeStmtTest {
         };
 
         new MockUp<Catalog>() {
-            @Mock
-            Catalog getInstance() {
-                return catalog;
-            }
             @Mock
             Catalog getCurrentCatalog() {
                 return catalog;

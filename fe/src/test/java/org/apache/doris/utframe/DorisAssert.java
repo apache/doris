@@ -158,7 +158,7 @@ public class DorisAssert {
                 }
             }
             Planner planner = stmtExecutor.planner();
-            String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
+            String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.NORMAL);
             System.out.println(explainString);
             return explainString;
         }

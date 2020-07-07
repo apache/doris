@@ -253,15 +253,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
 
     RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
-    std::map<int, std::vector<CondColumn*>> column_delete_conditions;
-    // zone map will use delete conditions
-    for (auto& delete_condition : _opts.delete_conditions) {
-        for (auto& column_condition : delete_condition->columns()) {
-            cids.insert(column_condition.first);
-            std::vector<CondColumn*>& conditions = column_delete_conditions[column_condition.first];
-            conditions.emplace_back(column_condition.second);
-        }
-    }
+    // second filter data by zone map
     for (auto& cid : cids) {
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
@@ -270,13 +262,34 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             column_cond = _opts.conditions->get_column(cid);
         }
         RETURN_IF_ERROR(
-            _column_iterators[cid]->get_row_ranges_by_zone_map(
-                column_cond,
-                column_delete_conditions[cid],
-                &column_row_ranges));
-        // intersection different columns's row ranges to get final row ranges by zone map
+                _column_iterators[cid]->get_row_ranges_by_zone_map(
+                        column_cond,
+                        nullptr,
+                        &column_row_ranges));
+        // intersect different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges, &zone_map_row_ranges);
     }
+
+    // final filter data with delete conditions
+    for (auto& delete_condition : _opts.delete_conditions) {
+        RowRanges delete_condition_row_ranges = RowRanges::create_single(0);
+        for (auto& delete_column_condition : delete_condition->columns()) {
+            const int32_t cid = delete_column_condition.first;
+            CondColumn* column_cond = nullptr;
+            if (_opts.conditions != nullptr) {
+                column_cond = _opts.conditions->get_column(cid);
+            }
+            RowRanges single_delete_condition_row_ranges = RowRanges::create_single(num_rows());
+            RETURN_IF_ERROR(
+                    _column_iterators[cid]->get_row_ranges_by_zone_map(
+                            column_cond,
+                            delete_column_condition.second,
+                            &single_delete_condition_row_ranges));
+            RowRanges::ranges_union(delete_condition_row_ranges, single_delete_condition_row_ranges, &delete_condition_row_ranges);
+        }
+        RowRanges::ranges_intersection(zone_map_row_ranges, delete_condition_row_ranges, &zone_map_row_ranges);
+    }
+
     DorisMetrics::instance()->segment_rows_read_by_zone_map.increment(zone_map_row_ranges.count());
     pre_size = condition_row_ranges->count();
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges, condition_row_ranges);

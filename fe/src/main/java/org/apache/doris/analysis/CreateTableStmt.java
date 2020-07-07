@@ -94,9 +94,6 @@ public class CreateTableStmt extends DdlStmt {
     // for backup. set to -1 for normal use
     private int tableSignature;
 
-    // TODO(wyb): spark-load
-    private static boolean disableHiveTable = true;
-
     public CreateTableStmt() {
         // for persist
         tableName = new TableName();
@@ -259,7 +256,7 @@ public class CreateTableStmt extends DdlStmt {
         analyzeEngineName();
 
         // TODO(wyb): spark-load
-        if (engineName.equals("hive") && disableHiveTable) {
+        if (engineName.equals("hive") && !Config.enable_spark_load) {
             throw new AnalysisException("Spark Load from hive table is comming soon");
         }
         // analyze key desc

@@ -21,7 +21,6 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "testutil/function_utils.h"
-#include "exprs/timezone_db.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
 #include "runtime/runtime_state.h"
@@ -37,8 +36,6 @@ public:
     TimestampFunctionsTest() { }
 
     void SetUp() {
-        TimezoneDatabase::init();
-        
         TQueryGlobals globals;
         globals.__set_now_string("2019-08-06 01:38:57");
         globals.__set_timestamp_ms(1565080737805);

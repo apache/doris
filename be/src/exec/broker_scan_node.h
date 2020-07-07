@@ -35,7 +35,7 @@ namespace doris {
 class RuntimeState;
 class PartRangeKey;
 class PartitionInfo;
-class ScannerCounter;
+struct ScannerCounter;
 
 class BrokerScanNode : public ScanNode {
 public:
@@ -45,17 +45,16 @@ public:
     // Called after create this scan node
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
-    // initialize _mysql_scanner, and create _text_converter.
+    // Prepare partition infos & set up timer
     virtual Status prepare(RuntimeState* state) override;
 
-    // Start MySQL scan using _mysql_scanner.
+    // Start broker scan using ParquetScanner or BrokerScanner.
     virtual Status open(RuntimeState* state) override;
 
-    // Fill the next row batch by calling next() on the _mysql_scanner,
-    // converting text data in MySQL cells to binary data.
+    // Fill the next row batch by calling next() on the scanner,
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
 
-    // Close the _mysql_scanner, and report errors.
+    // Close the scanner, and report errors.
     virtual Status close(RuntimeState* state) override;
 
     // No use

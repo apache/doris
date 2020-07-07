@@ -26,6 +26,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.HeartbeatFlags;
 
@@ -118,10 +119,8 @@ public class SetVar {
                 throw new AnalysisException("Invalid resource group, now we support {low, normal, high}.");
             }
         }
-        if (variable.equalsIgnoreCase(SessionVariable.DEFAULT_ROWSET_TYPE)) {
-            if (type != SetType.GLOBAL) {
-                throw new AnalysisException("default_rowset_type must be global. use set global");
-            }
+
+        if (variable.equalsIgnoreCase(GlobalVariable.DEFAULT_ROWSET_TYPE)) {
             if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {
                 throw new AnalysisException("Invalid rowset type, now we support {alpha, beta}.");
             }

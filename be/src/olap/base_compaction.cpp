@@ -51,13 +51,14 @@ OLAPStatus BaseCompaction::compact() {
     // 3. set state to success
     _state = CompactionState::SUCCESS;
 
-    // 4. garbage collect input rowsets after base compaction 
-    RETURN_NOT_OK(gc_unused_rowsets());
-    TRACE("unused rowsets have been moved to GC queue");
-
-    // 5. add metric to base compaction
+    // 4. add metric to base compaction
     DorisMetrics::instance()->base_compaction_deltas_total.increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total.increment(_input_rowsets_size);
+    TRACE("save base compaction metrics");
+
+    // 5. garbage collect input rowsets after base compaction 
+    RETURN_NOT_OK(gc_unused_rowsets());
+    TRACE("unused rowsets have been moved to GC queue");
 
     return OLAP_SUCCESS;
 }

@@ -54,7 +54,6 @@ add_library(Exprs
   slot_ref.cpp
   string_functions.cpp
   timestamp_functions.cpp
-  timezone_db.cpp
   tuple_is_null_predicate.cpp
   udf_builtins.cpp
   utility_functions.cpp

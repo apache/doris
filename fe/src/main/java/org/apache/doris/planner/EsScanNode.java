@@ -26,9 +26,9 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.external.elasticsearch.EsIndexState;
+import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
-import org.apache.doris.external.elasticsearch.EsTableState;
+import org.apache.doris.external.elasticsearch.EsTablePartitions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -40,15 +40,15 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,7 +65,7 @@ public class EsScanNode extends ScanNode {
     private final Random random = new Random(System.currentTimeMillis());
     private Multimap<String, Backend> backendMap;
     private List<Backend> backendList;
-    private EsTableState esTableState;
+    private EsTablePartitions esTablePartitions;
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
 
@@ -74,7 +74,7 @@ public class EsScanNode extends ScanNode {
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
         table = (EsTable) (desc.getTable());
-        esTableState = table.getEsTableState();
+        esTablePartitions = table.getEsTablePartitions();
     }
 
     @Override
@@ -147,23 +147,23 @@ public class EsScanNode extends ScanNode {
     // only do partition(es index level) prune
     private List<TScanRangeLocations> getShardLocations() throws UserException {
         // has to get partition info from es state not from table because the partition info is generated from es cluster state dynamically
-        if (esTableState == null) {
+        if (esTablePartitions == null) {
             if (table.getLastMetaDataSyncException() != null) {
                 throw new UserException("fetch es table [" + table.getName() + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
             }
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
-        Collection<Long> partitionIds = partitionPrune(esTableState.getPartitionInfo()); 
-        List<EsIndexState> selectedIndex = Lists.newArrayList();
+        Collection<Long> partitionIds = partitionPrune(esTablePartitions.getPartitionInfo());
+        List<EsShardPartitions> selectedIndex = Lists.newArrayList();
         ArrayList<String> unPartitionedIndices = Lists.newArrayList();
         ArrayList<String> partitionedIndices = Lists.newArrayList();
-        for (EsIndexState esIndexState : esTableState.getUnPartitionedIndexStates().values()) {
-            selectedIndex.add(esIndexState);
-            unPartitionedIndices.add(esIndexState.getIndexName());
+        for (EsShardPartitions esShardPartitions : esTablePartitions.getUnPartitionedIndexStates().values()) {
+            selectedIndex.add(esShardPartitions);
+            unPartitionedIndices.add(esShardPartitions.getIndexName());
         }
         if (partitionIds != null) {
             for (Long partitionId : partitionIds) {
-                EsIndexState indexState = esTableState.getIndexState(partitionId);
+                EsShardPartitions indexState = esTablePartitions.getEsShardPartitions(partitionId);
                 selectedIndex.add(indexState);
                 partitionedIndices.add(indexState.getIndexName());
             }
@@ -176,7 +176,7 @@ public class EsScanNode extends ScanNode {
         }
         int beIndex = random.nextInt(backendList.size());
         List<TScanRangeLocations> result = Lists.newArrayList();
-        for (EsIndexState indexState : selectedIndex) {
+        for (EsShardPartitions indexState : selectedIndex) {
             for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
                 // get backends
                 Set<Backend> colocatedBes = Sets.newHashSet();
@@ -214,7 +214,7 @@ public class EsScanNode extends ScanNode {
                 // Generate on es scan range
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEs_hosts(shardAllocations);
-                esScanRange.setIndex(indexState.getIndexName());
+                esScanRange.setIndex(shardRouting.get(0).getIndexName());
                 esScanRange.setType(table.getMappingType());
                 esScanRange.setShard_id(shardRouting.get(0).getShardId());
                 // Scan range

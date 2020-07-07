@@ -53,6 +53,7 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
@@ -684,14 +685,19 @@ public class EditLog {
                     catalog.getLoadManager().replayEndLoadJob(operation);
                     break;
                 }
+                case OperationType.OP_UPDATE_LOAD_JOB: {
+                    LoadJobStateUpdateInfo info = (LoadJobStateUpdateInfo) journal.getData();
+                    catalog.getLoadManager().replayUpdateLoadJobStateInfo(info);
+                    break;
+                }
                 case OperationType.OP_CREATE_RESOURCE: {
                     final Resource resource = (Resource) journal.getData();
                     catalog.getResourceMgr().replayCreateResource(resource);
                     break;
                 }
                 case OperationType.OP_DROP_RESOURCE: {
-                    final String resourceName = journal.getData().toString();
-                    catalog.getResourceMgr().replayDropResource(resourceName);
+                    final DropResourceOperationLog operationLog = (DropResourceOperationLog) journal.getData();
+                    catalog.getResourceMgr().replayDropResource(operationLog);
                     break;
                 }
                 case OperationType.OP_CREATE_SMALL_FILE: {
@@ -1266,14 +1272,16 @@ public class EditLog {
         logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
     }
 
-    public void logCreateResource(Resource resource) {
-        // TODO(wyb): spark-load
-        //logEdit(OperationType.OP_CREATE_RESOURCE, resource);
+    public void logUpdateLoadJob(LoadJobStateUpdateInfo info) {
+        logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
     }
 
-    public void logDropResource(String resourceName) {
-        // TODO(wyb): spark-load
-        //logEdit(OperationType.OP_DROP_RESOURCE, new Text(resourceName));
+    public void logCreateResource(Resource resource) {
+        logEdit(OperationType.OP_CREATE_RESOURCE, resource);
+    }
+
+    public void logDropResource(DropResourceOperationLog operationLog) {
+        logEdit(OperationType.OP_DROP_RESOURCE, operationLog);
     }
 
     public void logCreateSmallFile(SmallFile info) {

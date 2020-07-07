@@ -21,15 +21,17 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.external.elasticsearch.EsMajorVersion;
-import org.apache.doris.external.elasticsearch.EsTableState;
+import org.apache.doris.external.elasticsearch.EsMetaStateTracker;
+import org.apache.doris.external.elasticsearch.EsRestClient;
+import org.apache.doris.external.elasticsearch.EsTablePartitions;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -71,34 +73,13 @@ public class EsTable extends Table {
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
-    private EsTableState esTableState;
+    private EsTablePartitions esTablePartitions;
     private boolean enableDocValueScan = false;
     private boolean enableKeywordSniff = true;
 
     public EsMajorVersion majorVersion = null;
 
     private Map<String, String> tableContext = new HashMap<>();
-
-    // used to indicate which fields can get from ES docavalue
-    // because elasticsearch can have "fields" feature, field can have
-    // two or more types, the first type maybe have not docvalue but other
-    // can have, such as (text field not have docvalue, but keyword can have):
-    // "properties": {
-    //      "city": {
-    //        "type": "text",
-    //        "fields": {
-    //          "raw": {
-    //            "type":  "keyword"
-    //          }
-    //        }
-    //      }
-    //    }
-    // then the docvalue context provided the mapping between the select field and real request field :
-    // {"city": "city.raw"}
-    // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
-    private Map<String, String> docValueContext = new HashMap<>();
-
-    private Map<String, String> fieldsContext = new HashMap<>();
 
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
     private Throwable lastMetaDataSyncException = null;
@@ -114,20 +95,13 @@ public class EsTable extends Table {
         validate(properties);
     }
 
-    public void addFetchField(String originName, String replaceName) {
-        fieldsContext.put(originName, replaceName);
-    }
 
     public Map<String, String> fieldsContext() {
-        return fieldsContext;
-    }
-
-    public void addDocValueField(String name, String fieldsName) {
-        docValueContext.put(name, fieldsName);
+        return esMetaStateTracker.searchContext().fetchFieldsContext();
     }
 
     public Map<String, String> docValueContext() {
-        return docValueContext;
+        return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
     public boolean isDocValueScanEnable() {
@@ -174,9 +148,12 @@ public class EsTable extends Table {
         if (properties.containsKey(VERSION)) {
             try {
                 majorVersion = EsMajorVersion.parse(properties.get(VERSION).trim());
+                if (majorVersion.before(EsMajorVersion.V_5_X)) {
+                    throw new DdlException("Unsupported/Unknown ES Cluster version [" + properties.get(VERSION) + "] ");
+                }
             } catch (Exception e) {
                 throw new DdlException("fail to parse ES major version, version= "
-                        + properties.get(VERSION).trim() + ", shoud be like '6.5.3' ");
+                        + properties.get(VERSION).trim() + ", should be like '6.5.3' ");
             }
         }
 
@@ -386,12 +363,16 @@ public class EsTable extends Table {
         return partitionInfo;
     }
 
-    public EsTableState getEsTableState() {
-        return esTableState;
+    public EsTablePartitions getEsTablePartitions() {
+        return esTablePartitions;
     }
 
-    public void setEsTableState(EsTableState esTableState) {
-        this.esTableState = esTableState;
+    public void setEsTablePartitions(EsTablePartitions esTablePartitions) {
+        this.esTablePartitions = esTablePartitions;
+    }
+
+    public EsMajorVersion esVersion() {
+        return majorVersion;
     }
 
     public Throwable getLastMetaDataSyncException() {
@@ -400,5 +381,26 @@ public class EsTable extends Table {
 
     public void setLastMetaDataSyncException(Throwable lastMetaDataSyncException) {
         this.lastMetaDataSyncException = lastMetaDataSyncException;
+    }
+
+    private EsMetaStateTracker esMetaStateTracker;
+
+    /**
+     * sync es index meta from remote ES Cluster
+     *
+     * @param client esRestClient
+     */
+    public void syncTableMetaData(EsRestClient client) {
+        if (esMetaStateTracker == null) {
+            esMetaStateTracker = new EsMetaStateTracker(client, this);
+        }
+        try {
+            esMetaStateTracker.run();
+            this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();
+        } catch (Throwable e) {
+            LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", this.name, e);
+            this.esTablePartitions = null;
+            this.lastMetaDataSyncException = e;
+        }
     }
 }
