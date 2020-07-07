@@ -90,6 +90,37 @@ private:
 
 // Metric that only can increment
 template<typename T>
+class AtomicMetric : public Metric {
+public:
+    AtomicMetric(MetricType type, MetricUnit unit)
+            : Metric(type, unit),
+              _value(T()) {}
+    virtual ~AtomicMetric() { }
+
+    std::string to_string() const override {
+        return std::to_string(value());
+    }
+
+    void write_value(rj::Value& metric_obj,
+                     rj::Document::AllocatorType& allocator) override {
+        metric_obj.AddMember("value", rj::Value(value()), allocator);
+    }
+
+    T value() const {
+        return _value.load();
+    }
+
+    void increment(const T& delta) {
+        _value.fetch_add(delta);
+    }
+    void set_value(const T& value) {
+        _value.store(value);
+    }
+protected:
+    std::atomic<T> _value;
+};
+
+template<typename T>
 class LockSimpleMetric : public Metric {
 public:
     LockSimpleMetric(MetricType type, MetricUnit unit)
@@ -98,9 +129,7 @@ public:
     virtual ~LockSimpleMetric() { }
 
     std::string to_string() const override {
-        std::stringstream ss;
-        ss << value();
-        return ss.str();
+        return std::to_string(value());
     }
 
     void write_value(rj::Value& metric_obj,
@@ -169,6 +198,22 @@ protected:
 };
 
 template<typename T>
+class AtomicCounter : public AtomicMetric<T> {
+public:
+    AtomicCounter(MetricUnit unit)
+            : AtomicMetric<T>(MetricType::COUNTER, unit) {}
+    virtual ~AtomicCounter() { }
+};
+
+template<typename T>
+class AtomicGauge : public AtomicMetric<T> {
+public:
+    AtomicGauge(MetricUnit unit)
+            : AtomicMetric<T>(MetricType::GAUGE, unit) {}
+    virtual ~AtomicGauge() { }
+};
+
+template<typename T>
 class LockCounter : public LockSimpleMetric<T> {
 public:
     LockCounter(MetricUnit unit)
@@ -191,9 +236,7 @@ struct MetricLabel {
     std::string value;
 
     MetricLabel() { }
-
-    template<typename T, typename P>
-    MetricLabel(const T& name_, const P& value_) :name(name_), value(value_) {
+    MetricLabel(const std::string& name_, const std::string& value_) :name(name_), value(value_) {
     }
 
     bool operator==(const MetricLabel& other) const {
@@ -235,9 +278,9 @@ struct MetricLabels {
         if (labels.size() != other.labels.size()) {
             return false;
         }
-        auto it = std::begin(labels);
-        auto other_it = std::begin(other.labels);
-        while (it != std::end(labels)) {
+        auto it = labels.begin();
+        auto other_it = other.labels.begin();
+        while (it != labels.end()) {
             if (*it != *other_it) {
                 return false;
             }
@@ -247,9 +290,9 @@ struct MetricLabels {
         return true;
     }
     bool operator<(const MetricLabels& other) const {
-        auto it = std::begin(labels);
-        auto other_it = std::begin(other.labels);
-        while (it != std::end(labels) && other_it != std::end(other.labels)) {
+        auto it = labels.begin();
+        auto other_it = other.labels.begin();
+        while (it != labels.end() && other_it != other.labels.end()) {
             auto res = it->compare(*other_it);
             if (res < 0) {
                 return true;
@@ -259,8 +302,8 @@ struct MetricLabels {
             ++it;
             ++other_it;
         }
-        if (it == std::end(labels)) {
-            if (other_it == std::end(other.labels)) {
+        if (it == labels.end()) {
+            if (other_it == other.labels.end()) {
                 return false;
             }
             return true;
@@ -274,7 +317,7 @@ struct MetricLabels {
 
     std::string to_string() const {
         std::stringstream ss;
-        int i = 0; 
+        int i = 0;
         for (auto& label : labels) {
             if (i++ > 0) {
                 ss << ",";
@@ -361,7 +404,7 @@ public:
 
 private:
     void unprotected_trigger_hook() {
-        for (auto& it : _hooks) {
+        for (const auto& it : _hooks) {
             it.second();
         }
     }
@@ -377,11 +420,11 @@ private:
 };
 
 using IntCounter = CoreLocalCounter<int64_t>;
-using IntLockCounter = LockCounter<int64_t>;
+using IntAtomicCounter = AtomicCounter<int64_t>;
 using UIntCounter = CoreLocalCounter<uint64_t>;
 using DoubleCounter = LockCounter<double>;
-using IntGauge = LockGauge<int64_t>;
-using UIntGauge = LockGauge<uint64_t>;
+using IntGauge = AtomicGauge<int64_t>;
+using UIntGauge = AtomicGauge<uint64_t>;
 using DoubleGauge = LockGauge<double>;
 
 } // namespace doris
@@ -390,8 +433,8 @@ using DoubleGauge = LockGauge<double>;
 #define METRIC_DEFINE_INT_COUNTER(metric_name, unit)        \
     doris::IntCounter metric_name{unit}
 
-#define METRIC_DEFINE_INT_LOCK_COUNTER(metric_name, unit)   \
-    doris::IntLockCounter metric_name{unit}
+#define METRIC_DEFINE_INT_ATOMIC_COUNTER(metric_name, unit) \
+    doris::IntAtomicCounter metric_name{unit}
 
 #define METRIC_DEFINE_UINT_COUNTER(metric_name, unit)       \
     doris::UIntCounter metric_name{unit}

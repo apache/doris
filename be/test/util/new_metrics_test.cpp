@@ -49,7 +49,7 @@ TEST_F(MetricsTest, Counter) {
         counter.increment(1.23);
         ASSERT_EQ(1.23, counter.value());
 
-        ASSERT_STREQ("1.23", counter.to_string().c_str());
+        ASSERT_STREQ("1.230000", counter.to_string().c_str());
     }
 }
 
@@ -121,7 +121,7 @@ TEST_F(MetricsTest, Gauge) {
         gauge.set_value(1.23);
         ASSERT_EQ(1.23, gauge.value());
 
-        ASSERT_STREQ("1.23", gauge.to_string().c_str());
+        ASSERT_STREQ("1.230000", gauge.to_string().c_str());
     }
 }
 
