@@ -38,12 +38,19 @@ public class AdminShowConfigStmt extends ShowStmt {
 
     private ConfigType type;
 
-    public AdminShowConfigStmt(ConfigType type) {
+    private String pattern;
+
+    public AdminShowConfigStmt(ConfigType type, String pattern) {
         this.type = type;
+        this.pattern = pattern;
     }
 
     public ConfigType getType() {
         return type;
+    }
+
+    public String getPattern() {
+        return pattern;
     }
 
     @Override
