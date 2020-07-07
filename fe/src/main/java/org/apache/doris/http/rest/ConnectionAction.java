@@ -55,7 +55,8 @@ public class ConnectionAction extends RestBaseAction {
             return;
         }
         String queryId = DebugUtil.printId(context.queryId());
-        response.getContent().append("{\"query_id\" : " + queryId + "}");
+        response.setContentType("application/json");
+        response.getContent().append("{\"query_id\" : \"" + queryId + "\"}");
         sendResult(request, response);
     }
 }
