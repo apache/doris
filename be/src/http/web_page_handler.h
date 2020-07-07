@@ -110,6 +110,7 @@ private:
         PageHandlerCallback callback_;
     };
 
+    std::string _www_path;
     EvHttpServer* _http_server;
     // Lock guarding the _path_handlers map
     boost::mutex _map_lock;

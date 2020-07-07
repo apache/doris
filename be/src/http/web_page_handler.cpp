@@ -46,6 +46,8 @@ namespace doris {
 static std::string s_html_content_type = "text/html";
 
 WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
+    _www_path = std::string(getenv("DORIS_HOME")) + "/www/";
+
     // Make WebPageHandler to be static file handler, static files, e.g. css, png, will be handled by WebPageHandler.
     _http_server->register_static_file_handler(this);
 
@@ -60,7 +62,7 @@ WebPageHandler::~WebPageHandler() {
 
 void WebPageHandler::register_template_page(const std::string& path, const string& alias,
                                             const TemplatePageHandlerCallback& callback, bool is_on_nav_bar) {
-    // Relative path which will be used to find .mustache file in config::www_path
+    // Relative path which will be used to find .mustache file in _www_path
     string render_path = (path == "/") ? "/home" : path;
     auto wrapped_cb = [=](const ArgumentMap& args, std::stringstream* output) {
         EasyJson ej;
@@ -93,7 +95,7 @@ void WebPageHandler::handle(HttpRequest* req) {
 
     if (handler == nullptr) {
         // Try to handle static file request
-        do_file_response(std::string(getenv("DORIS_HOME")) + "/www/" + req->raw_path(), req);
+        do_file_response(_www_path + req->raw_path(), req);
         // Has replied in do_file_response, so we return here.
         return;
     }
@@ -160,7 +162,7 @@ static const char* const kMainTemplate = R"(
     </nav>
       {{^static_pages_available}}
       <div style="color: red">
-        <strong>Static pages not available. Configure DORIS_HOME and www_path in be.conf to fix page styling.</strong>
+        <strong>Static pages not available. Make sure ${DORIS_HOME}/www/ exists and contains web static files.</strong>
       </div>
       {{/static_pages_available}}
       {{{content}}}
@@ -182,7 +184,7 @@ bool WebPageHandler::MustacheTemplateAvailable(const std::string& path) const {
     if (!static_pages_available()) {
         return false;
     }
-    return Env::Default()->path_exists(Substitute("$0/$1.mustache", config::www_path, path)).ok();
+    return Env::Default()->path_exists(Substitute("$0/$1.mustache", _www_path, path)).ok();
 }
 
 void WebPageHandler::RenderMainTemplate(const std::string& content, std::stringstream* output) {
@@ -200,13 +202,13 @@ void WebPageHandler::RenderMainTemplate(const std::string& content, std::strings
             path_handler["alias"] = handler.second->alias();
         }
     }
-    mustache::RenderTemplate(kMainTemplate, config::www_path, ej.value(), output);
+    mustache::RenderTemplate(kMainTemplate, _www_path, ej.value(), output);
 }
 
 void WebPageHandler::Render(const string& path, const EasyJson& ej, bool use_style,
                             std::stringstream* output) {
     if (MustacheTemplateAvailable(path)) {
-        mustache::RenderTemplate(MustachePartialTag(path), config::www_path, ej.value(), output);
+        mustache::RenderTemplate(MustachePartialTag(path), _www_path, ej.value(), output);
     } else if (use_style) {
         (*output) << "<pre>" << ej.ToString() << "</pre>";
     } else {
@@ -216,7 +218,7 @@ void WebPageHandler::Render(const string& path, const EasyJson& ej, bool use_sty
 
 bool WebPageHandler::static_pages_available() const {
     bool is_dir = false;
-    return !config::www_path.empty() && Env::Default()->is_directory(config::www_path, &is_dir).ok() && is_dir;
+    return Env::Default()->is_directory(_www_path, &is_dir).ok() && is_dir;
 }
 
 } // namespace doris
