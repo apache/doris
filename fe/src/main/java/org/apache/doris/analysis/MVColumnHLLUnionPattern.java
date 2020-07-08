@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.PrimitiveType;
 
 public class MVColumnHLLUnionPattern implements MVColumnPattern {
     @Override
@@ -30,21 +31,23 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
         if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)){
             return false;
         }
-        if (!(fnExpr.getChild(0) instanceof FunctionCallExpr)) {
-            return false;
-        }
-        FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
-            return false;
-        }
-        if (child0FnExpr.getChild(0) instanceof SlotRef) {
-            return true;
-        } else if (child0FnExpr.getChild(0) instanceof CastExpr) {
-            CastExpr castExpr = (CastExpr) child0FnExpr.getChild(0);
-            if (!(castExpr.getChild(0) instanceof SlotRef)) {
+        if (fnExpr.getChild(0) instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) fnExpr.getChild(0);
+            if (slotRef.getType().getPrimitiveType() == PrimitiveType.HLL && slotRef.getColumn() != null) {
+                return true;
+            } else {
                 return false;
             }
-            return true;
+        } else if(fnExpr.getChild(0) instanceof FunctionCallExpr) {
+            FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
+            if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
+                return false;
+            }
+            if (child0FnExpr.getChild(0).unwrapSlotRef() == null) {
+                return false;
+            } else {
+                return true;
+            }
         } else {
             return false;
         }
@@ -52,6 +55,7 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
 
     @Override
     public String toString() {
-        return "hll_union(" + FunctionSet.HLL_HASH + "(column))";
+        return FunctionSet.HLL_UNION + "(" + FunctionSet.HLL_HASH + "(column))"
+                + "or " + FunctionSet.HLL_UNION + "(hll_column) in agg table";
     }
 }

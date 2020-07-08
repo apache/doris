@@ -96,7 +96,7 @@ public class MVColumnItem {
     }
 
     public Column toMVColumn(OlapTable olapTable) throws DdlException {
-        Column baseColumn = olapTable.getColumn(name);
+        Column baseColumn = olapTable.getBaseColumn(name);
         if (baseColumn == null) {
             Preconditions.checkNotNull(defineExpr != null);
             Column result = new Column(name, type, isKey, aggregationType, ColumnDef.DefaultValue.ZERO, "");

@@ -807,4 +807,21 @@ public class MaterializedViewFunctionTest {
         }
     }
 
+    @Test
+    public void testCreateMVBaseBitmapAggTable() throws Exception {
+        String createTableSQL = "create table " + HR_DB_NAME + ".agg_table "
+                + "(empid int, name varchar, salary bitmap " + FunctionSet.BITMAP_UNION + ") "
+                + "aggregate key (empid, name) "
+                + "partition by range (empid) "
+                + "(partition p1 values less than MAXVALUE) "
+                + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
+        dorisAssert.withTable(createTableSQL);
+        String createMVSQL = "create materialized view mv as select empid, " + FunctionSet.BITMAP_UNION
+                + "(salary) from agg_table "
+                + "group by empid;";
+        dorisAssert.withMaterializedView(createMVSQL);
+        String query = "select count(distinct salary) from agg_table;";
+        dorisAssert.query(query).explainContains("mv");
+        dorisAssert.dropTable("agg_table");
+    }
 }

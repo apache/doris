@@ -18,8 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Type;
 
 public class MVColumnBitmapUnionPattern implements MVColumnPattern {
+
     @Override
     public boolean match(Expr expr) {
         if (!(expr instanceof FunctionCallExpr)) {
@@ -30,21 +32,23 @@ public class MVColumnBitmapUnionPattern implements MVColumnPattern {
         if (!fnNameString.equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
             return false;
         }
-        if (!(fnExpr.getChild(0) instanceof FunctionCallExpr)) {
-            return false;
-        }
-        FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
-            return false;
-        }
-        if (child0FnExpr.getChild(0) instanceof SlotRef) {
-            return true;
-        } else if (child0FnExpr.getChild(0) instanceof CastExpr) {
-            CastExpr castExpr = (CastExpr) child0FnExpr.getChild(0);
-            if (!(castExpr.getChild(0) instanceof SlotRef)) {
+        if (fnExpr.getChild(0) instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) fnExpr.getChild(0);
+            if (slotRef.getType() == Type.BITMAP && slotRef.getColumn() != null) {
+                return true;
+            } else {
                 return false;
             }
-            return true;
+        } else if(fnExpr.getChild(0) instanceof FunctionCallExpr) {
+            FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
+            if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
+                return false;
+            }
+            if (child0FnExpr.getChild(0).unwrapSlotRef() == null) {
+                return false;
+            } else {
+                return true;
+            }
         } else {
             return false;
         }

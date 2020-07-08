@@ -356,15 +356,25 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 type = Type.BIGINT;
                 break;
             case FunctionSet.BITMAP_UNION:
-                mvColumnName = mvColumnBuilder(functionName, baseColumnName);
+                // Compatible aggregation models
+                if (baseColumnRef.getType() == Type.BITMAP) {
+                    mvColumnName = baseColumnName;
+                } else {
+                    mvColumnName = mvColumnBuilder(functionName, baseColumnName);
+                    defineExpr = functionChild0;
+                }
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
-                defineExpr = functionChild0;
                 type = Type.BITMAP;
                 break;
             case FunctionSet.HLL_UNION:
-                mvColumnName = mvColumnBuilder(functionName, baseColumnName);
+                // Compatible aggregation models
+                if (baseColumnRef.getType() == Type.HLL) {
+                    mvColumnName = baseColumnName;
+                } else {
+                    mvColumnName = mvColumnBuilder(functionName, baseColumnName);
+                    defineExpr = functionChild0;
+                }
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
-                defineExpr = functionChild0;
                 type = Type.HLL;
                 break;
             case FunctionSet.COUNT:

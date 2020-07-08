@@ -17,7 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Type;
 
 import com.google.common.collect.Lists;
 
@@ -51,7 +53,7 @@ public class MVColumnBitmapUnionPatternTest {
         SlotRef slotRef = new SlotRef(tableName, "c1");
         new Expectations() {
             {
-                castExpr.getChild(0);
+                castExpr.unwrapSlotRef();
                 result = slotRef;
             }
         };
@@ -106,5 +108,25 @@ public class MVColumnBitmapUnionPatternTest {
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
         MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
         Assert.assertFalse(pattern.match(expr));
+    }
+
+    @Test
+    public void testAggTableBitmapColumn(@Injectable SlotDescriptor desc,
+            @Injectable Column column) {
+        TableName tableName = new TableName("db", "table");
+        SlotRef slotRef1 = new SlotRef(tableName, "c1");
+        List<Expr> params = Lists.newArrayList();
+        params.add(slotRef1);
+        FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
+        slotRef1.setType(Type.BITMAP);
+        slotRef1.setDesc(desc);
+        new Expectations() {
+            {
+                desc.getColumn();
+                result = column;
+            }
+        };
+        MVColumnBitmapUnionPattern pattern = new MVColumnBitmapUnionPattern();
+        Assert.assertTrue(pattern.match(expr));
     }
 }

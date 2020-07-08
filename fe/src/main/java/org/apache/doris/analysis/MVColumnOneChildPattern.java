@@ -38,15 +38,11 @@ public class MVColumnOneChildPattern implements MVColumnPattern {
         if (functionCallExpr.getChildren().size() != 1) {
             return false;
         }
-        Expr functionChild0 = functionCallExpr.getChild(0);
-        if (functionChild0 instanceof SlotRef) {
-            return true;
-        } else if (functionChild0 instanceof CastExpr && (functionChild0.getChild(0) instanceof SlotRef)) {
-            return true;
-        } else {
+        if (functionCallExpr.getChild(0).unwrapSlotRef() == null) {
             return false;
+        } else {
+            return true;
         }
-
     }
 
     @Override

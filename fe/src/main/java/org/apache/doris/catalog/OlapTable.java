@@ -1298,6 +1298,15 @@ public class OlapTable extends Table {
         return getSchemaByIndexId(baseIndexId);
     }
 
+    public Column getBaseColumn(String columnName) {
+        for (Column column : getBaseSchema()) {
+            if (column.getName().equalsIgnoreCase(columnName)){
+                return column;
+            }
+        }
+        return null;
+    }
+
     public int getKeysNum() {
         int keysNum = 0;
         for (Column column : getBaseSchema()) {
