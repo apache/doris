@@ -62,7 +62,6 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         _last_base_compaction_success_millis(0),
         _cumulative_point(kInvalidCumulativePoint) {
     // change _rs_graph to _versioned_rs_tracker
-    // _rs_graph.construct_rowset_graph(_tablet_meta->all_rs_metas());
     _versioned_rs_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                      _tablet_meta->all_expired_snapshot_rs_metas());
 }
@@ -255,7 +254,6 @@ void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
 
     // change _rs_graph to _versioned_rs_tracker
-    // _rs_graph.reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
      _versioned_rs_tracker.add_expired_path_version(rs_metas_to_delete);
 }
 

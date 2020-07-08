@@ -56,11 +56,6 @@ OLAPStatus BaseCompaction::compact() {
     DorisMetrics::instance()->base_compaction_bytes_total.increment(_input_rowsets_size);
     TRACE("save base compaction metrics");
 
-    // delay garbage operation 
-    // 5. garbage collect input rowsets after base compaction 
-    // RETURN_NOT_OK(gc_unused_rowsets());
-    // TRACE("unused rowsets have been moved to GC queue");
-
     return OLAP_SUCCESS;
 }
 

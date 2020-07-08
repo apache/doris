@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset_graph.h"
+#include "olap/version_graph.h"
 
 #include <memory>
 #include <queue>
@@ -24,7 +24,7 @@
 
 namespace doris {
 
-void VersionedRowsetTracker::_construct_versioned_tracker(
+void TimestampedVersionTracker::_construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
         const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
     int64_t max_version = 0;
@@ -33,7 +33,7 @@ void VersionedRowsetTracker::_construct_versioned_tracker(
     all_rs_metas.insert(all_rs_metas.end(), expired_snapshot_rs_metas.begin(),
                         expired_snapshot_rs_metas.end());
     // construct the roset graph
-    _rowset_graph.reconstruct_rowset_graph(all_rs_metas, max_version);
+    _version_graph.reconstruct_version_graph(all_rs_metas, &max_version);
 
     // version -> rowsetmeta
     // fill main_path which are included not merged rowsets
@@ -60,14 +60,14 @@ void VersionedRowsetTracker::_construct_versioned_tracker(
         auto min_begin_version = iter->first;
 
         while (!edges->empty()) {
-            PathVersionListSharedPtr path_version_ptr(new std::vector<VersionTrackerSharedPtr>());
+            PathVersionListSharedPtr path_version_ptr(new TimestampedVersionPathContainer());
             // 1. find a path, begin from min_begin_version
             auto min_end_version = edges->begin()->first;
             auto min_rs_meta = edges->begin()->second;
             // tracker the first
-            VersionTrackerSharedPtr tracker_ptr(new VersionTracker(
+            TimestampedVersionSharedPtr tracker_ptr(new TimestampedVersion(
                     Version(min_begin_version, min_end_version), min_rs_meta->creation_time()));
-            path_version_ptr->push_back(tracker_ptr);
+            path_version_ptr->add_timestamped_version(tracker_ptr);
             // 1.1 do loop, find next start to make a path
             auto tmp_start_version = min_end_version + 1;
             do {
@@ -82,9 +82,9 @@ void VersionedRowsetTracker::_construct_versioned_tracker(
                 auto next_rs_meta_iter = tmp_edge_iter->second->begin();
                 tmp_end_version = next_rs_meta_iter->first;
                 create_time = next_rs_meta_iter->second->creation_time();
-                VersionTrackerSharedPtr tracker_ptr(new VersionTracker(
+                TimestampedVersionSharedPtr tracker_ptr(new TimestampedVersion(
                         Version(tmp_start_version, tmp_end_version), create_time));
-                path_version_ptr->push_back(tracker_ptr);
+                path_version_ptr->add_timestamped_version(tracker_ptr);
                 // 1.4 judge if this path finish
                 auto max_end_version = tmp_end_version;
                 // find from other_path
@@ -104,19 +104,21 @@ void VersionedRowsetTracker::_construct_versioned_tracker(
             _expired_snapshot_rs_path_map[_next_path_version++] = path_version_ptr;
 
             // 2 remove this path from other_path
-            auto path_iter = path_version_ptr->begin();
-            for (; path_iter != path_version_ptr->end(); path_iter++) {
-                Version version = (*path_iter)->version();
+            std::vector<TimestampedVersionSharedPtr>& timestamped_versions = path_version_ptr->timestamped_versions();
+            auto path_iter = timestamped_versions.begin();
+            for (; path_iter != timestamped_versions.end(); path_iter++) {
+                const Version& version = (*path_iter)->version();
                 other_path[version.first]->erase(version.second);
             }
         }
     }
     other_path.clear();
     main_path.clear();
-    _print_current_state();
+    LOG(INFO) << _get_current_path_map_str();
+
 }
 
-void VersionedRowsetTracker::construct_versioned_tracker(
+void TimestampedVersionTracker::construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
         const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
     if (rs_metas.empty()) {
@@ -127,7 +129,7 @@ void VersionedRowsetTracker::construct_versioned_tracker(
     _construct_versioned_tracker(rs_metas, expired_snapshot_rs_metas);
 }
 
-void VersionedRowsetTracker::reconstruct_versioned_tracker(
+void TimestampedVersionTracker::reconstruct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
         const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
     if (rs_metas.empty()) {
@@ -140,48 +142,42 @@ void VersionedRowsetTracker::reconstruct_versioned_tracker(
     _construct_versioned_tracker(rs_metas, expired_snapshot_rs_metas);
 }
 
-void VersionedRowsetTracker::add_version(const Version& version) {
-    _rowset_graph.add_version_to_graph(version);
+void TimestampedVersionTracker::add_version(const Version& version) {
+    _version_graph.add_version_to_graph(version);
 }
 
-void VersionedRowsetTracker::add_expired_path_version(
+void TimestampedVersionTracker::add_expired_path_version(
         const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
     if (expired_snapshot_rs_metas.empty()) {
         VLOG(3) << "there is no version in the expired_snapshot_rs_metas.";
         return;
     }
 
-    PathVersionListSharedPtr ptr(new std::vector<VersionTrackerSharedPtr>());
+    PathVersionListSharedPtr ptr(new TimestampedVersionPathContainer());
     for (auto rs : expired_snapshot_rs_metas) {
-        VersionTrackerSharedPtr vt_ptr(new VersionTracker(rs->version(), rs->creation_time()));
-        ptr->push_back(vt_ptr);
+        TimestampedVersionSharedPtr vt_ptr(new TimestampedVersion(rs->version(), rs->creation_time()));
+        ptr->add_timestamped_version(vt_ptr);
     }
-    sort(ptr->begin(), ptr->end());
+
+    std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
+    sort(timestamped_versions.begin(), timestamped_versions.end());
     _expired_snapshot_rs_path_map[_next_path_version] = ptr;
     _next_path_version++;
 }
 
 // Capture consistent versions from graph
-OLAPStatus VersionedRowsetTracker::capture_consistent_versions(
+OLAPStatus TimestampedVersionTracker::capture_consistent_versions(
         const Version& spec_version, std::vector<Version>* version_path) const {
-    return _rowset_graph.capture_consistent_versions(spec_version, version_path);
+    return _version_graph.capture_consistent_versions(spec_version, version_path);
 }
 
-void VersionedRowsetTracker::capture_expired_path_version(
+void TimestampedVersionTracker::capture_expired_path_version(
         int64_t expired_snapshot_sweep_endtime, std::vector<int64_t>* path_version_vec) const {
     std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
             _expired_snapshot_rs_path_map.begin();
 
     while (iter != _expired_snapshot_rs_path_map.end()) {
-        std::vector<VersionTrackerSharedPtr>::iterator version_path_iter = iter->second->begin();
-        int64_t max_create_time = -1;
-        while (version_path_iter != iter->second->end()) {
-            if (max_create_time < (*version_path_iter)->get_create_time()) {
-                max_create_time = (*version_path_iter)->get_create_time();
-            }
-
-            version_path_iter++;
-        }
+        int64_t max_create_time = iter->second->max_create_time();
         if (max_create_time <= expired_snapshot_sweep_endtime) {
             int64_t path_version = iter->first;
             path_version_vec->push_back(path_version);
@@ -190,7 +186,7 @@ void VersionedRowsetTracker::capture_expired_path_version(
     }
 }
 
-void VersionedRowsetTracker::fetch_path_version(int64_t path_version,
+void TimestampedVersionTracker::fetch_path_version(int64_t path_version,
                                                 std::vector<Version>& version_path) {
     if (_expired_snapshot_rs_path_map.count(path_version) == 0) {
         VLOG(3) << "path version " << path_version << " does not exist!";
@@ -199,42 +195,45 @@ void VersionedRowsetTracker::fetch_path_version(int64_t path_version,
 
     PathVersionListSharedPtr ptr = _expired_snapshot_rs_path_map[path_version];
 
-    std::vector<VersionTrackerSharedPtr>::iterator iter = ptr->begin();
-    while (iter != ptr->end()) {
+    std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
+    std::vector<TimestampedVersionSharedPtr>::iterator iter = timestamped_versions.begin();
+    while (iter != timestamped_versions.end()) {
         version_path.push_back((*iter)->version());
         iter++;
     }
 }
 
-void VersionedRowsetTracker::fetch_and_delete_path_version(int64_t path_version,
+void TimestampedVersionTracker::fetch_and_delete_path_version(int64_t path_version,
                                                            std::vector<Version>& version_path) {
     if (_expired_snapshot_rs_path_map.count(path_version) == 0) {
         VLOG(3) << "path version " << path_version << " does not exist!";
         return;
     }
 
-    _print_current_state();
+    LOG(INFO) << _get_current_path_map_str();
     fetch_path_version(path_version, version_path);
 
     _expired_snapshot_rs_path_map.erase(path_version);
 
     for (auto& version : version_path) {
-        _rowset_graph.delete_version_from_graph(version);
+        _version_graph.delete_version_from_graph(version);
     }
 }
 
-void VersionedRowsetTracker::_print_current_state() {
-    LOG(INFO) << "current expired next_path_version " << _next_path_version;
+std::string TimestampedVersionTracker::_get_current_path_map_str() {
+
+    std::stringstream tracker_info;
+    tracker_info << "current expired next_path_version " << _next_path_version << std::endl;
 
     std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
             _expired_snapshot_rs_path_map.begin();
     while (iter != _expired_snapshot_rs_path_map.end()) {
-        std::stringstream tracker_info;
+        
         tracker_info << "current expired path_version " << iter->first;
-
-        std::vector<VersionTrackerSharedPtr>::iterator version_path_iter = iter->second->begin();
+        std::vector<TimestampedVersionSharedPtr>& timestamped_versions = iter->second->timestamped_versions();
+        std::vector<TimestampedVersionSharedPtr>::iterator version_path_iter = timestamped_versions.begin();
         int64_t max_create_time = -1;
-        while (version_path_iter != iter->second->end()) {
+        while (version_path_iter != timestamped_versions.end()) {
             if (max_create_time < (*version_path_iter)->get_create_time()) {
                 max_create_time = (*version_path_iter)->get_create_time();
             }
@@ -246,14 +245,27 @@ void VersionedRowsetTracker::_print_current_state() {
 
             version_path_iter++;
         }
-        LOG(INFO) << tracker_info.str();
 
+        tracker_info << std::endl;
         iter++;
     }
+    return tracker_info.str();
 }
 
-void RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                         int64_t& max_version) {
+void TimestampedVersionPathContainer::add_timestamped_version(TimestampedVersionSharedPtr version) {
+    // compare and refresh _max_create_time
+    if (version->get_create_time() > _max_create_time) {
+        _max_create_time = version->get_create_time();
+    }
+    _timestamped_versions_container.push_back(version);
+}
+
+inline std::vector<TimestampedVersionSharedPtr>& TimestampedVersionPathContainer::timestamped_versions() {
+    return _timestamped_versions_container;
+}
+
+void VersionGraph::construct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
+                                         int64_t* max_version) {
     if (rs_metas.empty()) {
         VLOG(3) << "there is no version in the header.";
         return;
@@ -266,8 +278,8 @@ void RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>&
     for (size_t i = 0; i < rs_metas.size(); ++i) {
         vertex_values.push_back(rs_metas[i]->start_version());
         vertex_values.push_back(rs_metas[i]->end_version() + 1);
-        if (max_version < rs_metas[i]->end_version()) {
-            max_version = rs_metas[i]->end_version();
+        if ( max_version != nullptr and *max_version < rs_metas[i]->end_version()) {
+            *max_version = rs_metas[i]->end_version();
         }
     }
     std::sort(vertex_values.begin(), vertex_values.end());
@@ -299,15 +311,15 @@ void RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>&
 
 }
 
-void RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                           int64_t& max_version) {
+void VersionGraph::reconstruct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
+                                           int64_t* max_version) {
     _version_graph.clear();
     _vertex_index_map.clear();
 
-    construct_rowset_graph(rs_metas, max_version);
+    construct_version_graph(rs_metas, max_version);
 }
 
-void RowsetGraph::add_version_to_graph(const Version& version) {
+void VersionGraph::add_version_to_graph(const Version& version) {
     // Add version.first as new vertex of version graph if not exist.
     int64_t start_vertex_value = version.first;
     int64_t end_vertex_value = version.second + 1;
@@ -327,7 +339,7 @@ void RowsetGraph::add_version_to_graph(const Version& version) {
     _version_graph[end_vertex_index].edges.push_front(start_vertex_index);
 }
 
-OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
+OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
     int64_t start_vertex_value = version.first;
     int64_t end_vertex_value = version.second + 1;
 
@@ -347,7 +359,7 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     return OLAP_SUCCESS;
 }
 
-void RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
+void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
     // Vertex with vertex_value already exists.
     if (_vertex_index_map.find(vertex_value) != _vertex_index_map.end()) {
         VLOG(3) << "vertex with vertex value already exists. value=" << vertex_value;
@@ -358,7 +370,7 @@ void RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
     _vertex_index_map[vertex_value] = _version_graph.size() - 1;
 }
 
-OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,
+OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version,
                                                     std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specfied version. "

@@ -30,7 +30,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/tuple.h"
-#include "olap/rowset_graph.h"
+#include "olap/version_graph.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet_meta.h"
@@ -249,7 +249,7 @@ private:
 private:
     static const int64_t kInvalidCumulativePoint = -1;
 
-    VersionedRowsetTracker _versioned_rs_tracker;
+    TimestampedVersionTracker _versioned_rs_tracker;
     
     DorisCallOnce<OLAPStatus> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
@@ -277,7 +277,7 @@ private:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
     // This variable _expired_snapshot_rs_version_map is used to record these rowsets which are be compacted.
     // These _expired_snapshot rowsets are been removed when rowsets' pathVersion is expired, 
-    // this policy is judged and computed by VersionedRowsetTracker.
+    // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _expired_snapshot_rs_version_map;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;

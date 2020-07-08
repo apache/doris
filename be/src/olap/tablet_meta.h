@@ -227,7 +227,7 @@ private:
     std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
     // This variable _expired_snapshot_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These _expired_snapshot rowsets meta are been removed when rowsets' pathVersion is expired, 
-    // this policy is judged and computed by VersionedRowsetTracker.
+    // this policy is judged and computed by TimestampedVersionTracker.
     std::vector<RowsetMetaSharedPtr> _expired_snapshot_rs_metas;
 
     DelPredicateArray _del_pred_array;
