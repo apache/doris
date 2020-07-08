@@ -157,7 +157,7 @@ public class MysqlScanNode extends ScanNode {
         numNodes = numNodes <= 0 ? 1 : numNodes;
         // this is just to avoid mysql scan node's cardinality being -1. So that we can calculate the join cost
         // normally.
-        // We assume that the data volume of all mysql tables is very small, so set cardinality directly to 0.
-        cardinality = cardinality == -1 ? 0 : cardinality;
+        // We assume that the data volume of all mysql tables is very small, so set cardinality directly to 1.
+        cardinality = cardinality == -1 ? 1 : cardinality;
     }
 }
