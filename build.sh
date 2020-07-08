@@ -205,9 +205,12 @@ if [ ${BUILD_FE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/webroot/* ${DORIS_OUTPUT}/fe/webroot/
 fi
 if [ ${BUILD_BE} -eq 1 ]; then
-    install -d ${DORIS_OUTPUT}/be/bin ${DORIS_OUTPUT}/be/conf \
+    install -d ${DORIS_OUTPUT}/be/bin  \
+               ${DORIS_OUTPUT}/be/conf \
                ${DORIS_OUTPUT}/be/lib/ \
-               ${DORIS_OUTPUT}/udf/lib ${DORIS_OUTPUT}/udf/include
+               ${DORIS_OUTPUT}/be/www  \
+               ${DORIS_OUTPUT}/udf/lib \
+               ${DORIS_OUTPUT}/udf/include
 
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
