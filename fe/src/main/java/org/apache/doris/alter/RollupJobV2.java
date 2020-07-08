@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -307,6 +308,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType, origStmt);
+        tbl.rebuildFullSchema();
     }
 
     /**
@@ -352,6 +354,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     long rollupTabletId = rollupTablet.getId();
                     long baseTabletId = tabletIdMap.get(rollupTabletId);
 
+                    Map<String, Expr> defineExprs = Maps.newHashMap();
+                    for (Column column : rollupSchema) {
+                        if (column.getDefineExpr() != null) {
+                            defineExprs.put(column.getName(), column.getDefineExpr());
+                        }
+                    }
+
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(
@@ -359,7 +368,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 rollupIndexId, baseIndexId,
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
-                                visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP);
+                                visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP, defineExprs);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
@@ -480,6 +489,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             }
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
+        tbl.rebuildFullSchema();
     }
 
     /**

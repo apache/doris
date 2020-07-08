@@ -191,7 +191,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
                int field_idx, int ref_field_idx, MemPool* mem_pool) {
-    write_helper->set_not_null(ref_field_idx);
+    write_helper->set_not_null(field_idx);
     BitmapValue bitmap;
     if (!read_helper->is_null(ref_field_idx)) {
         uint64_t origin_value;
