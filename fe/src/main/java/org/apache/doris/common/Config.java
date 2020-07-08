@@ -109,7 +109,7 @@ public class Config extends ConfigBase {
     @ConfField public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean plugin_enable = false;
+    public static boolean plugin_enable = true;
 
     /**
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
@@ -318,7 +318,7 @@ public class Config extends ConfigBase {
     /**
      * mysql service nio option.
      */
-    @ConfField public static boolean mysql_service_nio_enabled = false;
+    @ConfField public static boolean mysql_service_nio_enabled = true;
 
     /**
      * num of thread to handle io events in mysql.
@@ -1061,7 +1061,7 @@ public class Config extends ConfigBase {
      * If set to true, dynamic partition feature will open
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean dynamic_partition_enable = false;
+    public static boolean dynamic_partition_enable = true;
 
     /**
      * control rollup job concurrent limit
@@ -1112,5 +1112,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_spark_load = false;
 
+    /**
+     * Define thrift server's server model, default is TThreadPoolServer model
+     */
+    @ConfField
+    public static String thrift_server_type = ThriftServer.THREAD_POOL;
 }
 

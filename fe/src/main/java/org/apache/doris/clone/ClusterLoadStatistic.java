@@ -146,7 +146,7 @@ public class ClusterLoadStatistic {
         }
 
         LOG.info("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
-                avgLoadScore, medium, lowCounter, midCounter, highCounter);
+                medium, avgLoadScore, lowCounter, midCounter, highCounter);
     }
 
     private static void sortBeStats(List<BackendLoadStatistic> beStats, TStorageMedium medium) {
@@ -162,7 +162,7 @@ public class ClusterLoadStatistic {
     /*
      * Check whether the cluster can be more balance if we migrate a tablet with size 'tabletSize' from
      * `srcBeId` to 'destBeId'
-     * 1. re calculate the load core of src and dest be after migrate the tablet.
+     * 1. recalculate the load score of src and dest be after migrate the tablet.
      * 2. if the summary of the diff between the new score and average score becomes smaller, we consider it
      *    as more balance.
      */

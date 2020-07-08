@@ -108,7 +108,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 * `dynamic_partition.buckets`
 
     The number of buckets corresponding to the dynamically created partitions.
-    
+
+* `dynamic_partition.replication_num`
+
+    The replication number of dynamic partition.If not filled in, defaults to the number of table's replication number.    
+
 * `dynamic_partition.start_day_of_week`
 
     When `time_unit` is` WEEK`, this parameter is used to specify the starting point of the week. The value ranges from 1 to 7. Where 1 is Monday and 7 is Sunday. The default is 1, which means that every week starts on Monday.

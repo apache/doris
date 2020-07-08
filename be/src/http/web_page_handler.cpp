@@ -20,80 +20,91 @@
 #include <boost/bind.hpp>
 #include <boost/mem_fn.hpp>
 
+#include "common/config.h"
+#include "env/env.h"
+#include "gutil/stl_util.h"
+#include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
+#include "http/utils.h"
+#include "olap/file_helper.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+
+using strings::Substitute;
 
 namespace doris {
 
 static std::string s_html_content_type = "text/html";
 
 WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
-    PageHandlerCallback default_callback =
+    // Make WebPageHandler to be static file handler, static files, e.g. css, png, will be handled by WebPageHandler.
+    _http_server->register_static_file_handler(this);
+
+    PageHandlerCallback root_callback =
             boost::bind<void>(boost::mem_fn(&WebPageHandler::root_handler), this, _1, _2);
-    register_page("/", default_callback);
+    register_page("/", "Home", root_callback, false /* is_on_nav_bar */);
 }
 
-void WebPageHandler::register_page(const std::string& path, const PageHandlerCallback& callback) {
-    // Put this handler to to s_handler_by_name
-    // because handler does't often new
-    // So we insert it to this set when everytime
+WebPageHandler::~WebPageHandler() {
+    STLDeleteValues(&_page_map);
+}
+
+void WebPageHandler::register_page(const std::string& path, const string& alias,
+                                   const PageHandlerCallback& callback, bool is_on_nav_bar) {
     boost::mutex::scoped_lock lock(_map_lock);
-    auto map_iter = _page_map.find(path);
-    if (map_iter == _page_map.end()) {
-        // first time, register this to web server
-        _http_server->register_handler(HttpMethod::GET, path, this);
-    }
-    _page_map[path].add_callback(callback);
+    CHECK(_page_map.find(path) == _page_map.end());
+    // first time, register this to web server
+    _http_server->register_handler(HttpMethod::GET, path, this);
+    _page_map[path] = new PathHandler(true /* is_styled */, is_on_nav_bar, alias, callback);
 }
 
 void WebPageHandler::handle(HttpRequest* req) {
-    // Should we render with css styles?
-    bool use_style = true;
-    auto& params = *req->params();
-    if (params.find("raw") != params.end()) {
-        use_style = false;
-    }
-
-    std::stringstream output;
-
-    // Append header
-    if (use_style) {
-        bootstrap_page_header(&output);
-    }
-
-    // Append content
-    // push_content(&output);
     LOG(INFO) << req->debug_string();
+
+    PathHandler* handler = nullptr;
     {
         boost::mutex::scoped_lock lock(_map_lock);
         auto iter = _page_map.find(req->raw_path());
         if (iter != _page_map.end()) {
-            for (auto& callback : iter->second.callbacks()) {
-                callback(*req->params(), &output);
-            }
+            handler = iter->second;
         }
     }
 
+    if (handler == nullptr) {
+        // Try to handle static file request
+        do_file_response(std::string(getenv("DORIS_HOME")) + "/www/" + req->raw_path(), req);
+        // Has replied in do_file_response, so we return here.
+        return;
+    }
+
+    const auto& params = *req->params();
+
+    // Should we render with css styles?
+    bool use_style = (params.find("raw") == params.end());
+
+    std::stringstream content;
+    // Append header    
+    if (use_style) {
+        bootstrap_page_header(&content); 
+    }
+
+    // Append content
+    handler->callback()(params, &content);
+
     // Append footer
     if (use_style) {
-        bootstrap_page_footer(&output);
+        bootstrap_page_footer(&content);
     }
-    std::string str = output.str();
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, s_html_content_type.c_str());
-    HttpChannel::send_reply(req, HttpStatus::OK, str);
-#if 0
-    HttpResponse response(HttpStatus::OK, s_html_content_type, &str);
-    channel->send_response(response);
-#endif
+    HttpChannel::send_reply(req, HttpStatus::OK, content.str());
 }
 
 static const std::string PAGE_HEADER =

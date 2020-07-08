@@ -19,13 +19,13 @@ package org.apache.doris.task;
 
 import com.google.common.collect.Maps;
 
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,7 +37,7 @@ public class MasterTaskExecutor {
     private Map<Long, Future<?>> runningTasks;
 
     public MasterTaskExecutor(int threadNum) {
-        executor = Executors.newScheduledThreadPool(threadNum);
+        executor = ThreadPoolManager.newScheduledThreadPool(threadNum, "Master-Task-Executor-Pool");
         runningTasks = Maps.newHashMap();
         executor.scheduleAtFixedRate(new TaskChecker(), 0L, 1000L, TimeUnit.MILLISECONDS);
     }

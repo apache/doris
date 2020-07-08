@@ -55,6 +55,7 @@ module.exports = [
           "insert-into-manual",
           "spark-load-manual",
           "delete-manual",
+          "load-json-format",
         ],
         sidebarDepth: 2,
       },

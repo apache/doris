@@ -76,20 +76,23 @@ else
     done
 fi
 
+CMAKE_BUILD_TYPE=${BUILD_TYPE:-ASAN}
+CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
 echo "Build Backend UT"
 
+CMAKE_BUILD_DIR=${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
 if [ ${CLEAN} -eq 1 ]; then
-    rm ${DORIS_HOME}/be/ut_build/ -rf
+    rm ${CMAKE_BUILD_DIR} -rf
     rm ${DORIS_HOME}/be/output/ -rf
 fi
 
-if [ ! -d ${DORIS_HOME}/be/ut_build ]; then
-    mkdir -p ${DORIS_HOME}/be/ut_build/
+if [ ! -d ${CMAKE_BUILD_DIR} ]; then
+    mkdir -p ${CMAKE_BUILD_DIR}
 fi
 
-cd ${DORIS_HOME}/be/ut_build/
+cd ${CMAKE_BUILD_DIR}
 
-${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=ASAN
+${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
 make -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
@@ -102,7 +105,7 @@ echo "    Running PaloBe Unittest    "
 echo "******************************"
 
 cd ${DORIS_HOME}
-export DORIS_TEST_BINARY_DIR=${DORIS_HOME}/be/ut_build
+export DORIS_TEST_BINARY_DIR=${CMAKE_BUILD_DIR}
 export TERM=xterm
 export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
 export LOG_DIR=${DORIS_HOME}/log

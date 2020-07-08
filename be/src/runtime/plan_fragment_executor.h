@@ -258,10 +258,6 @@ private:
     // Idempotent.
     void stop_report_thread();
 
-    // Print stats about scan ranges for each volumeId in params to info log.
-    void print_volume_ids(const TPlanExecParams& params);
-    void print_volume_ids(const PerNodeScanRanges& per_node_scan_ranges);
-
     const DescriptorTbl& desc_tbl() {
         return _runtime_state->desc_tbl();
     }

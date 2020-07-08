@@ -37,7 +37,7 @@ class TupleRow;
 
 struct JsonPath {
     std::string key; // key of a json object
-    int idx;    // array index of a json array, -1 means not set
+    int idx;    // array index of a json array, -1 means not set, -2 means *
     bool is_valid;  // true if the path is successfully parsed
 
     JsonPath(const std::string& key_, int idx_, bool is_valid_):
@@ -45,7 +45,16 @@ struct JsonPath {
         idx(idx_),
         is_valid(is_valid_) {}
 
-    std::string debug_string() {
+    std::string to_string() const {
+        std::stringstream ss;
+        if (!is_valid) { return "INVALID"; }
+        if (!key.empty()) { ss << key; }
+        if (idx == -2) { ss << "[*]"; }
+        else if (idx > -1) { ss << "[" << idx << "]"; }
+        return ss.str();
+    }
+
+    std::string debug_string() const {
         std::stringstream ss;
         ss << "key: " << key << ", idx: " << idx << ", valid: " << is_valid;
         return ss.str();
@@ -75,7 +84,14 @@ public:
      * return Value Is Array object
      */
     static rapidjson::Value* get_json_array_from_parsed_json(
-            const std::string& path_string,
+            const std::vector<JsonPath>& parsed_paths,
+            rapidjson::Value* document,
+            rapidjson::Document::AllocatorType& mem_allocator);
+
+    // this is only for test, it will parse the json path inside,
+    // so that we can easily pass a json path as string.
+    static rapidjson::Value* get_json_array_from_parsed_json(
+            const std::string& jsonpath,
             rapidjson::Value* document,
             rapidjson::Document::AllocatorType& mem_allocator);
 
@@ -86,8 +102,13 @@ public:
     static void json_path_close(
             doris_udf::FunctionContext*,
             doris_udf::FunctionContext::FunctionStateScope);
+
+    static void parse_json_paths(
+            const std::string& path_strings,
+            std::vector<JsonPath>* parsed_paths);
+
 private:
-    static rapidjson::Value* match_value(std::vector<JsonPath>& parsed_paths,
+    static rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths,
             rapidjson::Value* document, rapidjson::Document::AllocatorType& mem_allocator,
             bool is_insert_null = false);
     static void get_parsed_paths(

@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -58,26 +57,19 @@ public class ShowIndexStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(tableName.getTbl())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
-        }
-        if (Strings.isNullOrEmpty(dbName) && Strings.isNullOrEmpty(tableName.getDb())) {
-            dbName = analyzer.getDefaultDb();
+        
+        if (!Strings.isNullOrEmpty(dbName)) {
+            // if user specify the `from db`, overwrite the db in tableName with this db.
+            // for example:
+            //      show index from db1.tbl1 from db2;
+            // with be rewrote to:
+            //      show index from db2.tbl1;
+            // this act same as in MySQL
             tableName.setDb(dbName);
-        } else if (Strings.isNullOrEmpty(dbName) && !Strings.isNullOrEmpty(tableName.getDb())) {
-            dbName = tableName.getDb();
-        } else if (!Strings.isNullOrEmpty(dbName) && Strings.isNullOrEmpty(tableName.getDb())) {
-            tableName.setDb(dbName);
         }
-        if (!dbName.equalsIgnoreCase(tableName.getDb())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME);
-        }
-        dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+        tableName.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), dbName);
-        }
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName.getTbl(),
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
                     tableName.toString());
@@ -97,11 +89,7 @@ public class ShowIndexStmt extends ShowStmt {
     }
 
     public String getDbName() {
-        if (dbName != null) {
-            return dbName;
-        } else {
-            return tableName.getDb();
-        }
+        return tableName.getDb();
     }
 
     public TableName getTableName() {
