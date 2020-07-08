@@ -864,7 +864,7 @@ public class Config extends ConfigBase {
     /**
      * The number of query retries. 
      * A query may retry if we encounter RPC exception and no result has been sent to user.
-     * You may reduce this number to void Avalanche disaster.
+     * You may reduce this number to avoid Avalanche disaster.
      */
     @ConfField(mutable = true)
     public static int max_query_retry_time = 2;

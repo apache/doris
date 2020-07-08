@@ -415,6 +415,12 @@ under the License.
 
 ### `tc_use_memory_min`
 
+### `thrift_client_retry_interval_ms`
+
+* 类型：int64
+* 描述：用来为be的thrift客户端设置重试间隔, 避免fe的thrift server发生雪崩问题，单位为ms。
+* 默认值：1000
+
 ### `thrift_connect_timeout_seconds`
 
 ### `thrift_rpc_timeout_ms`
