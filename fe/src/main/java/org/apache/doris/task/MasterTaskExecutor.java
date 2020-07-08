@@ -39,10 +39,10 @@ public class MasterTaskExecutor {
     private Map<Long, Future<?>> runningTasks;
     public ScheduledThreadPoolExecutor scheduledThreadPool;
 
-    public MasterTaskExecutor(String name, int threadNum) {
-        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "_pool");
+    public MasterTaskExecutor(String name, int threadNum, boolean needRegisterMetric) {
+        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "_pool", needRegisterMetric);
         runningTasks = Maps.newHashMap();
-        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool");
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
     }
 
     public void start() {

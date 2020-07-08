@@ -92,14 +92,14 @@ public class LoadChecker extends MasterDaemon {
         
         Map<TPriority, MasterTaskExecutor> pendingPriorityMap = Maps.newHashMap();
         pendingPriorityMap.put(TPriority.NORMAL,
-                               new MasterTaskExecutor("load_pending_thread_num_normal_priority", Config.load_pending_thread_num_normal_priority));
+                               new MasterTaskExecutor("load_pending_thread_num_normal_priority", Config.load_pending_thread_num_normal_priority, true));
         pendingPriorityMap.put(TPriority.HIGH,
-                               new MasterTaskExecutor("load_pending_thread_num_high_priority", Config.load_pending_thread_num_high_priority));
+                               new MasterTaskExecutor("load_pending_thread_num_high_priority", Config.load_pending_thread_num_high_priority, true));
         executors.put(JobState.PENDING, pendingPriorityMap);
 
         Map<TPriority, MasterTaskExecutor> etlPriorityMap = Maps.newHashMap();
-        etlPriorityMap.put(TPriority.NORMAL, new MasterTaskExecutor("load_etl_thread_num_normal_priority", Config.load_etl_thread_num_normal_priority));
-        etlPriorityMap.put(TPriority.HIGH, new MasterTaskExecutor("load_etl_thread_num_high_priority", Config.load_etl_thread_num_high_priority));
+        etlPriorityMap.put(TPriority.NORMAL, new MasterTaskExecutor("load_etl_thread_num_normal_priority", Config.load_etl_thread_num_normal_priority, true));
+        etlPriorityMap.put(TPriority.HIGH, new MasterTaskExecutor("load_etl_thread_num_high_priority", Config.load_etl_thread_num_high_priority, true));
         executors.put(JobState.ETL, etlPriorityMap);
     }
     

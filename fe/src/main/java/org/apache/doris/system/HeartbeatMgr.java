@@ -70,11 +70,11 @@ public class HeartbeatMgr extends MasterDaemon {
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
-    public HeartbeatMgr(SystemInfoService nodeMgr) {
+    public HeartbeatMgr(SystemInfoService nodeMgr, boolean needRegisterMetric) {
         super("heartbeat mgr", FeConstants.heartbeat_interval_second * 1000);
         this.nodeMgr = nodeMgr;
         this.executor = ThreadPoolManager.newDaemonFixedThreadPool(Config.heartbeat_mgr_threads_num,
-                Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool");
+                Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 

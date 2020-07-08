@@ -111,6 +111,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
@@ -458,10 +459,10 @@ public class Catalog {
     }
 
     private static class SingletonHolder {
-        private static final Catalog INSTANCE = new Catalog();
+        private static final Catalog INSTANCE = new Catalog(false);
     }
 
-    private Catalog() {
+    private Catalog(boolean isCheckpointCatalog) {
         this.idToDb = new ConcurrentHashMap<>();
         this.fullNameToDb = new ConcurrentHashMap<>();
         this.load = new Load();
@@ -491,7 +492,7 @@ public class Catalog {
         this.masterIp = "";
 
         this.systemInfo = new SystemInfoService();
-        this.heartbeatMgr = new HeartbeatMgr(systemInfo);
+        this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
@@ -505,7 +506,7 @@ public class Catalog {
 
         this.isDefaultClusterCreated = false;
 
-        this.pullLoadJobMgr = new PullLoadJobMgr();
+        this.pullLoadJobMgr = new PullLoadJobMgr(!isCheckpointCatalog);
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
 
@@ -524,7 +525,7 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.loadTaskScheduler = new MasterTaskExecutor("load_task_scheduler", Config.async_load_task_pool_size);
+        this.loadTaskScheduler = new MasterTaskExecutor("load_task_scheduler", Config.async_load_task_pool_size, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
@@ -557,7 +558,7 @@ public class Catalog {
             // only checkpoint thread it self will goes here.
             // so no need to care about the thread safe.
             if (CHECKPOINT == null) {
-                CHECKPOINT = new Catalog();
+                CHECKPOINT = new Catalog(true);
             }
             return CHECKPOINT;
         } else {
@@ -1208,6 +1209,8 @@ public class Catalog {
         String msg = "master finished to replay journal, can write now.";
         Util.stdoutWithTime(msg);
         LOG.info(msg);
+        // for master, there are some new thread pools need to register metric
+        ThreadPoolManager.registerAllThreadPoolMetric();
     }
 
     /*
