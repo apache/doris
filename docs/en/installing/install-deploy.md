@@ -167,7 +167,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Add all BE nodes to FE
 
-	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client to connect to FE:
+	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:
 
 	`./mysql-client -h host -P port -uroot`
 
@@ -177,13 +177,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 	`ALTER SYSTEM ADD BACKEND "host:port";`
 
-	If the multi-tenant function is used, the following command is executed to add BE:
-
-	`ALTER SYSTEM ADD FREE BACKEND "host:port";`
-
 	The host is the node IP where BE is located; the port is heartbeat_service_port in be/conf/be.conf.
-
-	If the FREE keyword is not added, BE defaults to the automatically generated cluster, and the new BE does not belong to any cluster after adding the FREE keyword, so that when creating a new cluster, it can be selected from these free be, as detailed in [Multi-tenant Design Document] (./administrator-guide/operation/multi-tenant.md)
 
 * Start BE
 
