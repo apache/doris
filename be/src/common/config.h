@@ -184,6 +184,8 @@ namespace config {
     CONF_Int32(port, "20001");
     // default thrift client connect timeout(in seconds)
     CONF_Int32(thrift_connect_timeout_seconds, "3");
+    // default thrift client retry interval (in milliseconds)
+    CONF_mInt64(thrift_client_retry_interval_ms, "1000");
     // max row count number for single scan range
     CONF_mInt32(doris_scan_range_row_count, "524288");
     // size of scanner queue between scanner thread and compute thread
