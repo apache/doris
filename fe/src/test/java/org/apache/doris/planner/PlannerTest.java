@@ -17,41 +17,37 @@
 
 package org.apache.doris.planner;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.UtFrameUtils;
-
-import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 public class PlannerTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
+    private static ConnectContext ctx;
 
     @After
     public void tearDown() throws Exception {
         FileUtils.deleteDirectory(new File(runningDir));
     }
 
-    @Test
-    public void testSetOperation() throws Exception {
-        // union
-
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+    @BeforeClass
+    public static void setUp() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
+        ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
@@ -60,6 +56,11 @@ public class PlannerTest {
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    @Test
+    public void testSetOperation() throws Exception {
+        // union
         String sql1 = "explain select * from\n"
                 + "  (select k1, k2 from db1.tbl1\n"
                 + "   union all\n"
@@ -238,16 +239,6 @@ public class PlannerTest {
 
     @Test
     public void testPushDown() throws Exception{
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        UtFrameUtils.createMinDorisCluster(runningDir);
-        String createDbStmtStr = "create database db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
-                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
         String sql1 =
                 "SELECT\n" +
                 "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
