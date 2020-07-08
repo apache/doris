@@ -462,6 +462,7 @@ public class Catalog {
         private static final Catalog INSTANCE = new Catalog(false);
     }
 
+    // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
     private Catalog(boolean isCheckpointCatalog) {
         this.idToDb = new ConcurrentHashMap<>();
         this.fullNameToDb = new ConcurrentHashMap<>();
