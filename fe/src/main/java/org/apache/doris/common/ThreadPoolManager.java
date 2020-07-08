@@ -48,7 +48,7 @@ import java.util.concurrent.TimeUnit;
  * 3. newDaemonThreadPool
  *    Wrapper over ThreadPoolExecutor, user can use it to construct thread pool more flexibly.
  * 4. newDaemonScheduledThreadPool
- *    Wrapper over ScheduledThreadPoolExecutor, but without thread num limit now(NOTICE).
+ *    Wrapper over ScheduledThreadPoolExecutor, but without delay task num limit and thread num limit now(NOTICE).
  *
  *  All thread pool constructed by ThreadPoolManager will be added to the nameToThreadPoolMap,
  *  so the thread pool name in fe must be unique.
@@ -116,9 +116,9 @@ public class ThreadPoolManager {
         return threadPool;
     }
 
-    // Now, we have no thread num limit in ScheduledThreadPoolExecutor,
-    // so it may cause oom when there are too many threads in ScheduledThreadPoolExecutor
-    // Please use this api with caution.
+    // Now, we have no delay task num limit and thread num limit in ScheduledThreadPoolExecutor,
+    // so it may cause oom when there are too many delay tasks or threads in ScheduledThreadPoolExecutor
+    // Please use this api only for scheduling short task at fix rate.
     public static ScheduledThreadPoolExecutor newDaemonScheduledThreadPool(int corePoolSize, String poolName) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
         ScheduledThreadPoolExecutor scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(corePoolSize, threadFactory);
