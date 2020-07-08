@@ -785,7 +785,7 @@ public class SingleNodePlanner {
                     continue;
                 }
                 olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
-                        bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+                        bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable(), analyzer);
             }
 
         } else {

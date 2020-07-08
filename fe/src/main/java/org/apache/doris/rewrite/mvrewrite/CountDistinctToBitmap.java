@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -59,7 +60,7 @@ public class CountDistinctToBitmap implements ExprRewriteRule {
         if (!fnExpr.getParams().isDistinct()) {
             return expr;
         }
-        if (!fnExpr.getFnName().getFunction().equalsIgnoreCase("count")) {
+        if (!fnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             return expr;
         }
         if (fnExpr.getChildren().size() != 1 || !(fnExpr.getChild(0) instanceof SlotRef)) {

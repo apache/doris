@@ -91,7 +91,7 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                arithmeticExpr.toSql();
+                arithmeticExpr.toString();
                 result = "a+b";
             }
         };
@@ -250,13 +250,15 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testOrderByAggregateColumn(@Injectable SlotRef slotRef1,
-                                           @Injectable SlotRef slotRef2,
-                                           @Injectable FunctionCallExpr functionCallExpr,
                                            @Injectable TableRef tableRef,
                                            @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
+        TableName tableName = new TableName("db", "table");
+        SlotRef slotRef2 = new SlotRef(tableName, "v1");
+        List<Expr> fnChildren = Lists.newArrayList(slotRef2);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fnChildren);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem2);
         OrderByElement orderByElement1 = new OrderByElement(functionCallExpr, false, false);
@@ -280,14 +282,6 @@ public class CreateMaterializedViewStmtTest {
                 result = orderByElementList;
                 slotRef1.getColumnName();
                 result = "k1";
-                slotRef2.getColumnName();
-                result = "v1";
-                functionCallExpr.getFnName().getFunction();
-                result = "sum";
-                functionCallExpr.getChildren();
-                result = Lists.newArrayList(slotRef2);
-                functionCallExpr.getChild(0);
-                result = slotRef2;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -300,12 +294,14 @@ public class CreateMaterializedViewStmtTest {
     }
 
     @Test
-    public void testDuplicateColumn(@Injectable SlotRef slotRef1,
-                                    @Injectable FunctionCallExpr functionCallExpr,
-                                    @Injectable SelectStmt selectStmt) throws UserException {
+    public void testDuplicateColumn(@Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
+        TableName tableName = new TableName("db", "table");
+        SlotRef slotRef1 = new SlotRef(tableName, "k1");
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
+        List<Expr> fnChildren = Lists.newArrayList(slotRef1);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fnChildren);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem2);
 
@@ -316,14 +312,6 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                slotRef1.getColumnName();
-                result = "k1";
-                functionCallExpr.getFnName().getFunction();
-                result = "sum";
-                functionCallExpr.getChildren();
-                result = Lists.newArrayList(slotRef1);
-                functionCallExpr.getChild(0);
-                result = slotRef1;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -336,14 +324,18 @@ public class CreateMaterializedViewStmtTest {
     }
 
     @Test
-    public void testDuplicateColumn1(@Injectable SlotRef slotRef1, @Injectable SlotRef slotRef2,
-            @Injectable FunctionCallExpr functionCallExpr1, @Injectable FunctionCallExpr functionCallExpr2,
+    public void testDuplicateColumn1(@Injectable SlotRef slotRef1,
             @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
+        TableName tableName = new TableName("db", "table");
+        SlotRef slotRef2 = new SlotRef(tableName, "k2");
+        List<Expr> fn1Children = Lists.newArrayList(slotRef2);
+        FunctionCallExpr functionCallExpr1 = new FunctionCallExpr("sum", fn1Children);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr1, null);
         selectList.addItem(selectListItem2);
+        FunctionCallExpr functionCallExpr2 = new FunctionCallExpr("max", fn1Children);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr2, null);
         selectList.addItem(selectListItem3);
 
@@ -356,20 +348,6 @@ public class CreateMaterializedViewStmtTest {
                 result = selectList;
                 slotRef1.getColumnName();
                 result = "k1";
-                slotRef2.getColumnName();
-                result = "k2";
-                functionCallExpr1.getFnName().getFunction();
-                result = "sum";
-                functionCallExpr1.getChildren();
-                result = Lists.newArrayList(slotRef2);
-                functionCallExpr1.getChild(0);
-                result = slotRef2;
-                functionCallExpr2.getFnName().getFunction();
-                result = "max";
-                functionCallExpr2.getChildren();
-                result = Lists.newArrayList(slotRef2);
-                functionCallExpr2.getChild(0);
-                result = slotRef2;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -384,8 +362,6 @@ public class CreateMaterializedViewStmtTest {
     @Test
     public void testOrderByColumnsLessThenGroupByColumns(@Injectable SlotRef slotRef1,
                                                          @Injectable SlotRef slotRef2,
-                                                         @Injectable FunctionCallExpr functionCallExpr,
-                                                         @Injectable SlotRef functionChild0,
                                                          @Injectable TableRef tableRef,
                                                          @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
@@ -393,6 +369,10 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem1);
         SelectListItem selectListItem2 = new SelectListItem(slotRef2, null);
         selectList.addItem(selectListItem2);
+        TableName tableName = new TableName("db", "table");
+        SlotRef functionChild0 = new SlotRef(tableName, "v1");
+        List<Expr> fn1Children = Lists.newArrayList(functionChild0);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fn1Children);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem3);
         OrderByElement orderByElement1 = new OrderByElement(slotRef1, false, false);
@@ -417,14 +397,6 @@ public class CreateMaterializedViewStmtTest {
                 result = "k1";
                 slotRef2.getColumnName();
                 result = "non-k2";
-                functionChild0.getColumnName();
-                result = "v1";
-                functionCallExpr.getFnName().getFunction();
-                result = "sum";
-                functionCallExpr.getChildren();
-                result = Lists.newArrayList(slotRef1);
-                functionCallExpr.getChild(0);
-                result = functionChild0;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -441,8 +413,6 @@ public class CreateMaterializedViewStmtTest {
                                             @Injectable SlotRef slotRef2,
                                             @Injectable SlotRef slotRef3,
                                             @Injectable SlotRef slotRef4,
-                                            @Injectable FunctionCallExpr functionCallExpr,
-                                            @Injectable SlotRef functionChild0,
                                             @Injectable TableRef tableRef,
                                             @Injectable SelectStmt selectStmt,
             @Injectable AggregateInfo aggregateInfo) throws UserException {
@@ -455,14 +425,17 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem3);
         SelectListItem selectListItem4 = new SelectListItem(slotRef4, null);
         selectList.addItem(selectListItem4);
-
+        TableName tableName = new TableName("db", "table");
+        final String columnName5 = "sum_v2";
+        SlotRef functionChild0 = new SlotRef(tableName, columnName5);
+        List<Expr> fn1Children = Lists.newArrayList(functionChild0);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fn1Children);
         SelectListItem selectListItem5 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem5);
         final String columnName1 = "k1";
         final String columnName2 = "k2";
         final String columnName3 = "k3";
         final String columnName4 = "v1";
-        final String columnName5 = "sum_v2";
 
         new Expectations() {
             {
@@ -483,12 +456,6 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
-                functionCallExpr.getChild(0);
-                result = functionChild0;
-                functionCallExpr.getChildren();
-                result = Lists.newArrayList(functionChild0);
-                functionCallExpr.getFnName().getFunction();
-                result = "sum";
                 slotRef1.getColumnName();
                 result = columnName1;
                 slotRef2.getColumnName();
@@ -497,8 +464,6 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 slotRef4.getColumnName();
                 result = columnName4;
-                functionChild0.getColumnName();
-                result = columnName5;
             }
         };
 
@@ -939,8 +904,6 @@ public class CreateMaterializedViewStmtTest {
     @Test
     public void testMVColumns(@Injectable SlotRef slotRef1,
             @Injectable SlotRef slotRef2,
-            @Injectable FunctionCallExpr functionCallExpr,
-            @Injectable SlotRef functionChild0,
             @Injectable TableRef tableRef,
             @Injectable SelectStmt selectStmt,
             @Injectable AggregateInfo aggregateInfo) throws UserException {
@@ -949,6 +912,11 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem1);
         SelectListItem selectListItem2 = new SelectListItem(slotRef2, null);
         selectList.addItem(selectListItem2);
+        TableName tableName = new TableName("db", "table");
+        final String columnName3 = "sum_v2";
+        SlotRef slotRef = new SlotRef(tableName, columnName3);
+        List<Expr> children = Lists.newArrayList(slotRef);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", children);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem3);
         OrderByElement orderByElement1 = new OrderByElement(slotRef1, false, false);
@@ -956,7 +924,7 @@ public class CreateMaterializedViewStmtTest {
         ArrayList<OrderByElement> orderByElementList = Lists.newArrayList(orderByElement1, orderByElement2);
         final String columnName1 = "k1";
         final String columnName2 = "v1";
-        final String columnName3 = "sum_v2";
+
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -976,18 +944,10 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getLimit();
                 result = -1;
                 selectStmt.analyze(analyzer);
-                functionCallExpr.getChild(0);
-                result = functionChild0;
-                functionCallExpr.getChildren();
-                result = Lists.newArrayList(functionChild0);
-                functionCallExpr.getFnName().getFunction();
-                result = "sum";
                 slotRef1.getColumnName();
                 result = columnName1;
                 slotRef2.getColumnName();
                 result = columnName2;
-                functionChild0.getColumnName();
-                result = columnName3;
             }
         };
 

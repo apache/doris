@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.FunctionSet;
+
 public class MVColumnHLLUnionPattern implements MVColumnPattern {
     @Override
     public boolean match(Expr expr) {
@@ -25,14 +27,14 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
         }
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
         String fnNameString = fnExpr.getFnName().getFunction();
-        if (!fnNameString.equalsIgnoreCase("hll_union")){
+        if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)){
             return false;
         }
         if (!(fnExpr.getChild(0) instanceof FunctionCallExpr)) {
             return false;
         }
         FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
             return false;
         }
         if (child0FnExpr.getChild(0) instanceof SlotRef) {
@@ -50,6 +52,6 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
 
     @Override
     public String toString() {
-        return "hll_union(hll_hash(column))";
+        return "hll_union(" + FunctionSet.HLL_HASH + "(column))";
     }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -136,7 +137,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                                 || fnName.equalsIgnoreCase("max")
                                 || fnName.equalsIgnoreCase("min")
                                 || fnName.equalsIgnoreCase("avg")
-                                || fnName.equalsIgnoreCase("count"));
+                                || fnName.equalsIgnoreCase(FunctionSet.COUNT));
                     } else {
                         return false;
                     }

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -53,7 +54,7 @@ public class CountFieldToSum implements ExprRewriteRule {
             return expr;
         }
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
-        if (!fnExpr.getFnName().getFunction().equalsIgnoreCase("count")) {
+        if (!fnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             return expr;
         }
         if (fnExpr.getChildren().size() != 1 || !(fnExpr.getChild(0) instanceof SlotRef)) {
@@ -69,7 +70,7 @@ public class CountFieldToSum implements ExprRewriteRule {
 
         // check column
         String queryColumnName = column.getName();
-        String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder("count", queryColumnName);
+        String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder(FunctionSet.COUNT, queryColumnName);
         Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
         if (mvColumn == null) {
             return expr;

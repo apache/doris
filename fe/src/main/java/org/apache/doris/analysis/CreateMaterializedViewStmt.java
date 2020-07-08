@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -64,9 +65,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 new MVColumnOneChildPattern(AggregateType.MIN.name().toLowerCase()));
         FN_NAME_TO_PATTERN.put(AggregateType.MAX.name().toLowerCase(),
                 new MVColumnOneChildPattern(AggregateType.MAX.name().toLowerCase()));
-        FN_NAME_TO_PATTERN.put("count", new MVColumnOneChildPattern("count"));
-        FN_NAME_TO_PATTERN.put("bitmap_union", new MVColumnBitmapUnionPattern());
-        FN_NAME_TO_PATTERN.put("hll_union", new MVColumnHLLUnionPattern());
+        FN_NAME_TO_PATTERN.put(FunctionSet.COUNT, new MVColumnOneChildPattern(FunctionSet.COUNT));
+        FN_NAME_TO_PATTERN.put(FunctionSet.BITMAP_UNION, new MVColumnBitmapUnionPattern());
+        FN_NAME_TO_PATTERN.put(FunctionSet.HLL_UNION, new MVColumnHLLUnionPattern());
     }
 
     private String mvName;
@@ -354,19 +355,19 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
                 type = Type.BIGINT;
                 break;
-            case "bitmap_union":
+            case FunctionSet.BITMAP_UNION:
                 mvColumnName = mvColumnBuilder(functionName, baseColumnName);
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
                 defineExpr = functionChild0;
                 type = Type.BITMAP;
                 break;
-            case "hll_union":
+            case FunctionSet.HLL_UNION:
                 mvColumnName = mvColumnBuilder(functionName, baseColumnName);
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
                 defineExpr = functionChild0;
                 type = Type.HLL;
                 break;
-            case "count":
+            case FunctionSet.COUNT:
                 mvColumnName = mvColumnBuilder(functionName, baseColumnName);
                 mvAggregateType = AggregateType.SUM;
                 defineExpr = new CaseExpr(null, Lists.newArrayList(new CaseWhenClause(

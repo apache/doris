@@ -34,7 +34,7 @@ public class MVColumnBitmapUnionPattern implements MVColumnPattern {
             return false;
         }
         FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")) {
+        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
             return false;
         }
         if (child0FnExpr.getChild(0) instanceof SlotRef) {
@@ -52,6 +52,7 @@ public class MVColumnBitmapUnionPattern implements MVColumnPattern {
 
     @Override
     public String toString() {
-        return "bitmap_union(to_bitmap(column)) or bitmap_union(bitmap_column) in agg table";
+        return FunctionSet.BITMAP_UNION + "(" + FunctionSet.TO_BITMAP + "(column)) "
+                + "or " + FunctionSet.BITMAP_UNION + "(bitmap_column) in agg table";
     }
 }

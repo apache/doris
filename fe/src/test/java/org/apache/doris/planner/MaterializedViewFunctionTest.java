@@ -18,12 +18,14 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.After;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -720,7 +722,7 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggTableCountDistinctInHllType() throws Exception {
-        String aggTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 hll hll_union) Aggregate KEY (k1) " +
+        String aggTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 hll " + FunctionSet.HLL_UNION + ") Aggregate KEY (k1) " +
                 "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
         dorisAssert.withTable(aggTable);
         String query = "select k1, count(distinct v1) from " + TEST_TABLE_NAME + " group by k1;";
@@ -743,13 +745,13 @@ public class MaterializedViewFunctionTest {
                 "bitmap_union(to_bitmap(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select user_name, count(distinct tag_id) from " + USER_TAG_TABLE_NAME + " group by user_name;";
-        dorisAssert.query(query).explainContains(USER_TAG_TABLE_NAME, "count");
+        dorisAssert.query(query).explainContains(USER_TAG_TABLE_NAME, FunctionSet.COUNT);
     }
 
     @Test
     public void testNDVToHll() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, " +
-                "`hll_union`(hll_hash(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+                "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select ndv(tag_id) from " + USER_TAG_TABLE_NAME + ";";
         dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, "hll_union_agg");
@@ -758,14 +760,14 @@ public class MaterializedViewFunctionTest {
     @Test
     public void testHLLUnionFamilyRewrite() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, " +
-                "`hll_union`(hll_hash(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+                "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
-        String query = "select `hll_union`(hll_hash(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
-        String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder("hll_union", "tag_id");
+        String query = "select `" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
+        String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder("" + FunctionSet.HLL_UNION + "", "tag_id");
         dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
-        query = "select hll_union_agg(hll_hash(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
+        query = "select hll_union_agg(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
         dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
-        query = "select hll_raw_agg(hll_hash(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
+        query = "select hll_raw_agg(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + ";";
         dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
     }
 
@@ -787,10 +789,22 @@ public class MaterializedViewFunctionTest {
                 "count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_id;";
         dorisAssert.withMaterializedView(createUserTagMVSql);
         String query = "select count(tag_id) from " + USER_TAG_TABLE_NAME + ";";
-        String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder("count", "tag_id");
+        String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder(FunctionSet.COUNT, "tag_id");
         dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, mvColumnName);
         query = "select user_name, count(tag_id) from " + USER_TAG_TABLE_NAME + " group by user_name;";
         dorisAssert.query(query).explainWithout(USER_TAG_MV_NAME);
+    }
+
+    @Test
+    public void testInvalidColumnInCreateMVStmt() throws Exception {
+        String createMVSQL = "create materialized view " + USER_TAG_MV_NAME + " as select invalid_column, user_id from "
+                + USER_TAG_TABLE_NAME + ";";
+        try {
+            dorisAssert.withMaterializedView(createMVSQL);
+            Assert.fail();
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
     }
 
 }

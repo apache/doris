@@ -284,6 +284,9 @@ public class FunctionSet {
                         "16knuth_var_updateIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
                 .build();
 
+    public static final String HLL_HASH = "hll_hash";
+    public static final String HLL_UNION = "hll_union";
+
     private static final Map<Type, String> HLL_UPDATE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.BOOLEAN,
@@ -535,6 +538,7 @@ public class FunctionSet {
 
                 .build();
 
+    public static final String TO_BITMAP = "to_bitmap";
     public static final String BITMAP_UNION = "bitmap_union";
     public static final String BITMAP_UNION_COUNT = "bitmap_union_count";
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
@@ -819,6 +823,7 @@ public class FunctionSet {
         addFunction(fn, true);
     }
 
+    public static final String COUNT = "count";
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -834,7 +839,7 @@ public class FunctionSet {
 
         // Type stringType[] = {Type.CHAR, Type.VARCHAR};
         // count(*)
-        addBuiltin(AggregateFunction.createBuiltin("count",
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
             new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
             prefix + "9init_zeroIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
             prefix + "17count_star_updateEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
@@ -851,7 +856,7 @@ public class FunctionSet {
                 continue; // promoted to STRING
             }
             // Count
-            addBuiltin(AggregateFunction.createBuiltin("count",
+            addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
                     Lists.newArrayList(t), Type.BIGINT, Type.BIGINT,
                     prefix + "9init_zeroIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
                     prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
@@ -1027,7 +1032,7 @@ public class FunctionSet {
                     true, true, true));
 
             // HLL_UNION
-            addBuiltin(AggregateFunction.createBuiltin("hll_union",
+            addBuiltin(AggregateFunction.createBuiltin(HLL_UNION,
                     Lists.newArrayList(t), Type.HLL, Type.HLL,
                     "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
                     "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",

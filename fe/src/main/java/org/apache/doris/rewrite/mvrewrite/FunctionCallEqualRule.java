@@ -20,6 +20,7 @@ package org.apache.doris.rewrite.mvrewrite;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.catalog.FunctionSet;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -34,13 +35,13 @@ public class FunctionCallEqualRule implements MVExprEqualRule {
         builder.put("sum", "sum");
         builder.put("max", "max");
         builder.put("min", "min");
-        builder.put("bitmap_union", "bitmap_union");
-        builder.put("bitmap_union", "bitmap_union_count");
-        builder.put("hll_union", "hll_union_agg");
-        builder.put("hll_union", "hll_union");
-        builder.put("hll_union", "hll_raw_agg");
-        builder.put("to_bitmap", "to_bitmap");
-        builder.put("hll_hash", "hll_hash");
+        builder.put(FunctionSet.BITMAP_UNION, FunctionSet.BITMAP_UNION);
+        builder.put(FunctionSet.BITMAP_UNION, FunctionSet.BITMAP_UNION_COUNT);
+        builder.put(FunctionSet.HLL_UNION, "hll_union_agg");
+        builder.put(FunctionSet.HLL_UNION, "hll_union");
+        builder.put(FunctionSet.HLL_UNION, "hll_raw_agg");
+        builder.put(FunctionSet.TO_BITMAP, FunctionSet.TO_BITMAP);
+        builder.put(FunctionSet.HLL_HASH, FunctionSet.HLL_HASH);
         columnAggTypeMatchFnName = builder.build();
     }
 

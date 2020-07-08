@@ -173,34 +173,6 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testInvalidMVColumn(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
-                                    @Injectable OlapTable olapTable) {
-        final String mvName = "mv1";
-        final String mvColumnName = "mv_k1";
-        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, Type.BIGINT);
-        new Expectations() {
-            {
-                olapTable.hasMaterializedIndex(mvName);
-                result = false;
-                createMaterializedViewStmt.getMVName();
-                result = mvName;
-                createMaterializedViewStmt.getMVColumnItemList();
-                result = Lists.newArrayList(mvColumnItem);
-                olapTable.getColumn(mvColumnName);
-                result = null;
-            }
-        };
-        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
-        try {
-            Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                                   createMaterializedViewStmt, olapTable);
-            Assert.fail();
-        } catch (Exception e) {
-            System.out.print(e.getMessage());
-        }
-    }
-
-    @Test
     public void testInvalidAggregateType(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
                                          @Injectable OlapTable olapTable) {
         final String mvName = "mv1";

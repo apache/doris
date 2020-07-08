@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -1223,7 +1224,7 @@ public class SelectStmt extends QueryStmt {
         for (FunctionCallExpr inputExpr : distinctExprs) {
             Expr replaceExpr = null;
             final String functionName = inputExpr.getFnName().getFunction();
-            if (functionName.equalsIgnoreCase("COUNT")) {
+            if (functionName.equalsIgnoreCase(FunctionSet.COUNT)) {
                 final List<Expr> countInputExpr = Lists.newArrayList(inputExpr.getChild(0).clone(null));
                 replaceExpr = new FunctionCallExpr("MULTI_DISTINCT_COUNT",
                         new FunctionParams(inputExpr.isDistinct(), countInputExpr));
@@ -1283,7 +1284,7 @@ public class SelectStmt extends QueryStmt {
         com.google.common.base.Predicate<FunctionCallExpr> isCountPred =
                 new com.google.common.base.Predicate<FunctionCallExpr>() {
                     public boolean apply(FunctionCallExpr expr) {
-                        return expr.getFnName().getFunction().equals("count");
+                        return expr.getFnName().getFunction().equals(FunctionSet.COUNT);
                     }
                 };
 

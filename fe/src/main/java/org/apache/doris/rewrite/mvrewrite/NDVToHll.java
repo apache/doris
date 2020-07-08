@@ -36,14 +36,14 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 /**
- * For duplicate table, the ndv(k1) could be rewritten to hll_union_agg(mv_hll_hash_k1) when bitmap
+ * For duplicate table, the ndv(k1) could be rewritten to hll_union_agg(mv_hll_union_k1) when bitmap
  * mv exists.
  * For example:
  * Table: (k1 int, k2 int)
- * MV: (k1 int, mv_hll_hash_k2 hll hll_union)
- * mv_hll_hash_k2 = hll_hash(k2)
+ * MV: (k1 int, mv_hll_union_k2 hll hll_union)
+ * mv_hll_union_k2 = hll_hash(k2)
  * Query: select k1, count(distinct k2) from table group by k1
- * Rewritten query: select k1, hll_union_agg(mv_hll_hash_k2) from table group by k1
+ * Rewritten query: select k1, hll_union_agg(mv_hll_union_k2) from table group by k1
  */
 public class NDVToHll implements ExprRewriteRule{
     public static final ExprRewriteRule INSTANCE = new NDVToHll();

@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -284,6 +283,8 @@ public class MaterializedViewSelectorTest {
                 result = null;
                 indexMeta1.getSchema();
                 result = index1Columns;
+                indexMeta1.getKeysType();
+                result = KeysType.DUP_KEYS;
                 indexMeta2.getSchema();
                 result = index2Columns;
                 indexMeta3.getSchema();
@@ -298,9 +299,8 @@ public class MaterializedViewSelectorTest {
         Set<FunctionCallExpr> aggregatedColumnsInQueryOutput = Sets.newHashSet();
         aggregatedColumnsInQueryOutput.add(functionCallExpr);
         Deencapsulation.setField(selector, "isSPJQuery", false);
-        Map<Long, ExprSubstitutionMap> candidateIndexIdToRewriteSMap = Maps.newHashMap();
         Deencapsulation.invoke(selector, "checkAggregationFunction", aggregatedColumnsInQueryOutput,
-                               candidateIndexIdToSchema, candidateIndexIdToRewriteSMap);
+                               candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));
