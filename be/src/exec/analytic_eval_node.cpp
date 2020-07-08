@@ -51,6 +51,7 @@ AnalyticEvalNode::AnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
         _dummy_result_tuple(NULL),
         _curr_partition_idx(-1),
         _prev_input_row(NULL),
+        _block_mgr_client(nullptr),
         _input_eos(false),
         _evaluation_timer(NULL) {
     if (tnode.analytic_node.__isset.buffered_tuple_id) {
@@ -192,8 +193,8 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(child(0)->open(state));
-    RETURN_IF_ERROR(state->block_mgr2()->register_client(2, mem_tracker(), state, &client_));
-    _input_stream.reset(new BufferedTupleStream2(state, child(0)->row_desc(), state->block_mgr2(), client_, false, true));
+    RETURN_IF_ERROR(state->block_mgr2()->register_client(2, mem_tracker(), state, &_block_mgr_client));
+    _input_stream.reset(new BufferedTupleStream2(state, child(0)->row_desc(), state->block_mgr2(), _block_mgr_client, false, true));
     RETURN_IF_ERROR(_input_stream->init(id(), runtime_profile(), true));
 
     bool got_read_buffer;
@@ -860,8 +861,8 @@ Status AnalyticEvalNode::close(RuntimeState* state) {
         _input_stream->close();
     }
 
-    if (client_ != nullptr) {
-        state->block_mgr2()->clear_reservations(client_);
+    if (_block_mgr_client != nullptr) {
+        state->block_mgr2()->clear_reservations(_block_mgr_client);
     }
     // Close all evaluators and fn ctxs. If an error occurred in Init or rrepare there may
     // be fewer ctxs than evaluators. We also need to Finalize if _curr_tuple was created
