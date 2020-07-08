@@ -17,10 +17,10 @@
 
 package org.apache.doris.persist;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -51,5 +51,24 @@ public class BatchModifyPartitionsInfo implements Writable {
 
     public List<ModifyPartitionInfo> getModifyPartitionInfos() {
         return infos;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof BatchModifyPartitionsInfo)) {
+            return false;
+        }
+        List<ModifyPartitionInfo> otherInfos = ((BatchModifyPartitionsInfo) other).getModifyPartitionInfos();
+        for (ModifyPartitionInfo thisInfo : infos) {
+            for (ModifyPartitionInfo otherInfo : otherInfos) {
+                if (!thisInfo.equals(otherInfo)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

@@ -17,11 +17,11 @@
 
 package org.apache.doris.persist;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -85,6 +85,20 @@ public class ModifyPartitionInfo implements Writable {
         ModifyPartitionInfo info = new ModifyPartitionInfo();
         info.readFields(in);
         return info;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof ModifyPartitionInfo)) {
+            return false;
+        }
+        ModifyPartitionInfo otherInfo = (ModifyPartitionInfo) other;
+        return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId() &&
+                dataProperty.equals(otherInfo.getDataProperty()) && replicationNum == otherInfo.getReplicationNum()
+                && isInMemory == otherInfo.isInMemory();
     }
 
     @Override

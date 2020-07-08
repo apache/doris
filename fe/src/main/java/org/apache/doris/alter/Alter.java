@@ -17,9 +17,6 @@
 
 package org.apache.doris.alter;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -60,6 +57,10 @@ import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TTabletType;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

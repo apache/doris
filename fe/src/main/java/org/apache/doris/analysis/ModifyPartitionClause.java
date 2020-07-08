@@ -17,17 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -89,15 +89,15 @@ public class ModifyPartitionClause extends AlterTableClause {
         }
 
         // check properties here
-        preCheck(Maps.newHashMap(properties));
+        checkProperties(Maps.newHashMap(properties));
     }
 
-    // pre check the following properties' legality before modifying partition.
+    // Check the following properties' legality before modifying partition.
     // 1. replication_num
     // 2. storage_medium && storage_cooldown_time
     // 3. in_memory
     // 4. tablet type
-    public static void preCheck(Map<String, String> properties) throws AnalysisException {
+    private void checkProperties(Map<String, String> properties) throws AnalysisException {
         // 1. data property
         DataProperty newDataProperty = null;
         newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, DataProperty.DEFAULT_DATA_PROPERTY);
