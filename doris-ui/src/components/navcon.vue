@@ -19,8 +19,6 @@ export default {
   data() {
     return {
       collapsed: true,
-      // imgshow: require('../assets/img/show.png'),
-      // imgsq: require('../assets/img/sq.png'),
       user: {}
     }
   },
