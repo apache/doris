@@ -212,7 +212,14 @@ public class EditLog {
                     ModifyPartitionInfo info = (ModifyPartitionInfo) journal.getData();
                     LOG.info("Begin to unprotect modify partition. db = " + info.getDbId()
                             + " table = " + info.getTableId() + " partitionId = " + info.getPartitionId());
-                    catalog.replayModifyPartition(info);
+                    catalog.getAlterInstance().replayModifyPartition(info);
+                    break;
+                }
+                case OperationType.OP_BATCH_MODIFY_PARTITION: {
+                    BatchModifyPartitionsInfo info = (BatchModifyPartitionsInfo) journal.getData();
+                    for(ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
+                        catalog.getAlterInstance().replayModifyPartition(modifyPartitionInfo);
+                    }
                     break;
                 }
                 case OperationType.OP_ERASE_TABLE: {
@@ -920,6 +927,10 @@ public class EditLog {
 
     public void logModifyPartition(ModifyPartitionInfo info) {
         logEdit(OperationType.OP_MODIFY_PARTITION, info);
+    }
+
+    public void logBatchModifyPartition(BatchModifyPartitionsInfo info) {
+        logEdit(OperationType.OP_BATCH_MODIFY_PARTITION, info);
     }
 
     public void logDropTable(DropInfo info) {

@@ -1463,6 +1463,9 @@ public class SchemaChangeHandler extends AlterHandler {
         LOG.info("send clear alter task for table {}, number: {}", olapTable.getName(), batchTask.getTaskNum());
     }
 
+    /**
+     * Update all partitions' in-memory property of table
+     */
     public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws DdlException {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable;
@@ -1491,6 +1494,48 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    /**
+     * Update some specified partitions' in-memory property of table
+     */
+    public void updatePartitionsInMemoryMeta(Database db,
+                                             String tableName,
+                                             List<String> partitionNames,
+                                             Map<String, String> properties) throws DdlException {
+        OlapTable olapTable;
+        db.readLock();
+        try {
+            olapTable = (OlapTable)db.getTable(tableName);
+            for (String partitionName : partitionNames) {
+                Partition partition = olapTable.getPartition(partitionName);
+                if (partition == null) {
+                    throw new DdlException("Partition[" + partitionName + "] does not exist in " +
+                            "table[" + olapTable.getName() + "]");
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
+
+        boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+        if (isInMemory == olapTable.isInMemory()) {
+            return;
+        }
+
+        for(String partitionName : partitionNames) {
+            try {
+                updatePartitionInMemoryMeta(db, olapTable.getName(), partitionName, isInMemory);
+            } catch (Exception e) {
+                String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. " +
+                        "The reason is [" + e.getMessage() + "]";
+                throw new DdlException(errMsg);
+            }
+        }
+    }
+
+    /**
+     * Update one specified partition's in-memory property by partition name of table
+     * This operation may return partial successfully, with a exception to inform user to retry
+     */
     public void updatePartitionInMemoryMeta(Database db,
                                             String tableName,
                                             String partitionName,
