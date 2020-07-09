@@ -37,14 +37,14 @@ export default {
       data: [
         {
           menuid: 1,
-          icon: 'li-icon-xiangmuguanli',
+          icon: 'iconshouye',
           menuname: 'Home',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 2,
-              icon: 'icon-cat-skuQuery',
+              icon: 'iconshouye',
               menuname: 'Home',
               hasThird: 'N',
               url: 'home/home',
@@ -54,14 +54,14 @@ export default {
         },
         {
           menuid: 33,
-          icon: 'li-icon-dingdanguanli',
+          icon: 'iconchaxun',
           menuname: 'Query List',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 34,
-              icon: 'icon-order-manage',
+              icon: 'iconchaxun',
               menuname: 'Query List',
               hasThird: 'N',
               url: 'query/Query',
@@ -71,21 +71,21 @@ export default {
         },
         {
           menuid: 71,
-          icon: 'li-icon-xitongguanli',
+          icon: 'iconxitong',
           menuname: 'System',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 89,
-              icon: 'icon-cus-manage',
+              icon: 'icontongji',
               menuname: 'Statistic',
               hasThird: 'N',
               url: 'system/statistic',
               menus: null
             },{
               menuid: 72,
-              icon: 'icon-cus-manage',
+              icon: 'iconguanli',
               menuname: 'Frontends',
               hasThird: 'N',
               url: 'system/Frontends',
@@ -93,7 +93,7 @@ export default {
             },
             {
               menuid: 174,
-              icon: 'icon-cms-manage',
+              icon: 'iconStocksandbrokerages',
               menuname: 'Brokers',
               hasThird: 'N',
               url: 'system/Brokers',
@@ -101,7 +101,7 @@ export default {
             },
             {
               menuid: 73,
-              icon: 'icon-news-manage',
+              icon: 'iconrenzheng',
               menuname: 'Auth',
               hasThird: 'N',
               url: 'system/Auth',
@@ -109,7 +109,7 @@ export default {
             },
             {
               menuid: 74,
-              icon: 'icon-cs-manage',
+              icon: 'iconload',
               menuname: 'Routine Load',
               hasThird: 'N',
               url: 'system/Routineloads',
@@ -117,7 +117,7 @@ export default {
             },
             {
               menuid: 75,
-              icon: 'icon-promotion-manage',
+              icon: 'iconjob',
               menuname: 'Jobs',
               hasThird: 'N',
               url: 'job/Jobs',
@@ -125,7 +125,7 @@ export default {
             },
             {
               menuid: 76,
-              icon: 'icon-cms-manage',
+              icon: 'iconziyuan30',
               menuname: 'Resources',
               hasThird: 'N',
               url: 'system/Resources',
@@ -133,7 +133,7 @@ export default {
             },
             {
               menuid: 77,
-              icon: 'icon-cms-manage',
+              icon: 'iconjiankong',
               menuname: 'Monitor',
               hasThird: 'N',
               url: 'system/Monitor',
@@ -141,7 +141,7 @@ export default {
             },
             {
               menuid: 78,
-              icon: 'icon-cms-manage',
+              icon: 'iconshiwuguanli',
               menuname: 'Transactions',
               hasThird: 'N',
               url: 'trans/Transactions',
@@ -149,7 +149,7 @@ export default {
             },
             {
               menuid: 79,
-              icon: 'icon-cms-manage',
+              icon: 'icongroup',
               menuname: 'Colocation Group',
               hasThird: 'N',
               url: 'system/colocation_group',
@@ -157,7 +157,7 @@ export default {
             },
             {
               menuid: 80,
-              icon: 'icon-cms-manage',
+              icon: 'iconjiedian',
               menuname: 'Backends',
               hasThird: 'N',
               url: 'system/Backends',
@@ -165,7 +165,7 @@ export default {
             },
             {
               menuid: 81,
-              icon: 'icon-cms-manage',
+              icon: 'iconfuzaijunheng',
               menuname: 'Cluster Balance',
               hasThird: 'N',
               url: 'system/cluster_balance',
@@ -173,7 +173,7 @@ export default {
             },
             {
               menuid: 82,
-              icon: 'icon-cms-manage',
+              icon: 'iconchaxun',
               menuname: 'Current Queries',
               hasThird: 'N',
               url: 'system/current_queries',
@@ -181,7 +181,7 @@ export default {
             },
             {
               menuid: 83,
-              icon: 'icon-cms-manage',
+              icon: 'icondb',
               menuname: 'dbs',
               hasThird: 'N',
               url: 'dbs/dbs',
@@ -189,7 +189,7 @@ export default {
             },
             {
               menuid: 84,
-              icon: 'icon-cms-manage',
+              icon: 'iconshili',
               menuname: 'Current BE Instance',
               hasThird: 'N',
               url: 'system/current_backend_instances',
@@ -197,7 +197,7 @@ export default {
             },
             {
               menuid: 85,
-              icon: 'icon-cms-manage',
+              icon: 'icontask',
               menuname: 'Tasks',
               hasThird: 'N',
               url: 'system/tasks',
@@ -209,14 +209,14 @@ export default {
         },
         {
           menuid: 103,
-          icon: 'li-icon-dingdanguanli',
+          icon: 'iconagent_session',
           menuname: 'Session List',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 134,
-              icon: 'icon-order-manage',
+              icon: 'iconagent_session',
               menuname: 'Session List',
               hasThird: 'N',
               url: 'session/Session',
@@ -226,14 +226,14 @@ export default {
         },
         {
           menuid: 333,
-          icon: 'li-icon-dingdanguanli',
+          icon: 'iconjiedian',
           menuname: 'Backend List',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 334,
-              icon: 'icon-order-manage',
+              icon: 'iconjiedian',
               menuname: 'Backend List',
               hasThird: 'N',
               url: 'system/Backends',
@@ -243,14 +243,14 @@ export default {
         },
         {
           menuid: 533,
-          icon: 'li-icon-dingdanguanli',
+          icon: 'iconpingtaibianliang',
           menuname: 'Variable List',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 534,
-              icon: 'icon-order-manage',
+              icon: 'iconpingtaibianliang',
               menuname: 'Variable List',
               hasThird: 'N',
               url: 'variable/Variable',
@@ -260,14 +260,14 @@ export default {
         },
         {
           menuid: 433,
-          icon: 'li-icon-dingdanguanli',
+          icon: 'iconahasyingyonggaokeyong',
           menuname: 'Frontend HA',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 434,
-              icon: 'icon-order-manage',
+              icon: 'iconahasyingyonggaokeyong',
               menuname: 'Frontend HA',
               hasThird: 'N',
               url: 'ha/ha',
@@ -276,14 +276,14 @@ export default {
           ]
         },{
           menuid: 233,
-          icon: 'li-icon-dingdanguanli',
+          icon: 'iconrizhi',
           menuname: 'Sys Log',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 234,
-              icon: 'icon-order-manage',
+              icon: 'iconrizhi',
               menuname: 'Sys Log',
               hasThird: 'N',
               url: 'log/SystemLog',
@@ -293,14 +293,14 @@ export default {
         },     
         {
           menuid: 128,
-          icon: 'li-icon-shangchengxitongtubiaozitihuayuanwenjian91',
+          icon: 'iconbangzhu',
           menuname: 'Help',
           hasThird: null,
           url: null,
           menus: [
             {
               menuid: 129,
-              icon: 'icon-provider-manage',
+              icon: 'iconbangzhu',
               menuname: 'Help',
               hasThird: 'N',
               url: 'machine/MachineConfig',
