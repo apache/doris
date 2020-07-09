@@ -223,8 +223,8 @@ public class EsTable extends Table {
         if (properties.containsKey(MAX_DOCVALUE_FIELDS)) {
             try {
                 maxDocValueFields = Integer.parseInt(properties.get(MAX_DOCVALUE_FIELDS).trim());
-                if (maxDocValueFields < 1) {
-                    maxDocValueFields = 1;
+                if (maxDocValueFields < 0) {
+                    maxDocValueFields = 0;
                 }
             } catch (Exception e) {
                 maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
@@ -335,7 +335,7 @@ public class EsTable extends Table {
                 try {
                     maxDocValueFields = Integer.parseInt(tableContext.get("maxDocValueFields"));
                 } catch (Exception e) {
-                    maxDocValueFields = 30;
+                    maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
                 }
             }
 

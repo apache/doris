@@ -78,7 +78,7 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     bool pure_docvalue = true;
 
     // Doris FE already has checked docvalue-scan optimization
-    if (properties.find(ESScanReader::KEY_DOC_VALUE_MODE) != properties.end()) {
+    if (properties.find(ESScanReader::KEY_DOC_VALUES_MODE) != properties.end()) {
         pure_docvalue = atoi(properties.at(ESScanReader::KEY_DOC_VALUE_MODE).c_str());
     } else {
         // check docvalue scan optimization, used for compatibility
