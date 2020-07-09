@@ -143,16 +143,30 @@ sh build.sh
 
 After successfully building, it will install binary files in the directory `output/`.
 
-## 5. License Notice
+## 5.Web UI Build
+
+Go to the doris-ui directory and execute the following command：
+
+```
+npm install
+
+npm run build
+```
+
+Because it is not yet integrated into the build script, it needs to be executed manually
+
+After the build is complete, copy the files in the dist directory to the fe/src/main/resources/static directory, and delete the original files
+
+## 6. License Notice
 
 Some of the third-party dependencies' license are not compatible with Apache 2.0 License. So you may have to disable
 some features of Doris to be complied with Apache 2.0 License. Details can be found in `thirdparty/LICENSE.txt`
 
-## 6. Reporting Issues
+## 7. Reporting Issues
 
 If you find any bugs, please file a [GitHub issue](https://github.com/apache/incubator-doris/issues).
 
-## 7. Links
+## 8. Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
