@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.EsTable;
@@ -40,15 +41,15 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,7 +60,7 @@ import java.util.Random;
 import java.util.Set;
 
 public class EsScanNode extends ScanNode {
-    
+
     private static final Logger LOG = LogManager.getLogger(EsScanNode.class);
 
     private final Random random = new Random(System.currentTimeMillis());
@@ -80,10 +81,10 @@ public class EsScanNode extends ScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        
+
         assignBackends();
     }
-    
+
     @Override
     public int getNumInstances() {
         return shardScanRanges.size();
@@ -93,7 +94,7 @@ public class EsScanNode extends ScanNode {
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return shardScanRanges;
     }
-    
+
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         if (isFinalized) {
@@ -107,6 +108,34 @@ public class EsScanNode extends ScanNode {
         }
 
         isFinalized = true;
+    }
+
+    /**
+     * return whether can use the doc_values scan
+     * 0 and 1 are returned to facilitate Doris BE processing
+     *
+     * @param desc            the fields needs to read from ES
+     * @param docValueContext the mapping for docvalues fields from origin field to doc_value fields
+     * @return
+     */
+    private int useDocValueScan(TupleDescriptor desc, Map<String, String> docValueContext) {
+        ArrayList<SlotDescriptor> slotDescriptors = desc.getSlots();
+        List<String> selectedFields = new ArrayList<>(slotDescriptors.size());
+        for (SlotDescriptor slotDescriptor : slotDescriptors) {
+            selectedFields.add(slotDescriptor.getColumn().getName());
+        }
+        if (selectedFields.size() > table.maxDocValueFields()) {
+            return 0;
+        }
+        Set<String> docValueFields = docValueContext.keySet();
+        boolean useDocValue = true;
+        for (String selectedField : selectedFields) {
+            if (!docValueFields.contains(selectedField)) {
+                useDocValue = false;
+                break;
+            }
+        }
+        return useDocValue ? 1 : 0;
     }
 
     @Override
@@ -123,6 +152,7 @@ public class EsScanNode extends ScanNode {
         esScanNode.setProperties(properties);
         if (table.isDocValueScanEnable()) {
             esScanNode.setDocvalue_context(table.docValueContext());
+            properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
         if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
             esScanNode.setFields_context(table.fieldsContext());
@@ -169,9 +199,9 @@ public class EsScanNode extends ScanNode {
             }
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("partition prune finished, unpartitioned index [{}], " 
-                    + "partitioned index [{}]", 
-                    String.join(",", unPartitionedIndices), 
+            LOG.debug("partition prune finished, unpartitioned index [{}], "
+                            + "partitioned index [{}]",
+                    String.join(",", unPartitionedIndices),
                     String.join(",", partitionedIndices));
         }
         int beIndex = random.nextInt(backendList.size());
@@ -241,7 +271,7 @@ public class EsScanNode extends ScanNode {
      * if the index name is an alias or index pattern, then the es table is related
      * with one or more indices some indices could be pruned by using partition info
      * in index settings currently only support range partition setting
-     * 
+     *
      * @param partitionInfo
      * @return
      * @throws AnalysisException
@@ -254,7 +284,7 @@ public class EsScanNode extends ScanNode {
         switch (partitionInfo.getType()) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                    Map<Long, Range<PartitionKey>> keyRangeById = rangePartitionInfo.getIdToRange(false);
+                Map<Long, Range<PartitionKey>> keyRangeById = rangePartitionInfo.getIdToRange(false);
                 partitionPruner = new RangePartitionPruner(keyRangeById, rangePartitionInfo.getPartitionColumns(),
                         columnFilters);
                 return partitionPruner.prune();

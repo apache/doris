@@ -4154,6 +4154,7 @@ public class Catalog {
             sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
             sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\",\n");
             sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isDocValueScanEnable()).append("\",\n");
+            sb.append("\"max_docvalue_fields\" = \"").append(esTable.maxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.HIVE) {
