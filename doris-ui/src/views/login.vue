@@ -53,7 +53,7 @@ export default {
       }
     },
     submitForm(formName) {
-         axios.post('http://192.168.1.130:8030/rest/v1/login', {
+         axios.post('/rest/v1/login', {
 			username: this.ruleForm.username,
 			password: this.ruleForm.password
 		  })
