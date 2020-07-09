@@ -70,7 +70,7 @@ import QueryProfile from '@/views/query/QueryProfile'
 import Session from '@/views/session/Session'
 import Variable from '@/views/variable/Variable'
 import SystemInfo from '@/views/home/home'
-import SystemLog from '@/views/log/SystemLog'
+import SystemLog from '@/views/syslog/SystemLog'
 import HA from '@/views/ha/ha'
 import help from '@/views/help/help'
 
@@ -360,7 +360,7 @@ export default new Router({
                 requireAuth: true
             }
         }, {
-            path: '/log/SystemLog',
+            path: '/syslog/SystemLog',
             name: 'SystemLog',
             component: SystemLog,
             meta: {
