@@ -883,7 +883,17 @@ alter_table_clause ::=
     :}
     | KW_MODIFY KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
     {:
-        RESULT = new ModifyPartitionClause(partitionName, properties);
+        ArrayList<String> partitions = new ArrayList<String>();
+        partitions.add(partitionName);
+        RESULT = new ModifyPartitionClause(partitions, properties);
+    :}
+    | KW_MODIFY KW_PARTITION LPAREN ident_list:partitions RPAREN KW_SET LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new ModifyPartitionClause(partitions, properties);
+    :}
+    | KW_MODIFY KW_PARTITION LPAREN STAR RPAREN KW_SET LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = ModifyPartitionClause.createStarClause(properties);
     :}
     | KW_REPLACE opt_partition_names:partitions KW_WITH opt_partition_names:tempPartitions opt_properties:properties
     {:

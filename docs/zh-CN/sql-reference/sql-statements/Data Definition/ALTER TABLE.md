@@ -64,7 +64,7 @@ under the License.
             
     3. 修改分区属性
         语法：
-            MODIFY PARTITION partition_name SET ("key" = "value", ...)
+            MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
         说明：
             1) 当前支持修改分区的下列属性：
                 - storage_medium
@@ -230,12 +230,20 @@ under the License.
     4. 修改分区副本数
         ALTER TABLE example_db.my_table
         MODIFY PARTITION p1 SET("replication_num"="1");
+        
+    5. 批量修改指定分区
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+        
+    6. 批量修改所有分区
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (*) SET("storage_medium"="HDD");
 
-    5. 删除分区
+    7. 删除分区
         ALTER TABLE example_db.my_table
         DROP PARTITION p1;
         
-    6. 增加一个指定上下界的分区
+    8. 增加一个指定上下界的分区
 
         ALTER TABLE example_db.my_table
         ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));
