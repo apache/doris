@@ -53,7 +53,7 @@ export default {
       }
     },
     submitForm(formName) {
-         axios.post('/rest/v1/login', {
+         axios.post(self.baseUrl+'/rest/v1/login', {
 			username: this.ruleForm.username,
 			password: this.ruleForm.password
 		  })

@@ -73,6 +73,7 @@ import SystemInfo from '@/views/home/home'
 import SystemLog from '@/views/log/SystemLog'
 import HA from '@/views/ha/ha'
 
+
 // 启用路由
 Vue.use(Router);
 
