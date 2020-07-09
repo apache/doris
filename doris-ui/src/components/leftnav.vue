@@ -1,6 +1,6 @@
 /**
 * left menu
-*/ 
+*/
 <template>
   <el-menu default-active="2" :collapse="collapsed" collapse-transition router :default-active="$route.path" unique-opened class="el-menu-vertical-demo" background-color="#334157" text-color="#fff" active-text-color="#ffd04b">
     <div class="logobox">
@@ -30,7 +30,7 @@ export default {
       allmenu: []
     }
   },
- 
+
   created() {
     let res = {
       success: true,
@@ -286,11 +286,11 @@ export default {
               icon: 'iconrizhi',
               menuname: 'Sys Log',
               hasThird: 'N',
-              url: 'log/SystemLog',
+              url: 'syslog/SystemLog',
               menus: null
             }
           ]
-        },     
+        },
         {
           menuid: 128,
           icon: 'iconbangzhu',
