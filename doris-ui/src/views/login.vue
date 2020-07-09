@@ -15,7 +15,6 @@
   </div>
 </template>
 <script type="text/ecmascript-6">
-import { login } from '../api/doris'
 import axios from 'axios';
 import { setCookie, getCookie, delCookie } from '../utils/util'
 import md5 from 'js-md5'
@@ -53,7 +52,8 @@ export default {
       }
     },
     submitForm(formName) {
-      axios.post(self.baseUrl+'/rest/v1/login', {
+      alert(this.baseurl)
+      axios.post(this.baseurl+'rest/v1/login', {
         username: this.loginForm.username,
         password: this.loginForm.password
         })

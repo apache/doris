@@ -213,6 +213,13 @@ export default new Router({
                 requireAuth: true
             }
         }, {
+            path: '/session/Session',
+            name: 'Session',
+            component: Session,
+            meta: {
+                requireAuth: true
+            }
+        }, {
             path: '/trans/Transactions',
             name: 'Transactions',
             component: Transactions,

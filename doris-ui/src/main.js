@@ -18,7 +18,7 @@ Object.keys(custom).forEach(key => {
 })
 
 // axios.defaults.headers.common['Authorization'] = "root:12345678";
-
+Vue.prototype.baseurl='/';
 new Vue({
     el: '#app',
     router,

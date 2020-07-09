@@ -8,7 +8,7 @@
       <el-breadcrumb-item :to="{ path: '/home/home' }">Home</el-breadcrumb-item>
       <el-breadcrumb-item >Variable</el-breadcrumb-item>
     </el-breadcrumb>
-   <el-form :inline="true" :model="formInline" class="user-search">
+   <el-form  class="user-search">
    </el-form>
      <div>
         
