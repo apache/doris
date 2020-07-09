@@ -17,19 +17,80 @@
        <el-button size="small" type="primary" icon="el-icon-search"  @click="search">Search</el-button>
     </el-form>
 
-    <h1><b>Exact Matching Topic</b></h1>
-      <pre>{{logPath}}</pre>
-    <h1><b>Fuzzy Matching Topic(By Keyword)</b></h1>
-      <pre>{{logPath}}</pre>
-    <h1><b>Category Info</b></h1>
-      <pre>Find only one category, so show you the detail info below.</pre>
-      <pre>Find 2 sub categories</pre>
-
+    <h3><b>Exact Matching Topic</b></h3>
+      <div class="div1background" x-if="showmatching">
+        <div class="div2background">
+          <pre>{{matching}}</pre>
+        </div>
+      </div>
+      <!--showmatchingTopic start-->
+      <div class="div1background" v-show="showmatchingTopic">
+        <div class="div2background">
+          <h4>'{{matchingtopic}}'</h4>
+          <strong>Description</strong>
+          <pre class="topic_text" style="border: 0px;">
+            <div v-html="matchingdescription"></div>
+          </pre>
+          <strong>Example</strong>
+          <pre class="topic_text" style="border: 0px">
+            <div v-html="matchingexample"></div>
+          </pre>
+          <strong>Keyword</strong>
+          <pre class="topic_text" style="border: 0px">[{{matchingKeyword}}]</pre>
+          <strong>Url</strong>
+          <pre class="topic_text" style="border: 0px">{{matchingUrl}}</pre>
+        </div>
+      </div>
+      <!--showmatchingTopic end-->
+    <h3><b>Fuzzy Matching Topic(By Keyword)</b></h3>
+      <div class="div1background" v-show="showfuzzy">
+        <div class="div2background">
+          <pre>{{fuzzy}}</pre>
+        </div>
+      </div>
+      <!--showfuzzyTopic start-->
+      <div class="div1background" v-show="showfuzzyTopic">
+        <div class="div2background">
+          <h4>'{{fuzzytopic}}'</h4>
+          <strong>Description</strong>
+          <pre class="topic_text" style="border: 0px;">
+            <div v-html="fuzzydescription"></div>
+          </pre>
+          <strong>Example</strong>
+          <pre class="topic_text" style="border: 0px">
+            <div v-html="fuzzyexample"></div>
+          </pre>
+          <strong>Keyword</strong>
+          <pre class="topic_text" style="border: 0px">[{{fuzzyKeyword}}]</pre>
+          <strong>Url</strong>
+          <pre class="topic_text" style="border: 0px">{{fuzzyUrl}}</pre>
+        </div>
+      </div>
+      <!--showfuzzyTopic end-->
+    <h3><b>Category Info</b></h3>
+      <pre>{{cateMatchingTitle}}</pre>
+      <pre v-if="showtopicSize">Find {{topicSize}} sub topics.</pre>
+        <!--列表-->
+    <el-table size="small" v-if="showtopicdatas" :data="topicdatas" highlight-current-row v-loading="loading" border element-loading-text="loading..." style="width: 100%;" @row-click="rowsearch">
+      <el-table-column align="center" type="selection" width="60">
+      </el-table-column>
+      <el-table-column sortable prop="name" label="Sub Topics">
+      </el-table-column>
+    </el-table>   
+      <pre v-if="showsubCateSize">Find {{subCateSize}} sub categories</pre>
+    <!--列表-->
+    <el-table size="small" v-if="showsubdatas" :data="subdatas" highlight-current-row v-loading="loading" border element-loading-text="loading..." style="width: 100%;" @row-click="rowsearch">
+      <el-table-column align="center" type="selection" width="60">
+      </el-table-column>
+      <el-table-column sortable prop="name" label="Sub Categories">
+      </el-table-column>
+    </el-table>
+      <pre  v-if="showsubCateSize">Find {{subCateSize}} sub categories</pre>
   </div>
 </template>
 
 <script>
-import { logList} from '../../api/doris'
+import { helpList} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {
@@ -38,13 +99,33 @@ export default {
       fshow: false, //switch关闭
       loading: false, //是显示加载
       editFormVisible: false, //控制编辑页面显示与隐藏
-      Level:'',
-      VerboseNames:'',
-      AuditNames:'',
-      logPath:'',
-      Showinglast:'',
-      log:'',
+      matching:'',
+      fuzzy:'',
+      cateMatchingTitle:'',
+      topicSize:'',
+      subCateSize:'',
+      subdatas:[],
+      topicdatas:[],
       title: '添加',
+      showtopicSize:false,
+      showtopicdatas:false,
+      showsubCateSize:false,
+      showsubdatas:false,
+      showsubCateSize:false,
+      showfuzzyTopic:0,
+      showfuzzy:false,
+      showmatchingTopic:0,
+      showmatching:false,
+      fuzzyKeyword:'',
+      fuzzyUrl:'',
+      fuzzydescription:'',
+      fuzzyexample:'',
+      fuzzytopic:'',
+      matchingKeyword:'',
+      matchingUrl:'',
+      matchingdescription:'',
+      matchingexample:'',
+      matchingtopic:'',
       editForm: {
         deptId: '',
         deptName: '',
@@ -93,7 +174,7 @@ export default {
     // 获取Frontend列表
     getdata(parameter) {
       this.loading = true
-      logList(parameter)
+      helpList(parameter)
         .then(res => {
           this.loading = false
           if (res.success == false) {
@@ -102,12 +183,48 @@ export default {
               message: res.msg
             })
           } else {
-            this.Level = res.data.LogConfiguration.Level
-            this.VerboseNames = res.data.LogConfiguration.VerboseNames
-            this.AuditNames = res.data.LogConfiguration.AuditNames
-            this.logPath = res.data.LogContents.logPath
-            this.log = res.data.LogContents.log
-            this.Showinglast = res.data.LogContents.Showinglast
+            this.cateMatchingTitle = res.data.cateMatchingTitle
+            if(res.data.fuzzy != null){
+              this.fuzzy = res.data.fuzzy
+              this.showfuzzy = true
+            }
+            if(res.data.matching != null){
+              this.matching = res.data.matching
+              this.showmatching = true;
+            }
+            if(res.data.matchingTopic != null){
+                this.showmatchingTopic= 1
+                this.matchingKeyword=res.data.matchingTopic.matchingKeyword
+                this.matchingUrl=res.data.matchingTopic.matchingUrl
+                this.matchingdescription=res.data.matchingTopic.matchingdescription
+                this.matchingexample=res.data.matchingTopic.matchingexample
+                this.matchingtopic=res.data.matchingTopic.matchingtopic
+            }
+            if(res.data.fuzzyTopic != null){
+                this.showfuzzyTopic= 1
+                this.fuzzyKeyword=res.data.fuzzyTopic.fuzzyKeyword
+                this.fuzzyUrl=res.data.fuzzyTopic.fuzzyUrl
+                this.fuzzydescription=res.data.fuzzyTopic.fuzzydescription
+                this.fuzzyexample=res.data.fuzzyTopic.fuzzyexample
+                this.fuzzytopic=res.data.fuzzyTopic.fuzzytopic
+            }
+            if( res.data.subCateSize != null ){
+              this.subCateSize = res.data.subCateSize
+              this.showsubCateSize=true
+            }
+            if(res.data.topicSize != null){
+              this.topicSize = res.data.topicSize
+              this.showtopicSize=true
+            }
+            if(res.data.subdatas != null){
+              this.subdatas = res.data.subdatas
+              this.showsubdatas=true;
+            }
+            if(res.data.topicdatas != null){
+              this.topicdatas = res.data.topicdatas
+              this.showtopicdatas = true;
+            }
+
           }
         })
         .catch(err => {
@@ -121,12 +238,12 @@ export default {
       this.formInline.limit = parm.pageSize
       this.getdata(this.formInline)
     },
-    add() {
-      var param = "?add_verbose=" + this.formInline.add_verbose;
+    search() {
+      var param = "?query=" + this.formInline.query;
       this.getdata(param)
     },
-    del(){
-      var param = "?del_verbose=" + this.formInline.del_verbose;
+    rowsearch(row, event, column) {
+      var param = "?query=" + row.name;
       this.getdata(param)
     }
   }

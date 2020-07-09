@@ -1,15 +1,15 @@
 <template>
   <div class="login-wrap">
-    <el-form label-position="left" :model="ruleForm" :rules="rules" ref="ruleForm" label-width="0px" class="demo-ruleForm login-container">
+    <el-form label-position="left" :model="loginForm" :rules="rules" ref="loginForm" label-width="0px" class="demo-loginForm login-container">
       <h3 class="title">Apache Doris</h3>
       <el-form-item prop="username">
-        <el-input type="text" v-model="ruleForm.username" auto-complete="off" placeholder="username"></el-input>
+        <el-input type="text" v-model="loginForm.username" auto-complete="off" placeholder="username"></el-input>
       </el-form-item>
       <el-form-item prop="password">
-        <el-input type="password" v-model="ruleForm.password" auto-complete="off" placeholder="password"></el-input>
+        <el-input type="password" v-model="loginForm.password" auto-complete="off" placeholder="password"></el-input>
       </el-form-item>
       <el-form-item style="width:100%;">
-        <el-button type="primary" style="width:100%;" @click="submitForm('ruleForm')" :loading="logining">Login</el-button>
+        <el-button type="primary" style="width:100%;" @click="submitForm('loginForm')" :loading="logining">Login</el-button>
       </el-form-item>
     </el-form>
   </div>
@@ -19,7 +19,7 @@ import { login } from '../api/doris'
 import axios from 'axios';
 import { setCookie, getCookie, delCookie } from '../utils/util'
 import md5 from 'js-md5'
-
+import Cookies from 'js-cookie'
 
 export default {
   name: 'login',
@@ -27,7 +27,7 @@ export default {
     return {
       logining: false,
       rememberpwd: false,
-      ruleForm: {
+      loginForm: {
         username: 'root',
         password: '12345678'
       },
@@ -47,24 +47,25 @@ export default {
   methods: {
     getuserpwd() {
       if (getCookie('user') != '' && getCookie('pwd') != '') {
-        this.ruleForm.username = getCookie('user')
-        this.ruleForm.password = getCookie('pwd')
+        this.loginForm.username = getCookie('user')
+        this.loginForm.password = getCookie('pwd')
         this.rememberpwd = true
       }
     },
     submitForm(formName) {
-         axios.post(self.baseUrl+'/rest/v1/login', {
-			username: this.ruleForm.username,
-			password: this.ruleForm.password
-		  })
-		  .then(function (response) {	
-			if(response.data.code === 200){
-			   self.$router.push({ path: '/home/home' })
-			} else if(response.data.code === 401){
-				self.$router.push({ path: '/login' });
-			}
-			console.log(response);
-		  })
+      axios.post(self.baseUrl+'/rest/v1/login', {
+        username: this.loginForm.username,
+        password: this.loginForm.password
+        })
+        .then(function (response) {	
+        if(response.data.code === 200){
+          Cookies.set("userName",self.loginForm.username)
+          self.$router.push({ path: '/home/home' })
+        } else if(response.data.code === 401){
+          self.$router.push({ path: '/login' });
+        }
+        console.log(response);
+        })
     },
   }
 }

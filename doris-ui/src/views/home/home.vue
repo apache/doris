@@ -9,31 +9,37 @@
       <el-breadcrumb-item >System Info</el-breadcrumb-item>
     </el-breadcrumb>
    <h1 font-size="medium;"><b>Version</b></h1>
-   <div background-color="#DCDCDC">
-      <pre>Git: {{Git}}</pre>
-      <pre>Version: {{Version}}</pre>
-      <pre>Build Info:{{BuildInfo}}</pre>
-      <pre>Build Time:{{BuildTime}}</pre>
+   <div class="div1background" >
+        <div class="div2background">
+          <pre>Git: {{Git}}</pre>
+          <pre>Version: {{Version}}</pre>
+          <pre>Build Info:{{BuildInfo}}</pre>
+          <pre>Build Time:{{BuildTime}}</pre>
+      </div>
    </div>
-    <div class="verticalBar"></div>
+   <div class="verticalBar"></div>
    <h1><b>Hardware Info</b></h1>
-   <div background-color="#DCDCDC">
-      <pre><div v-html="OS"></div></pre>
-      <div class="verticalBar"></div>
-      <pre><div v-html="Processor"></div></pre>
-      <div class="verticalBar"></div>
-      <pre><div v-html="Memory"></div></pre>
-      <div class="verticalBar"></div>
-      <pre><div v-html="Processes"></div></pre>
-      <div class="verticalBar"></div>
-      <pre><div v-html="Disk"></div></pre>
-      <div class="verticalBar"></div>
-      <pre><div v-html="FileSystem"></div></pre>
-      <div class="verticalBar"></div>
-      <pre><div v-html="NetworkInterface"></div></pre>
-      <div class="verticalBar"></div>
-      <pre><div v-html="NetworkParameter"></div></pre>
-    </div>
+   <div class="div1background" >
+        <div class="div2background">
+          <div background-color="#DCDCDC">
+              <pre><div v-html="OS"></div></pre>
+              <div class="verticalBar"></div>
+              <pre><div v-html="Processor"></div></pre>
+              <div class="verticalBar"></div>
+              <pre><div v-html="Memory"></div></pre>
+              <div class="verticalBar"></div>
+              <pre><div v-html="Processes"></div></pre>
+              <div class="verticalBar"></div>
+              <pre><div v-html="Disk"></div></pre>
+              <div class="verticalBar"></div>
+              <pre><div v-html="FileSystem"></div></pre>
+              <div class="verticalBar"></div>
+              <pre><div v-html="NetworkInterface"></div></pre>
+              <div class="verticalBar"></div>
+              <pre><div v-html="NetworkParameter"></div></pre>
+            </div>
+        </div>
+   </div>
   </div>
 </template>
 

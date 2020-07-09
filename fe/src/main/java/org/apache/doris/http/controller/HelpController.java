@@ -12,6 +12,7 @@ import org.apache.doris.qe.HelpModule;
 import org.apache.doris.qe.HelpTopic;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +21,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/rest/v1")
 public class HelpController {
-
-    private static final String DIV_BACKGROUND_COLOR = "#FCFCFC";
 
     private String queryString = null;
 
@@ -42,8 +41,6 @@ public class HelpController {
     }
 
     private void appendHelpInfo(Map<String,Object> result) {
-
-
         appendExactMatchTopic(result);
         appendFuzzyMatchTopic(result);
         appendCategories(result);
@@ -53,9 +50,11 @@ public class HelpController {
         HelpModule module = HelpModule.getInstance();
         HelpTopic topic = module.getTopic(queryString);
         if (topic == null) {
-            result.put("error","No Exact Matching Topic.");
+            result.put("matching","No Exact Matching Topic.");
         } else {
-            appendOneTopicInfo(result, topic);
+            Map<String,Object> subMap = new HashMap<>();
+            appendOneTopicInfo(subMap, topic,"matching");
+            result.put("matchingTopic",subMap);
         }
     }
 
@@ -63,10 +62,12 @@ public class HelpController {
         HelpModule module = HelpModule.getInstance();
         List<String> topics = module.listTopicByKeyword(queryString);
         if (topics.isEmpty()) {
-            result.put("error","No Fuzzy Matching Topic");
+            result.put("fuzzy","No Fuzzy Matching Topic");
         } else if (topics.size() == 1) {
-            result.put("title", "Find only one topic, show you the detail info below");
-            appendOneTopicInfo(result, module.getTopic(topics.get(0)));
+            result.put("fuzzy", "Find only one topic, show you the detail info below");
+            Map<String,Object> subMap = new HashMap<>();
+            appendOneTopicInfo(subMap, module.getTopic(topics.get(0)),"fuzzy");
+            result.put("fuzzyTopic",subMap);
         } else {
             result.put("size", topics.size());
             result.put("datas",topics);
@@ -77,62 +78,62 @@ public class HelpController {
         HelpModule module = HelpModule.getInstance();
         List<String> categories = module.listCategoryByName(queryString);
         if (categories.isEmpty()) {
-            result.put("error","No Matching Category");
+            result.put("matching","No Matching Category");
         } else if (categories.size() == 1) {
-            result.put("title", "Find only one category, so show you the detail info below");
+            result.put("matching", "Find only one category, so show you the detail info below");
             List<String> topics = module.listTopicByCategory(categories.get(0));
+
             if (topics.size() > 0) {
-                result.put("size", topics.size());
-                result.put("datas",topics);
+                List<Map<String,String>> topic_list = new ArrayList<>();
+                result.put("topicSize", topics.size());
+                for(String topic : topics) {
+                    Map<String,String> top = new HashMap<>();
+                    top.put("name",topic);
+                    topic_list.add(top);
+                }
+                result.put("topicdatas",topic_list);
             }
 
             List<String> subCategories = module.listCategoryByCategory(categories.get(0));
             if (subCategories.size() > 0) {
-                result.put("size", subCategories.size());
-                result.put("datas",subCategories);
+                List<Map<String,String>> subCate = new ArrayList<>();
+                result.put("subCateSize", subCategories.size());
+                for(String sub : subCategories) {
+                    Map<String,String> subMap = new HashMap<>();
+                    subMap.put("name",sub);
+                    subCate.add(subMap);
+                }
+                result.put("subdatas",subCate);
             }
         } else {
-            result.put("size", categories.size());
-            result.put("datas",categories);
+            List<Map<String,String>> category_list = new ArrayList<>();
+            if (categories.size() > 0) {
+                result.put("categoriesSize", categories.size());
+                for(String cate : categories) {
+                    Map<String,String> subMap = new HashMap<>();
+                    subMap.put("name",cate);
+                    category_list.add(subMap);
+                }
+                result.put("categoryDatas",category_list);
+            }
         }
     }
 
     // The browser will combine continuous whitespace to one, we use <pre> tag to solve this issue.
-    private void appendOneTopicInfo(Map<String,Object> result, HelpTopic topic) {
-        result.put("topic", escapeHtmlInPreTag(topic.getName()) );
-        result.put("description",escapeHtmlInPreTag(topic.getDescription()));
-        result.put("example",escapeHtmlInPreTag(topic.getExample()));
-        result.put("Keyword", escapeHtmlInPreTag(topic.getKeywords().toString()));
-        result.put("Url", escapeHtmlInPreTag(topic.getUrl()));
+    private void appendOneTopicInfo(Map<String,Object> result, HelpTopic topic,String prefix) {
+        result.put(prefix+"topic", escapeHtmlInPreTag(topic.getName()) );
+        result.put(prefix+"description",escapeHtmlInPreTag(topic.getDescription()));
+        result.put(prefix+"example",escapeHtmlInPreTag(topic.getExample()));
+        result.put(prefix+"Keyword", escapeHtmlInPreTag(topic.getKeywords().toString()));
+        result.put(prefix+"Url", escapeHtmlInPreTag(topic.getUrl()));
     }
 
     protected String escapeHtmlInPreTag(String oriStr) {
         if (oriStr == null) {
             return "";
         }
-
-        StringBuilder buff = new StringBuilder();
-        char[] chars = oriStr.toCharArray();
-        for (int i = 0; i < chars.length; ++i) {
-            switch (chars[i]) {
-                case '<':
-                    buff.append("&lt;");
-                    break;
-                case '>':
-                    buff.append("&lt;");
-                    break;
-                case '"':
-                    buff.append("&quot;");
-                    break;
-                case '&':
-                    buff.append("&amp;");
-                    break;
-                default:
-                    buff.append(chars[i]);
-                    break;
-            }
-        }
-        return buff.toString();
+        String content =oriStr.replaceAll("\n","</br>");
+        return content;
     }
 
 }

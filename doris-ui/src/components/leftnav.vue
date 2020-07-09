@@ -303,7 +303,7 @@ export default {
               icon: 'iconbangzhu',
               menuname: 'Help',
               hasThird: 'N',
-              url: 'machine/MachineConfig',
+              url: 'help/help',
               menus: null
             }
           ]

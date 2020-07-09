@@ -7,25 +7,28 @@
       <img class="showimg" :src="collapsed?imgsq:imgshow" @click="toggle(collapsed)">
     </el-button>
     <el-submenu index="2" class="submenu">
-      <template slot="title">root</template>
+      <template slot="title">{{userName}}</template>
       <el-menu-item @click="exit()" index="2-3">Logout</el-menu-item>
     </el-submenu>
   </el-menu>
 </template>
 <script>
+import Cookies from 'js-cookie'
 import { loginout } from '../api/doris'
 export default {
   name: 'navcon',
   data() {
     return {
       collapsed: true,
+      userName:'',
       imgshow: require('../assets/img/show.png'),
       imgsq: require('../assets/img/sq.png'),
       user: {}
     }
   },
   created() {
-    this.user = JSON.parse(localStorage.getItem('userdata'))
+    this.userName = Cookies.get("userName")
+    console.log("userName=" + this.userName)
   },
   methods: {
     exit() {
@@ -55,7 +58,8 @@ export default {
     toggle(showtype) {
       this.collapsed = !showtype
       this.$root.Bus.$emit('toggle', this.collapsed)
-    }
+    },
+    
   }
 }
 </script>

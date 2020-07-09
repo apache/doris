@@ -72,7 +72,7 @@ import Variable from '@/views/variable/Variable'
 import SystemInfo from '@/views/home/home'
 import SystemLog from '@/views/log/SystemLog'
 import HA from '@/views/ha/ha'
-
+import help from '@/views/help/help'
 
 // 启用路由
 Vue.use(Router);
@@ -468,6 +468,13 @@ export default new Router({
             path: '/system/statistic_info/:id',
             name: 'statistic_info',
             component: statistic_info,
+            meta: {
+                requireAuth: true
+            }
+        }, {
+            path: '/help/help',
+            name: 'help',
+            component: help,
             meta: {
                 requireAuth: true
             }
