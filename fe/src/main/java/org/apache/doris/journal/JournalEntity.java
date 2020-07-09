@@ -50,6 +50,7 @@ import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -186,6 +187,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_MODIFY_PARTITION: {
                 data = new ModifyPartitionInfo();
                 ((ModifyPartitionInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BATCH_MODIFY_PARTITION: {
+                data = BatchModifyPartitionsInfo.read(in);
                 isRead = true;
                 break;
             }

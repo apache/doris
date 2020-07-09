@@ -35,9 +35,12 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.View;
@@ -50,9 +53,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.AlterViewInfo;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.qe.ConnectContext;
-
+import org.apache.doris.thrift.TTabletType;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -203,12 +210,20 @@ public class Alter {
                     Catalog.getCurrentCatalog().replaceTempPartition(db, tableName, (ReplacePartitionClause) alterClause);
                 } else if (alterClause instanceof ModifyPartitionClause) {
                     ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
+                    // expand the partition names if it is 'Modify Partition(*)'
+                    if (clause.isNeedExpand()) {
+                        List<String> partitionNames = clause.getPartitionNames();
+                        partitionNames.clear();
+                        for (Partition partition : olapTable.getPartitions()) {
+                            partitionNames.add(partition.getName());
+                        }
+                    }
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                         needProcessOutsideDatabaseLock = true;
                     } else {
-                        String partitionName = clause.getPartitionName();
-                        Catalog.getCurrentCatalog().modifyPartitionProperty(db, olapTable, partitionName, properties);
+                        List<String> partitionNames = clause.getPartitionNames();
+                        modifyPartitionsProperty(db, olapTable, partitionNames, properties);
                     }
                 } else if (alterClause instanceof AddPartitionClause) {
                     needProcessOutsideDatabaseLock = true;
@@ -238,17 +253,16 @@ public class Alter {
             } else if (alterClause instanceof ModifyPartitionClause) {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
-                String partitionName = clause.getPartitionName();
+                List<String> partitionNames = clause.getPartitionNames();
                 // currently, only in memory property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionInMemoryMeta(
-                        db, tableName, partitionName, isInMemory);
+                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsInMemoryMeta(
+                        db, tableName, partitionNames, properties);
 
                 db.writeLock();
                 try {
                     OlapTable olapTable = (OlapTable) db.getTable(tableName);
-                    Catalog.getCurrentCatalog().modifyPartitionProperty(db, olapTable, partitionName, properties);
+                    modifyPartitionsProperty(db, olapTable, partitionNames, properties);
                 } finally {
                     db.writeUnlock();
                 }
@@ -359,6 +373,205 @@ public class Alter {
             } else {
                 Preconditions.checkState(false);
             }
+        }
+    }
+
+    /**
+     * Batch update partitions' properties
+     * caller should hold the db lock
+     */
+    public void modifyPartitionsProperty(Database db,
+                                         OlapTable olapTable,
+                                         List<String> partitionNames,
+                                         Map<String, String> properties)
+            throws DdlException, AnalysisException {
+        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
+        if (olapTable.getState() != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
+        }
+
+        for (String partitionName : partitionNames) {
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition == null) {
+                throw new DdlException(
+                        "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
+            }
+        }
+
+        boolean hasInMemory = false;
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+            hasInMemory = true;
+        }
+
+        // get value from properties here
+        // 1. data property
+        DataProperty newDataProperty =
+                PropertyAnalyzer.analyzeDataProperty(properties, null);
+        // 2. replication num
+        short newReplicationNum =
+                PropertyAnalyzer.analyzeReplicationNum(properties, (short) -1);
+        // 3. in memory
+        boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+        // 4. tablet type
+        TTabletType tTabletType =
+                PropertyAnalyzer.analyzeTabletType(properties);
+
+        // modify meta here
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        for (String partitionName : partitionNames) {
+            Partition partition = olapTable.getPartition(partitionName);
+            // 1. date property
+            if (newDataProperty != null) {
+                partitionInfo.setDataProperty(partition.getId(), newDataProperty);
+            }
+            // 2. replication num
+            if (newReplicationNum != (short) -1) {
+                partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
+            }
+            // 3. in memory
+            boolean oldInMemory = partitionInfo.getIsInMemory(partition.getId());
+            if (hasInMemory && (newInMemory != oldInMemory)) {
+                partitionInfo.setIsInMemory(partition.getId(), newInMemory);
+            }
+            // 4. tablet type
+            if (tTabletType != partitionInfo.getTabletType(partition.getId())) {
+                partitionInfo.setTabletType(partition.getId(), tTabletType);
+            }
+            ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
+                    newDataProperty, newReplicationNum, hasInMemory ? newInMemory : oldInMemory);
+            modifyPartitionInfos.add(info);
+        }
+
+        // log here
+        BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
+        Catalog.getCurrentCatalog().getEditLog().logBatchModifyPartition(info);
+    }
+
+    /**
+     * Update partition's properties
+     * caller should hold the db lock
+     */
+    public ModifyPartitionInfo modifyPartitionProperty(Database db,
+                                                       OlapTable olapTable,
+                                                       String partitionName,
+                                                       Map<String, String> properties)
+            throws DdlException {
+        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        if (olapTable.getState() != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
+        }
+
+        Partition partition = olapTable.getPartition(partitionName);
+        if (partition == null) {
+            throw new DdlException(
+                    "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
+        }
+
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+
+        // 1. data property
+        DataProperty oldDataProperty = partitionInfo.getDataProperty(partition.getId());
+        DataProperty newDataProperty = null;
+        try {
+            newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, oldDataProperty);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        Preconditions.checkNotNull(newDataProperty);
+
+        if (newDataProperty.equals(oldDataProperty)) {
+            newDataProperty = null;
+        }
+
+        // 2. replication num
+        short oldReplicationNum = partitionInfo.getReplicationNum(partition.getId());
+        short newReplicationNum = (short) -1;
+        try {
+            newReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, oldReplicationNum);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        if (newReplicationNum == oldReplicationNum) {
+            newReplicationNum = (short) -1;
+        } else if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM, oldReplicationNum);
+        }
+
+        // 3. in memory
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
+
+        // 4. tablet type
+        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        try {
+            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        // check if has other undefined properties
+        if (properties != null && !properties.isEmpty()) {
+            Joiner.MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
+            throw new DdlException("Unknown properties: " + mapJoiner.join(properties));
+        }
+
+        // modify meta here
+        // date property
+        if (newDataProperty != null) {
+            partitionInfo.setDataProperty(partition.getId(), newDataProperty);
+            LOG.debug("modify partition[{}-{}-{}] data property to {}", db.getId(), olapTable.getId(), partitionName,
+                    newDataProperty.toString());
+        }
+
+        // replication num
+        if (newReplicationNum != (short) -1) {
+            partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
+            LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), olapTable.getId(), partitionName,
+                    newReplicationNum);
+        }
+
+        // in memory
+        if (isInMemory != partitionInfo.getIsInMemory(partition.getId())) {
+            partitionInfo.setIsInMemory(partition.getId(), isInMemory);
+            LOG.debug("modify partition[{}-{}-{}] in memory to {}", db.getId(), olapTable.getId(), partitionName,
+                    isInMemory);
+        }
+
+        // tablet type
+        // TODO: serialize to edit log
+        if (tabletType != partitionInfo.getTabletType(partition.getId())) {
+            partitionInfo.setTabletType(partition.getId(), tabletType);
+            LOG.debug("modify partition[{}-{}-{}] tablet type to {}", db.getId(), olapTable.getId(), partitionName,
+                    tabletType);
+        }
+
+        // log
+        ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
+                newDataProperty, newReplicationNum, isInMemory);
+        Catalog.getCurrentCatalog().getEditLog().logModifyPartition(info);
+
+        LOG.info("finish modify partition[{}-{}-{}]", db.getId(), olapTable.getId(), partitionName);
+        return info;
+    }
+
+    public void replayModifyPartition(ModifyPartitionInfo info) {
+        Database db = Catalog.getCurrentCatalog().getDb(info.getDbId());
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            if (info.getDataProperty() != null) {
+                partitionInfo.setDataProperty(info.getPartitionId(), info.getDataProperty());
+            }
+            if (info.getReplicationNum() != (short) -1) {
+                partitionInfo.setReplicationNum(info.getPartitionId(), info.getReplicationNum());
+            }
+            partitionInfo.setIsInMemory(info.getPartitionId(), info.isInMemory());
+        } finally {
+            db.writeUnlock();
         }
     }
 
