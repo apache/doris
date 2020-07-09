@@ -1974,7 +1974,7 @@ public class SingleNodePlanner {
         }
 
         // Push down predicates to Windows' child until they are assigned successfully.
-        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer, stmt);
         if (pushDownPredicates.size() <= 0) {
             return;
         }
@@ -1995,14 +1995,14 @@ public class SingleNodePlanner {
         }
 
         // Push down predicates to aggregation's child until they are assigned successfully.
-        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer, stmt);
         if (pushDownPredicates.size() <= 0) {
             return;
         }
         putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
     }
 
-    private List<Expr> getPredicatesBoundedByGroupbysSourceExpr(List<Expr> predicates, Analyzer analyzer) {
+    private List<Expr> getPredicatesBoundedByGroupbysSourceExpr(List<Expr> predicates, Analyzer analyzer, SelectStmt stmt) {
         final List<Expr> predicatesCanPushDown = Lists.newArrayList();
         for (Expr predicate : predicates) {
             if (predicate.isConstant()) {
@@ -2018,6 +2018,25 @@ public class SingleNodePlanner {
             for (SlotId slotId : slotIds) {
                 final SlotDescriptor slotDesc = analyzer.getDescTbl().getSlotDesc(slotId);
                 Expr sourceExpr = slotDesc.getSourceExprs().get(0);
+                // if grouping set is given and column is not in all grouping set list
+                // we cannot push the predicate since the column value can be null
+                if (stmt.getGroupByClause().isGroupByExtension()
+                        && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
+                    // if grouping type is CUBE or ROLLUP will definitely produce null
+                    if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
+                            || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
+                        isAllSlotReferingGroupBys = false;
+                    } else {
+                        // if grouping type is GROUPING_SETS and the predicate not in all grouping list,
+                        // the predicate cannot be push down
+                        for (List<Expr> exprs: stmt.getGroupByClause().getGroupingSetList()) {
+                            if (!exprs.contains(sourceExpr)) {
+                                isAllSlotReferingGroupBys = false;
+                                break;
+                            }
+                        }
+                    }
+                }
                 if (sourceExpr.getFn() instanceof AggregateFunction) {
                     isAllSlotReferingGroupBys = false;
                 }
