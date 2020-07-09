@@ -63,7 +63,7 @@
 </template>
 
 <script>
-import { backendsList} from '../../api/userMG'
+import { backendsList} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

@@ -26,7 +26,7 @@
 </template>
 
 <script>
-import { current_queries_info_list} from '../../api/userMG'
+import { current_queries_info_list} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

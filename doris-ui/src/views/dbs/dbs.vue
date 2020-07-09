@@ -33,7 +33,7 @@
 </template>
 
 <script>
-import { dbslist} from '../../api/userMG'
+import { dbslist} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

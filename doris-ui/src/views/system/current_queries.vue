@@ -35,7 +35,7 @@
 </template>
 
 <script>
-import {current_queries_List} from '../../api/userMG'
+import {current_queries_List} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

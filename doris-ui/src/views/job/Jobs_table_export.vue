@@ -43,7 +43,7 @@
 </template>
 
 <script>
-import { table_info_list } from '../../api/userMG'
+import { table_info_list } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

@@ -29,7 +29,7 @@
 </template>
 
 <script>
-import { transations_op_List } from '../../api/userMG'
+import { transations_op_List } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

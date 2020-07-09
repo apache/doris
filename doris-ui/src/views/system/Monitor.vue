@@ -25,7 +25,7 @@
 </template>
 
 <script>
-import { monitorList } from '../../api/userMG'
+import { monitorList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

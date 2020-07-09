@@ -15,7 +15,7 @@
   </div>
 </template>
 <script type="text/ecmascript-6">
-import { login } from '../api/userMG'
+import { login } from '../api/doris'
 import axios from 'axios';
 import { setCookie, getCookie, delCookie } from '../utils/util'
 import md5 from 'js-md5'
@@ -25,22 +25,17 @@ export default {
   name: 'login',
   data() {
     return {
-      //定义loading默认为false
       logining: false,
-      // 记住密码
       rememberpwd: false,
       ruleForm: {
-        //username和password默认为空
-        username: '',
-        password: ''
+        username: 'root',
+        password: '12345678'
       },
-      //rules前端验证
       rules: {
         username: [{ required: true, message: '请输入账号', trigger: 'blur' }]
       }
     }
   },
-  // 创建完毕状态(里面是操作)
   created() {
     this.$message({
       message: '账号密码及验证码不为空即可',
@@ -49,9 +44,7 @@ export default {
     self=this
   
   },
-  // 里面的函数只有调用才会执行
   methods: {
-    // 获取用户名密码
     getuserpwd() {
       if (getCookie('user') != '' && getCookie('pwd') != '') {
         this.ruleForm.username = getCookie('user')
@@ -59,7 +52,6 @@ export default {
         this.rememberpwd = true
       }
     },
-    //获取info列表
     submitForm(formName) {
          axios.post('http://192.168.1.130:8030/rest/v1/login', {
 			username: this.ruleForm.username,

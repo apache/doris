@@ -35,7 +35,7 @@
 </template>
 
 <script>
-import { colocationList } from '../../api/userMG'
+import { colocationList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

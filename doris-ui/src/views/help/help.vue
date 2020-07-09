@@ -29,7 +29,7 @@
 </template>
 
 <script>
-import { logList} from '../../api/userMG'
+import { logList} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

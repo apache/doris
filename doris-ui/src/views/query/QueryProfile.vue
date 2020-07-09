@@ -18,7 +18,7 @@
 </template>
 
 <script>
-import { queryProfileList} from '../../api/userMG'
+import { queryProfileList} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

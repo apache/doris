@@ -29,7 +29,7 @@
 </template>
 
 <script>
-import { resourceList } from '../../api/userMG'
+import { resourceList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

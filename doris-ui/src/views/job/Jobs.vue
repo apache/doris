@@ -27,7 +27,7 @@
 </template>
 
 <script>
-import { jobsList } from '../../api/userMG'
+import { jobsList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

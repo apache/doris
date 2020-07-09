@@ -38,7 +38,7 @@
 </template>
 
 <script>
-import { backendInfoList  } from '../../api/userMG'
+import { backendInfoList  } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

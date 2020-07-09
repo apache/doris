@@ -29,7 +29,7 @@
 </template>
 
 <script>
-import { tasks_list } from '../../api/userMG'
+import { tasks_list } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

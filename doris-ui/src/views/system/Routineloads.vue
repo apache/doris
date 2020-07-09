@@ -31,7 +31,7 @@
 </template>
 
 <script>
-import { routineloadList } from '../../api/userMG'
+import { routineloadList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

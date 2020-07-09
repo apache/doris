@@ -35,7 +35,7 @@
 </template>
 
 <script>
-import { brokersList } from '../../api/userMG'
+import { brokersList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

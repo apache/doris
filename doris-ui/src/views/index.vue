@@ -14,7 +14,6 @@
   </el-container>
 </template>
 <script>
-// 导入组件
 import navcon from '../components/navcon.vue'
 import leftnav from '../components/leftnav.vue'
 export default {
@@ -25,14 +24,12 @@ export default {
       showtype: false
     }
   },
-  // 注册组件
   components: {
     navcon,
     leftnav
   },
   methods: {},
   created() {
-    // 监听
     this.$root.Bus.$on('toggle', value => {
       if (value) {
         this.showclass = 'asideshow'
@@ -44,9 +41,7 @@ export default {
     })
   },
   beforeUpdate() {},
-  // 挂载前状态(里面是操作)
   beforeMount() {
-    // 弹出登录成功
     this.$message({
       message: '登录成功',
       type: 'success'

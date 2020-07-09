@@ -21,7 +21,7 @@
   </el-menu>
 </template>
 <script>
-import { menu } from '../api/userMG'
+import { menu } from '../api/doris'
 export default {
   name: 'leftnav',
   data() {
@@ -30,9 +30,8 @@ export default {
       allmenu: []
     }
   },
-  // 创建完毕状态(里面是操作)
+ 
   created() {
-    // 获取图形验证码
     let res = {
       success: true,
       data: [
@@ -312,22 +311,7 @@ export default {
       ],
       msg: 'success'
     }
-          this.allmenu = res.data
-    
-    // menu(localStorage.getItem('logintoken'))
-    //   .then(res => {
-    //     console.log(JSON.stringify(res))
-    //     if (res.success) {
-    //       this.allmenu = res.data
-    //     } else {
-    //       this.$message.error(res.msg)
-    //       return false
-    //     }
-    //   })
-    //   .catch(err => {
-    //     this.$message.error('菜单加载失败，请稍后再试！')
-    //   })
-    // 监听
+    this.allmenu = res.data
     this.$root.Bus.$on('toggle', value => {
       this.collapsed = !value
     })

@@ -39,7 +39,7 @@
 </template>
 
 <script>
-import { variableList} from '../../api/userMG'
+import { variableList} from '../../api/doris'
 export default {
   name: 'TaskCore',
   data() {

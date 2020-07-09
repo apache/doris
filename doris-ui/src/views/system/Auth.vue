@@ -33,7 +33,7 @@
 </template>
 
 <script>
-import { authList } from '../../api/userMG'
+import { authList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

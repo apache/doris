@@ -42,7 +42,7 @@
 </template>
 
 <script>
-import { dbs_info_list} from '../../api/userMG'
+import { dbs_info_list} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

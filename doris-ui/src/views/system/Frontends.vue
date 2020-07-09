@@ -49,7 +49,7 @@
 </template>
 
 <script>
-import { frontendList} from '../../api/userMG'
+import { frontendList} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

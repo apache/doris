@@ -25,7 +25,7 @@
 </template>
 
 <script>
-import { transationsList } from '../../api/userMG'
+import { transationsList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

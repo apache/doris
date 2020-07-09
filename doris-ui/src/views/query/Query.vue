@@ -39,7 +39,7 @@
 </template>
 
 <script>
-import { queryList} from '../../api/userMG'
+import { queryList} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

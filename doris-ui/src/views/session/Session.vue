@@ -39,7 +39,7 @@
 </template>
 
 <script>
-import { sessionList} from '../../api/userMG'
+import { sessionList} from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

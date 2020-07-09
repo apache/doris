@@ -34,7 +34,7 @@
 </template>
 
 <script>
-import { cluster_balance_sub_List } from '../../api/userMG'
+import { cluster_balance_sub_List } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {

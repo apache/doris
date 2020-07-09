@@ -108,7 +108,7 @@
 </template>
 
 <script>
-import { haList} from '../../api/userMG'
+import { haList} from '../../api/doris'
 export default {
   name: 'TaskCore',
   data() {

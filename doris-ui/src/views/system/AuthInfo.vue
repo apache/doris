@@ -26,7 +26,7 @@
 </template>
 
 <script>
-import { authInfoList } from '../../api/userMG'
+import { authInfoList } from '../../api/doris'
 import Pagination from '../../components/Pagination'
 export default {
   data() {
