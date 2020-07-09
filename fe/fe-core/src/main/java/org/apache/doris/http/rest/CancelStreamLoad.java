@@ -17,54 +17,62 @@
 
 package org.apache.doris.http.rest;
 
+import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.qe.ConnectContext;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
-import com.google.common.base.Strings;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-import io.netty.handler.codec.http.HttpMethod;
+@RestController
+public class CancelStreamLoad extends RestBaseController{
 
-public class CancelStreamLoad extends RestBaseAction {
-    public CancelStreamLoad(ActionController controller) {
-        super(controller);
-    }
 
-    public static void registerAction(ActionController controller)
-            throws IllegalArgException {
-        CancelStreamLoad action = new CancelStreamLoad(controller);
-        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/{" + LABEL_KEY + "}/_cancel", action);
-    }
-
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
-
-        if (redirectToMaster(request, response)) {
-            return;
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + LABEL_KEY + "}/_cancel",method = RequestMethod.POST)
+    public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        executeCheckPassword(request,response);
+        try {
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+        } catch (Exception e){
+            e.printStackTrace();
         }
 
         final String clusterName = ConnectContext.get().getClusterName();
         if (Strings.isNullOrEmpty(clusterName)) {
-            throw new DdlException("No cluster selected.");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("No cluster selected");
+            return entity;
+
         }
 
-        String dbName = request.getSingleParameter(DB_KEY);
+        String dbName = request.getParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
-            throw new DdlException("No database selected.");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("No database selected");
+            return entity;
         }
 
         String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
 
-        String label = request.getSingleParameter(LABEL_KEY);
+        String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            throw new DdlException("No label selected.");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("No label selected");
+            return entity;
         }
 
         // FIXME(cmy)
@@ -72,7 +80,9 @@ public class CancelStreamLoad extends RestBaseAction {
 
         Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("unknown database, database=" + dbName);
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("unknown database, database=" + dbName);
+            return entity;
         }
 
         try {
@@ -81,6 +91,7 @@ public class CancelStreamLoad extends RestBaseAction {
             throw new DdlException(e.getMessage());
         }
 
-        sendResult(request, response, new RestBaseResult());
+        return  entity;
     }
+
 }

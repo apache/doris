@@ -1,42 +1,20 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
-
 package org.apache.doris.http.rest;
-
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
 
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 
-import io.netty.handler.codec.http.HttpMethod;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-/*
- * fe_host:fe_http_port/api/bootstrap
- * return:
- * {"status":"OK","msg":"Success","replayedJournal"=123456, "queryPort"=9000, "rpcPort"=9001}
- * {"status":"FAILED","msg":"err info..."}
- */
-public class BootstrapFinishAction extends RestBaseAction {
+public class BootstrapFinishAction {
+
     private static final String CLUSTER_ID = "cluster_id";
     private static final String TOKEN = "token";
 
@@ -44,24 +22,17 @@ public class BootstrapFinishAction extends RestBaseAction {
     public static final String QUERY_PORT = "queryPort";
     public static final String RPC_PORT = "rpcPort";
 
-    public BootstrapFinishAction(ActionController controller) {
-        super(controller);
-    }
 
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/bootstrap", new BootstrapFinishAction(controller));
-    }
-
-    @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/api/bootstrap",method = RequestMethod.GET)
+    public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         boolean isReady = Catalog.getCurrentCatalog().isReady();
 
         // to json response
         BootstrapResult result = null;
         if (isReady) {
             result = new BootstrapResult();
-            String clusterIdStr = request.getSingleParameter(CLUSTER_ID);
-            String token = request.getSingleParameter(TOKEN);
+            String clusterIdStr = request.getParameter(CLUSTER_ID);
+            String token = request.getParameter(TOKEN);
             if (!Strings.isNullOrEmpty(clusterIdStr) && !Strings.isNullOrEmpty(token)) {
                 // cluster id or token is provided, return more info
                 int clusterId = 0;
@@ -98,10 +69,8 @@ public class BootstrapFinishAction extends RestBaseAction {
             result = new BootstrapResult("not ready");
         }
 
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result.toJson());
-        sendResult(request, response);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(result);
+        return entity;
     }
 
     public static class BootstrapResult extends RestBaseResult {
@@ -140,7 +109,6 @@ public class BootstrapFinishAction extends RestBaseAction {
         public int getRpcPort() {
             return rpcPort;
         }
-
         @Override
         public String toJson() {
             Gson gson = new Gson();

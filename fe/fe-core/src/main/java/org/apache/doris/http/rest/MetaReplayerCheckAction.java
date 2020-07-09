@@ -19,10 +19,8 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -31,40 +29,29 @@ import org.codehaus.jackson.map.ObjectMapper;
 import java.util.Map;
 
 import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  * used to get meta replay info
  * eg:
  *  fe_host:http_port/api/_meta_replay_state
  */
-public class MetaReplayerCheckAction extends RestBaseAction {
-    public MetaReplayerCheckAction(ActionController controller) {
-        super(controller);
-    }
+public class MetaReplayerCheckAction extends RestBaseController {
 
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        MetaReplayerCheckAction action = new MetaReplayerCheckAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/_meta_replay_state", action);
-    }
 
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/api/_meta_replay_state",method = RequestMethod.GET)
+    public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         Map<String, String> resultMap = Catalog.getCurrentCatalog().getMetaReplayState().getInfo();
 
-        // to json response
-        String result = "";
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            result = mapper.writeValueAsString(resultMap);
-        } catch (Exception e) {
-            //  do nothing
-        }
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
+        entity.setData(resultMap);
+        return entity;
     }
 }

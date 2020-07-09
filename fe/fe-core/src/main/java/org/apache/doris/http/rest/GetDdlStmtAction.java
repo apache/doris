@@ -21,10 +21,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -39,42 +37,46 @@ import org.codehaus.jackson.map.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 
-import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  * used to get a table's ddl stmt
  * eg:
  *  fe_host:http_port/api/_get_ddl?db=xxx&tbl=yyy
  */
-public class GetDdlStmtAction extends RestBaseAction {
+@RestController
+public class GetDdlStmtAction extends RestBaseController {
+
     private static final Logger LOG = LogManager.getLogger(GetDdlStmtAction.class);
     private static final String DB_PARAM = "db";
     private static final String TABLE_PARAM = "tbl";
 
-    public GetDdlStmtAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        GetDdlStmtAction action = new GetDdlStmtAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/_get_ddl", action);
-    }
-
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
+    @RequestMapping(path = "/api/_get_ddl",method = RequestMethod.GET)
+    public Object execute(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        executeCheckPassword(request,response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
 
-        String dbName = request.getSingleParameter(DB_PARAM);
-        String tableName = request.getSingleParameter(TABLE_PARAM);
+        String dbName = request.getParameter(DB_PARAM);
+        String tableName = request.getParameter(TABLE_PARAM);
 
         if (Strings.isNullOrEmpty(dbName) || Strings.isNullOrEmpty(tableName)) {
-            throw new DdlException("Missing params. Need database name and Table name");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("Missing params. Need database name and Table name");
+            return  entity;
         }
 
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("Database[" + dbName + "] does not exist");
+            return  entity;
         }
 
         List<String> createTableStmt = Lists.newArrayList();
@@ -99,18 +101,7 @@ public class GetDdlStmtAction extends RestBaseAction {
         results.put("PARTITION", addPartitionStmt);
         results.put("ROLLUP", createRollupStmt);
 
-        // to json response
-        String result = "";
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            result = mapper.writeValueAsString(results);
-        } catch (Exception e) {
-            //  do nothing
-        }
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
+        entity.setData(results);
+        return entity;
     }
 }

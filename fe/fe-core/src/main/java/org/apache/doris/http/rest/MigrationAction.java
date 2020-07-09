@@ -28,10 +28,8 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,40 +44,44 @@ import java.util.Collections;
 import java.util.List;
 
 import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  * used to get table's sorted tablet info
  * eg:
  *  fe_host:http_port/api/_migration?db=xxx&tbl=yyy
  */
-public class MigrationAction extends RestBaseAction {
+@RestController
+public class MigrationAction extends RestBaseController{
     private static final Logger LOG = LogManager.getLogger(MigrationAction.class);
     private static final String DB_PARAM = "db";
     private static final String TABLE_PARAM = "tbl";
 
-    public MigrationAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        MigrationAction action = new MigrationAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/_migration", action);
-    }
-
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/metrics",method = RequestMethod.GET)
+    protected Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
 
-        String dbName = request.getSingleParameter(DB_PARAM);
-        String tableName = request.getSingleParameter(TABLE_PARAM);
+        String dbName = request.getParameter(DB_PARAM);
+        String tableName = request.getParameter(TABLE_PARAM);
 
         if (Strings.isNullOrEmpty(dbName)) {
-            throw new DdlException("Missing params. Need database name");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("Missing params. Need database name");
+            return entity;
         }
 
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("Database[" + dbName + "] does not exist");
+            return entity;
         }
 
         List<List<Comparable>> rows = Lists.newArrayList();
@@ -88,11 +90,15 @@ public class MigrationAction extends RestBaseAction {
             if (!Strings.isNullOrEmpty(tableName)) {
                 Table table = db.getTable(tableName);
                 if (table == null) {
-                    throw new DdlException("Table[" + tableName + "] does not exist");
+                    entity.setCode(HttpStatus.NOT_FOUND.value());
+                    entity.setMsg("Table[" + tableName + "] does not exist");
+                    return entity;
                 }
 
                 if (table.getType() != TableType.OLAP) {
-                    throw new DdlException("Table[" + tableName + "] is not OlapTable");
+                    entity.setCode(HttpStatus.NOT_FOUND.value());
+                    entity.setMsg("Table[" + tableName + "] is not OlapTable");
+                    return entity;
                 }
 
                 OlapTable olapTable = (OlapTable) table;
@@ -149,22 +155,7 @@ public class MigrationAction extends RestBaseAction {
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2);
         Collections.sort(rows, comparator);
 
-        // to json response
-        String result = "";
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            result = mapper.writeValueAsString(rows);
-        } catch (Exception e) {
-            //  do nothing
-        }
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
-    }
-
-    public static void print(String msg) {
-        System.out.println(System.currentTimeMillis() + " " + msg);
+        entity.setData(rows);
+        return entity;
     }
 }

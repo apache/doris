@@ -18,23 +18,28 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.common.DdlException;
+import org.apache.doris.http.entity.HttpStatus;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.File;
 import java.util.Map;
 import java.util.Set;
 
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  *  get log file infos:
@@ -44,61 +49,73 @@ import io.netty.handler.codec.http.HttpResponseStatus;
  *          file_infos: {"fe.audit.log":24759,"fe.audit.log.20190528.1":132934}
  *          content-type: text/html
  *          connection: keep-alive
- *  
+ *
  *  get log file:
  *      curl -X GET http://fe_host:http_port/api/get_log_file?type=fe.audit.log&file=fe.audit.log.20190528.1
  */
-public class GetLogFileAction extends RestBaseAction {
+@RestController
+public class GetLogFileAction extends RestBaseController {
     private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
 
-    public GetLogFileAction(ActionController controller) {
-        super(controller);
-    }
 
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/get_log_file", new GetLogFileAction(controller));
-        controller.registerHandler(HttpMethod.HEAD, "/api/get_log_file", new GetLogFileAction(controller));
-    }
-
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response) {
-        String logType = request.getSingleParameter("type");
-        String logFile = request.getSingleParameter("file");
-        
+    @RequestMapping(path = "/api/get_log_file",method = {RequestMethod.GET,RequestMethod.HEAD})
+    public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
+        String logType = request.getParameter("type");
+        String logFile = request.getParameter("file");
+        org.apache.doris.http.entity.ResponseEntity entity = org.apache.doris.http.entity.ResponseEntity.status(HttpStatus.OK).build("Success");
+        File log = null;
         // check param empty
         if (Strings.isNullOrEmpty(logType)) {
-            response.appendContent("Miss type parameter");
-            writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
-            return;
+            entity.setCode(HttpStatus.BAD_REQUEST.value());
+            entity.setMsg("Miss type parameter");
+            return entity;
         }
-        
+
         // check type valid or not
         if (!logFileTypes.contains(logType)) {
-            response.appendContent("log type: " + logType + " is invalid!");
-            writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
-            return;
+            entity.setCode(HttpStatus.BAD_REQUEST.value());
+            entity.setMsg("log type: " + logType + " is invalid!");
+            return entity;
         }
-        
-        HttpMethod method = request.getRequest().method();
-        if (method.equals(HttpMethod.HEAD)) {
+
+        String method = request.getMethod();
+        if (method.equals(RequestMethod.HEAD.name())) {
             String fileInfos = getFileInfos(logType);
-            response.updateHeader("file_infos", fileInfos);
-            writeResponse(request, response, HttpResponseStatus.OK);
-            return;
-        } else if (method.equals(HttpMethod.GET)) {
-            File log = getLogFile(logType, logFile);
+            response.setHeader("file_infos", fileInfos);
+            entity.setCode(HttpStatus.OK.value());
+            entity.setMsg("OK");
+            return entity;
+        } else if (method.equals(RequestMethod.GET.name())) {
+            log = getLogFile(logType, logFile);
             if (!log.exists() || !log.isFile()) {
-                response.appendContent("Log file not exist: " + log.getName());
-                writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
-                return;
+                entity.setCode(HttpStatus.NOT_FOUND.value());
+                entity.setMsg("Log file not exist: " + log.getName());
+                return entity;
             }
-            writeObjectResponse(request, response, HttpResponseStatus.OK, log, log.getName(), true);
+            if(log != null) {
+                boolean isSuccess = getFile(request,response,log,log.getName());
+                if(isSuccess) {
+                    return entity;
+                } else {
+                    entity.setCode(HttpStatus.INTERNAL_SERVER_ERROR.value());
+                    entity.setMsg(HttpStatus.INTERNAL_SERVER_ERROR.name());
+                    return entity;
+                }
+            } else {
+                entity.setCode(HttpStatus.NOT_FOUND.value());
+                entity.setMsg("Log file not exist: " + log.getName());
+                return entity;
+            }
         } else {
-            response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
-            writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
+            entity.setCode(HttpStatus.METHOD_NOT_ALLOWED.value());
+            entity.setMsg("HTTP method is not allowed.");
+            return entity;
         }
+
+
     }
-    
+
     private String getFileInfos(String logType) {
         Map<String, Long> fileInfos = Maps.newTreeMap();
         if (logType.equals("fe.audit.log")) {

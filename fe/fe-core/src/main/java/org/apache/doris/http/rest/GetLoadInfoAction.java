@@ -17,12 +17,11 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -30,37 +29,54 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 // Get load information of one load job
-public class GetLoadInfoAction extends RestBaseAction {
-    public GetLoadInfoAction(ActionController controller, boolean isStreamLoad) {
-        super(controller);
-    }
+@RestController
+public class GetLoadInfoAction extends RestBaseController {
 
-    public static void registerAction(ActionController controller)
-            throws IllegalArgException {
-        GetLoadInfoAction action = new GetLoadInfoAction(controller, false);
-        controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/_load_info", action);
-    }
+    protected Catalog catalog;
 
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
+
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info",method = RequestMethod.GET)
+    public Object execute(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
-                                             request.getSingleParameter(LABEL_KEY),
-                                             ConnectContext.get().getClusterName());
+        executeCheckPassword(request,response);
+        this.catalog = Catalog.getCurrentCatalog();
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+
+        Load.JobInfo info = new Load.JobInfo(request.getParameter(DB_KEY),
+                request.getParameter(LABEL_KEY),
+                ConnectContext.get().getClusterName());
         if (Strings.isNullOrEmpty(info.dbName)) {
-            throw new DdlException("No database selected");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("No database selected");
+            return entity;
         }
         if (Strings.isNullOrEmpty(info.label)) {
-            throw new DdlException("No label selected");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("No label selected");
+            return entity;
         }
         if (Strings.isNullOrEmpty(info.clusterName)) {
-            throw new DdlException("No cluster name selected");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("No cluster selected");
+            return entity;
         }
 
-        if (redirectToMaster(request, response)) {
-            return;
+        try {
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+        } catch (Exception e){
+            e.printStackTrace();
         }
 
         try {
@@ -76,7 +92,8 @@ public class GetLoadInfoAction extends RestBaseAction {
         } catch (DdlException | MetaNotFoundException e) {
             catalog.getLoadManager().getLoadJobInfo(info);
         }
-        sendResult(request, response, new Result(info));
+        entity = ResponseEntity.status(HttpStatus.OK).build(new Result(info));
+        return entity;
     }
 
     private static class Result extends RestBaseResult {

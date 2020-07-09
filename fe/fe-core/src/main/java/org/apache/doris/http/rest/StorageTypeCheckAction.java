@@ -17,17 +17,12 @@
 
 package org.apache.doris.http.rest;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.MaterializedIndexMeta;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.*;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageType;
@@ -40,30 +35,34 @@ import java.util.List;
 import java.util.Map;
 
 import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 
-public class StorageTypeCheckAction extends RestBaseAction {
-    public StorageTypeCheckAction(ActionController controller) {
-        super(controller);
-    }
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        StorageTypeCheckAction action = new StorageTypeCheckAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/_check_storagetype", action);
-    }
+public class StorageTypeCheckAction extends RestBaseController {
 
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+
+    @RequestMapping(path = "/api/_check_storagetype",method = RequestMethod.GET)
+    protected Object check_storagetype(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
 
-        String dbName = request.getSingleParameter(DB_KEY);
+        String dbName = request.getParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
-            throw new DdlException("Parameter db is missing");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("No database selected");
+            return entity;
         }
 
         String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
-        Database db = catalog.getDb(fullDbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("Database " + dbName + " does not exist");
+            return entity;
         }
 
         JSONObject root = new JSONObject();
@@ -88,13 +87,7 @@ public class StorageTypeCheckAction extends RestBaseAction {
         } finally {
             db.readUnlock();
         }
-
-        // to json response
-        String result = root.toString();
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
+        entity.setData(root);
+        return entity;
     }
 }

@@ -28,10 +28,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.util.HttpUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -70,55 +69,57 @@ import java.util.UUID;
 
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * This class responsible for parse the sql and generate the query plan fragment for a (only one) table{@see OlapTable}
  * the related tablet maybe pruned by query planer according the `where` predicate.
  */
-public class TableQueryPlanAction extends RestBaseAction {
-
+public class TableQueryPlanAction extends RestBaseController{
     public static final Logger LOG = LogManager.getLogger(TableQueryPlanAction.class);
 
-    public TableQueryPlanAction(ActionController controller) {
-        super(controller);
-    }
 
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.POST,
-                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",
-                                   new TableQueryPlanAction(controller));
-        controller.registerHandler(HttpMethod.GET,
-                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",
-                                   new TableQueryPlanAction(controller));
-    }
-
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",method = {RequestMethod.GET,RequestMethod.POST})
+    public Object query_plan(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        executeCheckPassword(request,response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
-        String dbName = request.getSingleParameter(DB_KEY);
-        String tableName = request.getSingleParameter(TABLE_KEY);
-        String postContent = request.getContent();
+        String dbName = request.getParameter(DB_KEY);
+        String tableName = request.getParameter(TABLE_KEY);
+        String postContent = HttpUtil.getBody(request);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         try {
             // may be these common validate logic should be moved to one base class
             if (Strings.isNullOrEmpty(dbName)
                     || Strings.isNullOrEmpty(tableName)) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "{database}/{table} must be selected");
+                entity.setCode(HttpStatus.BAD_REQUEST.value());
+                entity.setMsg(dbName +"/"+tableName+" must be selected");
+                return entity;
             }
             String sql;
             if (Strings.isNullOrEmpty(postContent)) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
+                entity.setCode(HttpStatus.BAD_REQUEST.value());
+                entity.setMsg("POST body must contains [sql] root object");
+                return entity;
             }
             JSONObject jsonObject;
             try {
                 jsonObject = new JSONObject(postContent);
             } catch (JSONException e) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "malformed json [ " + postContent + " ]");
+                entity.setCode(HttpStatus.BAD_REQUEST.value());
+                entity.setMsg("malformed json [ " + postContent + " ]");
+                return entity;
             }
             sql = String.valueOf(jsonObject.opt("sql"));
             if (Strings.isNullOrEmpty(sql)) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
+                entity.setCode(HttpStatus.BAD_REQUEST.value());
+                entity.setMsg("POST body must contains [sql] root object");
+                return entity;
             }
             LOG.info("receive SQL statement [{}] from external service [ user [{}]] for database [{}] table [{}]",
                     sql, ConnectContext.get().getCurrentUserIdentity(), dbName, tableName);
@@ -128,23 +129,25 @@ public class TableQueryPlanAction extends RestBaseAction {
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
-                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
-                                             "Database [" + dbName + "] " + "does not exists");
+                entity.setCode(HttpStatus.NOT_FOUND.value());
+                entity.setMsg("Database [" + dbName + "] " + "does not exists");
+                return entity;
             }
             // may be should acquire writeLock
             db.readLock();
             try {
                 Table table = db.getTable(tableName);
                 if (table == null) {
-                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
-                                                 "Table [" + tableName + "] " + "does not exists");
+                    entity.setCode(HttpStatus.NOT_FOUND.value());
+                    entity.setMsg("Table [" + tableName + "] " + "does not exists");
+                    return entity;
                 }
                 // just only support OlapTable, ignore others such as ESTable
                 if (table.getType() != Table.TableType.OLAP) {
-                    // Forbidden
-                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN,
-                                                 "only support OlapTable currently, but Table [" + tableName + "] "
-                                                    + "is not a OlapTable");
+                    entity.setCode(HttpStatus.FORBIDDEN.value());
+                    entity.setMsg("only support OlapTable currently, but Table [" + tableName + "] "
+                            + "is not a OlapTable");
+                    return entity;
                 }
                 // parse/analysis/plan the sql and acquire tablet distributions
                 handleQuery(ConnectContext.get(), fullDbName, tableName, sql, resultMap);
@@ -156,19 +159,12 @@ public class TableQueryPlanAction extends RestBaseAction {
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
         }
-        ObjectMapper mapper = new ObjectMapper();
         try {
-            String result = mapper.writeValueAsString(resultMap);
-            // send result with extra information
-            response.setContentType("application/json");
-            response.getContent().append(result);
-            sendResult(request, response,
-                       HttpResponseStatus.valueOf(Integer.parseInt(String.valueOf(resultMap.get("status")))));
+            entity.setData(resultMap);
         } catch (Exception e) {
-            // may be this never happen
-            response.getContent().append(e.getMessage());
-            sendResult(request, response, HttpResponseStatus.INTERNAL_SERVER_ERROR);
+            entity.setData(e.getMessage());
         }
+        return entity;
     }
 
 

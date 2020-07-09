@@ -21,10 +21,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigBase.ConfField;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -39,29 +37,28 @@ import java.util.List;
 import java.util.Map;
 
 import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  * used to set fe config
  * eg:
  *  fe_host:http_port/api/_set_config?config_key1=config_value1&config_key2=config_value2&...
  */
-public class SetConfigAction extends RestBaseAction {
+public class SetConfigAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
 
-    public SetConfigAction(ActionController controller) {
-        super(controller);
-    }
 
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        SetConfigAction action = new SetConfigAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/_set_config", action);
-    }
-
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/api/_set_config",method = RequestMethod.GET)
+    protected Object set_config(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        Map<String, List<String>> configs = request.getAllParameters();
+        Map<String, String[]> configs = request.getParameterMap();
         Map<String, String> setConfigs = Maps.newHashMap();
         Map<String, String> errConfigs = Maps.newHashMap();
 
@@ -81,23 +78,23 @@ public class SetConfigAction extends RestBaseAction {
 
             // ensure that field has property string
             String confKey = anno.value().equals("") ? f.getName() : anno.value();
-            List<String> confVals = configs.get(confKey);
-            if (confVals == null || confVals.isEmpty()) {
+            String[] confVals = configs.get(confKey);
+            if (confVals == null || confVals.length == 0) {
                 continue;
             }
 
-            if (confVals.size() > 1) {
+            if (confVals.length > 1) {
                 continue;
             }
 
             try {
-                ConfigBase.setConfigField(f, confVals.get(0));
+                ConfigBase.setConfigField(f,confVals[0] );
             } catch (Exception e) {
-                LOG.warn("failed to set config {}:{}", confKey, confVals.get(0),  e);
+                LOG.warn("failed to set config {}:{}", confKey, confVals[0],  e);
                 continue;
             }
 
-            setConfigs.put(confKey, confVals.get(0));
+            setConfigs.put(confKey, confVals[0]);
         }
 
         for (String key : configs.keySet()) {
@@ -110,19 +107,8 @@ public class SetConfigAction extends RestBaseAction {
         resultMap.put("set", setConfigs);
         resultMap.put("err", errConfigs);
 
-        // to json response
-        String result = "";
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            result = mapper.writeValueAsString(resultMap);
-        } catch (Exception e) {
-            //  do nothing
-        }
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
+        entity.setData(resultMap);
+        return entity;
     }
 
     public static void print(String msg) {
