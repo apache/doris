@@ -40,7 +40,7 @@ InitialReservations::InitialReservations(ObjectPool* obj_pool,
     ReservationTracker* query_reservation, MemTracker* query_mem_tracker,
     int64_t initial_reservation_total_claims)
   : initial_reservation_mem_tracker_(obj_pool->add(
-      new MemTracker(-1, "Unclaimed reservations", query_mem_tracker, false))),
+      new MemTracker(-1, "Unclaimed reservations", query_mem_tracker, false, false))),
       remaining_initial_reservation_claims_(initial_reservation_total_claims) {
   initial_reservations_.InitChildTracker(nullptr, query_reservation,
       initial_reservation_mem_tracker_, numeric_limits<int64_t>::max());
