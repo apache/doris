@@ -307,6 +307,8 @@ public class OlapTable extends Table {
 
         long indexId = this.indexNameToId.remove(indexName);
         this.indexIdToMeta.remove(indexId);
+        // Some column of deleted index should be removed during `deleteIndexInfo` such as `mv_bitmap_union_c1`
+        rebuildFullSchema();
         return true;
     }
 
