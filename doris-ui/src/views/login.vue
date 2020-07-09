@@ -41,7 +41,7 @@ export default {
       type: 'success'
     })
     self=this
-  
+
   },
   methods: {
     getuserpwd() {
@@ -52,12 +52,11 @@ export default {
       }
     },
     submitForm(formName) {
-      alert(this.baseurl)
       axios.post(this.baseurl+'rest/v1/login', {
         username: this.loginForm.username,
         password: this.loginForm.password
         })
-        .then(function (response) {	
+        .then(function (response) {
         if(response.data.code === 200){
           Cookies.set("userName",self.loginForm.username)
           self.$router.push({ path: '/home/home' })
