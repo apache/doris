@@ -30,6 +30,7 @@
 #include "gutil/dynamic_annotations.h"
 #include "util/bit_util.h"
 #include "runtime/memory/chunk.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 
@@ -108,6 +109,11 @@ public:
     /// with enough capacity.
     uint8_t* allocate(int64_t size) {
         return allocate<false>(size, DEFAULT_ALIGNMENT);
+    }
+
+    /// Same as Allocate() excpect add a check when return a nullptr
+    OLAPStatus allocate_safely(int64_t size, uint8_t*& ret) {
+        return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret);
     }
 
     /// Same as Allocate() except the mem limit is checked before the allocation and
@@ -240,6 +246,16 @@ private:
         DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
         peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
         return result;
+    }
+
+    template <bool CHECK_LIMIT_FIRST>
+    OLAPStatus ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret) {
+        uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment);
+        if (result == nullptr) {
+            return OLAP_ERR_MALLOC_ERROR;
+        }
+        ret = result;
+        return OLAP_SUCCESS;
     }
 
 private:
