@@ -58,8 +58,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     // 2) we have several segment groups (_is_segments_overlapping && _merge_ctxs.size() > 1)
     if (_current_read_context->need_ordered_result && _is_segments_overlapping && _merge_ctxs.size() > 1) {
         _next_block = &AlphaRowsetReader::_merge_block;
-        // TODO: support add parent tracker to RowBlock
-        _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema));
+        _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema, _parent_tracker));
         if (_read_block == nullptr) {
             LOG(WARNING) << "new row block failed in reader";
             return OLAP_ERR_MALLOC_ERROR;
