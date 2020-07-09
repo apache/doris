@@ -333,8 +333,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
     const bool use_index_stream_cache = read_context->reader_type == READER_QUERY;
 
     for (auto& segment_group : _segment_groups) {
-        // TODO: support add parent tracker to RowBlock
-        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
+        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get(), _parent_tracker));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "init column data failed";

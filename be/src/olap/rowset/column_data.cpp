@@ -24,13 +24,14 @@
 
 namespace doris {
 
-ColumnData* ColumnData::create(SegmentGroup* segment_group) {
-    ColumnData* data = new(std::nothrow) ColumnData(segment_group);
+ColumnData* ColumnData::create(SegmentGroup* segment_group, MemTracker* parent_tracker) {
+    ColumnData* data = new (std::nothrow) ColumnData(segment_group, parent_tracker);
     return data;
 }
 
-ColumnData::ColumnData(SegmentGroup* segment_group)
+ColumnData::ColumnData(SegmentGroup* segment_group, MemTracker* parent_tracker)
       : _segment_group(segment_group),
+        _parent_tracker(parent_tracker),
         _eof(false),
         _conditions(nullptr),
         _col_predicates(nullptr),
@@ -132,6 +133,7 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
         SAFE_DELETE(_segment_reader);
         std::string file_name;
         file_name = segment_group()->construct_data_file_path(block_pos.segment);
+        // TODO: support parent tracker
         _segment_reader = new(std::nothrow) SegmentReader(
                 file_name, segment_group(),  block_pos.segment,
                 _seek_columns, _load_bf_columns, _conditions,
@@ -435,13 +437,14 @@ void ColumnData::set_read_params(
         LOG(WARNING) << "fail to init row_cursor";
     }
 
+    // TODO: support parent tracker
     _read_vector_batch.reset(new VectorizedRowBatch(
             &(_segment_group->get_tablet_schema()), _return_columns, _num_rows_per_block));
 
     _seek_vector_batch.reset(new VectorizedRowBatch(
             &(_segment_group->get_tablet_schema()), _seek_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
+    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema()), _parent_tracker));
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;
     block_info.null_supported = true;
@@ -578,7 +581,7 @@ OLAPStatus ColumnData::schema_change_init() {
     _read_vector_batch.reset(new VectorizedRowBatch(
             &(_segment_group->get_tablet_schema()), _return_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
+    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema()), _parent_tracker));
 
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;
