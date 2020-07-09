@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.PrimitiveType;
 
 public class MVColumnBitmapUnionPattern implements MVColumnPattern {
 
@@ -34,12 +34,12 @@ public class MVColumnBitmapUnionPattern implements MVColumnPattern {
         }
         if (fnExpr.getChild(0) instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) fnExpr.getChild(0);
-            if (slotRef.getType() == Type.BITMAP && slotRef.getColumn() != null) {
+            if (slotRef.getType().getPrimitiveType() == PrimitiveType.BITMAP && slotRef.getColumn() != null) {
                 return true;
             } else {
                 return false;
             }
-        } else if(fnExpr.getChild(0) instanceof FunctionCallExpr) {
+        } else if (fnExpr.getChild(0) instanceof FunctionCallExpr) {
             FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
             if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
                 return false;

@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Select list items plus distinct clause.
  */
-class SelectList {
+public class SelectList {
     private boolean isDistinct;
 
     // ///////////////////////////////////////

@@ -38,7 +38,7 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
             } else {
                 return false;
             }
-        } else if(fnExpr.getChild(0) instanceof FunctionCallExpr) {
+        } else if (fnExpr.getChild(0) instanceof FunctionCallExpr) {
             FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
             if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
                 return false;
