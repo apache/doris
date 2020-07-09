@@ -1,5 +1,5 @@
 import { req } from './axiosrequest';
-const baseurl='http://192.168.1.130:8030';
+const baseurl='';
 export const login = (params) => { return req("get", baseurl + "/rest/v1/system?path=//frontends", params) };
 
 // system-frontend

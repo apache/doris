@@ -16,14 +16,13 @@ import * as custom from './utils/util'
 Object.keys(custom).forEach(key => {
     Vue.filter(key, custom[key])
 })
-Vue.prototype.baseUrl="http://192.168.1.130:8030"
 
-axios.defaults.headers.common['Authorization'] = "root:12345678";
+// axios.defaults.headers.common['Authorization'] = "root:12345678";
 
 new Vue({
     el: '#app',
     router,
-    store, 
+    store,
     components: { App },
     template: '<App/>',
     data: {
