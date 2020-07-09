@@ -206,7 +206,13 @@ OLAPStatus StringColumnDirectReader::next_vector(
             string_buffer_size += length;
         }
 
-        char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(string_buffer_size));
+        uint8_t* allocated_mem;
+        res = mem_pool->allocate_safely(string_buffer_size, allocated_mem);
+        if (OLAP_SUCCESS != res) {
+            return res;
+        }
+        char* string_buffer = reinterpret_cast<char*>(allocated_mem);
+
         for (int i = 0; i < size; ++i) {
             length = _values[i].size;
             if (UNLIKELY(length == 0)) {
@@ -239,7 +245,13 @@ OLAPStatus StringColumnDirectReader::next_vector(
             }
         }
 
-        char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(string_buffer_size));
+        uint8_t* allocated_mem;
+        res = mem_pool->allocate_safely(string_buffer_size, allocated_mem);
+        if (OLAP_SUCCESS != res) {
+            return res;
+        }
+        char* string_buffer = reinterpret_cast<char*>(allocated_mem);
+
         for (int i = 0; i < size; ++i) {
             if (!is_null[i]) {
                 length = _values[i].size;
