@@ -437,12 +437,13 @@ void ColumnData::set_read_params(
         LOG(WARNING) << "fail to init row_cursor";
     }
 
-    // TODO: support parent tracker
-    _read_vector_batch.reset(new VectorizedRowBatch(
-            &(_segment_group->get_tablet_schema()), _return_columns, _num_rows_per_block));
+    _read_vector_batch.reset(new VectorizedRowBatch(&(_segment_group->get_tablet_schema()),
+                                                    _return_columns, _num_rows_per_block,
+                                                    _parent_tracker));
 
-    _seek_vector_batch.reset(new VectorizedRowBatch(
-            &(_segment_group->get_tablet_schema()), _seek_columns, _num_rows_per_block));
+    _seek_vector_batch.reset(new VectorizedRowBatch(&(_segment_group->get_tablet_schema()),
+                                                    _seek_columns, _num_rows_per_block,
+                                                    _parent_tracker));
 
     _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema()), _parent_tracker));
     RowBlockInfo block_info;
