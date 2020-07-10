@@ -17,7 +17,6 @@
 
 package org.apache.doris.http.rest;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -26,6 +25,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,7 +38,6 @@ import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class CancelStreamLoad extends RestBaseController{
-
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + LABEL_KEY + "}/_cancel",method = RequestMethod.POST)
     public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {

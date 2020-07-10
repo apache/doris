@@ -28,7 +28,6 @@ public class VariableController {
         return entity;
     }
 
-
     private void appendConfigureInfo(Map<String,Object> result) {
         HashMap<String, String> confmap;
         List<Map<String,String>> confList = new ArrayList<>();

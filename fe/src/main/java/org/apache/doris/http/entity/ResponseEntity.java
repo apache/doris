@@ -1,6 +1,5 @@
 package org.apache.doris.http.entity;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**

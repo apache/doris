@@ -28,7 +28,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,7 +41,6 @@ import javax.servlet.http.HttpServletResponse;
 public class GetLoadInfoAction extends RestBaseController {
 
     protected Catalog catalog;
-
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info",method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response)

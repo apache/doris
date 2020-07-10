@@ -18,9 +18,9 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
-
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,8 +30,6 @@ import java.util.Map;
 
 @RestController
 public class HealthAction extends RestBaseController {
-
-
 
     @RequestMapping(path =  "/api/health",method = RequestMethod.GET)
     public Object execute() {

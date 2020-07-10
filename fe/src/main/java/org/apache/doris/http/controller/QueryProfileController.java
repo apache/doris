@@ -1,17 +1,15 @@
 package org.apache.doris.http.controller;
 
 import org.apache.doris.common.util.ProfileManager;
-import com.google.common.base.Strings;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+
+import com.google.common.base.Strings;
+
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.HashMap;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/rest/v1")

@@ -30,15 +30,11 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
-
-import java.lang.reflect.Field;
-import java.util.List;
-import java.util.Map;
-
-import io.netty.handler.codec.http.HttpMethod;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+
+import java.lang.reflect.Field;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -50,7 +46,6 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class SetConfigAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
-
 
     @RequestMapping(path = "/api/_set_config",method = RequestMethod.GET)
     protected Object set_config(HttpServletRequest request, HttpServletResponse response) throws DdlException {

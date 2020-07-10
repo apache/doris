@@ -17,7 +17,6 @@
 
 package org.apache.doris.http.rest;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -29,13 +28,14 @@ import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
-import java.util.List;
-import java.util.Map;
+import com.google.common.collect.Maps;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.view.RedirectView;
+
+import java.util.List;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;

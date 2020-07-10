@@ -1,10 +1,5 @@
 package org.apache.doris.http.controller;
 
-import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -18,23 +13,29 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import javax.servlet.http.HttpServletRequest;
+
 @RestController
 @RequestMapping("/rest/v1")
 public class SystemController {
 
     private static final Logger LOG = LogManager.getLogger(SystemController.class);
-
 
     @RequestMapping(path = "/system",method = RequestMethod.GET)
     public Object system(HttpServletRequest request){

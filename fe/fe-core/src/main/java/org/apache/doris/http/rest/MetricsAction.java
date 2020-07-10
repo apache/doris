@@ -19,15 +19,14 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
-import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 

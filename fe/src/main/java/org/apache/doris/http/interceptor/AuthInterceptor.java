@@ -1,10 +1,12 @@
 package org.apache.doris.http.interceptor;
 
-import com.alibaba.fastjson.JSON;
-import com.google.common.base.Strings;
-import org.apache.doris.http.controller.BaseController;
 import org.apache.doris.http.HttpAuthManager;
 import org.apache.doris.http.HttpAuthManager.SessionValue;
+import org.apache.doris.http.controller.BaseController;
+
+import com.google.common.base.Strings;
+
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -13,11 +15,11 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
 
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.util.HashMap;
 import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @Component
 public class AuthInterceptor extends BaseController implements HandlerInterceptor {
@@ -41,7 +43,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
                     Map<String, Object> map = new HashMap<>();
                     map.put("code", 500);
                     map.put("msg", "Authentication Failed.");
-                    response.getOutputStream().println(JSON.toJSONString(map));
+                    response.getOutputStream().println(toJson(map));
                     logger.error("Authentication Failed");
                     return false;
                 }
@@ -49,7 +51,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
                 Map<String, Object> map = new HashMap<>();
                 map.put("code", 500);
                 map.put("msg", "Authentication Failed.");
-                response.getOutputStream().println(JSON.toJSONString(map));
+                response.getOutputStream().println(toJson(map));
                 logger.error("Authentication Failed");
                 return false;
             }
@@ -63,5 +65,10 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+    }
+
+    private String toJson(Map<String, Object> map) {
+        JSONObject root = new JSONObject(map);
+        return root.toString();
     }
 }

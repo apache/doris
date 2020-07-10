@@ -25,13 +25,17 @@ import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.system.Frontend;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.util.*;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/rest/v1")
@@ -48,7 +52,7 @@ public class HaController {
         appendDbNames(result);
         appendFe(result);
         appendRemovedFe(result);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(result);
+        ResponseEntity<Map> entity = ResponseEntity.status(HttpStatus.OK).build(result);
         return entity;
     }
 

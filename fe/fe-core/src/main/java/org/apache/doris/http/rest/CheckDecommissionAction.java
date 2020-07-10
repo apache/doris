@@ -17,9 +17,6 @@
 
 package org.apache.doris.http.rest;
 
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -29,13 +26,18 @@ import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.List;
 
 /*
  * calc row count from replica to table

@@ -1,12 +1,14 @@
 package org.apache.doris.http.rest;
 
-import com.google.common.base.Strings;
-import com.google.gson.Gson;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+
+import com.google.common.base.Strings;
+import com.google.gson.Gson;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 

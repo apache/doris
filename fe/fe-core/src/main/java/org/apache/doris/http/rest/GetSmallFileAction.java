@@ -1,21 +1,20 @@
 package org.apache.doris.http.rest;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
 
 @RestController
 public class GetSmallFileAction extends RestBaseController {

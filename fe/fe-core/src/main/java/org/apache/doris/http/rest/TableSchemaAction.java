@@ -35,13 +35,13 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -50,7 +50,6 @@ import javax.servlet.http.HttpServletResponse;
  * Get table schema for specified cluster.database.table with privilege checking
  */
 public class TableSchemaAction extends RestBaseController {
-
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",method = RequestMethod.GET)
     protected Object schema(HttpServletRequest request, HttpServletResponse response) throws DdlException {

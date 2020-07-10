@@ -16,9 +16,6 @@
 // under the License.
 package org.apache.doris.http.rest;
 
-import com.google.common.base.Strings;
-import com.google.gson.Gson;
-import io.netty.handler.codec.http.HttpMethod;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -42,15 +39,20 @@ import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
-
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.base.Strings;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -58,10 +60,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;

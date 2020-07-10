@@ -1,8 +1,8 @@
 package org.apache.doris.http;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.UserIdentity;
 
+import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 

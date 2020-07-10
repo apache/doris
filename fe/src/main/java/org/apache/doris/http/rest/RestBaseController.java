@@ -1,13 +1,5 @@
 package org.apache.doris.http.rest;
 
-
-import com.google.common.base.Strings;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.base64.Base64;
-
-
-import io.netty.util.CharsetUtil;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -17,17 +9,28 @@ import org.apache.doris.http.exception.UnauthorizedException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
+
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.servlet.view.RedirectView;
 
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.*;
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.base64.Base64;
+import io.netty.util.CharsetUtil;
 
 public class RestBaseController extends BaseController {
 
@@ -35,7 +38,6 @@ public class RestBaseController extends BaseController {
     protected static final String TABLE_KEY = "table";
     protected static final String LABEL_KEY = "label";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
-
 
     public void executeCheckPassword(HttpServletRequest request,
                                      HttpServletResponse response) throws DdlException {

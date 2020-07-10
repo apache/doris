@@ -20,17 +20,33 @@ package org.apache.doris.http.controller;
 import org.apache.doris.common.Version;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import oshi.SystemInfo;
-import oshi.hardware.*;
-import oshi.software.os.*;
-import oshi.util.FormatUtil;
-import oshi.util.Util;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+import oshi.hardware.HWDiskStore;
+import oshi.hardware.HWPartition;
+import oshi.hardware.HardwareAbstractionLayer;
+import oshi.hardware.NetworkIF;
+import oshi.hardware.VirtualMemory;
+import oshi.software.os.FileSystem;
+import oshi.software.os.NetworkParams;
+import oshi.software.os.OSFileStore;
+import oshi.software.os.OSProcess;
+import oshi.software.os.OperatingSystem;
+import oshi.util.FormatUtil;
+import oshi.util.Util;
 
 @RestController
 @RequestMapping("/rest/v1")
@@ -55,7 +71,6 @@ public class IndexController {
     }
 
     private void appendHardwareInfo( Map<String,Map<String,String>> content) {
-        List<String> hardwareInfo = new ArrayList<>();
         SystemInfo si = new SystemInfo();
         OperatingSystem os = si.getOperatingSystem();
         HardwareAbstractionLayer hal = si.getHardware();

@@ -1,17 +1,15 @@
 package org.apache.doris.http.util;
 
-import com.google.common.base.Strings;
+import static org.springframework.http.HttpHeaders.CONNECTION;
 
-import javax.servlet.http.HttpServletRequest;
+import com.google.common.base.Strings;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 
-import static org.springframework.http.HttpHeaders.CONNECTION;
+import javax.servlet.http.HttpServletRequest;
 
 public class HttpUtil {
-
-
     public static boolean isKeepAlive(HttpServletRequest request ) {
         if(!request.getHeader(CONNECTION).equals("close") &&
                 (request.getProtocol().equals("") ||

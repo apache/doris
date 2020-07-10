@@ -17,7 +17,7 @@ public class HttpServer extends SpringBootServletInitializer {
         return application.sources(HttpServer.class);
     }
 
-    public void setup(){
+    public void start() {
         SpringApplication.run(HttpServer.class);
     }
 }

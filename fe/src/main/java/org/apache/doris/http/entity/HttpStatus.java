@@ -1,6 +1,5 @@
 package org.apache.doris.http.entity;
 
-
 /**
  * http status enum
  * @author zhangjiafeng
@@ -38,7 +37,6 @@ public enum HttpStatus {
     private final int value;
 
     private final String reasonPhrase;
-
 
     HttpStatus(int value, String reasonPhrase) {
         this.value = value;

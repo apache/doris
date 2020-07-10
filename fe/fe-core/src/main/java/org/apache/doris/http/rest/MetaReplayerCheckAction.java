@@ -24,13 +24,10 @@ import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import org.codehaus.jackson.map.ObjectMapper;
-
-import java.util.Map;
-
-import io.netty.handler.codec.http.HttpMethod;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;

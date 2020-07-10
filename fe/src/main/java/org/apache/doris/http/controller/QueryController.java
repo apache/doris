@@ -1,10 +1,11 @@
 package org.apache.doris.http.controller;
 
 import org.apache.doris.common.util.ProfileManager;
-import com.google.common.base.Strings;
-
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;

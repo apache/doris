@@ -1,31 +1,33 @@
 package org.apache.doris.http.controller;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.http.HttpAuthManager;
+import org.apache.doris.http.HttpAuthManager.SessionValue;
 import org.apache.doris.http.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.http.HttpAuthManager.SessionValue;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import javax.servlet.http.Cookie;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 public class BaseController {
 
@@ -122,7 +124,6 @@ public class BaseController {
         return null;
     }
 
-
     public void updateCookieAge(HttpServletRequest request, String cookieName, int age,HttpServletResponse response) {
         Cookie[] cookies = request.getCookies();
         for(Cookie cookie :cookies){
@@ -145,7 +146,6 @@ public class BaseController {
     public boolean needAdmin() {
         return true;
     }
-
 
     public static class ActionAuthorizationInfo {
         public String fullUserName;
