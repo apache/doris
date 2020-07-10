@@ -365,7 +365,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     mvColumnName = baseColumnName;
                 } else {
                     mvColumnName = mvColumnBuilder(functionName, baseColumnName);
-                    defineExpr = functionChild0;
+                    defineExpr = functionChild0.reset();
                 }
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
                 type = Type.BITMAP;
@@ -376,7 +376,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     mvColumnName = baseColumnName;
                 } else {
                     mvColumnName = mvColumnBuilder(functionName, baseColumnName);
-                    defineExpr = functionChild0;
+                    defineExpr = functionChild0.reset();
                 }
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
                 type = Type.HLL;
