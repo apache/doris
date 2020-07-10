@@ -196,8 +196,19 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
 fi
 
 # Clean and build Frontend
+<<<<<<< HEAD
 if [ ${FE_MODULES}x != ""x ]; then
     echo "Build Frontend Modules: $FE_MODULES"
+=======
+if [ ${BUILD_FE} -eq 1 ] ; then
+    echo "Build Frontend UI"
+    cd ${DORIS_HOME}/doris-ui
+    npm install
+    npm run build
+    mkdir -p ${DORIS_HOME}/fe/src/main/resources/static
+    cp -r ${DORIS_HOME}/doris-ui/dist/* ${DORIS_HOME}/fe/src/main/resources/static
+    echo "Build Frontend"
+>>>>>>> Add doris-ui automatic compilation script, automatically compile doris-ui when compiling FE
     cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
         ${MVN_CMD} clean
