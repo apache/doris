@@ -21,6 +21,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DeleteStmt;
@@ -1063,10 +1064,12 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(new SlotRef(slotDescByName.get(slot.getColumnName())));
+                    smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
+                            new SlotRef(slotDescByName.get(slot.getColumnName()))));
                 } else if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(exprsByName.get(slot.getColumnName()));
+                    smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
+                            exprsByName.get(slot.getColumnName())));
                 } else {
                     throw new UserException("unknown reference column, column=" + entry.getKey()
                             + ", reference=" + slot.getColumnName());
