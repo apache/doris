@@ -27,6 +27,7 @@ public class QueryController {
         List<Map<String,String>> result = new ArrayList<>();
         addFinishedQueryInfo(result);
         ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(result);
+        entity.setCount(result.size());
         return entity;
     }
 

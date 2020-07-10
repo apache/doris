@@ -49,7 +49,15 @@ public final class ResponseEntity<T> {
 
     private T data;
 
+    private int count;
 
+    public int getCount() {
+        return count;
+    }
+
+    public void setCount(int count) {
+        this.count = count;
+    }
 
     public String getMsg() {
         return msg;

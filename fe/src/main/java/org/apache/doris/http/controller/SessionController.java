@@ -40,6 +40,7 @@ public class SessionController {
         List<Map<String,String>> result = new ArrayList<>();
         appendSessionInfo(result);
         ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(result);
+        entity.setCount(result.size());
         return entity;
     }
 

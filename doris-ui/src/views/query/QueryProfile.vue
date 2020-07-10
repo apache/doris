@@ -11,9 +11,13 @@
     </el-breadcrumb>
     <el-form :inline="true" :model="formInline" class="user-search">
    </el-form>
-    <pre>
-      <div v-html="datamsg"></div>
-    </pre>
+   <div class="div1background">
+        <div class="div2background">
+            <pre>
+              <div v-html="datamsg"></div>
+            </pre>
+        </div>
+   </div>
   </div>
 </template>
 

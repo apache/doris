@@ -148,6 +148,7 @@ public class SystemController {
             list.add(resultMap);
         }
         ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(list);
+        entity.setCount(list.size());
         return entity;
     }
 
