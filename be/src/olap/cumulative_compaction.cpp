@@ -22,10 +22,10 @@
 
 namespace doris {
 
-CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
-    : Compaction(tablet),
-      _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes)
-{ }
+CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::string& label,
+                                           MemTracker* parent_tracker)
+        : Compaction(tablet, label, parent_tracker),
+          _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes) {}
 
 CumulativeCompaction::~CumulativeCompaction() { }
 

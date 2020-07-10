@@ -44,7 +44,7 @@ class Merger;
 //  4. gc unused rowstes
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet);
+    Compaction(TabletSharedPtr tablet, const std::string& label, MemTracker* parent_tracker);
     virtual ~Compaction();
 
     virtual OLAPStatus compact() = 0;
@@ -77,6 +77,8 @@ private:
     int64_t _get_input_num_rows_from_seg_grps();
 
 protected:
+    MemTracker _mem_tracker;
+    MemTracker _readers_tracker;
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;

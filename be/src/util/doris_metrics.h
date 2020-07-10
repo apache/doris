@@ -185,6 +185,7 @@ public:
 	METRIC_DEFINE_UINT_GAUGE(stream_load_pipe_count, MetricUnit::NOUNIT);
 	METRIC_DEFINE_UINT_GAUGE(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
 	METRIC_DEFINE_UINT_GAUGE(tablet_writer_count, MetricUnit::NOUNIT);
+	METRIC_DEFINE_UINT_GAUGE(compaction_mem_current_consumption, MetricUnit::BYTES);
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
