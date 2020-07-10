@@ -133,11 +133,10 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
         SAFE_DELETE(_segment_reader);
         std::string file_name;
         file_name = segment_group()->construct_data_file_path(block_pos.segment);
-        // TODO: support parent tracker
         _segment_reader = new(std::nothrow) SegmentReader(
                 file_name, segment_group(),  block_pos.segment,
                 _seek_columns, _load_bf_columns, _conditions,
-                _delete_handler, _delete_status, _lru_cache, _runtime_state, _stats);
+                _delete_handler, _delete_status, _lru_cache, _runtime_state, _stats, _parent_tracker);
         if (_segment_reader == nullptr) {
             OLAP_LOG_WARNING("fail to malloc segment reader.");
             return OLAP_ERR_MALLOC_ERROR;
