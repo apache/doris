@@ -213,7 +213,12 @@ if [ ${BUILD_FE} -eq 1 ] ; then
     if [ ${CLEAN} -eq 1 ]; then
         ${MVN_CMD} clean
     fi
+<<<<<<< HEAD
     ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests
+=======
+    ${MVN_CMD} package -DskipTests
+    
+>>>>>>> Modify the compilation script, copy spring boot application.yml to the be/conf directory, so that users can modify the http service port
     cd ${DORIS_HOME}
 fi
 
@@ -221,6 +226,7 @@ fi
 DORIS_OUTPUT=${DORIS_HOME}/output/
 mkdir -p ${DORIS_OUTPUT}
 
+<<<<<<< HEAD
 # Copy Frontend and Backend
 if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
     if [ ${BUILD_FE} -eq 1 ]; then
@@ -242,6 +248,21 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
         rm -rf ${DORIS_OUTPUT}/fe/spark-dpp/*
         cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
     fi
+=======
+#Copy Frontend and Backend
+if [ ${BUILD_FE} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
+               ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/
+
+    cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
+    cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
+    rm -rf ${DORIS_OUTPUT}/fe/lib/*
+    cp -r -p ${DORIS_HOME}/fe/target/lib/* ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/fe/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/webroot/* ${DORIS_OUTPUT}/fe/webroot/
+    cp -p  ${DORIS_HOME}/fe/src/main/resources/application.yml ${DORIS_OUTPUT}/fe/conf 
+>>>>>>> Modify the compilation script, copy spring boot application.yml to the be/conf directory, so that users can modify the http service port
 fi
 
 if [ ${BUILD_BE} -eq 1 ]; then
