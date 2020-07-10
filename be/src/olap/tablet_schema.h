@@ -40,7 +40,7 @@ public:
     inline bool is_key() const { return _is_key; }
     inline bool is_nullable() const { return _is_nullable; }
     inline bool is_bf_column() const { return _is_bf_column; }
-    inline bool has_bitmap_index() const {return _has_bitmap_index; }
+    inline bool has_bitmap_index() const { return _has_bitmap_index; }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     bool has_reference_column() const { return _has_referenced_column; }
@@ -65,23 +65,23 @@ private:
     int32_t _unique_id;
     std::string _col_name;
     FieldType _type;
-    bool _is_key;
+    bool _is_key = false;
     FieldAggregationMethod _aggregation;
-    bool _is_nullable;
+    bool _is_nullable = false;
 
-    bool _has_default_value;
+    bool _has_default_value = false;
     std::string _default_value;
 
-    bool _is_decimal;
+    bool _is_decimal = false;
     int32_t _precision;
     int32_t _frac;
 
     int32_t _length;
     int32_t _index_length;
 
-    bool _is_bf_column;
+    bool _is_bf_column = false;
 
-    bool _has_referenced_column;
+    bool _has_referenced_column = false;
     int32_t _referenced_column_id;
     std::string _referenced_column;
 
@@ -109,10 +109,8 @@ public:
     inline CompressKind compress_kind() const { return _compress_kind; }
     inline size_t next_column_unique_id() const { return _next_column_unique_id; }
     inline double bloom_filter_fpp() const { return _bf_fpp; }
-    inline bool is_in_memory() const {return _is_in_memory; }
-    inline void set_is_in_memory (bool is_in_memory) {
-        _is_in_memory = is_in_memory;
-    }
+    inline bool is_in_memory() const { return _is_in_memory; }
+    inline void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

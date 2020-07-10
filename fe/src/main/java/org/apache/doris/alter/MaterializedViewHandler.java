@@ -36,6 +36,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -481,7 +482,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public List<Column> checkAndPrepareMaterializedView(AddRollupClause addRollupClause, OlapTable olapTable,
                                                         long baseIndexId, boolean changeStorageFormat)
-            throws DdlException {
+            throws DdlException{
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
         if (changeStorageFormat) {
@@ -554,27 +555,51 @@ public class MaterializedViewHandler extends AlterHandler {
         } else if (KeysType.DUP_KEYS == keysType) {
             // supplement the duplicate key
             if (addRollupClause.getDupKeys() == null || addRollupClause.getDupKeys().isEmpty()) {
-                int keyStorageLayoutBytes = 0;
+                // check the column meta
                 for (int i = 0; i < rollupColumnNames.size(); i++) {
                     String columnName = rollupColumnNames.get(i);
                     Column baseColumn = baseColumnNameToColumn.get(columnName);
                     if (baseColumn == null) {
                         throw new DdlException("Column[" + columnName + "] does not exist in base index");
                     }
-                    keyStorageLayoutBytes += baseColumn.getType().getStorageLayoutBytes();
                     Column rollupColumn = new Column(baseColumn);
-                    if(changeStorageFormat) {
-                        rollupColumn.setIsKey(baseColumn.isKey());
-                        rollupColumn.setAggregationType(baseColumn.getAggregationType(), true);
-                    } else if ((i + 1) <= FeConstants.shortkey_max_column_count
-                            || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
-                        rollupColumn.setIsKey(true);
-                        rollupColumn.setAggregationType(null, false);
-                    } else {
-                        rollupColumn.setIsKey(false);
-                        rollupColumn.setAggregationType(AggregateType.NONE, true);
-                    }
                     rollupSchema.add(rollupColumn);
+                }
+                if (changeStorageFormat) {
+                    return rollupSchema;
+                }
+                // Supplement key of MV columns
+                int theBeginIndexOfValue = 0;
+                int keySizeByte = 0;
+                for (; theBeginIndexOfValue < rollupSchema.size(); theBeginIndexOfValue++) {
+                    Column column = rollupSchema.get(theBeginIndexOfValue);
+                    keySizeByte += column.getType().getIndexSize();
+                    if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
+                            || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
+                        if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType().isCharFamily()) {
+                            column.setIsKey(true);
+                            theBeginIndexOfValue++;
+                        }
+                        break;
+                    }
+                    if (column.getType().isFloatingPointType()) {
+                        break;
+                    }
+                    if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                        column.setIsKey(true);
+                        theBeginIndexOfValue++;
+                        break;
+                    }
+                    column.setIsKey(true);
+                }
+                if (theBeginIndexOfValue == 0) {
+                    throw new DdlException("The first column could not be float or double");
+                }
+                // Supplement value of MV columns
+                for (; theBeginIndexOfValue < rollupSchema.size(); theBeginIndexOfValue++) {
+                    Column rollupColumn = rollupSchema.get(theBeginIndexOfValue);
+                    rollupColumn.setIsKey(false);
+                    rollupColumn.setAggregationType(AggregateType.NONE, true);
                 }
             } else {
                 /*

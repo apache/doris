@@ -28,6 +28,7 @@ class MemoryMetrics;
 class DiskMetrics;
 class NetMetrics;
 class FileDescriptorMetrics;
+class SnmpMetrics;
 
 class SystemMetrics {
 public:
@@ -76,6 +77,9 @@ private:
 
     void _update_fd_metrics();
 
+    void _install_snmp_metrics(MetricRegistry* registry);
+    void _update_snmp_metrics();
+
 private:
     static const char* _s_hook_name;
 
@@ -85,6 +89,7 @@ private:
     std::map<std::string, NetMetrics*> _net_metrics;
     std::unique_ptr<FileDescriptorMetrics> _fd_metrics;
     int _proc_net_dev_version = 0;
+    std::unique_ptr<SnmpMetrics> _snmp_metrics;
 
     char* _line_ptr = nullptr;
     size_t _line_buf_size = 0;

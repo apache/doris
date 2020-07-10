@@ -329,7 +329,7 @@ Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
     input_batch_suppliers.reserve(_sender_queues.size());
 
     // Create the merger that will a single stream of sorted rows.
-    _merger.reset(new SortedRunMerger(less_than, &_row_desc, _profile, false));
+    _merger.reset(new SortedRunMerger(less_than, &_row_desc, _profile.get(), false));
 
     for (int i = 0; i < _sender_queues.size(); ++i) {
         input_batch_suppliers.push_back(
@@ -360,9 +360,14 @@ DataStreamRecvr::DataStreamRecvr(
             _row_desc(row_desc),
             _is_merging(is_merging),
             _num_buffered_bytes(0),
-            _profile(profile),
             _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker.reset(new MemTracker(-1, "DataStreamRecvr", parent_tracker));
+    _profile.reset(new RuntimeProfile(nullptr, "DataStreamRecvr"));
+    profile->add_child(_profile.get(), true, nullptr);
+
+    // TODO: Now the parent tracker may cause problem when we need spill to disk, so we
+    // replace parent_tracker with nullptr, fix future
+    _mem_tracker.reset(new MemTracker(_profile.get(), -1, "DataStreamRecvr", nullptr));
+    // _mem_tracker.reset(new MemTracker(_profile.get(), -1, "DataStreamRecvr", parent_tracker));
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
@@ -423,7 +428,7 @@ void DataStreamRecvr::close() {
     _mgr = NULL;
     _merger.reset();
     _mem_tracker->close();
-    _mem_tracker->unregister_from_parent();
+//    _mem_tracker->unregister_from_parent();
     _mem_tracker.reset();
 }
 

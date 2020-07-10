@@ -518,6 +518,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             _need_validate_data = true;
             break;
         default:
@@ -785,9 +786,14 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
     for (int row_no = 0; row_no < batch->num_rows(); ++row_no) {
         Tuple* tuple = batch->get_row(row_no)->get_tuple(0);
         bool row_valid = true;
+        std::stringstream ss; // error message
         for (int i = 0; row_valid && i < _output_tuple_desc->slots().size(); ++i) {
             SlotDescriptor* desc = _output_tuple_desc->slots()[i];
             if (desc->is_nullable() && tuple->is_null(desc->null_indicator_offset())) {
+                if (desc->type().type == TYPE_OBJECT) {
+                    ss << "null is not allowed for bitmap column, column_name: " << desc->col_name();
+                    row_valid = false;
+                }
                 continue;
             }
             void* slot = tuple->get_slot(desc->tuple_offset());
@@ -797,21 +803,12 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 // Fixed length string
                 StringValue* str_val = (StringValue*)slot;
                 if (str_val->len > desc->type().len) {
-                    std::stringstream ss;
                     ss << "the length of input is too long than schema. "
                        << "column_name: " << desc->col_name() << "; "
                        << "input_str: [" << std::string(str_val->ptr, str_val->len) << "] "
                        << "schema length: " << desc->type().len << "; "
                        << "actual length: " << str_val->len << "; ";
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 // padding 0 to CHAR field
@@ -830,34 +827,17 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 if (dec_val->scale() > desc->type().scale) {
                     int code = dec_val->round(dec_val, desc->type().scale, HALF_UP);
                     if (code != E_DEC_OK) {
-                        std::stringstream ss;
                         ss << "round one decimal failed.value=" << dec_val->to_string();
-#if BE_TEST
-                        LOG(INFO) << ss.str();
-#else
-                        state->append_error_msg_to_file("", ss.str());
-#endif
-
-                        filtered_rows++;
                         row_valid = false;
-                        filter_bitmap->Set(row_no, true);
                         continue;
                     }
                 }
                 if (*dec_val > _max_decimal_val[i] || *dec_val < _min_decimal_val[i]) {
-                    std::stringstream ss;
                     ss << "decimal value is not valid for defination, column=" << desc->col_name()
                        << ", value=" << dec_val->to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 break;
@@ -868,34 +848,17 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     int code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
                     reinterpret_cast<PackedInt128*>(slot)->value = dec_val.value();
                     if (code != E_DEC_OK) {
-                        std::stringstream ss;
                         ss << "round one decimal failed.value=" << dec_val.to_string();
-#if BE_TEST
-                        LOG(INFO) << ss.str();
-#else
-                        state->append_error_msg_to_file("", ss.str());
-#endif
-
-                        filtered_rows++;
                         row_valid = false;
-                        filter_bitmap->Set(row_no, true);
                         continue;
                     }
                 }
                 if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
-                    std::stringstream ss;
                     ss << "decimal value is not valid for defination, column=" << desc->col_name()
                        << ", value=" << dec_val.to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 break;
@@ -903,17 +866,9 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
             case TYPE_HLL: {
                 Slice* hll_val = (Slice*)slot;
                 if (!HyperLogLog::is_valid(*hll_val)) {
-                    std::stringstream ss;
                     ss << "Content of HLL type column is invalid"
                        << "column_name: " << desc->col_name() << "; ";
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-                    filtered_rows++;
                     row_valid = false;
-                    filter_bitmap->Set(row_no, true);
                     continue;
                 }
                 break;
@@ -921,6 +876,16 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
             default:
                 break;
             }
+        }
+
+        if (!row_valid) {
+            filtered_rows++;
+            filter_bitmap->Set(row_no, true);
+#if BE_TEST
+            LOG(INFO) << ss.str();
+#else
+            state->append_error_msg_to_file("", ss.str());
+#endif
         }
     }
     return filtered_rows;

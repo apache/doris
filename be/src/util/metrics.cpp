@@ -59,10 +59,18 @@ const char* unit_name(MetricUnit unit) {
         return "bytes";
     case MetricUnit::ROWS:
         return "rows";
-    case MetricUnit::NUMBER:
-        return "number";
     case MetricUnit::PERCENT:
         return "percent";
+    case MetricUnit::REQUESTS:
+        return "requests";
+    case MetricUnit::OPERATIONS:
+        return "operations";
+    case MetricUnit::BLOCKS:
+        return "blocks";
+    case MetricUnit::ROWSETS:
+        return "rowsets";
+    case MetricUnit::CONNECTIONS:
+        return "rowsets";
     default:
         return "nounit";
     }

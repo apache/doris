@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -71,7 +72,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),
                                                  column.getDefaultValue() == null
-                                                         ? "N/A" : column.getDefaultValue(),
+                                                         ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
             result.addRow(rowList);
         }

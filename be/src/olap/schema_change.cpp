@@ -191,7 +191,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
                int field_idx, int ref_field_idx, MemPool* mem_pool) {
-    write_helper->set_not_null(field_idx);
+    write_helper->set_not_null(ref_field_idx);
     BitmapValue bitmap;
     if (!read_helper->is_null(ref_field_idx)) {
         uint64_t origin_value;
@@ -261,49 +261,14 @@ bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColum
     write_helper->set_not_null(field_idx);
     HyperLogLog hll;
     if (!read_helper->is_null(ref_field_idx)) {
-        uint64_t hash_value;
-
-        switch (ref_column.type()) {
-            case OLAP_FIELD_TYPE_CHAR: {
-                int p = ref_column.length() - 1;
-                Slice* slice = reinterpret_cast<Slice*>(read_helper->cell_ptr(ref_field_idx));
-                char* buf = slice->data;
-                while (p >= 0 && buf[p] == '\0') {
-                    p--;
-                }
-                slice->size = p + 1;
-            }
-
-            case OLAP_FIELD_TYPE_VARCHAR: {
-                Slice slice = *reinterpret_cast<Slice *>(read_helper->cell_ptr(ref_field_idx));
-                hash_value = HashUtil::murmur_hash64A(slice.data, slice.size, HashUtil::MURMUR_SEED);
-                break;
-            }
-            case OLAP_FIELD_TYPE_BOOL:
-            case OLAP_FIELD_TYPE_TINYINT:
-            case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
-            case OLAP_FIELD_TYPE_SMALLINT:
-            case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
-            case OLAP_FIELD_TYPE_INT:
-            case OLAP_FIELD_TYPE_UNSIGNED_INT:
-            case OLAP_FIELD_TYPE_BIGINT:
-            case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
-            case OLAP_FIELD_TYPE_LARGEINT:
-            case OLAP_FIELD_TYPE_FLOAT:
-            case OLAP_FIELD_TYPE_DOUBLE:
-            case OLAP_FIELD_TYPE_DISCRETE_DOUBLE:
-            case OLAP_FIELD_TYPE_DATE:
-            case OLAP_FIELD_TYPE_DATETIME: {
-                std::string ref_column_string = read_helper->column_schema(ref_field_idx)->type_info()->to_string(
-                        read_helper->cell_ptr(ref_field_idx));
-                hash_value = HashUtil::murmur_hash64A(ref_column_string.c_str(), ref_column_string.length(), HashUtil::MURMUR_SEED);
-                break;
-            }
-            default:
-                LOG(WARNING) << "fail to hll hash type : " << ref_column.type();
-                return false;
+        Slice src;
+        if (ref_column.type() != OLAP_FIELD_TYPE_VARCHAR) {
+            src.data = read_helper->cell_ptr(ref_field_idx);
+            src.size = ref_column.length();
+        } else {
+            src = *reinterpret_cast<Slice *>(read_helper->cell_ptr(ref_field_idx));
         }
-
+        uint64_t hash_value = HashUtil::murmur_hash64A(src.data, src.size, HashUtil::MURMUR_SEED);
         hll.update(hash_value);
     }
     std::string buf;
@@ -317,7 +282,7 @@ bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColum
 bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletColumn& ref_column,
                  int field_idx, int ref_field_idx, MemPool* mem_pool) {
     write_helper->set_not_null(field_idx);
-    int64_t count = read_helper->is_null(ref_field_idx) ? 0 : 1;
+    int64_t count = read_helper->is_null(field_idx) ? 0 : 1;
     write_helper->set_field_content(field_idx, (char*)&count, mem_pool);
     return true;
 }
@@ -400,7 +365,7 @@ bool RowBlockChanger::change_row_block(
                     _do_materialized_transform = to_bitmap;
                 } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                     _do_materialized_transform = hll_hash;
-                } else if (_schema_mapping[i].materialized_function == "count") {
+                } else if (_schema_mapping[i].materialized_function == "count_field") {
                     _do_materialized_transform = count_field;
                 } else {
                     LOG(WARNING) << "error materialized view function : " << _schema_mapping[i].materialized_function;
@@ -416,10 +381,7 @@ bool RowBlockChanger::change_row_block(
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
 
-                    if (!_do_materialized_transform(&read_helper, &write_helper,
-                            ref_block->tablet_schema().column(ref_column), i, _schema_mapping[i].ref_column, mem_pool)) {
-                        return false;
-                    }
+                    _do_materialized_transform(&read_helper, &write_helper, ref_block->tablet_schema().column(ref_column), i, _schema_mapping[i].ref_column, mem_pool);
                 }
                 continue;
             }

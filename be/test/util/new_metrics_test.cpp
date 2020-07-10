@@ -36,7 +36,7 @@ public:
 
 TEST_F(MetricsTest, Counter) {
     {
-        IntCounter counter(MetricUnit::NUMBER);
+        IntCounter counter(MetricUnit::NOUNIT);
         ASSERT_EQ(0, counter.value());
         counter.increment(100);
         ASSERT_EQ(100, counter.value());
@@ -44,7 +44,7 @@ TEST_F(MetricsTest, Counter) {
         ASSERT_STREQ("100", counter.to_string().c_str());
     }
     {
-        DoubleCounter counter(MetricUnit::NUMBER);
+        DoubleCounter counter(MetricUnit::NOUNIT);
         ASSERT_EQ(0.0, counter.value());
         counter.increment(1.23);
         ASSERT_EQ(1.23, counter.value());
@@ -65,7 +65,7 @@ void mt_updater(IntCounter* counter, std::atomic<uint64_t>* used_time) {
 }
 
 TEST_F(MetricsTest, CounterPerf) {
-    IntCounter counter(MetricUnit::NUMBER);
+    IntCounter counter(MetricUnit::NOUNIT);
     volatile int64_t sum = 0;
 
     {
@@ -91,7 +91,7 @@ TEST_F(MetricsTest, CounterPerf) {
     ASSERT_EQ(100000000, counter.value());
     ASSERT_EQ(100000000, sum);
     {
-        IntCounter mt_counter(MetricUnit::NUMBER);
+        IntCounter mt_counter(MetricUnit::NOUNIT);
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
@@ -108,7 +108,7 @@ TEST_F(MetricsTest, CounterPerf) {
 
 TEST_F(MetricsTest, Gauge) {
     {
-        IntGauge gauge(MetricUnit::NUMBER);
+        IntGauge gauge(MetricUnit::NOUNIT);
         ASSERT_EQ(0, gauge.value());
         gauge.set_value(100);
         ASSERT_EQ(100, gauge.value());
@@ -116,7 +116,7 @@ TEST_F(MetricsTest, Gauge) {
         ASSERT_STREQ("100", gauge.to_string().c_str());
     }
     {
-        DoubleGauge gauge(MetricUnit::NUMBER);
+        DoubleGauge gauge(MetricUnit::NOUNIT);
         ASSERT_EQ(0.0, gauge.value());
         gauge.set_value(1.23);
         ASSERT_EQ(1.23, gauge.value());
@@ -205,9 +205,9 @@ private:
 };
 
 TEST_F(MetricsTest, MetricCollector) {
-    IntCounter puts(MetricUnit::NUMBER);
+    IntCounter puts(MetricUnit::NOUNIT);
     puts.increment(101);
-    IntCounter gets(MetricUnit::NUMBER);
+    IntCounter gets(MetricUnit::NOUNIT);
     gets.increment(201);
     MetricCollector collector;
     ASSERT_TRUE(collector.add_metic(MetricLabels().add("type", "put"), &puts));
@@ -216,7 +216,7 @@ TEST_F(MetricsTest, MetricCollector) {
 
     {
         // Can't add different type to one collector
-        IntGauge post(MetricUnit::NUMBER);
+        IntGauge post(MetricUnit::NOUNIT);
         ASSERT_FALSE(collector.add_metic(MetricLabels().add("type", "post"), &post));
     }
 

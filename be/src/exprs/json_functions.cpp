@@ -291,7 +291,7 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json (
     }
 
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
-    if (root == document) {// not found
+    if (root == nullptr || root == document) {// not found
         return nullptr;
     } else if (!root->IsArray()) {
         rapidjson::Value* array_obj = nullptr;

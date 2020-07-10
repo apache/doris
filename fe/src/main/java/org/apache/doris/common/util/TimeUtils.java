@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 
@@ -129,9 +130,16 @@ public class TimeUtils {
         return TimeZone.getTimeZone(ZoneId.of(DEFAULT_TIME_ZONE, timeZoneAliasMap));
     }
 
+    public static TimeZone getOrSystemTimeZone(String timeZone) {
+        if (timeZone == null) {
+            timeZone = ZoneId.systemDefault().toString();
+        }
+        return TimeZone.getTimeZone(timeZone);
+    }
+
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp <= 0L) {
-            return "N/A";
+            return FeConstants.null_string;
         }
         return dateFormat.format(new Date(timeStamp));
     }

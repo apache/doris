@@ -76,6 +76,7 @@ import org.apache.thrift.TException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class MasterImpl {
     private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
@@ -345,6 +346,11 @@ public class MasterImpl {
             long reportVersion = request.getReport_version();
             Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
                                                                        task.getDbId());
+
+            List<Long> tabletIds = finishTabletInfos.stream().map(
+                    tTabletInfo -> tTabletInfo.getTablet_id()).collect(Collectors.toList());
+            List<TabletMeta> tabletMetaList = Catalog.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
+
             // handle load job
             // TODO yiguolei: why delete should check request version and task version?
             if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
@@ -353,11 +359,12 @@ public class MasterImpl {
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
-                for (TTabletInfo tTabletInfo : finishTabletInfos) {
-                    checkReplica(olapTable, partition, backendId, pushIndexId, pushTabletId,
-                            tTabletInfo, pushState);
-                    Replica replica = findRelatedReplica(olapTable, partition,
-                            backendId, tTabletInfo);
+
+                for (int i = 0; i < tabletMetaList.size(); i++) {
+                    TabletMeta tabletMeta = tabletMetaList.get(i);
+                    checkReplica(finishTabletInfos.get(i), tabletMeta);
+                    long tabletId = tabletIds.get(i);
+                    Replica replica = findRelatedReplica(olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
                     // if the replica is under schema change, could not find the replica with aim schema hash
                     if (replica != null) {
                         job.addFinishedReplica(replica);
@@ -368,9 +375,11 @@ public class MasterImpl {
                 if (deleteJob == null) {
                     throw new MetaNotFoundException("cannot find delete job, job[" + transactionId + "]");
                 }
-                for (TTabletInfo tTabletInfo : finishTabletInfos) {
+                for (int i = 0; i < tabletMetaList.size(); i++) {
+                    TabletMeta tabletMeta = tabletMetaList.get(i);
+                    long tabletId = tabletIds.get(i);
                     Replica replica = findRelatedReplica(olapTable, partition,
-                            backendId, tTabletInfo);
+                            backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
                         deleteJob.addFinishedReplica(pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
@@ -388,8 +397,7 @@ public class MasterImpl {
         }
     }
 
-    private void checkReplica(OlapTable olapTable, Partition partition, long backendId,
-            long pushIndexId, long pushTabletId, TTabletInfo tTabletInfo, PartitionState pushState)
+    private void checkReplica(TTabletInfo tTabletInfo, TabletMeta tabletMeta)
             throws MetaNotFoundException {
         long tabletId = tTabletInfo.getTablet_id();
         int schemaHash = tTabletInfo.getSchema_hash();
@@ -398,8 +406,7 @@ public class MasterImpl {
         // the check replica will failed
         // should use tabletid not pushTabletid because in rollup state, the push tabletid != tabletid
         // and tablet meta will not contain rollupindex's schema hash
-        TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(tabletId);
-        if (tabletMeta == null) {
+        if (tabletMeta == null || tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
             // rollup may be dropped
             throw new MetaNotFoundException("tablet " + tabletId + " does not exist");
         }
@@ -411,10 +418,8 @@ public class MasterImpl {
     }
     
     private Replica findRelatedReplica(OlapTable olapTable, Partition partition,
-                                                 long backendId, TTabletInfo tTabletInfo)
+                                                 long backendId, long tabletId, long indexId)
             throws MetaNotFoundException {
-        long tabletId = tTabletInfo.getTablet_id();
-        long indexId = Catalog.getCurrentInvertedIndex().getIndexId(tabletId);
         // both normal index and rollingup index are in inverted index
         // this means the index is dropped during load
         if (indexId == TabletInvertedIndex.NOT_EXIST_VALUE) {
@@ -529,10 +534,16 @@ public class MasterImpl {
 
             // update replica version and versionHash
             List<ReplicaPersistInfo> infos = new LinkedList<ReplicaPersistInfo>();
-            for (TTabletInfo tTabletInfo : finishTabletInfos) {
+            List<Long> tabletIds = finishTabletInfos.stream().map(
+                    finishTabletInfo -> finishTabletInfo.getTablet_id()).collect(Collectors.toList());
+            List<TabletMeta> tabletMetaList = Catalog.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
+            for (int i = 0; i < tabletMetaList.size(); i++) {
+                TabletMeta tabletMeta = tabletMetaList.get(i);
+                TTabletInfo tTabletInfo = finishTabletInfos.get(i);
+                long indexId = tabletMeta.getIndexId();
                 ReplicaPersistInfo info = updateReplicaInfo(olapTable, partition,
-                                                            backendId, pushIndexId, pushTabletId,
-                                                            tTabletInfo, pushState);
+                        backendId, pushIndexId, indexId,
+                        tTabletInfo, pushState);
                 if (info != null) {
                     infos.add(info);
                 }
@@ -623,7 +634,7 @@ public class MasterImpl {
     }
     
     private ReplicaPersistInfo updateReplicaInfo(OlapTable olapTable, Partition partition,
-                                                 long backendId, long pushIndexId, long pushTabletId,
+                                                 long backendId, long pushIndexId, long indexId,
                                                  TTabletInfo tTabletInfo, PartitionState pushState)
             throws MetaNotFoundException {
         long tabletId = tTabletInfo.getTablet_id();
@@ -633,7 +644,6 @@ public class MasterImpl {
         long rowCount = tTabletInfo.getRow_count();
         long dataSize = tTabletInfo.getData_size();
 
-        long indexId = Catalog.getCurrentInvertedIndex().getIndexId(tabletId);
         if (indexId != pushIndexId) {
             // this may be a rollup tablet
             if (pushState != PartitionState.ROLLUP && indexId != TabletInvertedIndex.NOT_EXIST_VALUE) {

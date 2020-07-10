@@ -390,7 +390,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             ASSERT_TRUE(iter->next_batch(&block).ok());
             ASSERT_FALSE(iter->is_lazy_materialization_read());
             ASSERT_EQ(1, block.selected_size());
-            ASSERT_EQ(99, stats.bitmap_index_filter_count);
+            ASSERT_EQ(99, stats.rows_bitmap_index_filtered);
             ASSERT_EQ(0, stats.rows_vec_cond_filtered);
             auto row = block.row(block.selection_vector()[0]);
             ASSERT_EQ("[20,200]", row.debug_string());

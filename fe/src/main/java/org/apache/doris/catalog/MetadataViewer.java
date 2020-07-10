@@ -25,6 +25,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -136,8 +137,8 @@ public class MetadataViewer {
                             row.add("-1");
                             row.add("-1");
                             row.add("-1");
-                            row.add("N/A");
-                            row.add("N/A");
+                            row.add(FeConstants.null_string);
+                            row.add(FeConstants.null_string);
                             row.add(ReplicaStatus.MISSING.name());
                             result.add(row);
                         }

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
@@ -204,7 +205,7 @@ public class ExportMgr {
                     ExportFailMsg failMsg = job.getFailMsg();
                     jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
                 } else {
-                    jobInfo.add("N/A");
+                    jobInfo.add(FeConstants.null_string);
                 }
 
                 exportJobInfos.add(jobInfo);

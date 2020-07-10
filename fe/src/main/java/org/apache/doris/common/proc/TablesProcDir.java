@@ -25,6 +25,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 
@@ -98,7 +99,7 @@ public class TablesProcDir implements ProcDirInterface {
 
                 int partitionNum = 1;
                 long replicaCount = 0;
-                String partitionKey = "N/A";
+                String partitionKey = FeConstants.null_string;
                 if (table.getType() == TableType.OLAP) {
                     OlapTable olapTable = (OlapTable) table;
                     if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
@@ -125,10 +126,10 @@ public class TablesProcDir implements ProcDirInterface {
                 } else {
                     tableInfo.add(table.getId());
                     tableInfo.add(table.getName());
-                    tableInfo.add("N/A");
+                    tableInfo.add(FeConstants.null_string);
                     tableInfo.add(partitionKey);
                     tableInfo.add(partitionNum);
-                    tableInfo.add("N/A");
+                    tableInfo.add(FeConstants.null_string);
                     tableInfo.add(table.getType());
                 }
 
