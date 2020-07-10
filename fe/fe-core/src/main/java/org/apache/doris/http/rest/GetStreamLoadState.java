@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
-
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.qe.ConnectContext;
@@ -43,7 +42,7 @@ public class GetStreamLoadState extends RestBaseController {
     public Object execute(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
         executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        ResponseEntity<String> entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         try {
             RedirectView redirectView = redirectToMaster(request, response);
             if (redirectView != null) {

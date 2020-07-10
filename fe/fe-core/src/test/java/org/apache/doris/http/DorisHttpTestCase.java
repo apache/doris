@@ -54,9 +54,7 @@ import com.google.common.collect.Lists;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -80,7 +78,7 @@ abstract public class DorisHttpTestCase {
 
     public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
-    private static HttpServer httpServer;
+    // private static HttpServer httpServer;
 
     public static final String CLUSTER_NAME = "default_cluster";
     public static final String DB_NAME = "testDb";
@@ -272,8 +270,9 @@ abstract public class DorisHttpTestCase {
         Catalog.getCurrentSystemInfo().addBackend(backend3);
     }
 
+    /*
     @BeforeClass
-    public static void initHttpServer() throws IllegalArgException, InterruptedException {
+    public static void initHttpServer() throws IllegalArgumentException, InterruptedException {
         ServerSocket socket = null;
         try {
             socket = new ServerSocket(0);
@@ -299,8 +298,7 @@ abstract public class DorisHttpTestCase {
             Thread.sleep(500);
         }
     }
-
-
+    */
 
     @Before
     public void setUp() {
@@ -339,7 +337,7 @@ abstract public class DorisHttpTestCase {
 
     @AfterClass
     public static void closeHttpServer() {
-        httpServer.shutDown();
+        // httpServer.shutDown();
     }
 
     public void doSetUp() {

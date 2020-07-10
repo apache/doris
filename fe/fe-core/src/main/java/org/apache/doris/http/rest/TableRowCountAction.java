@@ -31,12 +31,11 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 
 import java.util.HashMap;
 import java.util.Map;
-
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -51,7 +50,6 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class TableRowCountAction extends RestBaseController {
 
-
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count",method = RequestMethod.GET)
     public Object count(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
@@ -60,7 +58,7 @@ public class TableRowCountAction extends RestBaseController {
         Map<String, Object> resultMap = new HashMap<>(4);
         String dbName = request.getParameter(DB_KEY);
         String tableName = request.getParameter(TABLE_KEY);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        ResponseEntity<Object> entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         try {
             if (Strings.isNullOrEmpty(dbName)
                     || Strings.isNullOrEmpty(tableName)) {
