@@ -45,7 +45,6 @@ import javax.servlet.http.HttpServletResponse;
 
 public class StorageTypeCheckAction extends RestBaseController {
 
-
     @RequestMapping(path = "/api/_check_storagetype",method = RequestMethod.GET)
     protected Object check_storagetype(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         executeCheckPassword(request,response);
