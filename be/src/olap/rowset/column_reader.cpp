@@ -678,7 +678,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        LOG(WARNING) << "unspported filed type. field=" << column.name()
+        LOG(WARNING) << "unspported field type. field=" << column.name()
                      << ", type=" << column.type();
         break;
     }
