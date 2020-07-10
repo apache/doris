@@ -73,11 +73,13 @@ void TimestampedVersionTracker::_construct_versioned_tracker(
             do {
                 int64_t tmp_end_version = -1;
                 int64_t create_time = -1;
-                // 1.2 the next must in other_path, find from other_path
+                // 1.2 the next must in other_path, find from other_path, 
+                // Only when the second size equals one, links next version.
                 auto tmp_edge_iter = other_path.find(tmp_start_version);
-                if (tmp_edge_iter == other_path.end() || tmp_edge_iter->second->empty()) {
+                if (tmp_edge_iter == other_path.end() || tmp_edge_iter->second->size() != 1) {
                     break;
                 }
+
                 // 1.3 record this version to make a tracker, put into path_version
                 auto next_rs_meta_iter = tmp_edge_iter->second->begin();
                 tmp_end_version = next_rs_meta_iter->first;
@@ -101,7 +103,7 @@ void TimestampedVersionTracker::_construct_versioned_tracker(
 
             } while (true);
             // 1.6 add path_version to map
-            _expired_snapshot_rs_path_map[_next_path_version++] = path_version_ptr;
+            _expired_snapshot_version_path_map[_next_path_id++] = path_version_ptr;
 
             // 2 remove this path from other_path
             std::vector<TimestampedVersionSharedPtr>& timestamped_versions = path_version_ptr->timestamped_versions();
@@ -114,7 +116,7 @@ void TimestampedVersionTracker::_construct_versioned_tracker(
     }
     other_path.clear();
     main_path.clear();
-    LOG(INFO) << _get_current_path_map_str();
+    LOG(INFO) <<"construct_versioned_tracker current map info "<< _get_current_path_map_str();
 
 }
 
@@ -136,8 +138,9 @@ void TimestampedVersionTracker::reconstruct_versioned_tracker(
         VLOG(3) << "there is no version in the header.";
         return;
     }
-    _expired_snapshot_rs_path_map.clear();
-    _next_path_version = 1;
+    LOG(INFO) <<"reconstruct_versioned_tracker before map info "<< _get_current_path_map_str();
+    _expired_snapshot_version_path_map.clear();
+    _next_path_id = 1;
 
     _construct_versioned_tracker(rs_metas, expired_snapshot_rs_metas);
 }
@@ -161,8 +164,8 @@ void TimestampedVersionTracker::add_expired_path_version(
 
     std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
     sort(timestamped_versions.begin(), timestamped_versions.end());
-    _expired_snapshot_rs_path_map[_next_path_version] = ptr;
-    _next_path_version++;
+    _expired_snapshot_version_path_map[_next_path_id] = ptr;
+    _next_path_id++;
 }
 
 // Capture consistent versions from graph
@@ -171,12 +174,12 @@ OLAPStatus TimestampedVersionTracker::capture_consistent_versions(
     return _version_graph.capture_consistent_versions(spec_version, version_path);
 }
 
-void TimestampedVersionTracker::capture_expired_path_version(
+void TimestampedVersionTracker::capture_expired_paths(
         int64_t expired_snapshot_sweep_endtime, std::vector<int64_t>* path_version_vec) const {
     std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
-            _expired_snapshot_rs_path_map.begin();
+            _expired_snapshot_version_path_map.begin();
 
-    while (iter != _expired_snapshot_rs_path_map.end()) {
+    while (iter != _expired_snapshot_version_path_map.end()) {
         int64_t max_create_time = iter->second->max_create_time();
         if (max_create_time <= expired_snapshot_sweep_endtime) {
             int64_t path_version = iter->first;
@@ -186,14 +189,14 @@ void TimestampedVersionTracker::capture_expired_path_version(
     }
 }
 
-void TimestampedVersionTracker::fetch_path_version(int64_t path_version,
+void TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_version,
                                                 std::vector<Version>& version_path) {
-    if (_expired_snapshot_rs_path_map.count(path_version) == 0) {
+    if (_expired_snapshot_version_path_map.count(path_version) == 0) {
         VLOG(3) << "path version " << path_version << " does not exist!";
         return;
     }
 
-    PathVersionListSharedPtr ptr = _expired_snapshot_rs_path_map[path_version];
+    PathVersionListSharedPtr ptr = _expired_snapshot_version_path_map[path_version];
 
     std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
     std::vector<TimestampedVersionSharedPtr>::iterator iter = timestamped_versions.begin();
@@ -203,17 +206,17 @@ void TimestampedVersionTracker::fetch_path_version(int64_t path_version,
     }
 }
 
-void TimestampedVersionTracker::fetch_and_delete_path_version(int64_t path_version,
+void TimestampedVersionTracker::fetch_and_delete_path_by_id(int64_t path_id,
                                                            std::vector<Version>& version_path) {
-    if (_expired_snapshot_rs_path_map.count(path_version) == 0) {
-        VLOG(3) << "path version " << path_version << " does not exist!";
+    if (_expired_snapshot_version_path_map.count(path_id) == 0) {
+        VLOG(3) << "path version " << path_id << " does not exist!";
         return;
     }
 
     LOG(INFO) << _get_current_path_map_str();
-    fetch_path_version(path_version, version_path);
+    fetch_path_version_by_id(path_id, version_path);
 
-    _expired_snapshot_rs_path_map.erase(path_version);
+    _expired_snapshot_version_path_map.erase(path_id);
 
     for (auto& version : version_path) {
         _version_graph.delete_version_from_graph(version);
@@ -223,11 +226,11 @@ void TimestampedVersionTracker::fetch_and_delete_path_version(int64_t path_versi
 std::string TimestampedVersionTracker::_get_current_path_map_str() {
 
     std::stringstream tracker_info;
-    tracker_info << "current expired next_path_version " << _next_path_version << std::endl;
+    tracker_info << "current expired next_path_id " << _next_path_id << std::endl;
 
     std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
-            _expired_snapshot_rs_path_map.begin();
-    while (iter != _expired_snapshot_rs_path_map.end()) {
+            _expired_snapshot_version_path_map.begin();
+    while (iter != _expired_snapshot_version_path_map.end()) {
         
         tracker_info << "current expired path_version " << iter->first;
         std::vector<TimestampedVersionSharedPtr>& timestamped_versions = iter->second->timestamped_versions();

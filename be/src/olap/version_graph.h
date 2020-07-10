@@ -161,15 +161,15 @@ public:
     /// When the last rowset createtime of a path greater than expired time  which can be expressed
     /// "now() - tablet_rowset_expired_snapshot_sweep_time" , this path will be remained.
     /// Otherwise, this path will be added to path_version.
-    void capture_expired_path_version(int64_t expired_snapshot_sweep_endtime,
+    void capture_expired_paths(int64_t expired_snapshot_sweep_endtime,
                                       std::vector<int64_t>* path_version) const;
 
     /// Fetch all versions with a path_version.
-    void fetch_path_version(int64_t path_version, std::vector<Version>& version_path);
+    void fetch_path_version_by_id(int64_t path_id, std::vector<Version>& version_path);
 
     /// Fetch all versions with a path_version, at the same time remove this path from the tracker.
     /// Next time, fetch this path, it will return empty. 
-    void fetch_and_delete_path_version(int64_t path_version, std::vector<Version>& version_path);
+    void fetch_and_delete_path_by_id(int64_t path_id, std::vector<Version>& version_path);
 
     /// Print all expired version path in a tablet.
     std::string _get_current_path_map_str();
@@ -183,11 +183,11 @@ private:
 private:
     // This variable records the id of path version which will be dispatched to next path version, 
     // it is not persisted.
-    int64_t _next_path_version = 1;
+    int64_t _next_path_id = 1;
     
     // path_version -> list of path version,
     // This variable is used to maintain the map from path version and it's all version. 
-    std::unordered_map<int64_t, PathVersionListSharedPtr> _expired_snapshot_rs_path_map;
+    std::unordered_map<int64_t, PathVersionListSharedPtr> _expired_snapshot_version_path_map;
 
     VersionGraph _version_graph;
 };

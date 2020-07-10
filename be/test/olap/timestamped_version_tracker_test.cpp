@@ -256,8 +256,8 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker) {
     tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
 
     ASSERT_EQ(10, tracker._version_graph._version_graph.size());
-    ASSERT_EQ(4, tracker._expired_snapshot_rs_path_map.size());
-    ASSERT_EQ(5, tracker._next_path_version);
+    ASSERT_EQ(4, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(5, tracker._next_path_id);
 }
 
 TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker) {
@@ -273,8 +273,8 @@ TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker) {
     tracker.reconstruct_versioned_tracker(rs_metas, expried_rs_metas);
 
     ASSERT_EQ(10, tracker._version_graph._version_graph.size());
-    ASSERT_EQ(4, tracker._expired_snapshot_rs_path_map.size());
-    ASSERT_EQ(5, tracker._next_path_version);
+    ASSERT_EQ(4, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(5, tracker._next_path_id);
 }
 
 TEST_F(TestTimestampedVersionTracker, add_version) {
@@ -305,8 +305,8 @@ TEST_F(TestTimestampedVersionTracker, add_expired_path_version) {
     init_expried_row_rs_meta(&expried_rs_metas);
     tracker.add_expired_path_version(expried_rs_metas);
 
-    ASSERT_EQ(1, tracker._expired_snapshot_rs_path_map.size());
-    ASSERT_EQ(7, tracker._expired_snapshot_rs_path_map.begin()->second->timestamped_versions().size());
+    ASSERT_EQ(1, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(7, tracker._expired_snapshot_version_path_map.begin()->second->timestamped_versions().size());
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
@@ -343,32 +343,32 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version) {
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
 
-    ASSERT_EQ(4, tracker._expired_snapshot_rs_path_map.size());
+    ASSERT_EQ(4, tracker._expired_snapshot_version_path_map.size());
 
     Version spec_version(0, 8);
-    tracker.fetch_and_delete_path_version(1, version_path);
+    tracker.fetch_and_delete_path_by_id(1, version_path);
     ASSERT_EQ(2, version_path.size());
     ASSERT_EQ(Version(2, 3), version_path[0]);
     ASSERT_EQ(Version(4, 5), version_path[1]);
 
     version_path.clear();
-    tracker.fetch_and_delete_path_version(2, version_path);
+    tracker.fetch_and_delete_path_by_id(2, version_path);
     ASSERT_EQ(2, version_path.size());
     ASSERT_EQ(Version(6, 6), version_path[0]);
     ASSERT_EQ(Version(7, 8), version_path[1]);
 
     version_path.clear();
-    tracker.fetch_and_delete_path_version(3, version_path);
+    tracker.fetch_and_delete_path_by_id(3, version_path);
     ASSERT_EQ(2, version_path.size());
     ASSERT_EQ(Version(6, 8), version_path[0]);
     ASSERT_EQ(Version(9, 9), version_path[1]);
 
     version_path.clear();
-    tracker.fetch_and_delete_path_version(4, version_path);
+    tracker.fetch_and_delete_path_by_id(4, version_path);
     ASSERT_EQ(1, version_path.size());
     ASSERT_EQ(Version(10, 10), version_path[0]);
 
-    ASSERT_EQ(0, tracker._expired_snapshot_rs_path_map.size());
+    ASSERT_EQ(0, tracker._expired_snapshot_version_path_map.size());
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
@@ -383,10 +383,10 @@ TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
 
-    tracker.capture_expired_path_version(9999, &path_version);
+    tracker.capture_expired_paths(9999, &path_version);
     ASSERT_EQ(0, path_version.size());
 
-    tracker.capture_expired_path_version(10001, &path_version);
+    tracker.capture_expired_paths(10001, &path_version);
     ASSERT_EQ(4, path_version.size());
 }
 

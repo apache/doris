@@ -249,7 +249,7 @@ private:
 private:
     static const int64_t kInvalidCumulativePoint = -1;
 
-    TimestampedVersionTracker _versioned_rs_tracker;
+    TimestampedVersionTracker _timestamped_version_tracker;
     
     DorisCallOnce<OLAPStatus> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently

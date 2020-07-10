@@ -61,8 +61,8 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         _last_cumu_compaction_success_millis(0),
         _last_base_compaction_success_millis(0),
         _cumulative_point(kInvalidCumulativePoint) {
-    // change _rs_graph to _versioned_rs_tracker
-    _versioned_rs_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
+    // change _rs_graph to _timestamped_version_tracker
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                      _tablet_meta->all_expired_snapshot_rs_metas());
 }
 
@@ -177,7 +177,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     }
     
     // reconstruct from tablet meta
-    _versioned_rs_tracker.reconstruct_versioned_tracker(_tablet_meta->all_rs_metas(), _tablet_meta->all_expired_snapshot_rs_metas());
+    _timestamped_version_tracker.reconstruct_versioned_tracker(_tablet_meta->all_rs_metas(), _tablet_meta->all_expired_snapshot_rs_metas());
 
     LOG(INFO) << "finish to clone data to tablet. res=" << res << ", "
               << "table=" << full_name() << ", "
@@ -198,7 +198,7 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
 
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
-    _versioned_rs_tracker.add_version(rowset->version());
+    _timestamped_version_tracker.add_version(rowset->version());
 
     vector<RowsetSharedPtr> rowsets_to_delete;
     // yiguolei: temp code, should remove the rowset contains by this rowset
@@ -246,15 +246,15 @@ void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
     for (auto& rs : to_add) {
         rs_metas_to_add.push_back(rs->rowset_meta());
         _rs_version_map[rs->version()] = rs;
-        _versioned_rs_tracker.add_version(rs->version());
 
         ++_newly_created_rowset_num;
     }
 
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
 
-    // change _rs_graph to _versioned_rs_tracker
-     _versioned_rs_tracker.add_expired_path_version(rs_metas_to_delete);
+    // change _rs_graph to _timestamped_version_tracker
+     _timestamped_version_tracker.reconstruct_versioned_tracker(_tablet_meta->all_rs_metas(), 
+                                    _tablet_meta->all_expired_snapshot_rs_metas());
 }
 
 // snapshot manager may call this api to check if version exists, so that
@@ -322,7 +322,7 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _inc_rs_version_map[rowset->version()] = rowset;
 
     // _rs_graph.add_version_to_graph(rowset->version());
-    _versioned_rs_tracker.add_version(rowset->version());
+    _timestamped_version_tracker.add_version(rowset->version());
 
     RETURN_NOT_OK(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
     ++_newly_created_rowset_num;
@@ -393,7 +393,7 @@ void Tablet::delete_expired_snapshot_rowset() {
     
     std::vector<int64_t> path_version_vec;
     // capture the path version to delete
-    _versioned_rs_tracker.capture_expired_path_version(static_cast<int64_t>(expired_snapshot_sweep_endtime), &path_version_vec);
+    _timestamped_version_tracker.capture_expired_paths(static_cast<int64_t>(expired_snapshot_sweep_endtime), &path_version_vec);
 
     auto old_size = _expired_snapshot_rs_version_map.size();
     auto old_meta_size = _tablet_meta->all_expired_snapshot_rs_metas().size();
@@ -404,7 +404,7 @@ void Tablet::delete_expired_snapshot_rowset() {
 
         std::vector<Version> version_path;
         // fetch the path versions in the version path and delete the path version in tracker
-        _versioned_rs_tracker.fetch_and_delete_path_version(path_version, version_path);
+        _timestamped_version_tracker.fetch_and_delete_path_by_id(path_version, version_path);
 
         for (auto& version : version_path) {
             is_find = true;
@@ -432,13 +432,22 @@ void Tablet::delete_expired_snapshot_rowset() {
                 << " current_meta_size="  <<  _tablet_meta->all_expired_snapshot_rs_metas().size()
                 << " old_meta_size=" << old_meta_size
                 << " sweep endtime " << std::fixed << expired_snapshot_sweep_endtime;
+
+        const RowsetSharedPtr lastest_delta = rowset_with_max_version();
+        DCHECK(lastest_delta != nullptr);
+       
+        Version test_version = Version(0, lastest_delta->end_version());
+        OLAPStatus status = capture_consistent_versions(test_version, nullptr);
+
+        DCHECK(status == OLAP_SUCCESS);
+        save_meta();
     }
 }
 
 OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
                                                vector<Version>* version_path) const {    
     // OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, version_path);
-    OLAPStatus status = _versioned_rs_tracker.capture_consistent_versions(spec_version, version_path);
+    OLAPStatus status = _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
 
     if (status != OLAP_SUCCESS) {
         std::vector<Version> missed_versions;
