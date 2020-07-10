@@ -586,6 +586,8 @@ public class FileSystemManager {
                 fsDataInputStream.close();
             } catch (IOException e) {
                 logger.error("errors while close file input stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                        e, "errors while close file input stream");
             } finally {
                 clientContextManager.removeInputStream(fd);
             }
@@ -645,6 +647,8 @@ public class FileSystemManager {
                 fsDataOutputStream.close();
             } catch (IOException e) {
                 logger.error("errors while close file output stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                        e, "errors while close file output stream");
             } finally {
                 clientContextManager.removeOutputStream(fd);
             }
