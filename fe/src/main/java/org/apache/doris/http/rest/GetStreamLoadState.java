@@ -39,7 +39,7 @@ public class GetStreamLoadState extends RestBaseAction {
     public static void registerAction(ActionController controller)
             throws IllegalArgException {
         GetStreamLoadState action = new GetStreamLoadState(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/{" + LABEL_KEY + "}/_state", action);
+        controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/get_load_state", action);
     }
 
     @Override
