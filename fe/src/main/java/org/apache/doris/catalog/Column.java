@@ -288,6 +288,12 @@ public class Column implements Writable {
             }
         }
 
+        // now we support convert decimal to varchar type
+        if ((getDataType() == PrimitiveType.DECIMAL && other.getDataType() == PrimitiveType.VARCHAR)
+                || (getDataType() == PrimitiveType.DECIMALV2 && other.getDataType() == PrimitiveType.VARCHAR)) {
+            return;
+        }
+
         if (this.getPrecision() != other.getPrecision()) {
             throw new DdlException("Cannot change precision");
         }
