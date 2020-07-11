@@ -49,8 +49,13 @@ usage() {
 Usage: $0 <options>
   Optional options:
      --be               build Backend
+<<<<<<< HEAD
      --fe               build Frontend and Spark Dpp application
      --spark-dpp        build Spark DPP application
+=======
+     --fe               build Frontend
+     --fe-ui            build Frontend web ui with npm
+>>>>>>> add js license
      --clean            clean and build target
      --with-mysql       enable MySQL support(default)
      --without-mysql    disable MySQL support
@@ -62,9 +67,15 @@ Usage: $0 <options>
     $0 --be                                 build Backend without clean
     $0 --be --without-mysql                 build Backend with MySQL disable
     $0 --be --without-mysql --without-lzo   build Backend with both MySQL and LZO disable
+<<<<<<< HEAD
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
+=======
+    $0 --fe --clean                         clean and build Frontend
+    $0 --fe --be --clean                    clean and build both Frontend and Backend
+    $0 --fe --fe-ui                         build Frontend with web UI
+>>>>>>> add js license
   "
   exit 1
 }
@@ -75,7 +86,11 @@ OPTS=$(getopt \
   -o 'h' \
   -l 'be' \
   -l 'fe' \
+<<<<<<< HEAD
   -l 'spark-dpp' \
+=======
+  -l 'fe-ui' \
+>>>>>>> add js license
   -l 'clean' \
   -l 'with-mysql' \
   -l 'without-mysql' \
@@ -102,20 +117,32 @@ if [ $# == 1 ] ; then
     # default
     BUILD_BE=1
     BUILD_FE=1
+<<<<<<< HEAD
     BUILD_SPARK_DPP=1
+=======
+    BUILD_FE_UI=1
+>>>>>>> add js license
     CLEAN=0
     RUN_UT=0
 else
     BUILD_BE=0
     BUILD_FE=0
+<<<<<<< HEAD
     BUILD_SPARK_DPP=0
+=======
+    BUILD_FE_UI=0
+>>>>>>> add js license
     CLEAN=0
     RUN_UT=0
     while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
+<<<<<<< HEAD
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
+=======
+            --fe-ui) BUILD_FE_UI=1; shift ;;
+>>>>>>> add js license
             --clean) CLEAN=1 ; shift ;;
             --ut) RUN_UT=1   ; shift ;;
             --with-mysql) WITH_MYSQL=ON; shift ;;
@@ -141,6 +168,7 @@ if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_D
 fi
 
 echo "Get params:
+<<<<<<< HEAD
     BUILD_BE            -- $BUILD_BE
     BUILD_FE            -- $BUILD_FE
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
@@ -148,6 +176,15 @@ echo "Get params:
     RUN_UT              -- $RUN_UT
     WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
+=======
+    BUILD_BE        -- $BUILD_BE
+    BUILD_FE        -- $BUILD_FE
+    BUILD_FE_UI     -- $BUILD_FE_UI
+    CLEAN           -- $CLEAN
+    RUN_UT          -- $RUN_UT
+    WITH_MYSQL      -- $WITH_MYSQL
+    WITH_LZO        -- $WITH_LZO
+>>>>>>> add js license
 "
 
 # Clean and build generated code
@@ -185,6 +222,7 @@ cd ${DORIS_HOME}/docs
 cd ${DORIS_HOME}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 # Assesmble FE modules
 FE_MODULES=
 if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
@@ -205,12 +243,38 @@ if [ ${FE_MODULES}x != ""x ]; then
     echo "Build Frontend Modules: $FE_MODULES"
 =======
 if [ ${BUILD_FE} -eq 1 ] ; then
+=======
+function build_ui() {
+    # check NPM env here, not in env.sh.
+    # Because UI should be considered a non-essential component at runtime.
+    # Only when the compilation is required, check the relevant compilation environment.
+    NPM=npm    
+    if ! ${NPM} --version; then
+        echo "Error: npm is not found"
+        exit 1
+    fi
+    if [[ ! -z ${CUSTOM_NPM_REGISTRY} ]]; then
+        ${NPM} config set registry ${CUSTOM_NPM_REGISTRY}
+        npm_reg=`${NPM} get registry`
+        echo "NPM version: npm_reg"
+    fi
+>>>>>>> add js license
     echo "Build Frontend UI"
     cd ${DORIS_HOME}/doris-ui
-    npm install
-    npm run build
+    ${NPM} install
+    $NPM run build
+    rm -rf ${DORIS_HOME}/fe/src/main/resources/static/
     mkdir -p ${DORIS_HOME}/fe/src/main/resources/static
     cp -r ${DORIS_HOME}/doris-ui/dist/* ${DORIS_HOME}/fe/src/main/resources/static
+}
+
+# FE ui must be built before building FE
+if [ ${BUILD_FE_UI} -eq 1 ] ; then 
+    build_ui
+fi
+
+# Clean and build Frontend
+if [ ${BUILD_FE} -eq 1 ] ; then
     echo "Build Frontend"
 >>>>>>> Add doris-ui automatic compilation script, automatically compile doris-ui when compiling FE
     cd ${DORIS_HOME}/fe
