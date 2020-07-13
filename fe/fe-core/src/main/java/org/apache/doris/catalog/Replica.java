@@ -321,9 +321,10 @@ public class Replica implements Writable {
         LOG.debug("before update: {}", this.toString());
 
         if (newVersion < this.version) {
-            // yiguolei: could not find any reason why new version less than this.version should run???
-            LOG.warn("replica {} on backend {}'s new version {} is lower than meta version {}",
-                    id, backendId, newVersion, this.version);
+            // This case is that replica meta version has been updated by ReportHandler
+            LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
+                        + "not to continue to update replica", id, backendId, newVersion, this.version);
+            return;
         }
 
         this.version = newVersion;
