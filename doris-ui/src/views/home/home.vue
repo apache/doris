@@ -34,7 +34,7 @@
           <pre>Build Time:{{BuildTime}}</pre>
       </div>
    </div>
-   <div class="verticalBar"></div>
+   
    <h1><b>Hardware Info</b></h1>
    <div class="div1background" >
         <div class="div2background">
