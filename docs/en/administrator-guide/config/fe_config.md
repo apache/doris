@@ -110,6 +110,10 @@ There are two ways to configure FE configuration items:
 
 ## Configurations
 
+### `agent_task_resend_wait_time_ms`
+
+当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于agent_task_task_resend_wait_time_ms时，ReportHandler可以重新发送代理任务。    
+
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`

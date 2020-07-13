@@ -318,12 +318,16 @@ public class Replica implements Writable {
             long lastFailedVersion, long lastFailedVersionHash, 
             long lastSuccessVersion, long lastSuccessVersionHash, 
             long newDataSize, long newRowCount) {
-        LOG.debug("before update: {}", this.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("before update: {}", this.toString());
+        }
 
         if (newVersion < this.version) {
             // This case is that replica meta version has been updated by ReportHandler
-            LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
                         + "not to continue to update replica", id, backendId, newVersion, this.version);
+            }
             return;
         }
 
@@ -384,7 +388,9 @@ public class Replica implements Writable {
             }
         }
 
-        LOG.debug("after update {}", this.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after update {}", this.toString());
+        }
     }
     
     public synchronized void updateLastFailedVersion(long lastFailedVersion, long lastFailedVersionHash) {

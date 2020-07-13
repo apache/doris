@@ -110,6 +110,10 @@ FE 的配置项有两种方式进行配置：
 
 ## 配置项列表
 
+### `agent_task_resend_wait_time_ms`
+
+This config will decide whether to resend agent task when create_time for agent_task is set, only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task.    
+    
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
