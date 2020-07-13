@@ -1258,8 +1258,9 @@ public class DatabaseTransactionMgr {
                     }
                 } // end for indices
                 long version = partitionCommitInfo.getVersion();
+                long versionTime = partitionCommitInfo.getVersionTime();
                 long versionHash = partitionCommitInfo.getVersionHash();
-                partition.updateVisibleVersionAndVersionHash(version, versionHash);
+                partition.updateVisibleVersionAndVersionHash(version, versionTime, versionHash);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}] and version hash to [{}]",
                             transactionState, partition.getId(), version, versionHash);

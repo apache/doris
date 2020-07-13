@@ -92,6 +92,8 @@ public class Partition extends MetaObject implements Writable {
     private long committedVersionHash;
     @SerializedName(value = "visibleVersion")
     private long visibleVersion;
+    @SerializedName(value = "visibleVersionTime")
+    private long visibleVersionTime;
     @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
     @SerializedName(value = "nextVersion")
@@ -113,6 +115,7 @@ public class Partition extends MetaObject implements Writable {
         this.baseIndex = baseIndex;
 
         this.visibleVersion = PARTITION_INIT_VERSION;
+        this.visibleVersionTime = System.currentTimeMillis();
         this.visibleVersionHash = PARTITION_INIT_VERSION_HASH;
         // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
         this.nextVersion = PARTITION_INIT_VERSION + 1;
@@ -147,8 +150,7 @@ public class Partition extends MetaObject implements Writable {
      * the restored partition version info》
      */
     public void updateVersionForRestore(long visibleVersion, long visibleVersionHash) {
-        this.visibleVersion = visibleVersion;
-        this.visibleVersionHash = visibleVersionHash;
+        this.setVisibleVersion(visibleVersion, visibleVersionHash);
         this.nextVersion = this.visibleVersion + 1;
         this.nextVersionHash = Util.generateVersionHash();
         this.committedVersionHash = visibleVersionHash;
@@ -157,8 +159,11 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {
-        this.visibleVersion = visibleVersion;
-        this.visibleVersionHash = visibleVersionHash;
+        updateVisibleVersionAndVersionHash(visibleVersion, System.currentTimeMillis(), visibleVersionHash);
+    }
+
+    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionTime, long visibleVersionHash) {
+        this.setVisibleVersion(visibleVersion, visibleVersionTime, visibleVersionHash);
         if (MetaContext.get() != null) {
             // MetaContext is not null means we are in a edit log replay thread.
             // if it is upgrade from old palo cluster, then should update next version info
@@ -181,8 +186,25 @@ public class Partition extends MetaObject implements Writable {
         return visibleVersion;
     }
 
+    public long getVisibleVersionTime() {
+        return visibleVersionTime;
+    }
+
     public long getVisibleVersionHash() {
         return visibleVersionHash;
+    }
+    
+    // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
+    private void setVisibleVersion(long visibleVersion, long visibleVersionHash) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = System.currentTimeMillis();
+        this.visibleVersionHash = visibleVersionHash;
+    }
+
+    public void setVisibleVersion(long visibleVersion, long visibleVersionTime, long visibleVersionHash) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+        this.visibleVersionHash = visibleVersionHash;
     }
 
     public PartitionState getState() {
@@ -344,6 +366,7 @@ public class Partition extends MetaObject implements Writable {
         }
 
         out.writeLong(visibleVersion);
+        out.writeLong(visibleVersionTime);
         out.writeLong(visibleVersionHash);
 
         out.writeLong(nextVersion);
@@ -379,6 +402,11 @@ public class Partition extends MetaObject implements Writable {
         }
 
         visibleVersion = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_88) {
+            visibleVersionTime = in.readLong();
+        } else {
+            visibleVersionTime = System.currentTimeMillis();             
+        }
         visibleVersionHash = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
             nextVersion = in.readLong();

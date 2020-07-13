@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeMetaVersion;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -27,6 +29,7 @@ public class PartitionCommitInfo implements Writable {
 
     private long partitionId;
     private long version;
+    private long versionTime;
     private long versionHash;
 
     public PartitionCommitInfo() {
@@ -37,6 +40,7 @@ public class PartitionCommitInfo implements Writable {
         super();
         this.partitionId = partitionId;
         this.version = version;
+        this.versionTime = System.currentTimeMillis(); 
         this.versionHash = versionHash;
     }
 
@@ -44,12 +48,16 @@ public class PartitionCommitInfo implements Writable {
     public void write(DataOutput out) throws IOException {
         out.writeLong(partitionId);
         out.writeLong(version);
+        out.writeLong(versionTime);
         out.writeLong(versionHash);
     }
 
     public void readFields(DataInput in) throws IOException {
         partitionId = in.readLong();
         version = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_88) {
+            versionTime = in.readLong();
+        }     
         versionHash = in.readLong();
     }
 
@@ -59,6 +67,10 @@ public class PartitionCommitInfo implements Writable {
 
     public long getVersion() {
         return version;
+    }
+    
+    public long getVersionTime() {
+        return versionTime;
     }
 
     public long getVersionHash() {
