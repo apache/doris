@@ -24,13 +24,30 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @SpringBootApplication
 @EnableConfigurationProperties
 @ServletComponentScan
 public class HttpServer extends SpringBootServletInitializer {
 
+    private int port;
+
+    public void setPort(int port) {
+        this.port = port;
+    }
+
     @Override
     protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+        Map<String,Object> properties = new HashMap<>();
+        properties.put("server.port",port);
+        properties.put("server.servlet.context-path","/");
+        properties.put("spring.resources.static-locations","classpath:/static");
+        properties.put("spring.http.encoding.charset","UTF-8");
+        properties.put("spring.http.encoding.enabled",true);
+        properties.put("spring.http.encoding.force",true);
+        application.properties(properties);
         return application.sources(HttpServer.class);
     }
 

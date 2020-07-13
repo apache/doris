@@ -115,7 +115,7 @@ echo $final_java_opt >> $LOG_DIR/fe.out
 for f in $DORIS_HOME/lib/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
-export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib:$DORIS_HOME/conf/application.yml
+export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib
 
 if [ ! -d $LOG_DIR ]; then
     mkdir -p $LOG_DIR

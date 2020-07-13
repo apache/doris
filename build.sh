@@ -328,8 +328,11 @@ if [ ${BUILD_FE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/fe/target/lib/* ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/fe/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
     cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
+<<<<<<< HEAD
     cp -p  ${DORIS_HOME}/fe/src/main/resources/application.yml ${DORIS_OUTPUT}/fe/conf 
 >>>>>>> Modify the compilation script, copy spring boot application.yml to the be/conf directory, so that users can modify the http service port
+=======
+>>>>>>> Configure the Spring boot configuration file application.yml into the startup program
 fi
 
 if [ ${BUILD_BE} -eq 1 ]; then

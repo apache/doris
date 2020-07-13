@@ -112,6 +112,7 @@ public class PaloFe {
             QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
             HttpServer httpServer = new HttpServer();
+            httpServer.setPort(Config.http_port);
 
             feServer.start();
             qeService.start();
