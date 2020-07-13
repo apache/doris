@@ -34,26 +34,30 @@ public:
     }
 };
 
-TEST_F(MetricsTest, Counter) {
-    {
-        IntCounter counter(MetricUnit::NOUNIT);
+TEST_F(MetricsTest, IntCounter) {
+    std::vector<std::unique_ptr<Metric>> integer_counters({new IntCounter(MetricUnit::NOUNIT),
+                                                           new IntAtomicCounter(MetricUnit::NOUNIT),
+                                                           new UIntCounter(MetricUnit::NOUNIT)});
+    for (auto &counter : integer_counters) {
         ASSERT_EQ(0, counter.value());
         counter.increment(100);
         ASSERT_EQ(100, counter.value());
 
         ASSERT_STREQ("100", counter.to_string().c_str());
     }
-    {
-        DoubleCounter counter(MetricUnit::NOUNIT);
-        ASSERT_EQ(0.0, counter.value());
-        counter.increment(1.23);
-        ASSERT_EQ(1.23, counter.value());
-
-        ASSERT_STREQ("1.230000", counter.to_string().c_str());
-    }
 }
 
-void mt_updater(IntCounter* counter, std::atomic<uint64_t>* used_time) {
+TEST_F(MetricsTest, DoubleCounter) {
+    DoubleCounter counter(MetricUnit::NOUNIT);
+    ASSERT_EQ(0.0, counter.value());
+    counter.increment(1.23);
+    ASSERT_EQ(1.23, counter.value());
+
+    ASSERT_STREQ("1.230000", counter.to_string().c_str());
+}
+
+template<typename T>
+void mt_updater(T* counter, std::atomic<uint64_t>* used_time) {
     sleep(1);
     MonotonicStopWatch watch;
     watch.start();
@@ -65,33 +69,51 @@ void mt_updater(IntCounter* counter, std::atomic<uint64_t>* used_time) {
 }
 
 TEST_F(MetricsTest, CounterPerf) {
-    IntCounter counter(MetricUnit::NOUNIT);
-    volatile int64_t sum = 0;
-
+    static const int kLoopCount = 100000000;
+    // volatile int64_t
     {
+        volatile int64_t sum = 0;
         MonotonicStopWatch watch;
         watch.start();
-        for (int i = 0; i < 100000000; ++i) {
+        for (int i = 0; i < kLoopCount; ++i) {
             counter.increment(1);
         }
         uint64_t elapsed = watch.elapsed_time();
-        LOG(INFO) << "counter elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / 100000000;
+        ASSERT_EQ(kLoopCount, sum);
+        LOG(INFO) << "int64_t: elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / kLoopCount;
     }
+    // IntAtomicCounter
     {
+        IntAtomicCounter counter(MetricUnit::NOUNIT);
         MonotonicStopWatch watch;
         watch.start();
-        for (int i = 0; i < 100000000; ++i) {
+        for (int i = 0; i < kLoopCount; ++i) {
             sum += 1;
         }
         uint64_t elapsed = watch.elapsed_time();
-        LOG(INFO) << "value elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / 100000000;
+        ASSERT_EQ(kLoopCount, counter.value());
+        LOG(INFO) << "IntAtomicCounter: elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / kLoopCount;
     }
-    ASSERT_EQ(100000000, counter.value());
-    ASSERT_EQ(100000000, sum);
+    // IntCounter
     {
-        IntCounter mt_counter(MetricUnit::NOUNIT);
+        IntCounter counter(MetricUnit::NOUNIT);
+        MonotonicStopWatch watch;
+        watch.start();
+        for (int i = 0; i < kLoopCount; ++i) {
+            counter.increment(1);
+        }
+        uint64_t elapsed = watch.elapsed_time();
+        ASSERT_EQ(kLoopCount, counter.value());
+        LOG(INFO) << "IntCounter: elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / kLoopCount;
+    }
+
+    // multi-thread for IntCounter
+    std::vector<std::unique_ptr<Metric>> integer_counters({new IntCounter(MetricUnit::NOUNIT),
+                                                           new IntAtomicCounter(MetricUnit::NOUNIT)});
+    for (auto &counter : integer_counters) {
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
@@ -106,23 +128,25 @@ TEST_F(MetricsTest, CounterPerf) {
     }
 }
 
-TEST_F(MetricsTest, Gauge) {
-    {
-        IntGauge gauge(MetricUnit::NOUNIT);
+TEST_F(MetricsTest, IntGauge) {
+    std::vector<std::unique_ptr<Metric>> integer_gauges({new IntGauge(MetricUnit::NOUNIT),
+                                                         new UIntGauge(MetricUnit::NOUNIT)});
+    for (auto &gauge : integer_gauges) {
         ASSERT_EQ(0, gauge.value());
         gauge.set_value(100);
         ASSERT_EQ(100, gauge.value());
 
         ASSERT_STREQ("100", gauge.to_string().c_str());
     }
-    {
-        DoubleGauge gauge(MetricUnit::NOUNIT);
-        ASSERT_EQ(0.0, gauge.value());
-        gauge.set_value(1.23);
-        ASSERT_EQ(1.23, gauge.value());
+}
 
-        ASSERT_STREQ("1.230000", gauge.to_string().c_str());
-    }
+TEST_F(MetricsTest, IntGauge) {
+    DoubleGauge gauge(MetricUnit::NOUNIT);
+    ASSERT_EQ(0.0, gauge.value());
+    gauge.set_value(1.23);
+    ASSERT_EQ(1.23, gauge.value());
+
+    ASSERT_STREQ("1.230000", gauge.to_string().c_str());
 }
 
 TEST_F(MetricsTest, MetricLabel) {
