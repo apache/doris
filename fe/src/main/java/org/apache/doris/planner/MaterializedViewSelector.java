@@ -43,7 +43,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -474,8 +473,7 @@ public class MaterializedViewSelector {
 
         // Step4: compute the output column
         // ISSUE-3174: all of columns which belong to top tuple should be considered in selector.
-        ArrayList<TupleId> topTupleIds = Lists.newArrayList();
-        selectStmt.getMaterializedTupleIds(topTupleIds);
+        List<TupleId> topTupleIds = selectStmt.getTableRefIdsWithoutInlineView();
         for (TupleId tupleId : topTupleIds) {
             TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
             tupleDescriptor.getTableNameToColumnNames(columnNamesInQueryOutput);
