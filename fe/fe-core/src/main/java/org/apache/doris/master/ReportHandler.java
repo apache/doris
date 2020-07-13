@@ -341,7 +341,7 @@ public class ReportHandler extends Daemon {
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
         AgentBatchTask batchTask = new AgentBatchTask();
-        long now = System.currentTimeMillis();
+        long taskReportTime = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
             // these tasks no need to do diff
             // 1. CREATE
@@ -354,8 +354,8 @@ public class ReportHandler extends Daemon {
                 continue;
             }
 
-            // to escape to send duplicate agent task to be
-            if (task.shouldResend(now)) {
+            // to escape sending duplicate agent task to be
+            if (task.shouldResend(taskReportTime)) {
                 batchTask.addTask(task);
             }
 
