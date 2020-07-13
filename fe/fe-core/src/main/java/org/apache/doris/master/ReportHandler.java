@@ -328,17 +328,20 @@ public class ReportHandler extends Daemon {
         LOG.info("begin to handle task report from backend {}", backendId);
         long start = System.currentTimeMillis();
 
-        for (TTaskType type : runningTasks.keySet()) {
-            Set<Long> taskSet = runningTasks.get(type);
-            if (!taskSet.isEmpty()) {
-                String signatures = StringUtils.join(taskSet, ", ");
-                LOG.debug("backend task[{}]: {}", type.name(), signatures);
+        if (LOG.isDebugEnabled()) {
+            for (TTaskType type : runningTasks.keySet()) {
+                Set<Long> taskSet = runningTasks.get(type);
+                if (!taskSet.isEmpty()) {
+                    String signatures = StringUtils.join(taskSet, ", ");
+                    LOG.debug("backend task[{}]: {}", type.name(), signatures);
+                }
             }
         }
 
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
         AgentBatchTask batchTask = new AgentBatchTask();
+        long now = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
             // these tasks no need to do diff
             // 1. CREATE
@@ -350,7 +353,12 @@ public class ReportHandler extends Daemon {
                     || task.getTaskType() == TTaskType.CHECK_CONSISTENCY) {
                 continue;
             }
-            batchTask.addTask(task);
+
+            // to escape to send duplicate agent task to be
+            if (task.shouldResend(now)) {
+                batchTask.addTask(task);
+            }
+
         }
 
         LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
@@ -742,10 +750,11 @@ public class ReportHandler extends Daemon {
     private static void handleRepublishVersionInfo(Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, 
             long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
+        long createPublishVersionTaskTime = System.currentTimeMillis();
         for (Long dbId : transactionsToPublish.keySet()) {
             ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
             for (long txnId : map.keySet()) {
-                PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId, map.get(txnId));
+                PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId, map.get(txnId), createPublishVersionTaskTime);
                 batchTask.addTask(task);
                 // add to AgentTaskQueue for handling finish report.
                 AgentTaskQueue.addTask(task);
