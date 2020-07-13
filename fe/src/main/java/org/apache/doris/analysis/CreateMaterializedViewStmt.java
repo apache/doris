@@ -365,7 +365,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     mvColumnName = baseColumnName;
                 } else {
                     mvColumnName = mvColumnBuilder(functionName, baseColumnName);
-                    defineExpr = functionChild0.reset();
+                    defineExpr = functionChild0;
                 }
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
                 type = Type.BITMAP;
@@ -376,7 +376,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     mvColumnName = baseColumnName;
                 } else {
                     mvColumnName = mvColumnBuilder(functionName, baseColumnName);
-                    defineExpr = functionChild0.reset();
+                    defineExpr = functionChild0;
                 }
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
                 type = Type.HLL;
@@ -411,6 +411,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 Preconditions.checkArgument(slots.size() == 1);
                 String baseColumnName = slots.get(0).getColumnName();
                 String functionName = functionCallExpr.getFnName().getFunction();
+                SlotRef baseSlotRef = slots.get(0);
                 switch (functionName.toLowerCase()) {
                     case "sum":
                     case "min":
@@ -418,9 +419,23 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         result.put(baseColumnName, null);
                         break;
                     case FunctionSet.BITMAP_UNION:
+                        if (functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
+                            CastExpr castExpr = new CastExpr(Type.VARCHAR, baseSlotRef);
+                            List<Expr> params = Lists.newArrayList();
+                            params.add(castExpr);
+                            FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP, params);
+                            result.put(mvColumnBuilder(functionName, baseColumnName), defineExpr);
+                        } else {
+                            result.put(baseColumnName, null);
+                        }
+                        break;
                     case FunctionSet.HLL_UNION:
                         if (functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
-                            result.put(mvColumnBuilder(functionName, baseColumnName), functionCallExpr.getChild(0));
+                            CastExpr castExpr = new CastExpr(Type.VARCHAR, baseSlotRef);
+                            List<Expr> params = Lists.newArrayList();
+                            params.add(castExpr);
+                            FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.HLL_HASH, params);
+                            result.put(mvColumnBuilder(functionName, baseColumnName), defineExpr);
                         } else {
                             result.put(baseColumnName, null);
                         }
