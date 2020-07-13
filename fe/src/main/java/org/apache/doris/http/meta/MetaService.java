@@ -88,7 +88,8 @@ public class MetaService extends RestBaseController {
     }
 
     @RequestMapping(path = "/image", method = RequestMethod.GET)
-    public Object image(HttpServletRequest request, HttpServletResponse response) {
+    public Object image(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         Object obj = executeCheck(request,response,true);
         if(obj != null){
             return obj;
@@ -127,7 +128,8 @@ public class MetaService extends RestBaseController {
 
 
     @RequestMapping(path = "/info", method = RequestMethod.GET)
-    public Object info(HttpServletRequest request, HttpServletResponse response) {
+    public Object info(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         Object obj = executeCheck(request,response,true);
         if(obj != null){
             return obj;
@@ -148,7 +150,8 @@ public class MetaService extends RestBaseController {
     }
 
     @RequestMapping(path = "/version", method = RequestMethod.GET)
-    public void version(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    public void version(HttpServletRequest request, HttpServletResponse response) throws IOException, DdlException {
+        executeCheckPassword(request,response);
         Object obj = executeCheck(request,response,true);
         if(obj != null){
             response.setStatus(HttpStatus.BAD_REQUEST.value());
@@ -160,7 +163,8 @@ public class MetaService extends RestBaseController {
 
 
     @RequestMapping(path = "/put", method = RequestMethod.GET)
-    public Object put(HttpServletRequest request, HttpServletResponse response) {
+    public Object put(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         String machine = request.getRemoteHost();
         String portStr = request.getParameter(PORT);
         ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
@@ -222,7 +226,8 @@ public class MetaService extends RestBaseController {
     }
 
     @RequestMapping(path = "/journal_id", method = RequestMethod.GET)
-    public Object journal_id(HttpServletRequest request, HttpServletResponse response) {
+    public Object journal_id(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         Object obj = executeCheck(request,response,true);
         if(obj != null){
             return obj;
@@ -238,7 +243,8 @@ public class MetaService extends RestBaseController {
 
 
     @RequestMapping(path = "/role", method = RequestMethod.GET)
-    public Object role(HttpServletRequest request, HttpServletResponse response) {
+    public Object role(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         String host = request.getParameter(HOST);
         String portString = request.getParameter(PORT);
         Object obj = executeCheck(request,response,true);
@@ -272,7 +278,8 @@ public class MetaService extends RestBaseController {
      * the consistency of the cluster.
      */
     @RequestMapping(path = "/check", method = RequestMethod.GET)
-    public Object check(HttpServletRequest request, HttpServletResponse response) {
+    public Object check(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request,response);
         Object obj = executeCheck(request,response,true);
         if(obj != null){
             return obj;
@@ -295,6 +302,7 @@ public class MetaService extends RestBaseController {
          * the jobs' read lock. This will guarantee the consistency of database and job queues.
          * But Backend may still inconsistent.
          */
+        executeCheckPassword(request,response);
         Object obj = executeCheck(request,response,false);
         if(obj != null){
             return obj;

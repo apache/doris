@@ -90,6 +90,7 @@ public class ColocateMetaService extends RestBaseController {
 
     public Object executeWithoutPassword(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        executeCheckPassword(request,response);
         RedirectView redirectView = redirectToMaster(request, response);
         if (redirectView != null) {
             return redirectView;
@@ -129,6 +130,7 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate/bucketseq", method = RequestMethod.POST)
     public Object bucketseq(HttpServletRequest request, HttpServletResponse response, @RequestBody String meta)
             throws DdlException {
+        executeWithoutPassword(request, response);
         ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
         final String clusterName = ConnectContext.get().getClusterName();
         if (Strings.isNullOrEmpty(clusterName)) {
