@@ -125,7 +125,7 @@ Status DataDir::_init_cluster_id() {
     if (fp == NULL) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
             Status::IOError(Substitute("failed to open cluster id file $0", cluster_id_path)),
-            "open file filed");
+            "open file failed");
     }
 
     int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);

@@ -122,7 +122,7 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        LOG(WARNING) << "Unspported filed type. field=" << column.name()
+        LOG(WARNING) << "Unspported field type. field=" << column.name()
                      << ", type=" << column.type();
         break;
     }

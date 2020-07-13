@@ -70,7 +70,7 @@ private:
             const SlotDescriptor* slot, RuntimeState* state,
             std::stringstream* error_msg);
 
-    // split one line into fields, check every fields, fill every filed into tuple
+    // split one line into fields, check every fields, fill every field into tuple
     bool split_check_fill(const std::string& line, RuntimeState* state);
 
     void fill_fix_length_string(
