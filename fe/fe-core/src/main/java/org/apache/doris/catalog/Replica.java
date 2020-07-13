@@ -323,7 +323,7 @@ public class Replica implements Writable {
         }
 
         if (newVersion < this.version) {
-            // This case is that replica meta version has been updated by ReportHandler
+            // This case means that replica meta version has been updated by ReportHandler before
             if (LOG.isDebugEnabled()) {
                 LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
                         + "not to continue to update replica", id, backendId, newVersion, this.version);
