@@ -524,21 +524,28 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
         dest->_auxiliary_mem_usage += buffer->buffer_len();
         buffer->set_mem_tracker(dest->_mem_tracker);
     }
+    _io_buffers.clear();
 
     for (BufferInfo& buffer_info : _buffers) {
         dest->add_buffer(
             buffer_info.client, std::move(buffer_info.buffer), FlushMode::NO_FLUSH_RESOURCES);
     }
+    _buffers.clear();
 
     for (int i = 0; i < _tuple_streams.size(); ++i) {
         dest->_tuple_streams.push_back(_tuple_streams[i]);
         dest->_auxiliary_mem_usage += _tuple_streams[i]->byte_size();
     }
+    // Resource release should be done by dest RowBatch. if we don't clear the corresponding resources.
+    // This Rowbatch calls the reset() method, dest Rowbatch will also call the reset() method again,
+    // which will cause the core problem of double delete
+    _tuple_streams.clear();
 
     for (int i = 0; i < _blocks.size(); ++i) {
         dest->_blocks.push_back(_blocks[i]);
         dest->_auxiliary_mem_usage += _blocks[i]->buffer_len();
     }
+    _blocks.clear();
 
     dest->_need_to_return |= _need_to_return;
 
