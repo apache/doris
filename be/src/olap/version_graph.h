@@ -165,11 +165,11 @@ public:
                                       std::vector<int64_t>* path_version) const;
 
     /// Fetch all versions with a path_version.
-    void fetch_path_version_by_id(int64_t path_id, std::vector<Version>& version_path);
+    void fetch_path_version_by_id(int64_t path_id, std::vector<Version>* version_path);
 
     /// Fetch all versions with a path_version, at the same time remove this path from the tracker.
     /// Next time, fetch this path, it will return empty. 
-    void fetch_and_delete_path_by_id(int64_t path_id, std::vector<Version>& version_path);
+    void fetch_and_delete_path_by_id(int64_t path_id, std::vector<Version>* version_path);
 
     /// Print all expired version path in a tablet.
     std::string _get_current_path_map_str();

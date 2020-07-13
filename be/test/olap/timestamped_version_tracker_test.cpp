@@ -155,6 +155,42 @@ public:
 
     }
 
+    void init_expried_row_rs_meta_with_same_rowset(std::vector<RowsetMetaSharedPtr>* rs_metas) {
+
+        RowsetMetaSharedPtr ptr0(new RowsetMeta());
+        init_rs_meta(ptr0, 1, 1);
+        rs_metas->push_back(ptr0);
+
+        RowsetMetaSharedPtr ptr1(new RowsetMeta());
+        init_rs_meta(ptr1, 2, 3);
+        rs_metas->push_back(ptr1);
+
+        RowsetMetaSharedPtr ptr2(new RowsetMeta());
+        init_rs_meta(ptr2, 4, 5);
+        rs_metas->push_back(ptr2);
+
+        RowsetMetaSharedPtr ptr3(new RowsetMeta());
+        init_rs_meta(ptr3, 6, 6);
+        rs_metas->push_back(ptr3);
+
+        RowsetMetaSharedPtr ptr4(new RowsetMeta());
+        init_rs_meta(ptr4, 7, 8);
+        rs_metas->push_back(ptr4);
+
+        RowsetMetaSharedPtr ptr5(new RowsetMeta());
+        init_rs_meta(ptr5, 6, 8);
+        rs_metas->push_back(ptr5);
+
+        RowsetMetaSharedPtr ptr6(new RowsetMeta());
+        init_rs_meta(ptr6, 9, 9);
+        rs_metas->push_back(ptr6);
+
+        RowsetMetaSharedPtr ptr7(new RowsetMeta());
+        init_rs_meta(ptr7, 10, 10);
+        rs_metas->push_back(ptr7);
+
+    }
+
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
@@ -171,6 +207,26 @@ TEST_F(TestTimestampedVersionTracker, construct_version_graph) {
     version_graph.construct_version_graph(rs_metas, &max_version);
 
     ASSERT_EQ(6, version_graph._version_graph.size());
+    int64_t exp = 11;
+    ASSERT_EQ(exp, max_version);
+}
+
+TEST_F(TestTimestampedVersionTracker, construct_version_graph_with_same_version) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+
+    VersionGraph version_graph;
+
+    init_all_rs_meta(&rs_metas);
+    init_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
+
+    rs_metas.insert(rs_metas.end(), expried_rs_metas.begin(),
+                        expried_rs_metas.end());
+    int64_t max_version = 0;
+    version_graph.construct_version_graph(rs_metas, &max_version);
+
+    ASSERT_EQ(10, version_graph._version_graph.size());
     int64_t exp = 11;
     ASSERT_EQ(exp, max_version);
 }
@@ -202,6 +258,22 @@ TEST_F(TestTimestampedVersionTracker, delete_version_from_graph) {
     ASSERT_EQ(0, version_graph._version_graph[0].edges.size());
 }
 
+TEST_F(TestTimestampedVersionTracker, delete_version_from_graph_with_same_version) {
+
+    VersionGraph version_graph;
+
+    Version version0(0, 0);
+    Version version1(0, 0);
+
+    version_graph.add_version_to_graph(version0);
+    version_graph.add_version_to_graph(version1);
+
+    version_graph.delete_version_from_graph(version0);
+
+    ASSERT_EQ(2, version_graph._version_graph.size());
+    ASSERT_EQ(1, version_graph._version_graph[0].edges.size());
+}
+
 TEST_F(TestTimestampedVersionTracker, add_version_to_graph) {
 
     VersionGraph version_graph;
@@ -217,6 +289,20 @@ TEST_F(TestTimestampedVersionTracker, add_version_to_graph) {
     ASSERT_EQ(1, version_graph._vertex_index_map.find(1)->second);
 }
 
+TEST_F(TestTimestampedVersionTracker, add_version_to_graph_with_same_version) {
+
+    VersionGraph version_graph;
+
+    Version version0(0, 0);
+    Version version1(0, 0);
+
+    version_graph.add_version_to_graph(version0);
+    version_graph.add_version_to_graph(version1);
+
+    ASSERT_EQ(2, version_graph._version_graph.size());
+    ASSERT_EQ(2, version_graph._version_graph[0].edges.size());
+}
+
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
@@ -225,6 +311,32 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions) {
 
     init_all_rs_meta(&rs_metas);
     init_expried_row_rs_meta(&expried_rs_metas);
+
+    VersionGraph version_graph;
+    int64_t max_version = 0;
+    rs_metas.insert(rs_metas.end(), expried_rs_metas.begin(),
+                        expried_rs_metas.end());
+
+    version_graph.construct_version_graph(rs_metas, &max_version);
+
+    Version spec_version(0, 8);
+    version_graph.capture_consistent_versions(spec_version, &version_path);
+
+    ASSERT_EQ(4, version_path.size());
+    ASSERT_EQ(Version(0, 0), version_path[0]);
+    ASSERT_EQ(Version(1, 1), version_path[1]);
+    ASSERT_EQ(Version(2, 5), version_path[2]);
+    ASSERT_EQ(Version(6, 8), version_path[3]);
+}
+
+TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_with_same_rowset) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+    std::vector<Version> version_path;
+
+    init_all_rs_meta(&rs_metas);
+    init_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
 
     VersionGraph version_graph;
     int64_t max_version = 0;
@@ -260,6 +372,23 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker) {
     ASSERT_EQ(5, tracker._next_path_id);
 }
 
+TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker_with_same_rowset) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+    std::vector<Version> version_path;
+
+    init_all_rs_meta(&rs_metas);
+    init_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
+
+    TimestampedVersionTracker tracker;
+    tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
+
+    ASSERT_EQ(10, tracker._version_graph._version_graph.size());
+    ASSERT_EQ(5, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(6, tracker._next_path_id);
+}
+
 TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
@@ -277,6 +406,23 @@ TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker) {
     ASSERT_EQ(5, tracker._next_path_id);
 }
 
+TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker_with_same_rowset) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+    std::vector<Version> version_path;
+
+    init_all_rs_meta(&rs_metas);
+    init_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
+
+    TimestampedVersionTracker tracker;
+    tracker.reconstruct_versioned_tracker(rs_metas, expried_rs_metas);
+
+    ASSERT_EQ(10, tracker._version_graph._version_graph.size());
+    ASSERT_EQ(5, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(6, tracker._next_path_id);
+}
+
 TEST_F(TestTimestampedVersionTracker, add_version) {
 
     TimestampedVersionTracker tracker;
@@ -290,6 +436,20 @@ TEST_F(TestTimestampedVersionTracker, add_version) {
     ASSERT_EQ(3, tracker._version_graph._version_graph.size());
     ASSERT_EQ(0, tracker._version_graph._vertex_index_map.find(0)->second);
     ASSERT_EQ(1, tracker._version_graph._vertex_index_map.find(1)->second);
+}
+
+TEST_F(TestTimestampedVersionTracker, add_version_with_same_rowset) {
+
+    TimestampedVersionTracker tracker;
+
+    Version version0(0, 0);
+    Version version1(0, 0);
+
+    tracker.add_version(version0);
+    tracker.add_version(version1);
+
+    ASSERT_EQ(2, tracker._version_graph._version_graph.size());
+    ASSERT_EQ(2, tracker._version_graph._version_graph[0].edges.size());
 }
 
 TEST_F(TestTimestampedVersionTracker, add_expired_path_version) {
@@ -309,6 +469,23 @@ TEST_F(TestTimestampedVersionTracker, add_expired_path_version) {
     ASSERT_EQ(7, tracker._expired_snapshot_version_path_map.begin()->second->timestamped_versions().size());
 }
 
+TEST_F(TestTimestampedVersionTracker, add_expired_path_version_with_same_rowset) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+    std::vector<Version> version_path;
+
+    init_all_rs_meta(&rs_metas);
+    TimestampedVersionTracker tracker;
+    tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
+
+    init_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
+    tracker.add_expired_path_version(expried_rs_metas);
+
+    ASSERT_EQ(1, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(8, tracker._expired_snapshot_version_path_map.begin()->second->timestamped_versions().size());
+}
+
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
@@ -317,6 +494,28 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
 
     init_all_rs_meta(&rs_metas);
     init_expried_row_rs_meta(&expried_rs_metas);
+
+    TimestampedVersionTracker tracker;
+    tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
+
+    Version spec_version(0, 8);
+    tracker.capture_consistent_versions(spec_version, &version_path);
+
+    ASSERT_EQ(4, version_path.size());
+    ASSERT_EQ(Version(0, 0), version_path[0]);
+    ASSERT_EQ(Version(1, 1), version_path[1]);
+    ASSERT_EQ(Version(2, 5), version_path[2]);
+    ASSERT_EQ(Version(6, 8), version_path[3]);
+}
+
+TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker_with_same_rowset) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+    std::vector<Version> version_path;
+
+    init_all_rs_meta(&rs_metas);
+    init_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
@@ -346,25 +545,69 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version) {
     ASSERT_EQ(4, tracker._expired_snapshot_version_path_map.size());
 
     Version spec_version(0, 8);
-    tracker.fetch_and_delete_path_by_id(1, version_path);
+    tracker.fetch_and_delete_path_by_id(1, &version_path);
     ASSERT_EQ(2, version_path.size());
     ASSERT_EQ(Version(2, 3), version_path[0]);
     ASSERT_EQ(Version(4, 5), version_path[1]);
 
     version_path.clear();
-    tracker.fetch_and_delete_path_by_id(2, version_path);
+    tracker.fetch_and_delete_path_by_id(2, &version_path);
     ASSERT_EQ(2, version_path.size());
     ASSERT_EQ(Version(6, 6), version_path[0]);
     ASSERT_EQ(Version(7, 8), version_path[1]);
 
     version_path.clear();
-    tracker.fetch_and_delete_path_by_id(3, version_path);
+    tracker.fetch_and_delete_path_by_id(3, &version_path);
     ASSERT_EQ(2, version_path.size());
     ASSERT_EQ(Version(6, 8), version_path[0]);
     ASSERT_EQ(Version(9, 9), version_path[1]);
 
     version_path.clear();
-    tracker.fetch_and_delete_path_by_id(4, version_path);
+    tracker.fetch_and_delete_path_by_id(4, &version_path);
+    ASSERT_EQ(1, version_path.size());
+    ASSERT_EQ(Version(10, 10), version_path[0]);
+
+    ASSERT_EQ(0, tracker._expired_snapshot_version_path_map.size());
+}
+
+TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version_with_same_rowset) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+    std::vector<Version> version_path;
+
+    init_all_rs_meta(&rs_metas);
+    init_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
+
+    TimestampedVersionTracker tracker;
+    tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
+
+    ASSERT_EQ(5, tracker._expired_snapshot_version_path_map.size());
+
+    tracker.fetch_and_delete_path_by_id(1, &version_path);
+    ASSERT_EQ(1, version_path.size());
+    ASSERT_EQ(Version(1, 1), version_path[0]);
+
+    version_path.clear();
+    tracker.fetch_and_delete_path_by_id(2, &version_path);
+    ASSERT_EQ(2, version_path.size());
+    ASSERT_EQ(Version(2, 3), version_path[0]);
+    ASSERT_EQ(Version(4, 5), version_path[1]);
+
+    version_path.clear();
+    tracker.fetch_and_delete_path_by_id(3, &version_path);
+    ASSERT_EQ(2, version_path.size());
+    ASSERT_EQ(Version(6, 6), version_path[0]);
+    ASSERT_EQ(Version(7, 8), version_path[1]);
+
+    version_path.clear();
+    tracker.fetch_and_delete_path_by_id(4, &version_path);
+    ASSERT_EQ(2, version_path.size());
+    ASSERT_EQ(Version(6, 8), version_path[0]);
+    ASSERT_EQ(Version(9, 9), version_path[1]);
+
+    version_path.clear();
+    tracker.fetch_and_delete_path_by_id(5, &version_path);
     ASSERT_EQ(1, version_path.size());
     ASSERT_EQ(Version(10, 10), version_path[0]);
 

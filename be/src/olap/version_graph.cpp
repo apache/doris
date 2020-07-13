@@ -69,33 +69,36 @@ void TimestampedVersionTracker::_construct_versioned_tracker(
                     Version(min_begin_version, min_end_version), min_rs_meta->creation_time()));
             path_version_ptr->add_timestamped_version(tracker_ptr);
             // 1.1 do loop, find next start to make a path
+            auto max_end_version = min_end_version;
             auto tmp_start_version = min_end_version + 1;
             do {
+                // 1.2 judge if this path finish
+                // find from main_path
+                if (main_path.find(Version(min_begin_version, max_end_version)) !=
+                    main_path.end()) {
+                    break;
+                }
+
                 int64_t tmp_end_version = -1;
                 int64_t create_time = -1;
-                // 1.2 the next must in other_path, find from other_path, 
+                // 1.3 the next must in other_path, find from other_path, 
                 // Only when the second size equals one, links next version.
                 auto tmp_edge_iter = other_path.find(tmp_start_version);
                 if (tmp_edge_iter == other_path.end() || tmp_edge_iter->second->size() != 1) {
                     break;
                 }
 
-                // 1.3 record this version to make a tracker, put into path_version
+                // 1.4 record this version to make a tracker, put into path_version
                 auto next_rs_meta_iter = tmp_edge_iter->second->begin();
                 tmp_end_version = next_rs_meta_iter->first;
                 create_time = next_rs_meta_iter->second->creation_time();
                 TimestampedVersionSharedPtr tracker_ptr(new TimestampedVersion(
                         Version(tmp_start_version, tmp_end_version), create_time));
                 path_version_ptr->add_timestamped_version(tracker_ptr);
-                // 1.4 judge if this path finish
-                auto max_end_version = tmp_end_version;
+
+                max_end_version = tmp_end_version;
                 // find from other_path
                 if (edges->find(max_end_version) != edges->end()) {
-                    break;
-                }
-                // find from main_path
-                if (main_path.find(Version(min_begin_version, max_end_version)) !=
-                    main_path.end()) {
                     break;
                 }
                 // 1.5 do next
@@ -163,7 +166,13 @@ void TimestampedVersionTracker::add_expired_path_version(
     }
 
     std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
-    sort(timestamped_versions.begin(), timestamped_versions.end());
+
+    struct TimestampedVersionPtrCompare {
+        bool operator () (const TimestampedVersionSharedPtr ptr1, const TimestampedVersionSharedPtr ptr2) {
+            return ptr1->version().first < ptr2->version().first;
+        }
+    };
+    sort(timestamped_versions.begin(), timestamped_versions.end(), TimestampedVersionPtrCompare());
     _expired_snapshot_version_path_map[_next_path_id] = ptr;
     _next_path_id++;
 }
@@ -190,9 +199,14 @@ void TimestampedVersionTracker::capture_expired_paths(
 }
 
 void TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_version,
-                                                std::vector<Version>& version_path) {
+                                                std::vector<Version>* version_path) {
     if (_expired_snapshot_version_path_map.count(path_version) == 0) {
         VLOG(3) << "path version " << path_version << " does not exist!";
+        return;
+    }
+
+    if (version_path == nullptr) {
+        VLOG(3) << "version path is null ";
         return;
     }
 
@@ -201,15 +215,20 @@ void TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_version,
     std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
     std::vector<TimestampedVersionSharedPtr>::iterator iter = timestamped_versions.begin();
     while (iter != timestamped_versions.end()) {
-        version_path.push_back((*iter)->version());
+        version_path->push_back((*iter)->version());
         iter++;
     }
 }
 
 void TimestampedVersionTracker::fetch_and_delete_path_by_id(int64_t path_id,
-                                                           std::vector<Version>& version_path) {
+                                                           std::vector<Version>* version_path) {
     if (_expired_snapshot_version_path_map.count(path_id) == 0) {
         VLOG(3) << "path version " << path_id << " does not exist!";
+        return;
+    }
+
+    if (version_path == nullptr) {
+        VLOG(3) << "version path is null ";
         return;
     }
 
@@ -218,7 +237,7 @@ void TimestampedVersionTracker::fetch_and_delete_path_by_id(int64_t path_id,
 
     _expired_snapshot_version_path_map.erase(path_id);
 
-    for (auto& version : version_path) {
+    for (auto& version : *version_path) {
         _version_graph.delete_version_from_graph(version);
     }
 }
@@ -356,8 +375,24 @@ OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
     int64_t end_vertex_index = _vertex_index_map[end_vertex_value];
     // Remove edge and its reverse edge.
-    _version_graph[start_vertex_index].edges.remove(end_vertex_index);
-    _version_graph[end_vertex_index].edges.remove(start_vertex_index);
+    // When there are same versions in edges, just remove the frist version.
+    auto start_edges_iter = _version_graph[start_vertex_index].edges.begin();
+    while (start_edges_iter != _version_graph[start_vertex_index].edges.end()) {
+        if (*start_edges_iter == end_vertex_index) {
+            _version_graph[start_vertex_index].edges.erase(start_edges_iter);
+            break;
+        }
+        start_edges_iter++;
+    }
+
+    auto end_edges_iter = _version_graph[end_vertex_index].edges.begin();
+    while (end_edges_iter != _version_graph[end_vertex_index].edges.end()) {
+        if (*end_edges_iter == start_vertex_index) {
+            _version_graph[end_vertex_index].edges.erase(end_edges_iter);
+            break;
+        }
+        end_edges_iter++;
+    }
 
     return OLAP_SUCCESS;
 }

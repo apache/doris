@@ -246,14 +246,16 @@ void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
     for (auto& rs : to_add) {
         rs_metas_to_add.push_back(rs->rowset_meta());
         _rs_version_map[rs->version()] = rs;
+
+        _timestamped_version_tracker.add_version(rs->version());
         ++_newly_created_rowset_num;
     }
 
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
+    
+    // add rs_metas_to_delete to tracker
+    _timestamped_version_tracker.add_expired_path_version(rs_metas_to_delete);
 
-    // change _rs_graph to _timestamped_version_tracker
-     _timestamped_version_tracker.reconstruct_versioned_tracker(_tablet_meta->all_rs_metas(), 
-                                    _tablet_meta->all_expired_snapshot_rs_metas());
 }
 
 // snapshot manager may call this api to check if version exists, so that
@@ -403,7 +405,7 @@ void Tablet::delete_expired_snapshot_rowset() {
 
         std::vector<Version> version_path;
         // fetch the path versions in the version path and delete the path version in tracker
-        _timestamped_version_tracker.fetch_and_delete_path_by_id(path_version, version_path);
+        _timestamped_version_tracker.fetch_and_delete_path_by_id(path_version, &version_path);
 
         for (auto& version : version_path) {
             is_find = true;
@@ -438,6 +440,17 @@ void Tablet::delete_expired_snapshot_rowset() {
         Version test_version = Version(0, lastest_delta->end_version());
         OLAPStatus status = capture_consistent_versions(test_version, nullptr);
 
+        // When there is no consistent versions, we must reconstruct the tracker.
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "The consistent version check fails, there is bugs. "
+                         << "Reconstruct the tracker to recover versions.";
+
+            _timestamped_version_tracker.reconstruct_versioned_tracker(
+                    _tablet_meta->all_rs_metas(), _tablet_meta->all_expired_snapshot_rs_metas());
+
+            // double check the consistent versions
+            status = capture_consistent_versions(test_version, nullptr);
+        }
         DCHECK(status == OLAP_SUCCESS);
         save_meta();
     }
@@ -543,7 +556,7 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
     for (auto version : version_path) {
         auto it = _rs_version_map.find(version);
         if (it == _rs_version_map.end()) {
-            LOG(WARNING) << "fail to find Rowset in rs_version for version. tablet=" << full_name()
+            VLOG(3) << "fail to find Rowset in rs_version for version. tablet=" << full_name()
                          << ", version='" << version.first << "-" << version.second;
 
             it = _expired_snapshot_rs_version_map.find(version);
@@ -872,6 +885,7 @@ void Tablet::delete_all_files() {
         it.second->remove();
     }
     _inc_rs_version_map.clear();
+    _expired_snapshot_rs_version_map.clear();
 }
 
 bool Tablet::check_path(const std::string& path_to_check) const {
@@ -1076,6 +1090,22 @@ void Tablet::do_tablet_meta_checkpoint() {
         }
         rs_meta->set_remove_from_rowset_meta();
     }
+
+    // check _expired_snapshot_rs_version_map to remove meta from rowset meta store
+    for (auto& rs_meta : _tablet_meta->all_expired_snapshot_rs_metas()) {
+        // If we delete it from rowset manager's meta explicitly in previous checkpoint, just skip.
+        if(rs_meta->is_remove_from_rowset_meta()) {
+            continue;
+        }
+        if (RowsetMetaManager::check_rowset_meta(
+                    _data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id())) {
+            RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(), rs_meta->rowset_id());
+            LOG(INFO) << "remove rowset id from meta store because it is already persistent with tablet meta"
+                       << ", rowset_id=" << rs_meta->rowset_id();
+        }
+        rs_meta->set_remove_from_rowset_meta();
+    }
+
     _newly_created_rowset_num = 0;
     _last_checkpoint_time = UnixMillis();
 }
