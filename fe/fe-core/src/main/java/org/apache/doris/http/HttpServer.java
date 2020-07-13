@@ -40,6 +40,10 @@ public class HttpServer extends SpringBootServletInitializer {
 
     @Override
     protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+        return application.sources(HttpServer.class);
+    }
+
+    public void start() {
         Map<String,Object> properties = new HashMap<>();
         properties.put("server.port",port);
         properties.put("server.servlet.context-path","/");
@@ -47,11 +51,9 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.charset","UTF-8");
         properties.put("spring.http.encoding.enabled",true);
         properties.put("spring.http.encoding.force",true);
-        application.properties(properties);
-        return application.sources(HttpServer.class);
-    }
-
-    public void start() {
-        SpringApplication.run(HttpServer.class);
+        new SpringApplicationBuilder()
+                .sources(HttpServer.class)
+                .properties(properties)
+                .run(new String[]{});
     }
 }
