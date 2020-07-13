@@ -991,11 +991,7 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
             find_version = true;
         }
     }
-    if (find_rowset_id || !find_version) {
-        return true;
-    } else {
-        return false;
-    }
+    return find_rowset_id || !find_version;
 }
 
 bool Tablet::_contains_rowset(const RowsetId rowset_id) {
@@ -1050,10 +1046,12 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
 // should use this method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
-// TODO(lingbin): do we need _meta_lock?
 void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const {
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    {
+        ReadLock rdlock(&_meta_lock);
+        _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    }
     new_tablet_meta->init_from_pb(tablet_meta_pb);
 }
 
