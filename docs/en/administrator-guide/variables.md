@@ -159,7 +159,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `exec_mem_limit`
 
-    Used to set the memory limit for a single query. The default is 2GB, in bytes.
+    Used to set the memory limit for a single query. The default is 2GB, you can set it in B/K/KB/M/MB/G/GB/T/TB/P/PB, the default is B.
     
     This parameter is used to limit the memory that can be used by an instance of a single query fragment in a query plan. A query plan may have multiple instances, and a BE node may execute one or more instances. Therefore, this parameter does not accurately limit the memory usage of a query across the cluster, nor does it accurately limit the memory usage of a query on a single BE node. The specific needs need to be judged according to the generated query plan.
     
