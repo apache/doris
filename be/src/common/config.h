@@ -324,7 +324,7 @@ namespace config {
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num_min, "64");
     CONF_Int32(fragment_pool_thread_num_max, "512");
-    CONF_Int32(fragment_pool_queue_size, "1024");
+    CONF_Int32(fragment_pool_queue_size, "2048");
 
     //for cast
     // CONF_Bool(cast, "true");
