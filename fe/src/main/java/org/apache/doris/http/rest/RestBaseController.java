@@ -130,13 +130,6 @@ public class RestBaseController extends BaseController {
         return true;
     }
 
-    // If user password should be checked, the derived class should implement this method, NOT 'execute()',
-    // otherwise, override 'execute()' directly
-    protected void executeWithoutPassword(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
-        throw new DdlException("Not implemented");
-    }
-
 
     public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr)
             throws DdlException {
@@ -215,6 +208,15 @@ public class RestBaseController extends BaseController {
 
         return false;
     }
-
+    public boolean writeFileResponse(HttpServletRequest request, HttpServletResponse response,File imageFile){
+        if (imageFile == null || !imageFile.exists()) {
+            return false;
+        } else {
+            response.setHeader("Content-type","application/octet-stream");
+            response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());// 设置文件名
+            response.setHeader("X-Image-Size",imageFile.length() +"");
+            return getFile(request,response,imageFile,imageFile.getName());
+        }
+    }
 
 }
