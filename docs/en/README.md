@@ -10,11 +10,11 @@ structure:
   title: Apache Doris 
   subTitle: 
   descriptions: 
-    - Apache Doris is a modern MPP analytical database product. It can provide sub-second queries and efficient real-time data analysis. With it's simple and clear distributed architecture, up to 10PB level datasets will be well supported and easy to operate and maintain.
+    - Apache Doris is a modern MPP analytical database product. It can provide sub-second queries and efficient real-time data analysis. With it's distributed architecture, up to 10PB level datasets will be well supported and easy to operate.
     - Apache Doris can meet various data analysis demands, including history data reports, real-time data analysis, interactive data analysis, and exploratory data analysis. Make your data analysis easier!
   image: /images/home/structure-fresh.png
   actionText: Learn More
-  actionLink: /zh-CN/getting-started/basic-usage
+  actionLink: /en/getting-started/basic-usage
 features:
   title: Apache Doris Core Features
   subTitle: 
@@ -72,5 +72,5 @@ cases:
     - logo: /images/home/logo-youdao.png
       alt: 有道
 actionText: Quick Start →
-actionLink: /zh-CN/installing/compilation
+actionLink: /en/installing/compilation
 ---
