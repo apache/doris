@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -55,8 +56,8 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TTabletType;
+import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -319,9 +320,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
 
-        if (!isPreviousLoadFinished()) {
-            LOG.info("wait transactions before {} to be finished, rollup job: {}", watershedTxnId, jobId);
-            return;
+        try {
+            if (!isPreviousLoadFinished()) {
+                LOG.info("wait transactions before {} to be finished, rollup job: {}", watershedTxnId, jobId);
+                return;
+            }
+        } catch (AnalysisException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         LOG.info("previous transactions are all finished, begin to send rollup tasks. job: {}", jobId);
@@ -530,7 +535,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     }
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
-    protected boolean isPreviousLoadFinished() {
+    protected boolean isPreviousLoadFinished() throws AnalysisException {
         return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 

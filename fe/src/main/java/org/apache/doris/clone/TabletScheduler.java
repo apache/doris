@@ -36,6 +36,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
@@ -879,9 +880,14 @@ public class TabletScheduler extends MasterDaemon {
             throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
-            if (!Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId,
-                    tabletCtx.getDbId(), Lists.newArrayList(tabletCtx.getTblId()))) {
-                throw new SchedException(Status.SCHEDULE_FAILED, "wait txn before " + watermarkTxnId + " to be finished");
+            try {
+                if (!Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId,
+                        tabletCtx.getDbId(), Lists.newArrayList(tabletCtx.getTblId()))) {
+                    throw new SchedException(Status.SCHEDULE_FAILED,
+                            "wait txn before " + watermarkTxnId + " to be finished");
+                }
+            } catch (AnalysisException e) {
+                throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
             }
         }
         

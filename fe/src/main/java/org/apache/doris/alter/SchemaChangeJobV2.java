@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -353,9 +354,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
 
-        if (!isPreviousLoadFinished()) {
-            LOG.info("wait transactions before {} to be finished, schema change job: {}", watershedTxnId, jobId);
-            return;
+        try {
+            if (!isPreviousLoadFinished()) {
+                LOG.info("wait transactions before {} to be finished, schema change job: {}", watershedTxnId, jobId);
+                return;
+            }
+        } catch (AnalysisException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         LOG.info("previous transactions are all finished, begin to send schema change tasks. job: {}", jobId);
@@ -648,7 +653,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
-    protected boolean isPreviousLoadFinished() {
+    protected boolean isPreviousLoadFinished() throws AnalysisException {
         return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 
