@@ -29,7 +29,6 @@ public class WebConfigurer implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        System.out.println("================= Registry Interceptor");
         registry.addInterceptor(new AuthInterceptor())
                 .addPathPatterns("/rest/v1/**")
                 .excludePathPatterns("/","/api/**","/rest/v1/login","/static/**");
@@ -37,7 +36,6 @@ public class WebConfigurer implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        System.out.println("================= Registry Cors");
         registry.addMapping("/**")
                 .allowCredentials(false)
                 .allowedMethods("*")
