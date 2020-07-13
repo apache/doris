@@ -72,5 +72,5 @@ cases:
     - logo: /images/home/logo-youdao.png
       alt: 有道
 actionText: Quick Start →
-actionLink: /zh-CN/installing/compilation
+actionLink: /en/installing/compilation
 ---
