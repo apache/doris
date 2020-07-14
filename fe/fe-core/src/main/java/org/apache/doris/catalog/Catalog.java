@@ -583,6 +583,10 @@ public class Catalog {
         return pullLoadJobMgr;
     }
 
+    public LoadJobScheduler getLoadJobScheduler() {
+        return loadJobScheduler;
+    }
+
     public BrokerMgr getBrokerMgr() {
         return brokerMgr;
     }

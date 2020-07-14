@@ -38,6 +38,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -76,6 +77,7 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
@@ -138,6 +140,10 @@ public class SparkLoadJob extends BulkLoadJob {
     private Set<Long> finishedReplicas = Sets.newHashSet();
     private Set<Long> quorumTablets = Sets.newHashSet();
     private Set<Long> fullTablets = Sets.newHashSet();
+
+    // used for global dict lock
+    // keeps tableid which has bitmap columns
+    private Set<Long> tableWithBitmapColumn = Sets.newHashSet();
 
     // only for log replay
     public SparkLoadJob() {
@@ -340,6 +346,8 @@ public class SparkLoadJob extends BulkLoadJob {
         unprotectedUpdateToLoadingState(etlStatus, handler.getEtlFilePaths(etlOutputPath, brokerDesc));
         // log loading state
         unprotectedLogUpdateStateInfo();
+        // release dict lock when etl finished
+        Catalog.getCurrentCatalog().getLoadJobScheduler().removeRunningTable(getId(), getTableWithBitmapColumn());
         // prepare loading infos
         unprotectedPrepareLoadingInfos();
     }
@@ -685,12 +693,22 @@ public class SparkLoadJob extends BulkLoadJob {
     public void cancelJobWithoutCheck(FailMsg failMsg, boolean abortTxn, boolean needLog) {
         super.cancelJobWithoutCheck(failMsg, abortTxn, needLog);
         clearJob();
+        // release dict lock when cancel internal
+        Catalog.getCurrentCatalog().getLoadJobScheduler().removeRunningTable(getId(), getTableWithBitmapColumn());
     }
 
     @Override
     public void cancelJob(FailMsg failMsg) throws DdlException {
         super.cancelJob(failMsg);
         clearJob();
+        // release dict lock when user cancel
+        Catalog.getCurrentCatalog().getLoadJobScheduler().removeRunningTable(getId(), getTableWithBitmapColumn());
+    }
+
+    public void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
+        super.unprotectedExecuteCancel(failMsg, abortTxn);
+        // release dict lock when sparkPendingTaskFailed or TransactionMgr aborts
+        Catalog.getCurrentCatalog().getLoadJobScheduler().removeRunningTable(getId(), getTableWithBitmapColumn());
     }
 
     @Override
@@ -742,6 +760,26 @@ public class SparkLoadJob extends BulkLoadJob {
         Catalog.getCurrentCatalog().getEditLog().logUpdateLoadJob(info);
     }
 
+    // because current SparkLoadJob didn't persist job's tableId, so we need to get job's tableid from transaction mgr
+    private void fillJobTableIdSetWhenReplay() {
+        try {
+            DatabaseTransactionMgr databaseTransactionMgr =
+                    Catalog.getCurrentCatalog().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
+            TransactionState transactionState = databaseTransactionMgr.getTransactionState(this.transactionId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            if (this.tableWithBitmapColumn.size() == 0) {
+                for (Long tableId : transactionState.getTableIdList()) {
+                    Table table = db.getTable(tableId);
+                    if (isTableContainsBitmap(table)) {
+                        tableWithBitmapColumn.add(tableId);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("fill spark load job table id set failed when replay", e);
+        }
+    }
+
     @Override
     public void replayUpdateStateInfo(LoadJobStateUpdateInfo info) {
         super.replayUpdateStateInfo(info);
@@ -753,7 +791,9 @@ public class SparkLoadJob extends BulkLoadJob {
 
         switch (state) {
             case ETL:
-                // nothing to do
+                // acquire dict lock when job relays
+                fillJobTableIdSetWhenReplay();
+                Catalog.getCurrentCatalog().getLoadJobScheduler().addRunningTable(getId(), getTableWithBitmapColumn());
                 break;
             case LOADING:
                 unprotectedPrepareLoadingInfos();
@@ -909,4 +949,30 @@ public class SparkLoadJob extends BulkLoadJob {
             tDescriptorTable = descTable.toThrift();
         }
     }
+
+    public Set<Long> getTableWithBitmapColumn() {
+        if (tableWithBitmapColumn.size() != 0) {
+            return tableWithBitmapColumn;
+        }
+
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        for (Long tableId : fileGroupAggInfo.getAllTableIds()) {
+            Table tab = db.getTable(tableId);
+            if (isTableContainsBitmap(tab)) {
+                tableWithBitmapColumn.add(tableId);
+            }
+        }
+        return tableWithBitmapColumn;
+    }
+
+    private boolean isTableContainsBitmap(Table table) {
+        List<Column> columns = table.getBaseSchema();
+        for (Column column : columns) {
+            if (PrimitiveType.BITMAP.equals(column.getDataType())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }

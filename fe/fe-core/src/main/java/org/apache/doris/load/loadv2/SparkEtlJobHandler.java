@@ -174,13 +174,13 @@ public class SparkEtlJobHandler {
             }
             if (retry >= GET_APPID_MAX_RETRY_TIMES) {
                 throw new LoadException(errMsg + "wait too much time for getting appid. spark app state: "
-                                                + state.toString());
+                        + state.toString());
             }
 
             // log
             if (retry % 10 == 0) {
                 LOG.info("spark appid that handle get is null. load job id: {}, state: {}, retry times: {}",
-                         loadJobId, state.toString(), retry);
+                        loadJobId, state.toString(), retry);
             }
             try {
                 Thread.sleep(GET_APPID_SLEEP_MS);
