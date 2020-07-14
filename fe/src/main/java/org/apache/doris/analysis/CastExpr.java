@@ -43,7 +43,7 @@ public class CastExpr extends Expr {
     private final TypeDef targetTypeDef;
 
     // True if this is a "pre-analyzed" implicit cast.
-    private final boolean isImplicit;
+    private boolean isImplicit;
 
     // True if this cast does not change the type.
     private boolean noOp = false;
@@ -169,6 +169,10 @@ public class CastExpr extends Expr {
 
     public boolean isImplicit() {
         return isImplicit;
+    }
+
+    public void setImplicit(boolean implicit) {
+        isImplicit = implicit;
     }
 
     public void analyze() throws AnalysisException {

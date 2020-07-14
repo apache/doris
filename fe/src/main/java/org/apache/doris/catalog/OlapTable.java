@@ -308,7 +308,12 @@ public class OlapTable extends Table {
         long indexId = this.indexNameToId.remove(indexName);
         this.indexIdToMeta.remove(indexId);
         // Some column of deleted index should be removed during `deleteIndexInfo` such as `mv_bitmap_union_c1`
-        rebuildFullSchema();
+        // If deleted index id == base index id, the schema will not be rebuilt.
+        // The reason is that the base index has been removed from indexIdToMeta while the new base index hasn't changed.
+        // The schema could not be rebuild in here with error base index id.
+        if (indexId != baseIndexId) {
+            rebuildFullSchema();
+        }
         return true;
     }
 
