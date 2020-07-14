@@ -49,7 +49,7 @@ bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletCo
 
 class RowBlockChanger {
 public:
-    RowBlockChanger(const TabletSchema& tablet_schema， const DeleteHandler& delete_handler);
+    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler& delete_handler);
 
     RowBlockChanger(const TabletSchema& tablet_schema);
 
