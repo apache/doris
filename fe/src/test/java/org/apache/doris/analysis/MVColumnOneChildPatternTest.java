@@ -52,8 +52,8 @@ public class MVColumnOneChildPatternTest {
         child0Params.add(slotRef);
         new Expectations() {
             {
-                castExpr.getChild(0);
-                result = child0Params;
+                castExpr.unwrapSlotRef();
+                result = slotRef;
             }
         };
         List<Expr> params = Lists.newArrayList();

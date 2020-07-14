@@ -21,13 +21,14 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -40,6 +41,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -55,13 +57,14 @@ public class MaterializedIndexMetaTest {
     }
 
     @Test
-    public void testSerializeMaterializedIndexMeta(@Mocked CreateMaterializedViewStmt stmt) throws IOException {
+    public void testSerializeMaterializedIndexMeta(@Mocked CreateMaterializedViewStmt stmt)
+            throws IOException, AnalysisException {
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + "to_bitmap_" + "k1";
+        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + FunctionSet.BITMAP_UNION + "_" + "k1";
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", Type.TINYINT, true, null, true, "1", "abc"));
         schema.add(new Column("k2", Type.SMALLINT, true, null, true, "1", "debug"));
@@ -88,17 +91,15 @@ public class MaterializedIndexMetaTest {
         out.flush();
         out.close();
 
-        List<MVColumnItem> itemList = Lists.newArrayList();
-        MVColumnItem item = new MVColumnItem(mvColumnName, Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
         params.add(param1);
-        item.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));
-        itemList.add(item);
+        Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
+        columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));
         new Expectations() {
             {
-                stmt.getMVColumnItemList();
-                result = itemList;
+                stmt.parseDefineExprWithoutAnalyze();
+                result = columnNameToDefineExpr;
             }
         };
 

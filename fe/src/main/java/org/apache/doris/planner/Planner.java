@@ -161,12 +161,12 @@ public class Planner {
         // compute mem layout *before* finalize(); finalize() may reference
         // TupleDescriptor.avgSerializedSize
         analyzer.getDescTbl().computeMemLayout();
-        singleNodePlan.finalize(analyzer);
         // materialized view selector
         boolean selectFailed = singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
         if (selectFailed) {
             throw new MVSelectFailedException("Failed to select materialize view");
         }
+        singleNodePlan.finalize(analyzer);
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);

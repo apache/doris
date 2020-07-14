@@ -28,7 +28,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
@@ -63,6 +62,7 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -369,7 +369,8 @@ public class RollupJobV2Test {
 
 
     @Test
-    public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException {
+    public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException,
+            AnalysisException {
         // prepare file
         File file = new File(fileName);
         file.createNewFile();
@@ -391,18 +392,15 @@ public class RollupJobV2Test {
         out.flush();
         out.close();
 
-        List<MVColumnItem> itemList = Lists.newArrayList();
-        MVColumnItem item = new MVColumnItem(
-                mvColumnName, Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
         params.add(param1);
-        item.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));
-        itemList.add(item);
+        Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
+        columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));
         new Expectations() {
             {
-                stmt.getMVColumnItemList();
-                result = itemList;
+                stmt.parseDefineExprWithoutAnalyze();
+                result = columnNameToDefineExpr;
             }
         };
 

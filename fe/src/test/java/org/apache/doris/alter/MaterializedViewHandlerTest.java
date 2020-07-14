@@ -222,7 +222,7 @@ public class MaterializedViewHandlerTest {
                 result = mvName;
                 createMaterializedViewStmt.getMVColumnItemList();
                 result = Lists.newArrayList(mvColumnItem);
-                olapTable.getColumn(columnName1);
+                olapTable.getBaseColumn(columnName1);
                 result = baseColumn1;
                 olapTable.getKeysType();
                 result = KeysType.DUP_KEYS;

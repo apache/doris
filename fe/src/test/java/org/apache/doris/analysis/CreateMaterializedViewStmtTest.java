@@ -100,7 +100,7 @@ public class CreateMaterializedViewStmtTest {
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
-        } catch (UserException e) {
+        } catch (IllegalArgumentException e) {
             System.out.print(e.getMessage());
         }
     }

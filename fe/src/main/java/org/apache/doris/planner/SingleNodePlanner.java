@@ -776,6 +776,9 @@ public class SingleNodePlanner {
                 if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
                     continue;
                 }
+                // select index by the old Rollup selector
+                olapScanNode.selectBestRollupByRollupSelector(analyzer);
+                // select index by the new Materialized selector
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector.selectBestMV(olapScanNode);
                 if (bestIndexInfo == null) {
                     selectFailed |= true;
@@ -784,6 +787,7 @@ public class SingleNodePlanner {
                     LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
                     continue;
                 }
+                // if the new selected index id is different from the old one, scan node will be updated.
                 olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
                         bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable(), analyzer);
             }

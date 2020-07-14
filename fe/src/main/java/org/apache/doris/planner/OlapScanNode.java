@@ -229,7 +229,7 @@ public class OlapScanNode extends ScanNode {
             this.reasonOfPreAggregation = reasonOfDisable;
             long start = System.currentTimeMillis();
             computeTabletInfo();
-            computeStats(analyzer);
+//            computeStats(analyzer);
             LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
             LOG.info("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
         } else {
@@ -250,6 +250,12 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
+    public void init(Analyzer analyzer) throws UserException {
+        super.init(analyzer);
+        computePartitionInfo();
+    }
+
+    @Override
     public void finalize(Analyzer analyzer) throws UserException {
         if (isFinalized) {
             return;
@@ -257,7 +263,7 @@ public class OlapScanNode extends ScanNode {
 
         LOG.debug("OlapScanNode finalize. Tuple: {}", desc);
         try {
-            getScanRangeLocations(analyzer);
+            getScanRangeLocations();
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
@@ -412,7 +418,7 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    private void getScanRangeLocations(Analyzer analyzer) throws UserException {
+    private void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
         PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
@@ -438,28 +444,28 @@ public class OlapScanNode extends ScanNode {
         }
         selectedPartitionNum = selectedPartitionIds.size();
         LOG.debug("partition prune cost: {} ms, partitions: {}",
-                  (System.currentTimeMillis() - start), selectedPartitionIds);
-        if (selectedPartitionIds.size() == 0) {
-            return;
-        }
+                (System.currentTimeMillis() - start), selectedPartitionIds);
+    }
 
+    public void selectBestRollupByRollupSelector(Analyzer analyzer) throws UserException {
         // Step2: select best rollup
-        start = System.currentTimeMillis();
+        long start = System.currentTimeMillis();
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
             isPreAggregation = true;
-        }
-        // TODO: Remove the logic of old selector.
-        if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-            LOG.debug("The best index will be selected later in mv selector");
-            return;
         }
         final RollupSelector rollupSelector = new RollupSelector(analyzer, desc, olapTable);
         selectedIndexId = rollupSelector.selectBestRollup(selectedPartitionIds, conjuncts, isPreAggregation);
         LOG.debug("select best roll up cost: {} ms, best index id: {}",
-                  (System.currentTimeMillis() - start), selectedIndexId);
+                (System.currentTimeMillis() - start), selectedIndexId);
+    }
 
-        // Step3: compute tablet info by selected index id and selected partition ids
-        start = System.currentTimeMillis();
+    private void getScanRangeLocations() throws UserException {
+        if (selectedPartitionIds.size() == 0) {
+            return;
+        }
+        Preconditions.checkState(selectedIndexId != -1);
+        // compute tablet info by selected index id and selected partition ids
+        long start = System.currentTimeMillis();
         computeTabletInfo();
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
