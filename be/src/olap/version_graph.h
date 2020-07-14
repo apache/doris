@@ -132,15 +132,13 @@ using PathVersionListSharedPtr = std::shared_ptr<TimestampedVersionPathContainer
 /// after the path is expired.
 class TimestampedVersionTracker {
 public:
-    /// Construct rowsets version tracker by rs_metas and expired snapshot rowsets.
-    void construct_versioned_tracker(
-            const std::vector<RowsetMetaSharedPtr>& rs_metas,
-            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+    /// Construct rowsets version tracker by rs_metas and expired snapshot version path map.
+    void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
-    /// Reconstruct rowsets version tracker by rs_metas and expired snapshot rowsets.
+    /// Reconstruct rowsets version tracker by rs_metas and expired snapshot version path map.
     void reconstruct_versioned_tracker(
             const std::vector<RowsetMetaSharedPtr>& rs_metas,
-            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+            const std::map<int64_t, PathVersionListSharedPtr>& expired_snapshot_version_path_map);
 
     /// Add a version to tracker, this version is a new version rowset, not merged rowset.
     void add_version(const Version& version);
@@ -165,20 +163,18 @@ public:
                                       std::vector<int64_t>* path_version) const;
 
     /// Fetch all versions with a path_version.
-    void fetch_path_version_by_id(int64_t path_id, std::vector<Version>* version_path);
+    PathVersionListSharedPtr fetch_path_version_by_id(int64_t path_id);
 
     /// Fetch all versions with a path_version, at the same time remove this path from the tracker.
     /// Next time, fetch this path, it will return empty. 
-    void fetch_and_delete_path_by_id(int64_t path_id, std::vector<Version>* version_path);
+    PathVersionListSharedPtr fetch_and_delete_path_by_id(int64_t path_id);
 
     /// Print all expired version path in a tablet.
     std::string _get_current_path_map_str();
 
 private:
     /// Construct rowsets version tracker with expired snapshot rowsets.
-    void _construct_versioned_tracker(
-            const std::vector<RowsetMetaSharedPtr>& rs_metas,
-            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+    void _construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
 private:
     // This variable records the id of path version which will be dispatched to next path version, 

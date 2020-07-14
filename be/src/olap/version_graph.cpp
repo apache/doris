@@ -24,128 +24,104 @@
 
 namespace doris {
 
-void TimestampedVersionTracker::_construct_versioned_tracker(
-        const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
+void TimestampedVersionTracker::_construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     int64_t max_version = 0;
 
-    std::vector<RowsetMetaSharedPtr> all_rs_metas(rs_metas);
-    all_rs_metas.insert(all_rs_metas.end(), expired_snapshot_rs_metas.begin(),
-                        expired_snapshot_rs_metas.end());
     // construct the roset graph
-    _version_graph.reconstruct_version_graph(all_rs_metas, &max_version);
-
-    // version -> rowsetmeta
-    // fill main_path which are included not merged rowsets
-    std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion> main_path;
-    for (auto& rs_meta : rs_metas) {
-        main_path[rs_meta->version()] = rs_meta;
-    }
-    // fill other_path which are included merged rowsets
-    typedef std::shared_ptr<std::map<int64_t, RowsetMetaSharedPtr>> Edges;
-    std::map<int64_t, Edges> other_path;
-
-    for (auto& rs_meta : expired_snapshot_rs_metas) {
-        if (other_path.find(rs_meta->start_version()) == other_path.end()) {
-            other_path[rs_meta->start_version()] =
-                    Edges(new std::map<int64_t, RowsetMetaSharedPtr>());
-        }
-        other_path[rs_meta->start_version()]->insert(
-                std::pair<int64_t, RowsetMetaSharedPtr>(rs_meta->end_version(), rs_meta));
-    }
-
-    auto iter = other_path.begin();
-    for (; iter != other_path.end(); iter++) {
-        Edges edges = iter->second;
-        auto min_begin_version = iter->first;
-
-        while (!edges->empty()) {
-            PathVersionListSharedPtr path_version_ptr(new TimestampedVersionPathContainer());
-            // 1. find a path, begin from min_begin_version
-            auto min_end_version = edges->begin()->first;
-            auto min_rs_meta = edges->begin()->second;
-            // tracker the first
-            TimestampedVersionSharedPtr tracker_ptr(new TimestampedVersion(
-                    Version(min_begin_version, min_end_version), min_rs_meta->creation_time()));
-            path_version_ptr->add_timestamped_version(tracker_ptr);
-            // 1.1 do loop, find next start to make a path
-            auto max_end_version = min_end_version;
-            auto tmp_start_version = min_end_version + 1;
-            do {
-                // 1.2 judge if this path finish
-                // find from main_path
-                if (main_path.find(Version(min_begin_version, max_end_version)) !=
-                    main_path.end()) {
-                    break;
-                }
-
-                int64_t tmp_end_version = -1;
-                int64_t create_time = -1;
-                // 1.3 the next must in other_path, find from other_path, 
-                // Only when the second size equals one, links next version.
-                auto tmp_edge_iter = other_path.find(tmp_start_version);
-                if (tmp_edge_iter == other_path.end() || tmp_edge_iter->second->size() != 1) {
-                    break;
-                }
-
-                // 1.4 record this version to make a tracker, put into path_version
-                auto next_rs_meta_iter = tmp_edge_iter->second->begin();
-                tmp_end_version = next_rs_meta_iter->first;
-                create_time = next_rs_meta_iter->second->creation_time();
-                TimestampedVersionSharedPtr tracker_ptr(new TimestampedVersion(
-                        Version(tmp_start_version, tmp_end_version), create_time));
-                path_version_ptr->add_timestamped_version(tracker_ptr);
-
-                max_end_version = tmp_end_version;
-                // find from other_path
-                if (edges->find(max_end_version) != edges->end()) {
-                    break;
-                }
-                // 1.5 do next
-                tmp_start_version = tmp_end_version + 1;
-
-            } while (true);
-            // 1.6 add path_version to map
-            _expired_snapshot_version_path_map[_next_path_id++] = path_version_ptr;
-
-            // 2 remove this path from other_path
-            std::vector<TimestampedVersionSharedPtr>& timestamped_versions = path_version_ptr->timestamped_versions();
-            auto path_iter = timestamped_versions.begin();
-            for (; path_iter != timestamped_versions.end(); path_iter++) {
-                const Version& version = (*path_iter)->version();
-                other_path[version.first]->erase(version.second);
-            }
-        }
-    }
-    other_path.clear();
-    main_path.clear();
-    LOG(INFO) <<"construct_versioned_tracker current map info "<< _get_current_path_map_str();
-
+    _version_graph.reconstruct_version_graph(rs_metas, &max_version);
 }
 
+<<<<<<< HEAD
 void TimestampedVersionTracker::construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
         const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
+=======
+void TimestampedVersionTracker::get_snapshot_version_path_json_doc(rapidjson::Document& path_arr) {
+
+    auto path_arr_iter = _expired_snapshot_version_path_map.begin();
+
+    // do loop version path 
+    while (path_arr_iter != _expired_snapshot_version_path_map.end()) {
+
+        auto path_id = path_arr_iter->first;
+        auto path_version_path = path_arr_iter->second;
+
+        rapidjson::Document item;
+        item.SetObject();
+        // add path_id to item
+        auto path_id_str = std::to_string(path_id);
+        rapidjson::Value path_id_value;
+        path_id_value.SetString(path_id_str.c_str(), path_id_str.length(), path_arr.GetAllocator());
+        item.AddMember("path id", path_id_value, path_arr.GetAllocator());
+
+        // add max create time to item
+        std::string create_time_str = ToStringFromUnix(path_version_path->max_create_time());
+        rapidjson::Value create_time_value;
+        create_time_value.SetString(create_time_str.c_str(), create_time_str.length(), path_arr.GetAllocator());
+        item.AddMember("last create time", create_time_value, path_arr.GetAllocator());
+
+        // add path list to item
+        std::stringstream path_list_stream;
+        path_list_stream << path_id_str;
+        auto path_list_ptr = path_version_path->timestamped_versions();
+        auto path_list_iter = path_list_ptr.begin();
+        while (path_list_iter != path_list_ptr.end()) {
+            path_list_stream << " -> ";
+            path_list_stream << "[";
+            path_list_stream << (*path_list_iter)->version().first;
+            path_list_stream << "-";
+            path_list_stream << (*path_list_iter)->version().second;
+            path_list_stream << "]";
+            path_list_iter++;
+        }
+        std::string path_list = path_list_stream.str();
+        rapidjson::Value path_list_value;
+        path_list_value.SetString(path_list.c_str(), path_list.length(), path_arr.GetAllocator());
+        item.AddMember("path list", path_list_value, path_arr.GetAllocator());
+        
+        // add item to path_arr
+        path_arr.PushBack(item, path_arr.GetAllocator());
+
+        path_arr_iter++;
+    }
+}
+
+void TimestampedVersionTracker::construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+>>>>>>> d7e83dfb... Add delayed deletion of rowsets function, fix -230 error.
     if (rs_metas.empty()) {
         VLOG(3) << "there is no version in the header.";
         return;
     }
-
-    _construct_versioned_tracker(rs_metas, expired_snapshot_rs_metas);
+    _expired_snapshot_version_path_map.clear();
+    _next_path_id = 1;
+    _construct_versioned_tracker(rs_metas);
 }
 
 void TimestampedVersionTracker::reconstruct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
+        const std::map<int64_t, PathVersionListSharedPtr>& expired_snapshot_version_path_map) {
     if (rs_metas.empty()) {
         VLOG(3) << "there is no version in the header.";
         return;
     }
-    LOG(INFO) <<"reconstruct_versioned_tracker before map info "<< _get_current_path_map_str();
-    _expired_snapshot_version_path_map.clear();
-    _next_path_id = 1;
 
-    _construct_versioned_tracker(rs_metas, expired_snapshot_rs_metas);
+    _construct_versioned_tracker(rs_metas);
+    auto _path_map_iter = expired_snapshot_version_path_map.begin();
+    // recover expired_snapshot_version_path_map
+    while (_path_map_iter != expired_snapshot_version_path_map.end()) {
+        // add PathVersionListSharedPtr to map
+        _expired_snapshot_version_path_map[_path_map_iter->first] = _path_map_iter->second;
+
+        std::vector<TimestampedVersionSharedPtr>& timestamped_versions = _path_map_iter->second->timestamped_versions();
+        std::vector<TimestampedVersionSharedPtr>::iterator version_path_iter = timestamped_versions.begin();
+        while (version_path_iter != timestamped_versions.end()) {
+            // add version to _version_graph
+            _version_graph.add_version_to_graph((*version_path_iter)->version());
+            version_path_iter++;
+        }
+        _path_map_iter++;
+    }
+    LOG(INFO) <<"construct_versioned_tracker current map info "<< _get_current_path_map_str();
 }
 
 void TimestampedVersionTracker::add_version(const Version& version) {
@@ -198,48 +174,30 @@ void TimestampedVersionTracker::capture_expired_paths(
     }
 }
 
-void TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_version,
-                                                std::vector<Version>* version_path) {
-    if (_expired_snapshot_version_path_map.count(path_version) == 0) {
-        VLOG(3) << "path version " << path_version << " does not exist!";
-        return;
-    }
-
-    if (version_path == nullptr) {
-        VLOG(3) << "version path is null ";
-        return;
-    }
-
-    PathVersionListSharedPtr ptr = _expired_snapshot_version_path_map[path_version];
-
-    std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
-    std::vector<TimestampedVersionSharedPtr>::iterator iter = timestamped_versions.begin();
-    while (iter != timestamped_versions.end()) {
-        version_path->push_back((*iter)->version());
-        iter++;
-    }
-}
-
-void TimestampedVersionTracker::fetch_and_delete_path_by_id(int64_t path_id,
-                                                           std::vector<Version>* version_path) {
+PathVersionListSharedPtr TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_id) {
     if (_expired_snapshot_version_path_map.count(path_id) == 0) {
         VLOG(3) << "path version " << path_id << " does not exist!";
-        return;
+        return nullptr;
     }
 
-    if (version_path == nullptr) {
-        VLOG(3) << "version path is null ";
-        return;
+    return _expired_snapshot_version_path_map[path_id];
+}
+
+PathVersionListSharedPtr TimestampedVersionTracker::fetch_and_delete_path_by_id(int64_t path_id) {
+    if (_expired_snapshot_version_path_map.count(path_id) == 0) {
+        VLOG(3) << "path version " << path_id << " does not exist!";
+        return nullptr;
     }
 
     LOG(INFO) << _get_current_path_map_str();
-    fetch_path_version_by_id(path_id, version_path);
+    PathVersionListSharedPtr ptr = fetch_path_version_by_id(path_id);
 
     _expired_snapshot_version_path_map.erase(path_id);
 
-    for (auto& version : *version_path) {
-        _version_graph.delete_version_from_graph(version);
+    for (auto& version : ptr->timestamped_versions()) {
+        _version_graph.delete_version_from_graph(version->version());
     }
+    return ptr;
 }
 
 std::string TimestampedVersionTracker::_get_current_path_map_str() {
@@ -282,7 +240,7 @@ void TimestampedVersionPathContainer::add_timestamped_version(TimestampedVersion
     _timestamped_versions_container.push_back(version);
 }
 
-inline std::vector<TimestampedVersionSharedPtr>& TimestampedVersionPathContainer::timestamped_versions() {
+std::vector<TimestampedVersionSharedPtr>& TimestampedVersionPathContainer::timestamped_versions() {
     return _timestamped_versions_container;
 }
 

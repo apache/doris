@@ -62,8 +62,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         _last_base_compaction_success_millis(0),
         _cumulative_point(kInvalidCumulativePoint) {
     // change _rs_graph to _timestamped_version_tracker
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
-                                                     _tablet_meta->all_expired_snapshot_rs_metas());
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
 }
 
 OLAPStatus Tablet::_init_once_action() {
@@ -177,7 +176,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     }
     
     // reconstruct from tablet meta
-    _timestamped_version_tracker.reconstruct_versioned_tracker(_tablet_meta->all_rs_metas(), _tablet_meta->all_expired_snapshot_rs_metas());
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
 
     LOG(INFO) << "finish to clone data to tablet. res=" << res << ", "
               << "table=" << full_name() << ", "
@@ -396,61 +395,74 @@ void Tablet::delete_expired_snapshot_rowset() {
     // capture the path version to delete
     _timestamped_version_tracker.capture_expired_paths(static_cast<int64_t>(expired_snapshot_sweep_endtime), &path_version_vec);
 
+    if (path_version_vec.empty()) {
+        return;
+    }
+
+    // do check consistent operation
+    auto path_id_iter = path_version_vec.rbegin();
+
+    std::map<int64_t, PathVersionListSharedPtr> expired_snapshot_version_path_map;
+    while (path_id_iter != path_version_vec.rend()) {
+
+        PathVersionListSharedPtr version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(*path_id_iter);
+        const std::vector<TimestampedVersionSharedPtr>& to_delete_version = version_path->timestamped_versions();
+
+        auto first_version = to_delete_version.front();
+        auto end_version = to_delete_version.back();
+        Version test_version = Version(first_version->version().first, end_version->version().second);
+
+        OLAPStatus status = capture_consistent_versions(test_version, nullptr);
+        // When there is no consistent versions, we must reconstruct the tracker.
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "The consistent version check fails, there are bugs. "
+                << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
+
+            _timestamped_version_tracker.reconstruct_versioned_tracker(
+                    _tablet_meta->all_rs_metas(), expired_snapshot_version_path_map);
+
+            // double check the consistent versions
+            status = capture_consistent_versions(test_version, nullptr);
+
+            if (status != OLAP_SUCCESS) {
+                if (!config::ignore_rowset_expired_snapshot_unconsistent_delete) {
+                    LOG(FATAL) << "rowset expired snapshot unconsistent delete. tablet= " << tablet_id();
+                } else {
+                    LOG(WARNING) << "rowset expired snapshot unconsistent delete. tablet= " << tablet_id();
+                }
+            }
+            return;
+        }
+        expired_snapshot_version_path_map[*path_id_iter] = version_path;
+        path_id_iter++;
+    }
+
     auto old_size = _expired_snapshot_rs_version_map.size();
     auto old_meta_size = _tablet_meta->all_expired_snapshot_rs_metas().size();
 
-    std::vector<Version> to_delete_version;
-    // fetch all versions of rowsets to delete
-    for (auto& path_version : path_version_vec) {
-        std::vector<Version> version_path;
-        // fetch the path versions in the version path and delete the path version in tracker
-        _timestamped_version_tracker.fetch_and_delete_path_by_id(path_version, &version_path);
-        to_delete_version.insert(to_delete_version.end(), version_path.begin(), version_path.end());
-    }
-
-    if (to_delete_version.empty()) {
-        return;
-    }
-
-    // check consistent versions
-    const RowsetSharedPtr lastest_delta = rowset_with_max_version();
-    DCHECK(lastest_delta != nullptr);
-
-    Version test_version = Version(0, lastest_delta->end_version());
-    OLAPStatus status = capture_consistent_versions(test_version, nullptr);
-
-    // When there is no consistent versions, we must reconstruct the tracker.
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "The consistent version check fails, there are bugs. "
-                        << "Reconstruct the tracker to recover versions.";
-
-        _timestamped_version_tracker.reconstruct_versioned_tracker(
-                _tablet_meta->all_rs_metas(), _tablet_meta->all_expired_snapshot_rs_metas());
-
-        // double check the consistent versions
-        status = capture_consistent_versions(test_version, nullptr);
-        DCHECK(status == OLAP_SUCCESS);
-        return;
-    }
-
     // do delete operation
-    for (auto& version : to_delete_version) {
-        auto it = _expired_snapshot_rs_version_map.find(version);
-        if (it != _expired_snapshot_rs_version_map.end()) {
-            // delete rowset
-            StorageEngine::instance()->add_unused_rowset(it->second);
-            _expired_snapshot_rs_version_map.erase(it);
-            LOG(INFO) << "delete expired snapshot rowset tablet=" << full_name() 
-                <<" version[" << version.first << "," << version.second 
-                << "] move to unused_rowset success " << std::fixed << expired_snapshot_sweep_endtime;
-        } else {
-            LOG(WARNING) << "delete expired snapshot rowset tablet=" << full_name() 
-                <<" version[" << version.first << "," << version.second 
-                << "] not find in expired snapshot rs version ";
+    auto to_delete_iter = expired_snapshot_version_path_map.begin();
+    while (to_delete_iter != expired_snapshot_version_path_map.end()) {
+        
+        std::vector<TimestampedVersionSharedPtr>& to_delete_version = to_delete_iter->second->timestamped_versions();
+        for (auto& timestampedVersion : to_delete_version) {
+            auto it = _expired_snapshot_rs_version_map.find(timestampedVersion->version());
+            if (it != _expired_snapshot_rs_version_map.end()) {
+                // delete rowset
+                StorageEngine::instance()->add_unused_rowset(it->second);
+                _expired_snapshot_rs_version_map.erase(it);
+                LOG(INFO) << "delete expired snapshot rowset tablet=" << full_name() 
+                    <<" version[" << timestampedVersion->version().first << "," << timestampedVersion->version().second 
+                    << "] move to unused_rowset success " << std::fixed << expired_snapshot_sweep_endtime;
+            } else {
+                LOG(WARNING) << "delete expired snapshot rowset tablet=" << full_name() 
+                    <<" version[" << timestampedVersion->version().first << "," << timestampedVersion->version().second 
+                    << "] not find in expired snapshot rs version ";
+            }
+            _delete_expired_snapshot_rowset_by_version(timestampedVersion->version());
         }
-        _delete_expired_snapshot_rowset_by_version(version);
+        to_delete_iter++;
     }
-
     LOG(INFO) << "delete expired snapshot rowset _expired_snapshot_rs_version_map tablet="
         << full_name() << " current_size=" << _expired_snapshot_rs_version_map.size()
         << " old_size=" << old_size
