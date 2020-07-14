@@ -724,7 +724,8 @@ public class Catalog {
         // 1. check and create dirs and files
         File meta = new File(metaDir);
         if (!meta.exists()) {
-            meta.mkdirs();
+            LOG.error("{} does not exist, will exit", meta.getAbsolutePath());
+            System.exit(-1);
         }
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
