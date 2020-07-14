@@ -137,10 +137,14 @@ public class CastExpr extends Expr {
         if (isImplicit) {
             return getChild(0).toSql();
         }
-        if (type.isStringType()) {
-            return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+        if (isAnalyzed) {
+            if (type.isStringType()) {
+                return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+            } else {
+                return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            }
         } else {
-            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
         }
     }
 

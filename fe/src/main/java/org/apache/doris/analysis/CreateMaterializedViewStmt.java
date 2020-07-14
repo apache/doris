@@ -420,7 +420,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         break;
                     case FunctionSet.BITMAP_UNION:
                         if (functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
-                            CastExpr castExpr = new CastExpr(Type.VARCHAR, baseSlotRef);
+                            CastExpr castExpr = new CastExpr(new TypeDef(Type.VARCHAR), baseSlotRef);
                             List<Expr> params = Lists.newArrayList();
                             params.add(castExpr);
                             FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP, params);
@@ -431,7 +431,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         break;
                     case FunctionSet.HLL_UNION:
                         if (functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
-                            CastExpr castExpr = new CastExpr(Type.VARCHAR, baseSlotRef);
+                            CastExpr castExpr = new CastExpr(new TypeDef(Type.VARCHAR), baseSlotRef);
                             List<Expr> params = Lists.newArrayList();
                             params.add(castExpr);
                             FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.HLL_HASH, params);
