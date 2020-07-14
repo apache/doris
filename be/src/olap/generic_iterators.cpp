@@ -142,6 +142,8 @@ public:
 
     int is_partial_delete() const { return _block.delete_state() == DEL_PARTIAL_SATISFIED; }
 
+    uint64_t data_id() const { return _iter->data_id(); }
+
 private:
     // Load next block into _block
     Status _load_next_block();
@@ -227,8 +229,15 @@ private:
         bool operator()(const MergeIteratorContext* lhs, const MergeIteratorContext* rhs) const {
             auto lhs_row = lhs->current_row();
             auto rhs_row = rhs->current_row();
-
-            return compare_row(lhs_row, rhs_row) > 0;
+            int cmp_res = compare_row(lhs_row, rhs_row);
+            if (cmp_res !=  0) {
+                return cmp_res > 0;
+            }
+            // if row cursors equal, compare segment id.
+            // here we sort segment id in reverse order, because of the row order in AGG_KEYS
+            // dose no matter, but in UNIQUE_KEYS table we only read the latest is one, so we
+            // return the row in reverse order of segment id 
+            return lhs->data_id() < rhs->data_id();
         }
     };
     using MergeHeap = std::priority_queue<MergeIteratorContext*,

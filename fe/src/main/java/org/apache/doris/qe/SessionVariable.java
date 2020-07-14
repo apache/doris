@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -72,6 +73,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
+    public static final String ENABLE_SPILLING = "enable_spilling";
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
@@ -88,7 +90,6 @@ public class SessionVariable implements Serializable, Writable {
      * Using only the exec_mem_limit variable does not make a good distinction of memory limit between the two parts.
      */
     public static final String LOAD_MEM_LIMIT = "load_mem_limit";
-    public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
     public static final String USE_V2_ROLLUP = "use_v2_rollup";
     public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
@@ -104,7 +105,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
 
-    @VariableMgr.VarAttr(name = "enable_spilling")
+    @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
 
     // query timeout in second.
@@ -183,7 +184,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE)
-    private String timeZone = "CST";
+    private String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     private int exchangeInstanceParallel = -1;
@@ -223,10 +224,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     private long loadMemLimit = 0L;
-
-    // the default rowset type flag which will be passed to Backends through heartbeat
-    @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
-    private String defaultRowsetType = "alpha";
 
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     private boolean useV2Rollup = false;
@@ -459,10 +456,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDivPrecisionIncrement() {
         return divPrecisionIncrement;
-    }
-
-    public String getDefaultRowsetType() {
-        return defaultRowsetType;
     }
 
     public int getMaxScanKeyNum() {

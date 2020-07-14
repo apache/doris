@@ -550,19 +550,22 @@ public class FileSystemManager {
                             currentStreamOffset, offset);
                 }
             }
-            byte[] buf;
+            ByteBuffer buf;
             if (length > readBufferSize) {
-                buf = new byte[readBufferSize];
+                buf = ByteBuffer.allocate(readBufferSize);
             } else {
-                buf = new byte[(int) length];
+                buf = ByteBuffer.allocate((int) length);
             }
             try {
-                int readLength = fsDataInputStream.read(buf);
+                int readLength = readByteBufferFully(fsDataInputStream, buf);
                 if (readLength < 0) {
                     throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
                             "end of file reached");
                 }
-                return ByteBuffer.wrap(buf, 0, readLength);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("read buffer from input stream, buffer size:" + buf.capacity() + ", read length:" + readLength);
+                }
+                return buf;
             } catch (IOException e) {
                 logger.error("errors while read data from stream", e);
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
@@ -583,6 +586,8 @@ public class FileSystemManager {
                 fsDataInputStream.close();
             } catch (IOException e) {
                 logger.error("errors while close file input stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                        e, "errors while close file input stream");
             } finally {
                 clientContextManager.removeInputStream(fd);
             }
@@ -642,6 +647,8 @@ public class FileSystemManager {
                 fsDataOutputStream.close();
             } catch (IOException e) {
                 logger.error("errors while close file output stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                        e, "errors while close file output stream");
             } finally {
                 clientContextManager.removeOutputStream(fd);
             }
@@ -654,6 +661,29 @@ public class FileSystemManager {
     
     private static TBrokerFD parseUUIDToFD(UUID uuid) {
         return new TBrokerFD(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+    }
+
+    private int readByteBuffer(FSDataInputStream is, ByteBuffer dest) throws IOException {
+        int pos = dest.position();
+        int result = is.read(dest);
+        if (result > 0) {
+            // Ensure this explicitly since versions before 2.7 read doesn't do it.
+            dest.position(pos + result);
+        }
+        return result;
+    }
+
+    private int readByteBufferFully(FSDataInputStream is, ByteBuffer dest) throws IOException {
+        int result = 0;
+        while (dest.remaining() > 0) {
+            int n = readByteBuffer(is, dest);
+            if (n <= 0) {
+                break;
+            }
+            result += n;
+        }
+        dest.flip();
+        return result;
     }
     
     class FileSystemExpirationChecker implements Runnable {

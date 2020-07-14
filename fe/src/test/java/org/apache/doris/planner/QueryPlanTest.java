@@ -70,8 +70,8 @@ public class QueryPlanTest {
         
         createTable("create table test.test1\n" + 
                 "(\n" +
-                "    time datetime not null comment \"Query start time\",\n" +
                 "    query_id varchar(48) comment \"Unique query id\",\n" +
+                "    time datetime not null comment \"Query start time\",\n" +
                 "    client_ip varchar(32) comment \"Client IP\",\n" + 
                 "    user varchar(64) comment \"User name\",\n" + 
                 "    db varchar(96) comment \"Database of this query\",\n" + 
@@ -902,5 +902,9 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
+        
+        queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
     }
 }

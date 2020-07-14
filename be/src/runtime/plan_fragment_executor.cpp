@@ -192,8 +192,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         VLOG(1) << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
     }
 
-    print_volume_ids(params.per_node_scan_ranges);
-
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
     _runtime_state->set_num_per_fragment_instances(params.num_senders);
 
@@ -231,13 +229,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _query_statistics.reset(new QueryStatistics());
     _sink->set_query_statistics(_query_statistics);
     return Status::OK();
-}
-
-void PlanFragmentExecutor::print_volume_ids(
-    const PerNodeScanRanges& per_node_scan_ranges) {
-    if (per_node_scan_ranges.empty()) {
-        return;
-    }
 }
 
 Status PlanFragmentExecutor::open() {
@@ -323,7 +314,12 @@ Status PlanFragmentExecutor::open_internal() {
     {
         SCOPED_TIMER(profile()->total_time_counter());
         collect_query_statistics();
-        Status status = _sink->close(runtime_state(), _status);
+        Status status;
+        {
+            boost::lock_guard<boost::mutex> l(_status_lock);
+            status = _status;
+        }
+        status = _sink->close(runtime_state(), status);
         RETURN_IF_ERROR(status);
     }
 
@@ -482,22 +478,22 @@ Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
     return Status::OK();
 }
 
-void PlanFragmentExecutor::update_status(const Status& status) {
-    if (status.ok()) {
+void PlanFragmentExecutor::update_status(const Status& new_status) {
+    if (new_status.ok()) {
         return;
     }
 
     {
         boost::lock_guard<boost::mutex> l(_status_lock);
-
+        // if current `_status` is ok, set it to `new_status` to record the error.
         if (_status.ok()) {
-            if (status.is_mem_limit_exceeded()) {
-                _runtime_state->set_mem_limit_exceeded(status.get_error_msg());
+            if (new_status.is_mem_limit_exceeded()) {
+                _runtime_state->set_mem_limit_exceeded(new_status.get_error_msg());
             }
-            _status = status;
+            _status = new_status;
             if (_runtime_state->query_options().query_type == TQueryType::EXTERNAL) {
                 TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
-                _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id, status);
+                _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id, new_status);
             }
         }
     }
@@ -547,7 +543,12 @@ void PlanFragmentExecutor::close() {
 
         if (_sink.get() != NULL) {
             if (_prepared) {
-                _sink->close(runtime_state(), _status);
+                Status status;
+                {
+                    boost::lock_guard<boost::mutex> l(_status_lock);
+                    status = _status;
+                }
+                _sink->close(runtime_state(), status);
             } else {
                 _sink->close(runtime_state(), Status::InternalError("prepare failed"));
             }

@@ -163,7 +163,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 在 FE 中添加所有 BE 节点
 
-    BE 节点需要先在 FE 中添加，才可加入集群。可以使用 mysql-client 连接到 FE：
+    BE 节点需要先在 FE 中添加，才可加入集群。可以使用 mysql-client([下载MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) 连接到 FE：
 
     `./mysql-client -h host -P port -uroot`
 
@@ -173,13 +173,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
     `ALTER SYSTEM ADD BACKEND "host:port";`
 
-	如果使用多租户功能，则执行以下命令添加 BE:
-    
-   	`ALTER SYSTEM ADD FREE BACKEND "host:port";`
-   	
    	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
-   	
-   	如果不添加 FREE 关键字，BE 默认进入自动生成的 cluster，添加了 FREE 关键字后新的 BE 不属于任何 cluster，这样创建新 cluster 的时候就可以从这些空闲的be中选取，详细见[多租户设计文档](../administrator-guide/operation/multi-tenant.md)
 
 * 启动 BE
 
@@ -269,6 +263,7 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 > 1. Follower FE（包括 Leader）的数量必须为奇数，建议最多部署 3 个组成高可用（HA）模式即可。  
 > 2. 当 FE 处于高可用部署时（1个 Leader，2个 Follower），我们建议通过增加 Observer FE 来扩展 FE 的读服务能力。当然也可以继续增加 Follower FE，但几乎是不必要的。  
 > 3. 通常一个 FE 节点可以应对 10-20 台 BE 节点。建议总的 FE 节点数量在 10 个以下。而通常 3 个即可满足绝大部分需求。  
+> 4. helper 不能指向 FE 自身，必须指向一个或多个已存在并且正常运行中的 Master/Follower FE。
 
 #### 删除 FE 节点
 

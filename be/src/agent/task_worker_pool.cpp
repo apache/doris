@@ -618,7 +618,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 #endif
 
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
-                  << " priority: " << priority;
+                << " priority: " << priority << " push_type: " << push_req.push_type;
         vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
@@ -645,7 +645,8 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
         }
 
         if (status == DORIS_SUCCESS) {
-            VLOG(3) << "push ok.signature: " << agent_task_req.signature;
+            VLOG(3) << "push ok. signature: " << agent_task_req.signature 
+                << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
             ++_s_report_version;
@@ -726,7 +727,6 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             st = Status::RuntimeError(strings::Substitute("publish version failed. error=$0", res));
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            _s_report_version++;
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
 
@@ -1104,14 +1104,14 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             disk.__set_used(root_path_info.is_used);
             disks[root_path_info.path] = disk;
 
-            DorisMetrics::instance()->disks_total_capacity.set_metric(
-                root_path_info.path, root_path_info.disk_capacity);
-            DorisMetrics::instance()->disks_avail_capacity.set_metric(
-                root_path_info.path, root_path_info.available);
-            DorisMetrics::instance()->disks_data_used_capacity.set_metric(
-                root_path_info.path, root_path_info.data_used_capacity);
-            DorisMetrics::instance()->disks_state.set_metric(
-                root_path_info.path, root_path_info.is_used ? 1L : 0L);
+            DorisMetrics::instance()->disks_total_capacity.set_metric(root_path_info.path,
+                                                          root_path_info.disk_capacity);
+            DorisMetrics::instance()->disks_avail_capacity.set_metric(root_path_info.path,
+                                                          root_path_info.available);
+            DorisMetrics::instance()->disks_data_used_capacity.set_metric(root_path_info.path,
+                                                              root_path_info.data_used_capacity);
+            DorisMetrics::instance()->disks_state.set_metric(root_path_info.path,
+                                                 root_path_info.is_used ? 1L : 0L);
         }
         request.__set_disks(disks);
 

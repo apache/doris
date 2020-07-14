@@ -118,6 +118,9 @@ public:
     // may or may not have been called.
     Status reset();
 
+    bool is_spilled() {
+        return _spilled;
+    }
     // Estimate the memory overhead in bytes for an intermediate merge, based on the
     // maximum number of memory buffers available for the sort, the row descriptor for
     // the sorted tuples and the batch size used (in rows).
@@ -212,6 +215,8 @@ private:
     RuntimeProfile::Counter* _num_merges_counter;
     RuntimeProfile::Counter* _in_mem_sort_timer;
     RuntimeProfile::Counter* _sorted_data_size;
+
+    bool _spilled;
 };
 
 } // namespace doris

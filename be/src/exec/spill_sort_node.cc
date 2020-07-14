@@ -168,6 +168,9 @@ Status SpillSortNode::sort_input(RuntimeState* state) {
     } while (!eos);
 
     RETURN_IF_ERROR(_sorter->input_done());
+    if (_sorter->is_spilled()) {
+        add_runtime_exec_option("Spilled");
+    }
     return Status::OK();
 }
 

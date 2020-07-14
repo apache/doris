@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TStorageMedium;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -32,7 +33,9 @@ public class DataProperty implements Writable {
             "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD);
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
+    @SerializedName(value =  "storageMedium")
     private TStorageMedium storageMedium;
+    @SerializedName(value =  "cooldownTimeMs")
     private long cooldownTimeMs;
 
     private DataProperty() {

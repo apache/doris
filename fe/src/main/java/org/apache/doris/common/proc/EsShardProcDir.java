@@ -25,7 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.external.elasticsearch.EsIndexState;
+import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -55,9 +55,9 @@ public class EsShardProcDir implements ProcDirInterface {
         db.readLock();
         try {
             // get infos
-            EsIndexState esIndexState = esTable.getEsTableState().getIndexState(indexName);
-            for (int shardId : esIndexState.getShardRoutings().keySet()) {
-                List<EsShardRouting> shardRoutings = esIndexState.getShardRoutings().get(shardId);
+            EsShardPartitions esShardPartitions = esTable.getEsTablePartitions().getEsShardPartitions(indexName);
+            for (int shardId : esShardPartitions.getShardRoutings().keySet()) {
+                List<EsShardRouting> shardRoutings = esShardPartitions.getShardRoutings().get(shardId);
                 if (shardRoutings != null && shardRoutings.size() > 0) {
                     for (EsShardRouting esShardRouting : shardRoutings) {
                         List<Comparable> shardInfo = new ArrayList<Comparable>();

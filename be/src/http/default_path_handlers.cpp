@@ -104,10 +104,10 @@ void mem_usage_handler(MemTracker* mem_tracker, const WebPageHandler::ArgumentMa
 }
 
 void add_default_path_handlers(WebPageHandler* web_page_handler, MemTracker* process_mem_tracker) {
-    web_page_handler->register_page("/logs", logs_handler);
-    web_page_handler->register_page("/varz", config_handler);
-    web_page_handler->register_page(
-            "/memz", boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2));
+    web_page_handler->register_page("/logs", "Logs", logs_handler, true /* is_on_nav_bar */);
+    web_page_handler->register_page("/varz", "Configs", config_handler, true /* is_on_nav_bar */);
+    web_page_handler->register_page("/memz", "Memory",
+        boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2), true /* is_on_nav_bar */);
 }
 
 } // namespace doris

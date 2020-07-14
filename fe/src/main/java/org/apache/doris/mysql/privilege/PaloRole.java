@@ -20,6 +20,8 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -142,14 +144,11 @@ public class PaloRole implements Writable {
             entry.getKey().write(out);
             entry.getValue().write(out);
         }
-        // TODO(wyb): spark-load
-        /*
         out.writeInt(resourcePatternToPrivs.size());
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : resourcePatternToPrivs.entrySet()) {
             entry.getKey().write(out);
             entry.getValue().write(out);
         }
-         */
         out.writeInt(users.size());
         for (UserIdentity userIdentity : users) {
             userIdentity.write(out);
@@ -164,9 +163,7 @@ public class PaloRole implements Writable {
             PrivBitSet privs = PrivBitSet.read(in);
             tblPatternToPrivs.put(tblPattern, privs);
         }
-        // TODO(wyb): spark-load
-        /*
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
             size = in.readInt();
             for (int i = 0; i < size; i++) {
                 ResourcePattern resourcePattern = ResourcePattern.read(in);
@@ -174,7 +171,6 @@ public class PaloRole implements Writable {
                 resourcePatternToPrivs.put(resourcePattern, privs);
             }
         }
-         */
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             UserIdentity userIdentity = UserIdentity.read(in);

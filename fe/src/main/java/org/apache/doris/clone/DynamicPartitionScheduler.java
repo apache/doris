@@ -172,7 +172,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // construct partition desc
             PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(lowerValue), Collections.singletonList(upperValue));
             HashMap<String, String> partitionProperties = new HashMap<>(1);
-            partitionProperties.put("replication_num", String.valueOf(DynamicPartitionUtil.estimateReplicateNum(olapTable)));
+            if (dynamicPartitionProperty.getReplicationNum() == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) {
+                partitionProperties.put("replication_num", String.valueOf(olapTable.getDefaultReplicationNum()));
+            } else {
+                partitionProperties.put("replication_num", String.valueOf(dynamicPartitionProperty.getReplicationNum()));
+            }
             String partitionName = dynamicPartitionProperty.getPrefix() + DynamicPartitionUtil.getFormattedPartitionName(
                     dynamicPartitionProperty.getTimeZone(), prevBorder, dynamicPartitionProperty.getTimeUnit());
             SingleRangePartitionDesc rangePartitionDesc = new SingleRangePartitionDesc(true, partitionName,
@@ -380,7 +384,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // check Dynamic Partition tables only when FE start
             initDynamicPartitionTable();
         }
-        setInterval(Config.dynamic_partition_check_interval_seconds);
+        setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
         if (Config.dynamic_partition_enable) {
             executeDynamicPartition();
         }

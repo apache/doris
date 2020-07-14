@@ -26,7 +26,6 @@
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
-#include "exprs/timezone_db.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_util.h"
 #include "runtime/descriptors.h"
@@ -41,6 +40,7 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/load_error_hub.h"
+#include "util/timezone_utils.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 
@@ -51,10 +51,10 @@ RuntimeState::RuntimeState(
         const TUniqueId& fragment_instance_id,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env) :
+            _profile("Fragment " + print_id(fragment_instance_id)),
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
-            _profile(_obj_pool.get(), "Fragment " + print_id(fragment_instance_id)),
             _fragment_mem_tracker(NULL),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
@@ -76,12 +76,11 @@ RuntimeState::RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env) :
+            _profile("Fragment " + print_id(fragment_params.params.fragment_instance_id)),
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
             _query_id(fragment_params.params.query_id),
-            _profile(_obj_pool.get(),
-                    "Fragment " + print_id(fragment_params.params.fragment_instance_id)),
             _fragment_mem_tracker(NULL),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
@@ -100,10 +99,10 @@ RuntimeState::RuntimeState(
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
-    : _obj_pool(new ObjectPool()),
+    : _profile("<unnamed>"),
+      _obj_pool(new ObjectPool()),
       _data_stream_recvrs_pool(new ObjectPool()),
       _unreported_error_idx(0),
-      _profile(_obj_pool.get(), "<unnamed>"),
       _is_cancelled(false),
       _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
@@ -111,7 +110,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
     } else if (!query_globals.now_string.empty()) {
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
@@ -119,9 +118,10 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _timestamp_ms = timestamp * 1000;
     } else {
         //Unit test may set into here
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
     }
+    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 }
 
 RuntimeState::~RuntimeState() {
@@ -185,7 +185,7 @@ Status RuntimeState::init(
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
     } else if (!query_globals.now_string.empty()) {
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         DateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
@@ -193,9 +193,11 @@ Status RuntimeState::init(
         _timestamp_ms = timestamp * 1000;
     } else {
         //Unit test may set into here
-        _timezone = TimezoneDatabase::default_time_zone;
+        _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
     }
+    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+
     _exec_env = exec_env;
 
     if (_query_options.max_errors <= 0) {

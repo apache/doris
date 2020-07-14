@@ -35,8 +35,10 @@ public class DynamicPartitionProperty {
     public static final String START_DAY_OF_WEEK = "dynamic_partition.start_day_of_week";
     public static final String START_DAY_OF_MONTH = "dynamic_partition.start_day_of_month";
     public static final String TIME_ZONE = "dynamic_partition.time_zone";
+    public static final String REPLICATION_NUM = "dynamic_partition.replication_num";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
+    public static final int NOT_SET_REPLICATION_NUM = -1;
 
     private boolean exist;
 
@@ -48,7 +50,8 @@ public class DynamicPartitionProperty {
     private int buckets;
     private StartOfDate startOfWeek;
     private StartOfDate startOfMonth;
-    private TimeZone tz = TimeUtils.getDefaultTimeZone();
+    private TimeZone tz = TimeUtils.getSystemTimeZone();
+    private int replicationNum;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -61,6 +64,7 @@ public class DynamicPartitionProperty {
             this.end = Integer.parseInt(properties.get(END));
             this.prefix = properties.get(PREFIX);
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
+            this.replicationNum = Integer.parseInt(properties.getOrDefault(REPLICATION_NUM, String.valueOf(NOT_SET_REPLICATION_NUM)));
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -133,6 +137,10 @@ public class DynamicPartitionProperty {
         return tz;
     }
 
+    public int getReplicationNum() {
+        return replicationNum;
+    }
+
     @Override
     public String toString() {
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
@@ -141,6 +149,7 @@ public class DynamicPartitionProperty {
                 ",\n\"" + START + "\" = \"" + start + "\"" +
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
+                ",\n\"" + REPLICATION_NUM + "\" = \"" + replicationNum + "\"" +
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";

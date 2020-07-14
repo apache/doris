@@ -42,6 +42,7 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -49,6 +50,7 @@ import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -57,6 +59,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
@@ -184,6 +187,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_MODIFY_PARTITION: {
                 data = new ModifyPartitionInfo();
                 ((ModifyPartitionInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BATCH_MODIFY_PARTITION: {
+                data = BatchModifyPartitionsInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -499,14 +507,18 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_UPDATE_LOAD_JOB: {
+                data = LoadJobStateUpdateInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_RESOURCE: {
                 data = Resource.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_RESOURCE: {
-                data = new Text();
-                ((Text) data).readFields(in);
+                data = DropResourceOperationLog.read(in);
                 isRead = true;
                 break;
             }

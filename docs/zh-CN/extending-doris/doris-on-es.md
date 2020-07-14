@@ -128,7 +128,7 @@ PROPERTIES (
 参数 | 说明
 ---|---
 **hosts** | ES集群地址，可以是一个或多个，也可以是ES前端的负载均衡地址
-**index** | 对应的ES的index名字
+**index** | 对应的ES的index名字，支持alias，如果使用doc_value，需要使用真实的名称
 **type** | index的type，不指定的情况会使用_doc
 **user** | ES集群用户名
 **password** | 对应用户的密码信息
@@ -449,6 +449,67 @@ select * from es_table where esquery(k4, ' {
 
 4. Doris计算完结果后，返回给用户
 
+## 最佳实践
+
+### 时间类型字段使用建议
+
+在ES中，时间类型的字段使用十分灵活，但是在Doris On ES中如果对时间类型字段的类型设置不当，则会造成过滤条件无法下推
+
+创建索引时对时间类型格式的设置做最大程度的格式兼容:
+
+```
+ "dt": {
+     "type": "date",
+     "format": "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd||epoch_millis"
+ }
+```
+
+在Doris中建立该字段时建议设置为`date`或`datetime`,也可以设置为`varchar`类型, 使用如下SQL语句都可以直接将过滤条件下推至ES：
+
+```
+select * from doe where k2 > '2020-06-21';
+
+select * from doe where k2 < '2020-06-21 12:00:00'; 
+
+select * from doe where k2 < 1593497011; 
+
+select * from doe where k2 < now();
+
+select * from doe where k2 < date_format(now(), '%Y-%m-%d');
+```
+
+注意:
+
+* 在ES中如果不对时间类型的字段设置`format`, 默认的时间类型字段格式为
+
+```
+strict_date_optional_time||epoch_millis
+```
+
+* 导入到ES的日期字段如果是时间戳需要转换成`ms`, ES内部处理时间戳都是按照`ms`进行处理的, 否则Doris On ES会出现显示错误
+
+### 获取ES元数据字段`_id`
+
+导入文档在不指定`_id`的情况下ES会给每个文档分配一个全局唯一的`_id`即主键, 用户也可以在导入时为文档指定一个含有特殊业务意义的`_id`; 如果需要在Doris On ES中获取该字段值，建表时可以增加类型为`varchar`的`_id`字段：
+
+```
+CREATE EXTERNAL TABLE `doe` (
+  `_id` varchar COMMENT "",
+  `city`  varchar COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://127.0.0.1:8200",
+"user" = "root",
+"password" = "root",
+"index" = "doe",
+"type" = "doc"
+}
+```
+
+注意:
+
+1. `_id`字段的过滤条件仅支持`=`和`in`两种
+2. `_id`字段只能是`varchar`类型
 
 ## Q&A
 
@@ -467,6 +528,3 @@ select * from es_table where esquery(k4, ' {
 
    目前Doris On ES不支持聚合操作如sum, avg, min/max 等下推，计算方式是批量流式的从ES获取所有满足条件的文档，然后在Doris中进行计算
    
-5. 日期类型字段的过滤条件无法下推
-   
-   日期类型的字段因为时间格式的问题，大多数情况下都不会下推；对于日期类型的过滤可以采用字符串形式，日期格式需要和ES中保持完全一致

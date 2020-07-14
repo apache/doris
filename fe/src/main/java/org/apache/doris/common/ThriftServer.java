@@ -40,17 +40,50 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 public class ThriftServer {
     private static final Logger LOG = LogManager.getLogger(ThriftServer.class);
-    private ThriftServerType type = ThriftServerType.THREAD_POOL;
+    private ThriftServerType type;
     private int port;
     private TProcessor processor;
     private TServer server;
     private Thread serverThread;
     private Set<TNetworkAddress> connects;
 
+    public static final String SIMPLE = "SIMPLE";
+    public static final String THREADED = "THREADED";
+    public static final String THREAD_POOL = "THREAD_POOL";
+
+    public enum ThriftServerType {
+        // TSimplerServer
+        SIMPLE(ThriftServer.SIMPLE),
+        // TThreadedSelectorServer
+        THREADED(ThriftServer.THREADED),
+        // TThreadPoolServer
+        THREAD_POOL(ThriftServer.THREAD_POOL);
+
+        private final String value;
+
+        ThriftServerType(String value) {
+            this.value = value;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public static ThriftServerType getThriftServerType(String value) {
+            for (ThriftServerType val : ThriftServerType.values()) {
+                if (val.getValue().equalsIgnoreCase(value)) {
+                    return val;
+                }
+            }
+            return ThriftServerType.THREAD_POOL;
+        }
+    }
+
     public ThriftServer(int port, TProcessor processor) {
         this.port = port;
         this.processor = processor;
         this.connects = Sets.newConcurrentHashSet();
+        this.type = ThriftServerType.getThriftServerType(Config.thrift_server_type);
     }
 
     public ThriftServerType getType() {
@@ -65,7 +98,7 @@ public class ThriftServer {
 
     private void createThreadedServer() throws TTransportException {
         TThreadedSelectorServer.Args args =
-          new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port)).protocolFactory(
+          new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
             new TBinaryProtocol.Factory()).processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool");
         args.executorService(threadPoolExecutor);
@@ -95,9 +128,8 @@ public class ThriftServer {
                 case THREADED:
                     createThreadedServer();
                     break;
-                case THREAD_POOL:
+                default:
                     createThreadPoolServer();
-                    break;
             }
         } catch (TTransportException ex) {
             LOG.warn("create thrift server failed.", ex);
@@ -136,11 +168,5 @@ public class ThriftServer {
 
     public void removeConnect(TNetworkAddress clientAddress) {
         connects.remove(clientAddress);
-    }
-
-    public static enum ThriftServerType {
-        SIMPLE,
-        THREADED,
-        THREAD_POOL
     }
 }

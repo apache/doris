@@ -167,7 +167,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Add all BE nodes to FE
 
-	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client to connect to FE:
+	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:
 
 	`./mysql-client -h host -P port -uroot`
 
@@ -177,13 +177,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 	`ALTER SYSTEM ADD BACKEND "host:port";`
 
-	If the multi-tenant function is used, the following command is executed to add BE:
-
-	`ALTER SYSTEM ADD FREE BACKEND "host:port";`
-
 	The host is the node IP where BE is located; the port is heartbeat_service_port in be/conf/be.conf.
-
-	If the FREE keyword is not added, BE defaults to the automatically generated cluster, and the new BE does not belong to any cluster after adding the FREE keyword, so that when creating a new cluster, it can be selected from these free be, as detailed in [Multi-tenant Design Document] (./administrator-guide/operation/multi-tenant.md)
 
 * Start BE
 
@@ -274,6 +268,7 @@ View the status of Follower or Observer. Connect to any booted FE using mysql-cl
 > 1. The number of Follower FEs (including Leaders) must be odd. It is recommended that a maximum of three constituent high availability (HA) modes be deployed.
 > 2. When FE is in a highly available deployment (1 Leader, 2 Follower), we recommend that the reading service capability of FE be extended by adding Observer FE. Of course, you can continue to add Follower FE, but it's almost unnecessary.
 > 3. Usually a FE node can handle 10-20 BE nodes. It is suggested that the total number of FE nodes should be less than 10. Usually three can meet most of the needs.
+> 4. The helper cannot point to the FE itself, it must point to one or more existing running Master/Follower FEs.
 
 #### Delete FE nodes
 

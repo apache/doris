@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -107,7 +108,7 @@ public class LoadStmtTest {
 
         // test ResourceDesc
         // TODO(wyb): spark-load
-        LoadStmt.disableSparkLoad = false;
+        Config.enable_spark_load = true;
         stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
                             new ResourceDesc(resourceName, null), null);
         stmt.analyze(analyzer);

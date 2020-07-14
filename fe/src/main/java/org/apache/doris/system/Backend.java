@@ -21,7 +21,6 @@ import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -32,6 +31,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -303,7 +303,7 @@ public class Backend implements Writable {
     }
 
     public boolean hasPathHash() {
-        return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
+        return disksRef.get().values().stream().allMatch(DiskInfo::hasPathHash);
     }
 
     public long getTotalCapacityB() {
@@ -352,6 +352,36 @@ public class Backend implements Writable {
             }
         }
         return maxPct;
+    }
+
+    public boolean diskExceedLimitByStorageMedium(TStorageMedium storageMedium) {
+        if (getDiskNumByStorageMedium(storageMedium) <= 0) {
+            return true;
+        }
+        ImmutableMap<String, DiskInfo> diskInfos = disksRef.get();
+        boolean exceedLimit = true;
+        for (DiskInfo diskInfo : diskInfos.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium() == storageMedium && !diskInfo.exceedLimit(true)) {
+                exceedLimit = false;
+                break;
+            }
+        }
+        return exceedLimit;
+    }
+
+    public boolean diskExceedLimit() {
+        if (getDiskNum() <= 0) {
+            return true;
+        }
+        ImmutableMap<String, DiskInfo> diskInfos = disksRef.get();
+        boolean exceedLimit = true;
+        for (DiskInfo diskInfo : diskInfos.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE && !diskInfo.exceedLimit(true)) {
+                exceedLimit = false;
+                break;
+            }
+        }
+        return exceedLimit;
     }
 
     public String getPathByPathHash(long pathHash) {
@@ -640,6 +670,14 @@ public class Backend implements Writable {
         return tabletMaxCompactionScore.get();
     }
 
+    private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {
+        return disksRef.get().values().stream().filter(v -> v.getStorageMedium() == storageMedium).count();
+    }
+
+    private int getDiskNum() {
+        return disksRef.get().size();
+    }
+
     /**
      * Note: This class must be a POJO in order to display in JSON format
      * Add additional information in the class to show in `show backends`
@@ -648,7 +686,8 @@ public class Backend implements Writable {
      *     status.newItem = xxx;
      */
     public class BackendStatus {
-        public String lastSuccessReportTabletsTime = FeConstants.null_string;
+        // this will be output as json, so not using FeConstants.null_string;
+        public String lastSuccessReportTabletsTime = "N/A";
     }
 }
 

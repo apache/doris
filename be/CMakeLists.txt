@@ -498,7 +498,6 @@ add_subdirectory(${SRC_DIR}/testutil)
 #add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/tools)
-add_subdirectory(${SRC_DIR}/udf_samples)
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
 
@@ -569,4 +568,8 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     DESTINATION ${OUTPUT_DIR}/conf)
+
+install(DIRECTORY
+    ${BASE_DIR}/../webroot/be/
+    DESTINATION ${OUTPUT_DIR}/www)
 

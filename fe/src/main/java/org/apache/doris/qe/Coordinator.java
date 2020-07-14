@@ -52,6 +52,7 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.proto.PPlanFragmentCancelReason;
+import org.apache.doris.proto.PStatus;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -1469,8 +1470,42 @@ public class Coordinator {
             try {
                 return BackendServiceProxy.getInstance().execPlanFragmentAsync(brpcAddress, rpcParams);
             } catch (RpcException e) {
-                SimpleScheduler.addToBlacklist(backend.getId());
-                throw e;
+                // DO NOT throw exception here, return a complete future with error code,
+                // so that the following logic will cancel the fragment.
+                Future<PExecPlanFragmentResult> future = new Future<PExecPlanFragmentResult>() {
+                    @Override
+                    public boolean cancel(boolean mayInterruptIfRunning) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean isCancelled() {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean isDone() {
+                        return true;
+                    }
+
+                    @Override
+                    public PExecPlanFragmentResult get() throws InterruptedException, ExecutionException {
+                        PExecPlanFragmentResult result = new PExecPlanFragmentResult();
+                        PStatus pStatus = new PStatus();
+                        pStatus.error_msgs.add(e.getMessage());
+                        // use THRIFT_RPC_ERROR so that this BE will be added to the blacklist later.
+                        pStatus.status_code = TStatusCode.THRIFT_RPC_ERROR.getValue();
+                        result.status = pStatus;
+                        return result;
+                    }
+
+                    @Override
+                    public PExecPlanFragmentResult get(long timeout, TimeUnit unit)
+                            throws InterruptedException, ExecutionException, TimeoutException {
+                        return get();
+                    }
+                };
+                return future;
             }
         }
 

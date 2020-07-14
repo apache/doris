@@ -143,6 +143,8 @@ std::string Status::code_as_string() const {
         return "Configuration error";
     case TStatusCode::INCOMPLETE:
         return "Incomplete";
+    case TStatusCode::DATA_QUALITY_ERROR:
+        return "Data quality error";
     default: {
         char tmp[30];
         snprintf(tmp, sizeof(tmp), "Unknown code(%d): ", static_cast<int>(code()));

@@ -51,6 +51,7 @@
 #include "olap/olap_define.h"
 #include "util/errno.h"
 #include "util/mutex.h"
+#include "util/string_parser.hpp"
 
 using std::string;
 using std::set;
@@ -1262,6 +1263,15 @@ bool valid_datetime(const string &value_str) {
         OLAP_LOG_WARNING("datetime string does not match");
         return false;
     }
+}
+
+bool valid_bool(const std::string& value_str) {
+    if (value_str == "0" || value_str == "1") {
+        return true;
+    }
+    StringParser::ParseResult result;
+    StringParser::string_to_bool(value_str.c_str(), value_str.length(), &result);
+    return result == StringParser::PARSE_SUCCESS;
 }
 
 void write_log_info(char *buf, size_t buf_len, const char *fmt, ...) {

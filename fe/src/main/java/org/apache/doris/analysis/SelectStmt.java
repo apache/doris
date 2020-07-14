@@ -497,6 +497,19 @@ public class SelectStmt extends QueryStmt {
         return result;
     }
 
+    public List<TupleId> getTableRefIdsWithoutInlineView() {
+        List<TupleId> result = Lists.newArrayList();
+
+        for (TableRef ref : fromClause_) {
+            if (ref instanceof InlineViewRef) {
+                continue;
+            }
+            result.add(ref.getId());
+        }
+
+        return result;
+    }
+
     @Override
     public List<TupleId> collectTupleIds() {
         List<TupleId> result = Lists.newArrayList();

@@ -308,7 +308,7 @@ private:
     boost::scoped_ptr<RowBatch> _curr_child_batch;
 
     // Block manager client used by _input_stream. Not owned.
-    BufferedBlockMgr2::Client* client_;
+    BufferedBlockMgr2::Client* _block_mgr_client;
 
     // Buffers input rows added in process_child_batch() until enough rows are able to
     // be returned by get_next_output_batch(), in which case row batches are returned from

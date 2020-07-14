@@ -161,7 +161,7 @@ FROM data_source
 
     4. `strict_mode`
 
-        Whether to enable strict mode, the default is on. If turned on, the column type transformation of non-null raw data is filtered if the result is NULL. Specified as "strict_mode" = "true"
+        Whether to enable strict mode, the default is disabled. If turned on, the column type transformation of non-null raw data is filtered if the result is NULL. Specified as "strict_mode" = "true"
             
     5. `timezone`
 

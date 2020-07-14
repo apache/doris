@@ -23,12 +23,16 @@
 
 #include <boost/filesystem.hpp>
 
+#include "common/status.h"
+#include "exec/parquet_scanner.h"
+#include "olap/row.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/exec_env.h"
 
 using std::list;
 using std::map;
@@ -184,9 +188,16 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   }
 
   // write
-  res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
-                 &(tablet_vars->at(0).rowset_to_add),
-                 &(tablet_vars->at(1).rowset_to_add));
+  if (push_type == PUSH_NORMAL_V2) {
+    res = _convert_v2(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
+                      &(tablet_vars->at(0).rowset_to_add),
+                      &(tablet_vars->at(1).rowset_to_add));
+
+  } else {
+    res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
+                   &(tablet_vars->at(0).rowset_to_add),
+                   &(tablet_vars->at(1).rowset_to_add));
+  }
   if (res != OLAP_SUCCESS) {
     LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                  << ", failed to process realtime push."
@@ -246,6 +257,146 @@ void PushHandler::_get_tablet_infos(const vector<TabletVars>& tablet_vars,
         &tablet_info);
     tablet_info_vec->push_back(tablet_info);
   }
+}
+
+OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
+                                    TabletSharedPtr new_tablet,
+                                    RowsetSharedPtr* cur_rowset,
+                                    RowsetSharedPtr* new_rowset) {
+    OLAPStatus res = OLAP_SUCCESS;
+    uint32_t num_rows = 0;
+    PUniqueId load_id;
+    load_id.set_hi(0);
+    load_id.set_lo(0);
+
+    do {
+        VLOG(3) << "start to convert delta file.";
+
+        // 1. init RowsetBuilder of cur_tablet for current push
+        VLOG(3) << "init rowset builder. tablet=" << cur_tablet->full_name()
+            << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
+        RowsetWriterContext context;
+        context.rowset_id = StorageEngine::instance()->next_rowset_id();
+        context.tablet_uid = cur_tablet->tablet_uid();
+        context.tablet_id = cur_tablet->tablet_id();
+        context.partition_id = _request.partition_id;
+        context.tablet_schema_hash = cur_tablet->schema_hash();
+        context.rowset_type = StorageEngine::instance()->default_rowset_type();
+        context.rowset_path_prefix = cur_tablet->tablet_path();
+        context.tablet_schema = &(cur_tablet->tablet_schema());
+        context.rowset_state = PREPARED;
+        context.txn_id = _request.transaction_id;
+        context.load_id = load_id;
+        // although the spark load output files are fully sorted,
+        // but it depends on thirparty implementation, so we conservatively
+        // set this value to OVERLAP_UNKNOWN
+        context.segments_overlap = OVERLAP_UNKNOWN;
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        res = RowsetFactory::create_rowset_writer(context, &rowset_writer);
+        if (OLAP_SUCCESS != res) {
+            LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
+                         << ", txn_id=" << _request.transaction_id
+                         << ", res=" << res;
+            break;
+        }
+
+        // 2. Init PushBrokerReader to read broker file if exist,
+        //    in case of empty push this will be skipped.
+        std::string path = _request.broker_scan_range.ranges[0].path;
+        LOG(INFO) << "tablet=" << cur_tablet->full_name() << ", file path=" << path
+                  << ", file size=" << _request.broker_scan_range.ranges[0].file_size;
+        
+        if (!path.empty()) {
+            std::unique_ptr<PushBrokerReader> reader(new(std::nothrow) PushBrokerReader());
+            if (reader == nullptr) {
+                LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name();
+                res = OLAP_ERR_MALLOC_ERROR;
+                break;
+            }
+
+            // init schema
+            std::unique_ptr<Schema> schema(new(std::nothrow) Schema(cur_tablet->tablet_schema()));
+            if (schema == nullptr) {
+                LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
+                res = OLAP_ERR_MALLOC_ERROR;
+                break;
+            }
+
+            // init Reader
+            if (OLAP_SUCCESS != (res = reader->init(schema.get(), 
+                                                    _request.broker_scan_range,
+                                                    _request.desc_tbl))) {
+                LOG(WARNING) << "fail to init reader. res=" << res
+                             << ", tablet=" << cur_tablet->full_name();
+                res = OLAP_ERR_PUSH_INIT_ERROR;
+                break;
+            }
+
+            // 3. Init Row
+            uint8_t* tuple_buf = reader->mem_pool()->allocate(schema->schema_size());
+            ContiguousRow row(schema.get(), tuple_buf);
+
+            // 4. Read data from broker and write into SegmentGroup of cur_tablet
+            // Convert from raw to delta
+            VLOG(3) << "start to convert etl file to delta.";
+            while (!reader->eof()) {
+                res = reader->next(&row);
+                if (OLAP_SUCCESS != res) {
+                    LOG(WARNING) << "read next row failed."
+                        << " res=" << res << " read_rows=" << num_rows;
+                    break;
+                } else {
+                    if (reader->eof()) {
+                        break;
+                    }
+                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
+                        LOG(WARNING) << "fail to attach row to rowset_writer. "
+                            << "res=" << res
+                            << ", tablet=" << cur_tablet->full_name()
+                            << ", read_rows=" << num_rows;
+                        break;
+                    }
+                    num_rows++;
+                }
+            }
+
+            reader->print_profile();
+            reader->close();
+        }
+
+        if (rowset_writer->flush() != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to finalize writer";
+            break;
+        }
+        *cur_rowset = rowset_writer->build();
+        if (*cur_rowset == nullptr) {
+            LOG(WARNING) << "fail to build rowset";
+            res = OLAP_ERR_MALLOC_ERROR;
+            break;
+        }
+
+        _write_bytes += (*cur_rowset)->data_disk_size();
+        _write_rows += (*cur_rowset)->num_rows();
+
+        // 5. Convert data for schema change tables
+        VLOG(10) << "load to related tables of schema_change if possible.";
+        if (new_tablet != nullptr) {
+            SchemaChangeHandler schema_change;
+            res = schema_change.schema_version_convert(cur_tablet, new_tablet,
+                    cur_rowset, new_rowset);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to change schema version for delta."
+                    << "[res=" << res << " new_tablet='"
+                    << new_tablet->full_name() << "']";
+            }
+        }
+    } while (0);
+
+    VLOG(10) << "convert delta file end. res=" << res
+             << ", tablet=" << cur_tablet->full_name()
+             << ", processed_rows" << num_rows;
+    return res;
 }
 
 OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
@@ -759,6 +910,132 @@ OLAPStatus LzoBinaryReader::_next_block() {
   _curr += row_info_buf_size + compressed_size;
   _next_row_start = 0;
   return res;
+}
+
+OLAPStatus PushBrokerReader::init(const Schema* schema,
+                                  const TBrokerScanRange& t_scan_range,
+                                  const TDescriptorTable& t_desc_tbl) {
+    // init schema
+    _schema = schema;
+
+    // init runtime state, runtime profile, counter
+    TUniqueId dummy_id;
+    dummy_id.hi = 0;
+    dummy_id.lo = 0;
+    TPlanFragmentExecParams params;
+    params.fragment_instance_id = dummy_id;
+    params.query_id = dummy_id;
+    TExecPlanFragmentParams fragment_params;
+    fragment_params.params = params;
+    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
+    TQueryOptions query_options;
+    TQueryGlobals query_globals;
+    _runtime_state.reset(new RuntimeState(fragment_params, query_options, query_globals,
+                                          ExecEnv::GetInstance()));
+    DescriptorTbl* desc_tbl = NULL;
+    Status status = DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
+    if (UNLIKELY(!status.ok())) {
+        LOG(WARNING) << "Failed to create descriptor table, msg: " << status.get_error_msg();
+        return OLAP_ERR_PUSH_INIT_ERROR;
+    }
+    _runtime_state->set_desc_tbl(desc_tbl);
+    status = _runtime_state->init_mem_trackers(dummy_id);
+    if (UNLIKELY(!status.ok())) {
+        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
+        return OLAP_ERR_PUSH_INIT_ERROR;
+    }
+    _runtime_profile = _runtime_state->runtime_profile();
+    _runtime_profile->set_name("PushBrokerReader");
+    _mem_tracker.reset(new MemTracker(_runtime_profile, -1, _runtime_profile->name(), _runtime_state->instance_mem_tracker()));
+    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _counter.reset(new ScannerCounter());
+
+    // init scanner
+    BaseScanner *scanner = nullptr;
+    switch (t_scan_range.ranges[0].format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+        scanner = new ParquetScanner(_runtime_state.get(),
+                                  _runtime_profile,
+                                  t_scan_range.params,
+                                  t_scan_range.ranges,
+                                  t_scan_range.broker_addresses,
+                                  _counter.get());
+        break;
+    default:
+        LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;
+		return OLAP_ERR_PUSH_INIT_ERROR;
+	}
+    _scanner.reset(scanner); 
+    status = _scanner->open();
+    if (UNLIKELY(!status.ok())) {
+        LOG(WARNING) << "Failed to open scanner, msg: " << status.get_error_msg();
+        return OLAP_ERR_PUSH_INIT_ERROR;
+    }
+
+    // init tuple
+    auto tuple_id = t_scan_range.params.dest_tuple_id;
+    _tuple_desc = _runtime_state->desc_tbl().get_tuple_descriptor(tuple_id);
+    if (_tuple_desc == nullptr) {
+        std::stringstream ss;
+        LOG(WARNING) << "Failed to get tuple descriptor, tuple_id: " << tuple_id;
+        return OLAP_ERR_PUSH_INIT_ERROR;
+    }
+
+    int tuple_buffer_size = _tuple_desc->byte_size();
+    void* tuple_buffer = _mem_pool->allocate(tuple_buffer_size);
+    if (tuple_buffer == nullptr) {
+        LOG(WARNING) << "Allocate memory for tuple failed";
+        return OLAP_ERR_PUSH_INIT_ERROR;
+    }
+    _tuple = reinterpret_cast<Tuple*>(tuple_buffer);
+
+    _ready = true;
+	return OLAP_SUCCESS;
+}
+
+OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
+    if (!_ready || row == nullptr) {
+        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+    }
+
+    memset(_tuple, 0, _tuple_desc->num_null_bytes());
+    // Get from scanner
+    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof);
+    if (UNLIKELY(!status.ok())) {
+        LOG(WARNING) << "Scanner get next tuple failed";
+        return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
+    }
+    if (_eof) {
+        return OLAP_SUCCESS;
+    }
+
+    auto slot_descs = _tuple_desc->slots();
+    size_t num_key_columns = _schema->num_key_columns();
+
+    // finalize row
+    for (size_t i = 0; i < slot_descs.size(); ++i) {
+        auto cell = row->cell(i);
+        const SlotDescriptor* slot = slot_descs[i];
+        bool is_null = _tuple->is_null(slot->null_indicator_offset());
+        const void* value = _tuple->get_slot(slot->tuple_offset());
+        // try execute init method defined in aggregateInfo
+        // by default it only copies data into cell
+        _schema->column(i)->consume(&cell, (const char*)value, is_null, 
+                                    _mem_pool.get(), _runtime_state->obj_pool());
+        // if column(i) is a value column, try execute finalize method defined in aggregateInfo
+        // to convert data into final format
+        if (i >= num_key_columns) {
+            _schema->column(i)->agg_finalize(&cell, _mem_pool.get());
+        }
+    }
+
+	return OLAP_SUCCESS;
+}
+
+void PushBrokerReader::print_profile() {
+    std::stringstream ss;
+    _runtime_profile->pretty_print(&ss);
+    LOG(INFO) << ss.str();
 }
 
 string PushHandler::_debug_version_list(const Versions& versions) const {

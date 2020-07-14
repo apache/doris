@@ -44,6 +44,7 @@ public class OperationType {
     public static final short OP_TRUNCATE_TABLE = 118;
     public static final short OP_MODIFY_VIEW_DEF = 119;
     public static final short OP_REPLACE_TEMP_PARTITION = 210;
+    public static final short OP_BATCH_MODIFY_PARTITION = 211;
 
     // 20~29 120~129 220~229 ...
     public static final short OP_START_ROLLUP = 20;
@@ -156,7 +157,7 @@ public class OperationType {
     // this finish op include finished and cancelled
     public static final short OP_END_LOAD_JOB = 231;
     // update job info, used by spark load
-    //public static final short OP_UPDATE_LOAD_JOB = 232;
+    public static final short OP_UPDATE_LOAD_JOB = 232;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;

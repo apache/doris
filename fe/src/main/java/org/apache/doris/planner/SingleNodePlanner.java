@@ -1621,6 +1621,23 @@ public class SingleNodePlanner {
             default:
                 throw new AnalysisException("not supported set operations: " + operation);
         }
+        // If it is a union or other same operation, there are only two possibilities,
+        // one is the root node, and the other is a distinct node in front, so the setOperationDistinctPlan will
+        // be aggregate node, if this is a mixed operation
+        // e.g. :
+        // a union b -> result == null
+        // a union b union all c -> result == null -> result == AggregationNode
+        // a union all b except c -> result == null -> result == UnionNode
+        // a union b except c -> result == null -> result == AggregationNode
+        if (result != null && result instanceof SetOperationNode) {
+            Preconditions.checkState(!result.getClass().equals(setOpNode.getClass()));
+            setOpNode.addChild(result, setOperationStmt.getResultExprs());
+        } else if (result != null) {
+            Preconditions.checkState(setOperationStmt.hasDistinctOps());
+            Preconditions.checkState(result instanceof AggregationNode);
+            setOpNode.addChild(result,
+                    setOperationStmt.getDistinctAggInfo().getGroupingExprs());
+        }
         for (SetOperationStmt.SetOperand op : setOperands) {
             if (op.getAnalyzer().hasEmptyResultSet()) {
                 unmarkCollectionSlots(op.getQueryStmt());
@@ -1642,23 +1659,6 @@ public class SingleNodePlanner {
                 continue;
             }
             setOpNode.addChild(opPlan, op.getQueryStmt().getResultExprs());
-        }
-        // If it is a union or other same operation, there are only two possibilities,
-        // one is the root node, and the other is a distinct node in front, so the setOperationDistinctPlan will
-        // be aggregate node, if this is a mixed operation
-        // e.g. :
-        // a union b -> result == null
-        // a union b union all c -> result == null -> result == AggregationNode
-        // a union all b except c -> result == null -> result == UnionNode
-        // a union b except c -> result == null -> result == AggregationNode
-        if (result != null && result instanceof SetOperationNode) {
-            Preconditions.checkState(!result.getClass().equals(setOpNode.getClass()));
-            setOpNode.addChild(result, setOperationStmt.getResultExprs());
-        } else if (result != null) {
-            Preconditions.checkState(setOperationStmt.hasDistinctOps());
-            Preconditions.checkState(result instanceof AggregationNode);
-            setOpNode.addChild(result,
-                    setOperationStmt.getDistinctAggInfo().getGroupingExprs());
         }
         setOpNode.init(analyzer);
         return setOpNode;
@@ -1974,7 +1974,7 @@ public class SingleNodePlanner {
         }
 
         // Push down predicates to Windows' child until they are assigned successfully.
-        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer, stmt);
         if (pushDownPredicates.size() <= 0) {
             return;
         }
@@ -1995,14 +1995,14 @@ public class SingleNodePlanner {
         }
 
         // Push down predicates to aggregation's child until they are assigned successfully.
-        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer);
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer, stmt);
         if (pushDownPredicates.size() <= 0) {
             return;
         }
         putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
     }
 
-    private List<Expr> getPredicatesBoundedByGroupbysSourceExpr(List<Expr> predicates, Analyzer analyzer) {
+    private List<Expr> getPredicatesBoundedByGroupbysSourceExpr(List<Expr> predicates, Analyzer analyzer, SelectStmt stmt) {
         final List<Expr> predicatesCanPushDown = Lists.newArrayList();
         for (Expr predicate : predicates) {
             if (predicate.isConstant()) {
@@ -2018,6 +2018,25 @@ public class SingleNodePlanner {
             for (SlotId slotId : slotIds) {
                 final SlotDescriptor slotDesc = analyzer.getDescTbl().getSlotDesc(slotId);
                 Expr sourceExpr = slotDesc.getSourceExprs().get(0);
+                // if grouping set is given and column is not in all grouping set list
+                // we cannot push the predicate since the column value can be null
+                if (stmt.getGroupByClause().isGroupByExtension()
+                        && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
+                    // if grouping type is CUBE or ROLLUP will definitely produce null
+                    if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
+                            || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
+                        isAllSlotReferingGroupBys = false;
+                    } else {
+                        // if grouping type is GROUPING_SETS and the predicate not in all grouping list,
+                        // the predicate cannot be push down
+                        for (List<Expr> exprs: stmt.getGroupByClause().getGroupingSetList()) {
+                            if (!exprs.contains(sourceExpr)) {
+                                isAllSlotReferingGroupBys = false;
+                                break;
+                            }
+                        }
+                    }
+                }
                 if (sourceExpr.getFn() instanceof AggregateFunction) {
                     isAllSlotReferingGroupBys = false;
                 }
@@ -2105,8 +2124,9 @@ public class SingleNodePlanner {
 
     private List<Expr> getBoundPredicates(Analyzer analyzer, TupleDescriptor tupleDesc) {
         final List<TupleId> tupleIds = Lists.newArrayList();
-        tupleIds.add(tupleDesc.getId());
+        if (tupleDesc != null) {
+            tupleIds.add(tupleDesc.getId());
+        }
         return analyzer.getUnassignedConjuncts(tupleIds);
     }
 }
-

@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.http.HttpHeaders;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
@@ -37,6 +38,7 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 public class EsRestClient {
+
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
     private ObjectMapper mapper;
 
@@ -50,85 +52,106 @@ public class EsRestClient {
             .readTimeout(10, TimeUnit.SECONDS)
             .build();
 
-    private String basicAuth;
-
-    private int nextClient = 0;
+    private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
+    private int currentNodeIndex = 0;
 
     public EsRestClient(String[] nodes, String authUser, String authPassword) {
         this.nodes = nodes;
+        this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-            basicAuth = Credentials.basic(authUser, authPassword);
+            this.builder.addHeader(HttpHeaders.AUTHORIZATION,
+                    Credentials.basic(authUser, authPassword));
         }
-        selectNextNode();
+        this.currentNode = nodes[currentNodeIndex];
     }
 
-    private boolean selectNextNode() {
-        if (nextClient >= nodes.length) {
-            return false;
+    private void selectNextNode() {
+        currentNodeIndex++;
+        // reroute, because the previously failed node may have already been restored
+        if (currentNodeIndex >= nodes.length) {
+            currentNodeIndex = 0;
         }
-        currentNode = nodes[nextClient++];
-        return true;
+        currentNode = nodes[currentNodeIndex];
     }
 
-    public Map<String, EsNodeInfo> getHttpNodes() throws Exception {
+    public Map<String, EsNodeInfo> getHttpNodes() throws DorisEsException {
         Map<String, Map<String, Object>> nodesData = get("_nodes/http", "nodes");
         if (nodesData == null) {
             return Collections.emptyMap();
         }
-        Map<String, EsNodeInfo> nodes = new HashMap<>();
+        Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
             EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
             if (node.hasHttp()) {
-                nodes.put(node.getId(), node);
+                nodesMap.put(node.getId(), node);
             }
         }
-        return nodes;
-    }
-
-    public String getIndexMetaData(String indexName) throws Exception {
-        String path = "_cluster/state?indices=" + indexName
-                + "&metric=routing_table,nodes,metadata&expand_wildcards=open";
-        return execute(path);
-
+        return nodesMap;
     }
 
     /**
-     *
-     * Get the Elasticsearch cluster version
+     * Get remote ES Cluster version
      *
      * @return
+     * @throws Exception
      */
-    public EsMajorVersion version() throws Exception {
-        Map<String, String> versionMap = get("/", "version");
-
-        EsMajorVersion majorVersion;
-        try {
-            majorVersion = EsMajorVersion.parse(versionMap.get("version"));
-        } catch (Exception e) {
-            LOG.warn("detect es version failure on node [{}]", currentNode);
-            return EsMajorVersion.V_5_X;
+    public EsMajorVersion version() throws DorisEsException {
+        Map<String, Object> result = get("/", null);
+        if (result == null) {
+            throw new DorisEsException("Unable to retrieve ES main cluster info.");
         }
-        return majorVersion;
+        Map<String, String> versionBody = (Map<String, String>) result.get("version");
+        return EsMajorVersion.parse(versionBody.get("number"));
     }
 
     /**
-     * execute request for specific path
+     * Get mapping for indexName
+     *
+     * @param indexName
+     * @return
+     * @throws Exception
+     */
+    public String getMapping(String indexName, boolean includeTypeName) throws DorisEsException {
+        String path = indexName + "/_mapping";
+        if (includeTypeName) {
+            path += "?include_type_name=true";
+        }
+        String indexMapping = execute(path);
+        if (indexMapping == null) {
+            throw new DorisEsException("index[" + indexName + "] not found");
+        }
+        return indexMapping;
+    }
+
+
+    /**
+     * Get Shard location
+     *
+     * @param indexName
+     * @return
+     * @throws DorisEsException
+     */
+    public EsShardPartitions searchShards(String indexName) throws DorisEsException {
+        String path = indexName + "/_search_shards";
+        String searchShards = execute(path);
+        if (searchShards == null) {
+            throw new DorisEsException("request index [" + indexName + "] search_shards failure");
+        }
+        return EsShardPartitions.findShardPartitions(indexName, searchShards);
+    }
+
+    /**
+     * execute request for specific path，it will try again nodes.length times if it fails
      *
      * @param path the path must not leading with '/'
-     * @return
+     * @return response
      */
-    private String execute(String path) throws Exception {
-        selectNextNode();
-        boolean nextNode;
-        Exception scratchExceptionForThrow = null;
-        do {
-            Request.Builder builder = new Request.Builder();
-            if (!Strings.isEmpty(basicAuth)) {
-                builder.addHeader("Authorization", basicAuth);
-            }
-
+    private String execute(String path) throws DorisEsException {
+        int retrySize = nodes.length;
+        DorisEsException scratchExceptionForThrow = null;
+        for (int i = 0; i < retrySize; i++) {
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
             // NOTE. currentNode may have some spaces.
@@ -139,11 +162,13 @@ public class EsRestClient {
             if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
                 currentNode = "http://" + currentNode;
             }
-
             Request request = builder.get()
                     .url(currentNode + "/" + path)
                     .build();
             Response response = null;
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
+            }
             try {
                 response = networkClient.newCall(request).execute();
                 if (response.isSuccessful()) {
@@ -151,27 +176,26 @@ public class EsRestClient {
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
-                scratchExceptionForThrow = e;
+                scratchExceptionForThrow = new DorisEsException(e.getMessage());
             } finally {
                 if (response != null) {
                     response.close();
                 }
             }
-            nextNode = selectNextNode();
-            if (!nextNode) {
-                LOG.warn("try all nodes [{}],no other nodes left", nodes);
-            }
-        } while (nextNode);
+            selectNextNode();
+        }
+        LOG.warn("try all nodes [{}],no other nodes left", nodes);
         if (scratchExceptionForThrow != null) {
             throw scratchExceptionForThrow;
         }
         return null;
     }
 
-    public <T> T get(String q, String key) throws Exception {
+    public <T> T get(String q, String key) throws DorisEsException {
         return parseContent(execute(q), key);
     }
 
+    @SuppressWarnings("unchecked")
     private <T> T parseContent(String response, String key) {
         Map<String, Object> map = Collections.emptyMap();
         try {
@@ -179,8 +203,8 @@ public class EsRestClient {
             map = mapper.readValue(jsonParser, Map.class);
         } catch (IOException ex) {
             LOG.error("parse es response failure: [{}]", response);
+            throw new DorisEsException(ex.getMessage());
         }
         return (T) (key != null ? map.get(key) : map);
     }
-
 }

@@ -101,7 +101,7 @@ Specifies the timeout for the load. Unit seconds. The default is 600 seconds. Th
 
 `strict_mode`
 
-The user specifies whether strict load mode is enabled for this load. The default is enabled. The shutdown mode is `-H "strict_mode: false"`.
+The user specifies whether strict load mode is enabled for this load. The default is disabled. Enable it with `-H "strict_mode: true"`.
 
 `timezone`
 

@@ -54,6 +54,7 @@ module.exports = [
           "routine-load-manual",
           "insert-into-manual",
           "delete-manual",
+          "load-json-format",
         ],
         sidebarDepth: 2,
       },
@@ -136,9 +137,21 @@ module.exports = [
       "audit-plugin",
       "doris-on-es",
       "plugin-development-manual",
-      "user-defined-function",
       "spark-doris-connector",
       "logstash",
+      {
+        title: "UDF",
+        directoryPath: "udf/",
+        children: [
+          "user-defined-function",
+          "contribute-udf",
+          {
+            title: "Users contribute UDF",
+            directoryPath: "contrib/",
+            children:[],       
+          },          
+        ],
+      },
     ],
   },
   {
@@ -449,7 +462,11 @@ module.exports = [
   {
     title: "Developer Guide",
     directoryPath: "developer-guide/",
-    children: ["debug-tool", "format-code"],
+    children: [
+        "debug-tool",
+        "format-code",
+        "fe-eclipse-dev"
+    ],
   },
   {
     title: "Apache Community",

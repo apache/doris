@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import static org.apache.doris.load.FailMsg.CancelType.LOAD_RUN_FAIL;
-
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
@@ -26,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -156,7 +155,7 @@ public class LoadManager implements Writable{
             return e.getTxnId();
         } catch (UserException e) {
             if (loadJob != null) {
-                loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false,
+                loadJob.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), false,
                         false /* no need to write edit log, because createLoadJob log is not wrote yet */);
             }
             throw e;
@@ -333,6 +332,17 @@ public class LoadManager implements Writable{
                          .build());
     }
 
+    public void replayUpdateLoadJobStateInfo(LoadJob.LoadJobStateUpdateInfo info) {
+        long jobId = info.getJobId();
+        LoadJob job = idToLoadJob.get(jobId);
+        if (job == null) {
+            LOG.warn("replay update load job state failed. error: job not found, id: {}", jobId);
+            return;
+        }
+
+        job.replayUpdateStateInfo(info);
+    }
+
     public int getLoadJobNum(JobState jobState, long dbId) {
         readLock();
         try {
@@ -379,6 +389,40 @@ public class LoadManager implements Writable{
     // only for those jobs which transaction is not started
     public void processTimeoutJobs() {
         idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
+    }
+
+    // only for those jobs which have etl state, like SparkLoadJob
+    public void processEtlStateJobs() {
+        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
+                .forEach(job -> {
+                    try {
+                        ((SparkLoadJob) job).updateEtlStatus();
+                    } catch (DataQualityException e) {
+                        LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
+                        job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, DataQualityException.QUALITY_FAIL_MSG),
+                                                  true, true);
+                    } catch (UserException e) {
+                        LOG.warn("update load job etl status failed. job id: {}", job.getId(), e);
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
+                    } catch (Exception e) {
+                        LOG.warn("update load job etl status failed. job id: {}", job.getId(), e);
+                    }
+                });
+    }
+
+    // only for those jobs which load by PushTask
+    public void processLoadingStateJobs() {
+        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.LOADING))
+                .forEach(job -> {
+                    try {
+                        ((SparkLoadJob) job).updateLoadingStatus();
+                    } catch (UserException e) {
+                        LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                    } catch (Exception e) {
+                        LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
+                    }
+                });
     }
 
     /**
@@ -474,6 +518,10 @@ public class LoadManager implements Writable{
         } finally {
             readUnlock();
         }
+    }
+
+    public LoadJob getLoadJob(long jobId) {
+        return idToLoadJob.get(jobId);
     }
 
     public void prepareJobs() {

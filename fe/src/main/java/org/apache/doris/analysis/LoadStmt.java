@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -99,9 +100,6 @@ public class LoadStmt extends DdlStmt {
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
     private String version = "v2";
-
-    // TODO(wyb): spark-load
-    public static boolean disableSparkLoad = true;
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -288,7 +286,7 @@ public class LoadStmt extends DdlStmt {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
             // TODO(wyb): spark-load
-            if (disableSparkLoad) {
+            if (!Config.enable_spark_load) {
                 throw new AnalysisException("Spark Load is comming soon");
             }
             // check resource usage privilege
