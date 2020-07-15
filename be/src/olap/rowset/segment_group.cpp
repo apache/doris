@@ -256,7 +256,10 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
 
     int zonemap_col_num = get_num_zone_map_columns();
     CHECK(zonemap_col_num <= schema_mapping.size()) << zonemap_col_num << " vs. " << schema_mapping.size();
-    for (size_t i = 0; i < zonemap_col_num; ++i) {
+    // if upgrade from 0.11 the zone map not contain the value column, so zone_map_fields.size() is less
+    // than zonemap_col_num, this may be cause core dump at access zone_map_fields by index in the following code,
+    // so check the zone_map_fields.size() to set the actual zone map fields
+    for (size_t i = 0; i < zonemap_col_num && i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
 
         WrapperField* first = WrapperField::create(column);
