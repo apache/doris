@@ -228,8 +228,6 @@ public class OlapScanNode extends ScanNode {
             this.isPreAggregation = isPreAggregation;
             this.reasonOfPreAggregation = reasonOfDisable;
             long start = System.currentTimeMillis();
-            computeTabletInfo();
-//            computeStats(analyzer);
             LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
             LOG.info("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
         } else {
