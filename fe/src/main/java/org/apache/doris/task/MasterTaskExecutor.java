@@ -68,6 +68,7 @@ public class MasterTaskExecutor {
     }
     
     public void close() {
+        scheduledThreadPool.shutdown();
         executor.shutdown();
         runningTasks.clear();
     }
