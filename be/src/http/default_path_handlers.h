@@ -20,6 +20,8 @@
 
 #include <stdio.h>
 
+#include "util/thread.h"
+
 namespace doris {
 
 class MemTracker;

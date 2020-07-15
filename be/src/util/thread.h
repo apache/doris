@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SRC_UTIL_THREAD_H
 #define DORIS_BE_SRC_UTIL_THREAD_H
 
-#include <atomic>
+#include <http/web_page_handler.h>
 #include <pthread.h>
 #include <syscall.h>
+#include <atomic>
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
@@ -280,6 +281,9 @@ private:
     DISALLOW_COPY_AND_ASSIGN(ThreadJoiner);
 };
 
+// Registers /threadz with the debug webserver, and creates thread-tracking metrics under
+// the given entity. If 'web' is NULL, does not register the path handler.
+Status start_thread_instrumentation(WebPageHandler* web_page_handler);
 
 } //namespace doris
 

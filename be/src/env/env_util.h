@@ -20,6 +20,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "env.h"
 
 namespace doris {
 
@@ -37,6 +38,17 @@ Status open_file_for_write(const WritableFileOptions& opts, Env *env,
 
 Status open_file_for_random(Env *env, const std::string& path,
                             std::shared_ptr<RandomAccessFile> *file);
+
+// A utility routine: write "data" to the named file.
+extern Status write_string_to_file(Env* env, const Slice& data,
+                                   const std::string& fname);
+// Like above but also fsyncs the new file.
+extern Status write_string_to_file_sync(Env* env, const Slice& data,
+                                        const std::string& fname);
+
+// A utility routine: read contents of named file into *data
+extern Status read_file_to_string(Env* env, const std::string& fname,
+                                  faststring* data);
 
 } // namespace env_util
 } // namespace doris
