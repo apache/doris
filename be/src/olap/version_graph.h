@@ -18,6 +18,10 @@
 #ifndef DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
 #define DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
 
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/document.h>
+
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
@@ -172,13 +176,10 @@ public:
     /// Print all expired version path in a tablet.
     std::string _get_current_path_map_str();
 
-<<<<<<< HEAD
-=======
     /// Get json document of _stale_version_path_map. Fill the path_id and version_path 
     /// list in the document. The parameter path arr is used as return variable.
     void get_stale_version_path_json_doc(rapidjson::Document& path_arr);
 
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 private:
     /// Construct rowsets version tracker with stale rowsets.
     void _construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
@@ -190,11 +191,7 @@ private:
     
     // path_version -> list of path version,
     // This variable is used to maintain the map from path version and it's all version. 
-<<<<<<< HEAD
-    std::unordered_map<int64_t, PathVersionListSharedPtr> _expired_snapshot_version_path_map;
-=======
     std::map<int64_t, PathVersionListSharedPtr> _stale_version_path_map;
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
     VersionGraph _version_graph;
 };

@@ -743,13 +743,7 @@ TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
     ASSERT_EQ(4, path_version.size());
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-TEST_F(TestTimestampedVersionTracker, get_snapshot_version_path_json_doc) {
-=======
 TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expried_rs_metas;
@@ -827,7 +821,6 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc_empty) {
 
     ASSERT_EQ(expect_result, json_result);
 }
->>>>>>> d7e83dfb... Add delayed deletion of rowsets function, fix -230 error.
 }
 
 // @brief Test Stub

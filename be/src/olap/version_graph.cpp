@@ -21,6 +21,7 @@
 #include <queue>
 
 #include "common/logging.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -31,16 +32,18 @@ void TimestampedVersionTracker::_construct_versioned_tracker(const std::vector<R
     _version_graph.reconstruct_version_graph(rs_metas, &max_version);
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-void TimestampedVersionTracker::construct_versioned_tracker(
-        const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
-=======
-void TimestampedVersionTracker::get_snapshot_version_path_json_doc(rapidjson::Document& path_arr) {
-=======
+void TimestampedVersionTracker::construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+    if (rs_metas.empty()) {
+        VLOG(3) << "there is no version in the header.";
+        return;
+    }
+    _stale_version_path_map.clear();
+    _next_path_id = 1;
+    _construct_versioned_tracker(rs_metas);
+}
+
+
 void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Document& path_arr) {
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
     auto path_arr_iter = _stale_version_path_map.begin();
 
@@ -88,17 +91,6 @@ void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Docum
 
         path_arr_iter++;
     }
-}
-
-void TimestampedVersionTracker::construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
->>>>>>> d7e83dfb... Add delayed deletion of rowsets function, fix -230 error.
-    if (rs_metas.empty()) {
-        VLOG(3) << "there is no version in the header.";
-        return;
-    }
-    _stale_version_path_map.clear();
-    _next_path_id = 1;
-    _construct_versioned_tracker(rs_metas);
 }
 
 void TimestampedVersionTracker::reconstruct_versioned_tracker(
@@ -164,15 +156,10 @@ OLAPStatus TimestampedVersionTracker::capture_consistent_versions(
 }
 
 void TimestampedVersionTracker::capture_expired_paths(
-<<<<<<< HEAD
-        int64_t expired_snapshot_sweep_endtime, std::vector<int64_t>* path_version_vec) const {
-    std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
-            _expired_snapshot_version_path_map.begin();
-=======
         int64_t stale_sweep_endtime, std::vector<int64_t>* path_version_vec) const {
+
     std::map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
             _stale_version_path_map.begin();
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
     while (iter != _stale_version_path_map.end()) {
         int64_t max_create_time = iter->second->max_create_time();
@@ -215,15 +202,9 @@ std::string TimestampedVersionTracker::_get_current_path_map_str() {
     std::stringstream tracker_info;
     tracker_info << "current expired next_path_id " << _next_path_id << std::endl;
 
-<<<<<<< HEAD
-    std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
-            _expired_snapshot_version_path_map.begin();
-    while (iter != _expired_snapshot_version_path_map.end()) {
-=======
     std::map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
             _stale_version_path_map.begin();
     while (iter != _stale_version_path_map.end()) {
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
         
         tracker_info << "current expired path_version " << iter->first;
         std::vector<TimestampedVersionSharedPtr>& timestamped_versions = iter->second->timestamped_versions();

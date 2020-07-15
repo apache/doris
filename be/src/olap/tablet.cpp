@@ -1016,6 +1016,9 @@ void Tablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
     root.SetObject();
 
+    rapidjson::Document path_arr;
+    path_arr.SetArray();
+
     std::vector<RowsetSharedPtr> rowsets;
     std::vector<bool> delete_flags;
     {
@@ -1030,11 +1033,8 @@ void Tablet::get_compaction_status(std::string* json_result) {
         for (auto& rs : rowsets) {
             delete_flags.push_back(version_for_delete_predicate(rs->version()));
         }
-<<<<<<< HEAD
-=======
         // get snapshot version path json_doc
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
     }
 
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
@@ -1069,12 +1069,9 @@ void Tablet::get_compaction_status(std::string* json_result) {
     }
     root.AddMember("rowsets", versions_arr, root.GetAllocator());
 
-<<<<<<< HEAD
-=======
     // add stale version rowsets 
     root.AddMember("stale version path", path_arr, root.GetAllocator());
 
->>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
     // to json string
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
