@@ -25,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <boost/bind.hpp>
 
 #include "common/logging.h"
 #include "gutil/atomicops.h"
@@ -74,7 +75,7 @@ public:
     // already been removed, this is a no-op.
     void remove_thread(const pthread_t& pthread_id, const std::string& category);
 
-    Status start_instrumentation(const WebPageHandler::ArgumentMap& args,
+    void start_instrumentation(const WebPageHandler::ArgumentMap& args,
                                  std::stringstream* output) const;
 
 private:
@@ -171,7 +172,7 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
     ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
-Status ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
+void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
                                         std::stringstream* output) const {
     const auto* category_name = FindOrNull(args, "group");
     if (category_name) {
@@ -181,7 +182,7 @@ Status ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
             MutexLock l(&_lock);
             const auto* category = FindOrNull(_thread_categories, *category_name);
             if (!category) {
-                return Status::OK();
+                return;
             }
             for (const auto& elem : *category) {
                 descriptors_to_print.emplace_back(elem.second);
@@ -467,8 +468,8 @@ Status ThreadJoiner::join() {
 
 void start_thread_instrumentation(WebPageHandler* web_page_handler) {
     web_page_handler->register_page("/threadz", "Threadz",
-                                    std::bind(&ThreadMgr::start_instrumentation, &thread_manager,
-                                              std::placeholders::_1, std::placeholders::_2),
+                                    boost::bind(&ThreadMgr::start_instrumentation, thread_manager.get(),
+                                              boost::placeholders::_1, boost::placeholders::_2),
                                     true);
 }
 } // namespace doris
