@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_UTIL_THREAD_H
 #define DORIS_BE_SRC_UTIL_THREAD_H
 
-#include <http/web_page_handler.h>
 #include <pthread.h>
 #include <syscall.h>
 #include <atomic>
@@ -26,6 +25,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
+#include "http/web_page_handler.h"
 
 namespace doris {
 

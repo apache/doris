@@ -18,19 +18,15 @@
 #include "http/default_path_handlers.h"
 
 #include <gperftools/malloc_extension.h>
-#include <sys/stat.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/bind.hpp>
-#include <fstream>
 #include <sstream>
 
 #include "common/configbase.h"
-#include "common/logging.h"
 #include "http/web_page_handler.h"
 #include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
-#include "util/logging.h"
 #include "util/pretty_printer.h"
 
 namespace doris {

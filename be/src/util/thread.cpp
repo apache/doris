@@ -24,7 +24,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <string>
 
 #include "common/logging.h"
