@@ -330,11 +330,6 @@ public class OlapScanNode extends ScanNode {
                                        MaterializedIndex index,
                                        List<Tablet> tablets,
                                        long localBeId) throws UserException {
-        /**
-         * The addScanRangeLocations could be invoked only once.
-         * So the scanBackendIds should be empty in the beginning.
-         */
-        Preconditions.checkState(scanBackendIds.size() == 0);
         int logNum = 0;
         int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
         String schemaHashStr = String.valueOf(schemaHash);
@@ -473,14 +468,12 @@ public class OlapScanNode extends ScanNode {
         if (Config.enable_local_replica_selection) {
             localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
         }
-
         /**
-         * Reset the tablet and scan range info before compute it.
-         * The old rollup selector has computed tablet and scan range info.
-         * Then the new mv selector maybe compute tablet and scan range info again sometimes.
-         * So, we need to reset those info in here.
+         * The tablet info could be computed only once.
+         * So the scanBackendIds should be empty in the beginning.
          */
-        resetTabletAndScanRangeInfo();
+        Preconditions.checkState(scanBackendIds.size() == 0);
+        Preconditions.checkState(scanTabletIds.size() == 0);
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
@@ -507,17 +500,6 @@ public class OlapScanNode extends ScanNode {
             selectedTabletsNum += tablets.size();
             addScanRangeLocations(partition, selectedTable, tablets, localBeId);
         }
-    }
-
-    private void resetTabletAndScanRangeInfo() {
-        scanTabletIds = Lists.newArrayList();
-        tabletId2BucketSeq = Maps.newHashMap();
-        bucketSeq2locations = ArrayListMultimap.create();
-        totalTabletsNum = 0;
-        selectedTabletsNum = 0;
-        cardinality = 0;
-        totalBytes = 0;
-        result = Lists.newArrayList();
     }
 
     /**
