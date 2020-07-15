@@ -181,11 +181,10 @@ void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
         if (!requested_all) {
             MutexLock l(&_lock);
             const auto* category = FindOrNull(_thread_categories, *category_name);
-            if (!category) {
-                return;
-            }
-            for (const auto& elem : *category) {
-                descriptors_to_print.emplace_back(elem.second);
+            if (category) {
+                for (const auto& elem : *category) {
+                    descriptors_to_print.emplace_back(elem.second);
+		}
             }
         } else {
             MutexLock l(&_lock);
