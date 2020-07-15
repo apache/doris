@@ -237,8 +237,8 @@ void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
         rs_metas_to_delete.push_back(rs->rowset_meta());
         _rs_version_map.erase(rs->version());
 
-        // put compaction rowsets in _expired_snapshot_rs_version_map.
-        _expired_snapshot_rs_version_map[rs->version()] = rs;
+        // put compaction rowsets in _stale_rs_version_map.
+        _stale_rs_version_map[rs->version()] = rs;
     }
 
     vector<RowsetMetaSharedPtr> rs_metas_to_add;
@@ -253,7 +253,7 @@ void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
     
     // add rs_metas_to_delete to tracker
-    _timestamped_version_tracker.add_expired_path_version(rs_metas_to_delete);
+    _timestamped_version_tracker.add_stale_path_version(rs_metas_to_delete);
 
 }
 
@@ -321,7 +321,6 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _rs_version_map[rowset->version()] = rowset;
     _inc_rs_version_map[rowset->version()] = rowset;
 
-    // _rs_graph.add_version_to_graph(rowset->version());
     _timestamped_version_tracker.add_version(rowset->version());
 
     RETURN_NOT_OK(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
@@ -342,16 +341,14 @@ void Tablet::_delete_inc_rowset_by_version(const Version& version,
     VLOG(3) << "delete incremental rowset. tablet=" << full_name() << ", version=" << version;
 }
 
-void Tablet::_delete_expired_snapshot_rowset_by_version(const Version& version) {
-    // delete expired snapshot rowset from map
-    _expired_snapshot_rs_version_map.erase(version);
+void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 
-    RowsetMetaSharedPtr rowset_meta = _tablet_meta->acquire_expired_snapshot_rs_meta_by_version(version);
+    RowsetMetaSharedPtr rowset_meta = _tablet_meta->acquire_stale_rs_meta_by_version(version);
     if (rowset_meta == nullptr) {
         return;
     }
-    _tablet_meta->delete_expired_snapshot_rs_meta_by_version(version);
-    VLOG(3) << "delete expired snapshot rowset. tablet=" << full_name() << ", version=" << version;
+    _tablet_meta->delete_stale_rs_meta_by_version(version);
+    VLOG(3) << "delete stale rowset. tablet=" << full_name() << ", version=" << version;
 }
 
 void Tablet::delete_expired_inc_rowsets() {
@@ -383,27 +380,27 @@ void Tablet::delete_expired_inc_rowsets() {
     save_meta();
 }
 
-void Tablet::delete_expired_snapshot_rowset() {
+void Tablet::delete_expired_stale_rowset() {
 
     int64_t now = UnixSeconds();
     vector<pair<Version, VersionHash>> expired_versions;
     WriteLock wrlock(&_meta_lock);
     // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
-    double expired_snapshot_sweep_endtime = ::difftime(now, config::tablet_rowset_expired_snapshot_sweep_time);
+    double expired_stale_sweep_endtime = ::difftime(now, config::tablet_rowset_stale_sweep_time_sec);
     
-    std::vector<int64_t> path_version_vec;
+    std::vector<int64_t> path_id_vec;
     // capture the path version to delete
-    _timestamped_version_tracker.capture_expired_paths(static_cast<int64_t>(expired_snapshot_sweep_endtime), &path_version_vec);
+    _timestamped_version_tracker.capture_expired_paths(static_cast<int64_t>(expired_stale_sweep_endtime), &path_id_vec);
 
-    if (path_version_vec.empty()) {
+    if (path_id_vec.empty()) {
         return;
     }
 
     // do check consistent operation
-    auto path_id_iter = path_version_vec.rbegin();
+    auto path_id_iter = path_id_vec.rbegin();
 
-    std::map<int64_t, PathVersionListSharedPtr> expired_snapshot_version_path_map;
-    while (path_id_iter != path_version_vec.rend()) {
+    std::map<int64_t, PathVersionListSharedPtr> stale_version_path_map;
+    while (path_id_iter != path_id_vec.rend()) {
 
         PathVersionListSharedPtr version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(*path_id_iter);
         const std::vector<TimestampedVersionSharedPtr>& to_delete_version = version_path->timestamped_versions();
@@ -412,6 +409,8 @@ void Tablet::delete_expired_snapshot_rowset() {
         auto end_version = to_delete_version.back();
         Version test_version = Version(first_version->version().first, end_version->version().second);
 
+        stale_version_path_map[*path_id_iter] = version_path;
+
         OLAPStatus status = capture_consistent_versions(test_version, nullptr);
         // When there is no consistent versions, we must reconstruct the tracker.
         if (status != OLAP_SUCCESS) {
@@ -419,56 +418,55 @@ void Tablet::delete_expired_snapshot_rowset() {
                 << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
 
             _timestamped_version_tracker.reconstruct_versioned_tracker(
-                    _tablet_meta->all_rs_metas(), expired_snapshot_version_path_map);
+                    _tablet_meta->all_rs_metas(), stale_version_path_map);
 
             // double check the consistent versions
             status = capture_consistent_versions(test_version, nullptr);
 
             if (status != OLAP_SUCCESS) {
-                if (!config::ignore_rowset_expired_snapshot_unconsistent_delete) {
-                    LOG(FATAL) << "rowset expired snapshot unconsistent delete. tablet= " << tablet_id();
+                if (!config::ignore_rowset_stale_unconsistent_delete) {
+                    LOG(FATAL) << "rowset stale unconsistent delete. tablet= " << tablet_id();
                 } else {
-                    LOG(WARNING) << "rowset expired snapshot unconsistent delete. tablet= " << tablet_id();
+                    LOG(WARNING) << "rowset stale unconsistent delete. tablet= " << tablet_id();
                 }
             }
             return;
         }
-        expired_snapshot_version_path_map[*path_id_iter] = version_path;
         path_id_iter++;
     }
 
-    auto old_size = _expired_snapshot_rs_version_map.size();
-    auto old_meta_size = _tablet_meta->all_expired_snapshot_rs_metas().size();
+    auto old_size = _stale_rs_version_map.size();
+    auto old_meta_size = _tablet_meta->all_stale_rs_metas().size();
 
     // do delete operation
-    auto to_delete_iter = expired_snapshot_version_path_map.begin();
-    while (to_delete_iter != expired_snapshot_version_path_map.end()) {
+    auto to_delete_iter = stale_version_path_map.begin();
+    while (to_delete_iter != stale_version_path_map.end()) {
         
         std::vector<TimestampedVersionSharedPtr>& to_delete_version = to_delete_iter->second->timestamped_versions();
         for (auto& timestampedVersion : to_delete_version) {
-            auto it = _expired_snapshot_rs_version_map.find(timestampedVersion->version());
-            if (it != _expired_snapshot_rs_version_map.end()) {
+            auto it = _stale_rs_version_map.find(timestampedVersion->version());
+            if (it != _stale_rs_version_map.end()) {
                 // delete rowset
                 StorageEngine::instance()->add_unused_rowset(it->second);
-                _expired_snapshot_rs_version_map.erase(it);
-                LOG(INFO) << "delete expired snapshot rowset tablet=" << full_name() 
+                _stale_rs_version_map.erase(it);
+                LOG(INFO) << "delete stale rowset tablet=" << full_name() 
                     <<" version[" << timestampedVersion->version().first << "," << timestampedVersion->version().second 
-                    << "] move to unused_rowset success " << std::fixed << expired_snapshot_sweep_endtime;
+                    << "] move to unused_rowset success " << std::fixed << expired_stale_sweep_endtime;
             } else {
-                LOG(WARNING) << "delete expired snapshot rowset tablet=" << full_name() 
+                LOG(WARNING) << "delete stale rowset tablet=" << full_name() 
                     <<" version[" << timestampedVersion->version().first << "," << timestampedVersion->version().second 
-                    << "] not find in expired snapshot rs version ";
+                    << "] not find in stale rs version map";
             }
-            _delete_expired_snapshot_rowset_by_version(timestampedVersion->version());
+            _delete_stale_rowset_by_version(timestampedVersion->version());
         }
         to_delete_iter++;
     }
-    LOG(INFO) << "delete expired snapshot rowset _expired_snapshot_rs_version_map tablet="
-        << full_name() << " current_size=" << _expired_snapshot_rs_version_map.size()
+    LOG(INFO) << "delete stale rowset _stale_rs_version_map tablet="
+        << full_name() << " current_size=" << _stale_rs_version_map.size()
         << " old_size=" << old_size
-        << " current_meta_size="  <<  _tablet_meta->all_expired_snapshot_rs_metas().size()
+        << " current_meta_size="  <<  _tablet_meta->all_stale_rs_metas().size()
         << " old_meta_size=" << old_meta_size
-        << " sweep endtime " << std::fixed << expired_snapshot_sweep_endtime;
+        << " sweep endtime " << std::fixed << expired_stale_sweep_endtime;
 
     save_meta();
     
@@ -542,8 +540,8 @@ OLAPStatus Tablet::_capture_consistent_rowsets_unlocked(const vector<Version>& v
                 break;
             }
 
-            auto it_expired = _expired_snapshot_rs_version_map.find(version);
-            if (it_expired != _expired_snapshot_rs_version_map.end()) {
+            auto it_expired = _stale_rs_version_map.find(version);
+            if (it_expired != _stale_rs_version_map.end()) {
                 is_find = true;
                 rowsets->push_back(it_expired->second);
                 break;
@@ -577,9 +575,9 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
             VLOG(3) << "fail to find Rowset in rs_version for version. tablet=" << full_name()
                          << ", version='" << version.first << "-" << version.second;
 
-            it = _expired_snapshot_rs_version_map.find(version);
+            it = _stale_rs_version_map.find(version);
             if (it == _rs_version_map.end()) {
-                LOG(WARNING) << "fail to find Rowset in expired_snapshot_rs_version for version. tablet=" << full_name()
+                LOG(WARNING) << "fail to find Rowset in stale_rs_version for version. tablet=" << full_name()
                              << ", version='" << version.first << "-" << version.second;
                 return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
             }
@@ -903,7 +901,7 @@ void Tablet::delete_all_files() {
         it.second->remove();
     }
     _inc_rs_version_map.clear();
-    _expired_snapshot_rs_version_map.clear();
+    _stale_rs_version_map.clear();
 }
 
 bool Tablet::check_path(const std::string& path_to_check) const {
@@ -1032,6 +1030,11 @@ void Tablet::get_compaction_status(std::string* json_result) {
         for (auto& rs : rowsets) {
             delete_flags.push_back(version_for_delete_predicate(rs->version()));
         }
+<<<<<<< HEAD
+=======
+        // get snapshot version path json_doc
+        _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
     }
 
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
@@ -1066,6 +1069,12 @@ void Tablet::get_compaction_status(std::string* json_result) {
     }
     root.AddMember("rowsets", versions_arr, root.GetAllocator());
 
+<<<<<<< HEAD
+=======
+    // add stale version rowsets 
+    root.AddMember("stale version path", path_arr, root.GetAllocator());
+
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
     // to json string
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
@@ -1109,8 +1118,8 @@ void Tablet::do_tablet_meta_checkpoint() {
         rs_meta->set_remove_from_rowset_meta();
     }
 
-    // check _expired_snapshot_rs_version_map to remove meta from rowset meta store
-    for (auto& rs_meta : _tablet_meta->all_expired_snapshot_rs_metas()) {
+    // check _stale_rs_version_map to remove meta from rowset meta store
+    for (auto& rs_meta : _tablet_meta->all_stale_rs_metas()) {
         // If we delete it from rowset manager's meta explicitly in previous checkpoint, just skip.
         if(rs_meta->is_remove_from_rowset_meta()) {
             continue;

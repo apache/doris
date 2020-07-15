@@ -457,7 +457,7 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker) {
     tracker.construct_versioned_tracker(rs_metas);
 
     ASSERT_EQ(10, tracker._version_graph._version_graph.size());
-    ASSERT_EQ(0, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(0, tracker._stale_version_path_map.size());
     ASSERT_EQ(1, tracker._next_path_id);
 }
 
@@ -476,7 +476,7 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker_with_same_rows
     tracker.construct_versioned_tracker(rs_metas);
 
     ASSERT_EQ(10, tracker._version_graph._version_graph.size());
-    ASSERT_EQ(0, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(0, tracker._stale_version_path_map.size());
     ASSERT_EQ(1, tracker._next_path_id);
 }
 
@@ -491,12 +491,12 @@ TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker) {
     rs_metas.insert(rs_metas.end(), expried_rs_metas.begin(),
                         expried_rs_metas.end());
 
-    const std::map<int64_t, PathVersionListSharedPtr> expired_snapshot_version_path_map;
+    const std::map<int64_t, PathVersionListSharedPtr> stale_version_path_map;
     TimestampedVersionTracker tracker;
-    tracker.reconstruct_versioned_tracker(rs_metas, expired_snapshot_version_path_map);
+    tracker.reconstruct_versioned_tracker(rs_metas, stale_version_path_map);
 
     ASSERT_EQ(10, tracker._version_graph._version_graph.size());
-    ASSERT_EQ(0, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(0, tracker._stale_version_path_map.size());
     ASSERT_EQ(1, tracker._next_path_id);
 }
 
@@ -529,7 +529,7 @@ TEST_F(TestTimestampedVersionTracker, add_version_with_same_rowset) {
     ASSERT_EQ(2, tracker._version_graph._version_graph[0].edges.size());
 }
 
-TEST_F(TestTimestampedVersionTracker, add_expired_path_version) {
+TEST_F(TestTimestampedVersionTracker, add_stale_path_version) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expried_rs_metas;
@@ -540,13 +540,13 @@ TEST_F(TestTimestampedVersionTracker, add_expired_path_version) {
     tracker.construct_versioned_tracker(rs_metas);
 
     init_expried_row_rs_meta(&expried_rs_metas);
-    tracker.add_expired_path_version(expried_rs_metas);
+    tracker.add_stale_path_version(expried_rs_metas);
 
-    ASSERT_EQ(1, tracker._expired_snapshot_version_path_map.size());
-    ASSERT_EQ(7, tracker._expired_snapshot_version_path_map.begin()->second->timestamped_versions().size());
+    ASSERT_EQ(1, tracker._stale_version_path_map.size());
+    ASSERT_EQ(7, tracker._stale_version_path_map.begin()->second->timestamped_versions().size());
 }
 
-TEST_F(TestTimestampedVersionTracker, add_expired_path_version_with_same_rowset) {
+TEST_F(TestTimestampedVersionTracker, add_stale_path_version_with_same_rowset) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expried_rs_metas;
@@ -558,11 +558,11 @@ TEST_F(TestTimestampedVersionTracker, add_expired_path_version_with_same_rowset)
 
     fetch_expried_row_rs_meta_with_same_rowset(&expried_rs_metas);
     for(auto ptr:expried_rs_metas) {
-        tracker.add_expired_path_version(*ptr);
+        tracker.add_stale_path_version(*ptr);
     }
 
-    ASSERT_EQ(5, tracker._expired_snapshot_version_path_map.size());
-    ASSERT_EQ(1, tracker._expired_snapshot_version_path_map.begin()->second->timestamped_versions().size());
+    ASSERT_EQ(5, tracker._stale_version_path_map.size());
+    ASSERT_EQ(1, tracker._stale_version_path_map.begin()->second->timestamped_versions().size());
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
@@ -580,7 +580,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
-        tracker.add_expired_path_version(*ptr);
+        tracker.add_stale_path_version(*ptr);
     }
 
     Version spec_version(0, 8);
@@ -608,7 +608,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker_with_s
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
-        tracker.add_expired_path_version(*ptr);
+        tracker.add_stale_path_version(*ptr);
     }
 
     Version spec_version(0, 8);
@@ -635,10 +635,10 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
-        tracker.add_expired_path_version(*ptr);
+        tracker.add_stale_path_version(*ptr);
     }
 
-    ASSERT_EQ(4, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(4, tracker._stale_version_path_map.size());
 
     Version spec_version(0, 8);
     PathVersionListSharedPtr ptr = tracker.fetch_and_delete_path_by_id(1);
@@ -665,7 +665,7 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version) {
     ASSERT_EQ(1, timestamped_versions4.size());
     ASSERT_EQ(Version(10, 10), timestamped_versions4[0]->version());
 
-    ASSERT_EQ(0, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(0, tracker._stale_version_path_map.size());
 }
 
 TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version_with_same_rowset) {
@@ -682,10 +682,10 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version_with_same_ro
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
-        tracker.add_expired_path_version(*ptr);
+        tracker.add_stale_path_version(*ptr);
     }
 
-    ASSERT_EQ(5, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(5, tracker._stale_version_path_map.size());
 
     PathVersionListSharedPtr ptr = tracker.fetch_and_delete_path_by_id(1);
     std::vector<TimestampedVersionSharedPtr>& timestamped_versions = ptr->timestamped_versions();
@@ -715,7 +715,7 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version_with_same_ro
     ASSERT_EQ(1, timestamped_versions5.size());
     ASSERT_EQ(Version(10, 10), timestamped_versions5[0]->version());
 
-    ASSERT_EQ(0, tracker._expired_snapshot_version_path_map.size());
+    ASSERT_EQ(0, tracker._stale_version_path_map.size());
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
@@ -733,7 +733,7 @@ TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
-        tracker.add_expired_path_version(*ptr);
+        tracker.add_stale_path_version(*ptr);
     }
 
     tracker.capture_expired_paths(9999, &path_version);
@@ -744,8 +744,12 @@ TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 TEST_F(TestTimestampedVersionTracker, get_snapshot_version_path_json_doc) {
+=======
+TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expried_rs_metas;
@@ -760,12 +764,12 @@ TEST_F(TestTimestampedVersionTracker, get_snapshot_version_path_json_doc) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
-        tracker.add_expired_path_version(*ptr);
+        tracker.add_stale_path_version(*ptr);
     }
     rapidjson::Document path_arr;
     path_arr.SetArray();
 
-    tracker.get_snapshot_version_path_json_doc(path_arr);
+    tracker.get_stale_version_path_json_doc(path_arr);
 
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
@@ -798,7 +802,7 @@ TEST_F(TestTimestampedVersionTracker, get_snapshot_version_path_json_doc) {
     ASSERT_EQ(expect_result, json_result);
 }
 
-TEST_F(TestTimestampedVersionTracker, get_snapshot_version_path_json_doc_empty) {
+TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc_empty) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expried_rs_metas;
@@ -813,7 +817,7 @@ TEST_F(TestTimestampedVersionTracker, get_snapshot_version_path_json_doc_empty) 
     rapidjson::Document path_arr;
     path_arr.SetArray();
 
-    tracker.get_snapshot_version_path_json_doc(path_arr);
+    tracker.get_stale_version_path_json_doc(path_arr);
 
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);

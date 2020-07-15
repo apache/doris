@@ -32,16 +32,20 @@ void TimestampedVersionTracker::_construct_versioned_tracker(const std::vector<R
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 void TimestampedVersionTracker::construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
         const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
 =======
 void TimestampedVersionTracker::get_snapshot_version_path_json_doc(rapidjson::Document& path_arr) {
+=======
+void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Document& path_arr) {
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
-    auto path_arr_iter = _expired_snapshot_version_path_map.begin();
+    auto path_arr_iter = _stale_version_path_map.begin();
 
     // do loop version path 
-    while (path_arr_iter != _expired_snapshot_version_path_map.end()) {
+    while (path_arr_iter != _stale_version_path_map.end()) {
 
         auto path_id = path_arr_iter->first;
         auto path_version_path = path_arr_iter->second;
@@ -92,25 +96,25 @@ void TimestampedVersionTracker::construct_versioned_tracker(const std::vector<Ro
         VLOG(3) << "there is no version in the header.";
         return;
     }
-    _expired_snapshot_version_path_map.clear();
+    _stale_version_path_map.clear();
     _next_path_id = 1;
     _construct_versioned_tracker(rs_metas);
 }
 
 void TimestampedVersionTracker::reconstruct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        const std::map<int64_t, PathVersionListSharedPtr>& expired_snapshot_version_path_map) {
+        const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map) {
     if (rs_metas.empty()) {
         VLOG(3) << "there is no version in the header.";
         return;
     }
 
     _construct_versioned_tracker(rs_metas);
-    auto _path_map_iter = expired_snapshot_version_path_map.begin();
-    // recover expired_snapshot_version_path_map
-    while (_path_map_iter != expired_snapshot_version_path_map.end()) {
+    auto _path_map_iter = stale_version_path_map.begin();
+    // recover stale_version_path_map
+    while (_path_map_iter != stale_version_path_map.end()) {
         // add PathVersionListSharedPtr to map
-        _expired_snapshot_version_path_map[_path_map_iter->first] = _path_map_iter->second;
+        _stale_version_path_map[_path_map_iter->first] = _path_map_iter->second;
 
         std::vector<TimestampedVersionSharedPtr>& timestamped_versions = _path_map_iter->second->timestamped_versions();
         std::vector<TimestampedVersionSharedPtr>::iterator version_path_iter = timestamped_versions.begin();
@@ -128,15 +132,15 @@ void TimestampedVersionTracker::add_version(const Version& version) {
     _version_graph.add_version_to_graph(version);
 }
 
-void TimestampedVersionTracker::add_expired_path_version(
-        const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas) {
-    if (expired_snapshot_rs_metas.empty()) {
-        VLOG(3) << "there is no version in the expired_snapshot_rs_metas.";
+void TimestampedVersionTracker::add_stale_path_version(
+        const std::vector<RowsetMetaSharedPtr>& stale_rs_metas) {
+    if (stale_rs_metas.empty()) {
+        VLOG(3) << "there is no version in the stale_rs_metas.";
         return;
     }
 
     PathVersionListSharedPtr ptr(new TimestampedVersionPathContainer());
-    for (auto rs : expired_snapshot_rs_metas) {
+    for (auto rs : stale_rs_metas) {
         TimestampedVersionSharedPtr vt_ptr(new TimestampedVersion(rs->version(), rs->creation_time()));
         ptr->add_timestamped_version(vt_ptr);
     }
@@ -149,7 +153,7 @@ void TimestampedVersionTracker::add_expired_path_version(
         }
     };
     sort(timestamped_versions.begin(), timestamped_versions.end(), TimestampedVersionPtrCompare());
-    _expired_snapshot_version_path_map[_next_path_id] = ptr;
+    _stale_version_path_map[_next_path_id] = ptr;
     _next_path_id++;
 }
 
@@ -160,13 +164,19 @@ OLAPStatus TimestampedVersionTracker::capture_consistent_versions(
 }
 
 void TimestampedVersionTracker::capture_expired_paths(
+<<<<<<< HEAD
         int64_t expired_snapshot_sweep_endtime, std::vector<int64_t>* path_version_vec) const {
     std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
             _expired_snapshot_version_path_map.begin();
+=======
+        int64_t stale_sweep_endtime, std::vector<int64_t>* path_version_vec) const {
+    std::map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
+            _stale_version_path_map.begin();
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
-    while (iter != _expired_snapshot_version_path_map.end()) {
+    while (iter != _stale_version_path_map.end()) {
         int64_t max_create_time = iter->second->max_create_time();
-        if (max_create_time <= expired_snapshot_sweep_endtime) {
+        if (max_create_time <= stale_sweep_endtime) {
             int64_t path_version = iter->first;
             path_version_vec->push_back(path_version);
         }
@@ -175,16 +185,16 @@ void TimestampedVersionTracker::capture_expired_paths(
 }
 
 PathVersionListSharedPtr TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_id) {
-    if (_expired_snapshot_version_path_map.count(path_id) == 0) {
+    if (_stale_version_path_map.count(path_id) == 0) {
         VLOG(3) << "path version " << path_id << " does not exist!";
         return nullptr;
     }
 
-    return _expired_snapshot_version_path_map[path_id];
+    return _stale_version_path_map[path_id];
 }
 
 PathVersionListSharedPtr TimestampedVersionTracker::fetch_and_delete_path_by_id(int64_t path_id) {
-    if (_expired_snapshot_version_path_map.count(path_id) == 0) {
+    if (_stale_version_path_map.count(path_id) == 0) {
         VLOG(3) << "path version " << path_id << " does not exist!";
         return nullptr;
     }
@@ -192,7 +202,7 @@ PathVersionListSharedPtr TimestampedVersionTracker::fetch_and_delete_path_by_id(
     LOG(INFO) << _get_current_path_map_str();
     PathVersionListSharedPtr ptr = fetch_path_version_by_id(path_id);
 
-    _expired_snapshot_version_path_map.erase(path_id);
+    _stale_version_path_map.erase(path_id);
 
     for (auto& version : ptr->timestamped_versions()) {
         _version_graph.delete_version_from_graph(version->version());
@@ -205,9 +215,15 @@ std::string TimestampedVersionTracker::_get_current_path_map_str() {
     std::stringstream tracker_info;
     tracker_info << "current expired next_path_id " << _next_path_id << std::endl;
 
+<<<<<<< HEAD
     std::unordered_map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
             _expired_snapshot_version_path_map.begin();
     while (iter != _expired_snapshot_version_path_map.end()) {
+=======
+    std::map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
+            _stale_version_path_map.begin();
+    while (iter != _stale_version_path_map.end()) {
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
         
         tracker_info << "current expired path_version " << iter->first;
         std::vector<TimestampedVersionSharedPtr>& timestamped_versions = iter->second->timestamped_versions();

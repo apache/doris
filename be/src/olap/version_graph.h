@@ -132,22 +132,22 @@ using PathVersionListSharedPtr = std::shared_ptr<TimestampedVersionPathContainer
 /// after the path is expired.
 class TimestampedVersionTracker {
 public:
-    /// Construct rowsets version tracker by rs_metas and expired snapshot version path map.
+    /// Construct rowsets version tracker by rs_metas and stale version path map.
     void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
-    /// Reconstruct rowsets version tracker by rs_metas and expired snapshot version path map.
+    /// Reconstruct rowsets version tracker by rs_metas and stale version path map.
     void reconstruct_versioned_tracker(
             const std::vector<RowsetMetaSharedPtr>& rs_metas,
-            const std::map<int64_t, PathVersionListSharedPtr>& expired_snapshot_version_path_map);
+            const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map);
 
     /// Add a version to tracker, this version is a new version rowset, not merged rowset.
     void add_version(const Version& version);
 
-    /// Add a version path with expired_snapshot_rs_metas, this versions in version path
+    /// Add a version path with stale_rs_metas, this versions in version path
     /// are merged rowsets.  These rowsets are tracked and removed after they are expired.
     /// TabletManager sweep these rowsets using tracker by timing.
-    void add_expired_path_version(
-            const std::vector<RowsetMetaSharedPtr>& expired_snapshot_rs_metas);
+    void add_stale_path_version(
+            const std::vector<RowsetMetaSharedPtr>& stale_rs_metas);
 
     /// Given a spec_version, this method can find a version path which is the shortest path
     /// in the graph. The version paths are added to version_path as return info.
@@ -157,9 +157,9 @@ public:
 
     /// Capture all expired path version.
     /// When the last rowset createtime of a path greater than expired time  which can be expressed
-    /// "now() - tablet_rowset_expired_snapshot_sweep_time" , this path will be remained.
+    /// "now() - tablet_rowset_stale_sweep_time_sec" , this path will be remained.
     /// Otherwise, this path will be added to path_version.
-    void capture_expired_paths(int64_t expired_snapshot_sweep_endtime,
+    void capture_expired_paths(int64_t stale_sweep_endtime,
                                       std::vector<int64_t>* path_version) const;
 
     /// Fetch all versions with a path_version.
@@ -172,8 +172,15 @@ public:
     /// Print all expired version path in a tablet.
     std::string _get_current_path_map_str();
 
+<<<<<<< HEAD
+=======
+    /// Get json document of _stale_version_path_map. Fill the path_id and version_path 
+    /// list in the document. The parameter path arr is used as return variable.
+    void get_stale_version_path_json_doc(rapidjson::Document& path_arr);
+
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 private:
-    /// Construct rowsets version tracker with expired snapshot rowsets.
+    /// Construct rowsets version tracker with stale rowsets.
     void _construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
 private:
@@ -183,7 +190,11 @@ private:
     
     // path_version -> list of path version,
     // This variable is used to maintain the map from path version and it's all version. 
+<<<<<<< HEAD
     std::unordered_map<int64_t, PathVersionListSharedPtr> _expired_snapshot_version_path_map;
+=======
+    std::map<int64_t, PathVersionListSharedPtr> _stale_version_path_map;
+>>>>>>> 100209d2... Add delayed deletion of rowsets function, fix -230 error.
 
     VersionGraph _version_graph;
 };
