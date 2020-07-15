@@ -204,7 +204,7 @@ Status ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
         vector<pair<string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
-            MutexLock l(_lock);
+            MutexLock l(&_lock);
             running = _threads_running_metric;
             thread_categories_info.reserve(_thread_categories.size());
             for (const auto& category : _thread_categories) {
@@ -466,7 +466,7 @@ Status ThreadJoiner::join() {
             strings::Substitute("Timed out after $0ms joining on $1", waited_ms, _thread->_name));
 }
 
-Status start_thread_instrumentation(WebPageHandler* web_page_handler) {
+void start_thread_instrumentation(WebPageHandler* web_page_handler) {
     web_page_handler->register_page("/threadz", "Threadz",
                                     std::bind(&ThreadMgr::start_instrumentation, &thread_manager,
                                               std::placeholders::_1, std::placeholders::_2),
