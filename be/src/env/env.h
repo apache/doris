@@ -350,4 +350,4 @@ public:
     virtual const std::string& filename() const = 0;
 };
 
-}
+}   // namespace doris
