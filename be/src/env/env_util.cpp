@@ -93,7 +93,7 @@ Status read_file_to_string(Env* env, const std::string& fname, faststring* data)
         if (!s.ok()) {
             break;
         }
-        data->append(fragment.data(), fragment.size());
+        data->append(fragment.get_data(), fragment.get_size());
         if (fragment.empty()) {
             break;
         }

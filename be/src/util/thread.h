@@ -283,7 +283,7 @@ private:
 
 // Registers /threadz with the debug webserver, and creates thread-tracking metrics under
 // the given entity. If 'web' is NULL, does not register the path handler.
-Status start_thread_instrumentation(WebPageHandler* web_page_handler);
+void start_thread_instrumentation(WebPageHandler* web_page_handler);
 
 } //namespace doris
 
