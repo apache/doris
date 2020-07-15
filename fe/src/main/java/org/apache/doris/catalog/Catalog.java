@@ -459,7 +459,11 @@ public class Catalog {
     }
 
     private static class SingletonHolder {
-        private static final Catalog INSTANCE = new Catalog(false);
+        private static final Catalog INSTANCE = new Catalog();
+    }
+
+    private Catalog() {
+        this(false);
     }
 
     // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
