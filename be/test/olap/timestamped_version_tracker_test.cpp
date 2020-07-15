@@ -770,7 +770,6 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
     path_arr.SetArray();
 
     tracker.get_stale_version_path_json_doc(path_arr);
-
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
     path_arr.Accept(writer);
