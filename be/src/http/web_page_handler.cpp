@@ -19,7 +19,6 @@
 
 #include <boost/bind.hpp>
 #include <boost/mem_fn.hpp>
-#include <mustache.h>
 
 #include "common/config.h"
 #include "env/env.h"
@@ -37,6 +36,7 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+#include "util/mustache/mustache.h"
 
 using strings::Substitute;
 
