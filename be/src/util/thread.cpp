@@ -109,7 +109,7 @@ private:
     typedef std::map<std::string, ThreadCategory> ThreadCategoryMap;
 
     // Protects _thread_categories and thread metrics.
-    Mutex _lock;
+    mutable Mutex _lock;
 
     // All thread categorys that ever contained a thread, even if empty
     ThreadCategoryMap _thread_categories;

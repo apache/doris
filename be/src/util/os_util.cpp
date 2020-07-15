@@ -64,7 +64,7 @@ static const int64_t kIoWait = 41 - 2;
 // Largest offset we are interested in, to check we get a well formed stat file.
 static const int64_t kMaxOffset = kIoWait;
 
-Status doris::parse_stat(const std::string& buffer, std::string* name, ThreadStats* stats) {
+Status parse_stat(const std::string& buffer, std::string* name, ThreadStats* stats) {
     DCHECK(stats != nullptr);
 
     // The thread name should be the only field with parentheses. But the name
@@ -100,7 +100,7 @@ Status doris::parse_stat(const std::string& buffer, std::string* name, ThreadSta
     return Status::OK();
 }
 
-Status doris::get_thread_stats(int64_t tid, ThreadStats* stats) {
+Status get_thread_stats(int64_t tid, ThreadStats* stats) {
     DCHECK(stats != nullptr);
     if (kTicksPerSec <= 0) {
         return Status::NotSupported("ThreadStats not supported");
@@ -111,7 +111,7 @@ Status doris::get_thread_stats(int64_t tid, ThreadStats* stats) {
 
     return parse_stat(buf.ToString(), nullptr, stats);
 }
-void doris::disable_core_dumps() {
+void disable_core_dumps() {
     struct rlimit lim;
     PCHECK(getrlimit(RLIMIT_CORE, &lim) == 0);
     lim.rlim_cur = 0;
@@ -132,7 +132,7 @@ void doris::disable_core_dumps() {
     }
 }
 
-bool doris::is_being_debugged() {
+bool is_being_debugged() {
 #ifndef __linux__
     return false;
 #else
