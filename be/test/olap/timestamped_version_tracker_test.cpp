@@ -480,7 +480,7 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker_with_same_rows
     ASSERT_EQ(1, tracker._next_path_id);
 }
 
-TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker) {
+TEST_F(TestTimestampedVersionTracker, recover_versioned_tracker) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expried_rs_metas;
@@ -493,7 +493,8 @@ TEST_F(TestTimestampedVersionTracker, reconstruct_versioned_tracker) {
 
     const std::map<int64_t, PathVersionListSharedPtr> stale_version_path_map;
     TimestampedVersionTracker tracker;
-    tracker.reconstruct_versioned_tracker(rs_metas, stale_version_path_map);
+    tracker.construct_versioned_tracker(rs_metas);
+    tracker.recover_versioned_tracker(stale_version_path_map);
 
     ASSERT_EQ(10, tracker._version_graph._version_graph.size());
     ASSERT_EQ(0, tracker._stale_version_path_map.size());

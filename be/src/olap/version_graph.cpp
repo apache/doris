@@ -93,15 +93,8 @@ void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Docum
     }
 }
 
-void TimestampedVersionTracker::reconstruct_versioned_tracker(
-        const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map) {
-    if (rs_metas.empty()) {
-        VLOG(3) << "there is no version in the header.";
-        return;
-    }
-
-    _construct_versioned_tracker(rs_metas);
+void TimestampedVersionTracker::recover_versioned_tracker(const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map) {
+    
     auto _path_map_iter = stale_version_path_map.begin();
     // recover stale_version_path_map
     while (_path_map_iter != stale_version_path_map.end()) {
@@ -117,7 +110,7 @@ void TimestampedVersionTracker::reconstruct_versioned_tracker(
         }
         _path_map_iter++;
     }
-    LOG(INFO) <<"construct_versioned_tracker current map info "<< _get_current_path_map_str();
+    LOG(INFO) <<"recover_versioned_tracker current map info "<< _get_current_path_map_str();
 }
 
 void TimestampedVersionTracker::add_version(const Version& version) {

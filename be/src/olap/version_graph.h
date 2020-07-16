@@ -139,10 +139,9 @@ public:
     /// Construct rowsets version tracker by rs_metas and stale version path map.
     void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
-    /// Reconstruct rowsets version tracker by rs_metas and stale version path map.
-    void reconstruct_versioned_tracker(
-            const std::vector<RowsetMetaSharedPtr>& rs_metas,
-            const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map);
+    /// Recover rowsets version tracker from stale version path map. When delete operation fails, the 
+    /// tracker can be recovered from deleted stale_version_path_map.
+    void recover_versioned_tracker(const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map);
 
     /// Add a version to tracker, this version is a new version rowset, not merged rowset.
     void add_version(const Version& version);

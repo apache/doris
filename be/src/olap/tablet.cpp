@@ -417,8 +417,7 @@ void Tablet::delete_expired_stale_rowset() {
             LOG(WARNING) << "The consistent version check fails, there are bugs. "
                 << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
 
-            _timestamped_version_tracker.reconstruct_versioned_tracker(
-                    _tablet_meta->all_rs_metas(), stale_version_path_map);
+            _timestamped_version_tracker.recover_versioned_tracker(stale_version_path_map);
 
             // double check the consistent versions
             status = capture_consistent_versions(test_version, nullptr);
