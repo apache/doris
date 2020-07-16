@@ -40,11 +40,16 @@ public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker);
+    MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+             const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
+             KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker,
+             bool with_delete_flag = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     void insert(const Tuple* tuple);
+    void insert(const Tuple* tuple, bool is_delete);
     OLAPStatus flush();
     OLAPStatus close();
 
@@ -87,6 +92,9 @@ private:
     Table::Hint _hint;
 
     RowsetWriter* _rowset_writer;
+
+    bool _with_delete;
+
 
 }; // class MemTable
 

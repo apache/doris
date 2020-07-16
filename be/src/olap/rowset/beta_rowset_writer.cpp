@@ -89,6 +89,7 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
 
 template<typename RowType>
 OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
+    VLOG_ROW << "write row: " << print_row(row);
     if (PREDICT_FALSE(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer());
     }

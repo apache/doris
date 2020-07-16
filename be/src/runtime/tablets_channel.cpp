@@ -103,7 +103,9 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
             return Status::InternalError(strings::Substitute(
                     "unknown tablet to append data, tablet=$0", tablet_id));
         }
-        auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
+        Tuple* tuple = row_batch.get_row(i)->get_tuple(0);
+        TupleDescriptor* tuple_desc = row_batch.row_desc().tuple_descriptors()[0];
+        auto st = it->second->write(tuple, tuple_desc);
         if (st != OLAP_SUCCESS) {
             const std::string& err_msg = strings::Substitute(
                     "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",
@@ -233,6 +235,8 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.need_gen_rollup = params.need_gen_rollup();
         request.tuple_desc = _tuple_desc;
         request.slots = index_slots;
+        request.merge_type = params.merge_type();
+        request.delete_slot_id = params.delete_slot_id();
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&request, _mem_tracker.get(),  &writer);

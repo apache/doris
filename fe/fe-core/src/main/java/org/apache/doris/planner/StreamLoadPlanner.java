@@ -26,17 +26,23 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.task.StreamLoadTask;
+import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
+import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
@@ -57,6 +63,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.doris.catalog.AggregateType.REPLACE;
+
 // Used to generate a plan fragment for a streaming load.
 // we only support OlapTable now.
 // TODO(zc): support other type table
@@ -68,15 +76,15 @@ public class StreamLoadPlanner {
     // Data will load to this table
     private Database db;
     private OlapTable destTable;
-    private StreamLoadTask streamLoadTask;
+    private LoadTaskInfo taskInfo;
 
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
-    public StreamLoadPlanner(Database db, OlapTable destTable, StreamLoadTask streamLoadTask) {
+    public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
         this.destTable = destTable;
-        this.streamLoadTask = streamLoadTask;
+        this.taskInfo = taskInfo;
     }
 
     private void resetAnalyzer() {
@@ -94,10 +102,14 @@ public class StreamLoadPlanner {
 
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+        if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
+                && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
+            throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+        }
         resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
-        boolean negative = streamLoadTask.getNegative();
+        boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
@@ -108,9 +120,15 @@ public class StreamLoadPlanner {
                 throw new DdlException("Column is not SUM AggreateType. column:" + col.getName());
             }
         }
+        // Add a virtual column to indicate whether the data in this row is deleted
+        SlotDescriptor delSlotDesc = descTable.addSlotDescriptor(tupleDesc);
+        delSlotDesc.setIsMaterialized(true);
+        delSlotDesc.setColumn(new Column(Load.BATCH_DELETE_VIRTUAL_COL, Type.BOOLEAN, false, REPLACE, false,
+                String.valueOf(taskInfo.getMergeType() == LoadTask.MergeType.DELETE),
+                "merge load virtual column"));
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, taskInfo);
         scanNode.init(analyzer);
         descTable.computeMemLayout();
         scanNode.finalize(analyzer);
@@ -118,7 +136,7 @@ public class StreamLoadPlanner {
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
-        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId(), streamLoadTask.getTimeout());
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout());
         olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -153,15 +171,17 @@ public class StreamLoadPlanner {
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQuery_type(TQueryType.LOAD);
-        queryOptions.setQuery_timeout(streamLoadTask.getTimeout());
-        queryOptions.setMem_limit(streamLoadTask.getMemLimit());
+        queryOptions.setQuery_timeout(taskInfo.getTimeout());
+        queryOptions.setMem_limit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
-        queryOptions.setLoad_mem_limit(streamLoadTask.getMemLimit());
+        queryOptions.setLoad_mem_limit(taskInfo.getMemLimit());
+        queryOptions.setMerge_type(TMergeType.valueOf(taskInfo.getMergeType().name()));
+        queryOptions.setDelete_slot_id(delSlotDesc.getId().asInt());
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         queryGlobals.setTimestamp_ms(new Date().getTime());
-        queryGlobals.setTime_zone(streamLoadTask.getTimezone());
+        queryGlobals.setTime_zone(taskInfo.getTimezone());
         params.setQuery_globals(queryGlobals);
 
         // set load error hub if exist
@@ -182,7 +202,7 @@ public class StreamLoadPlanner {
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
 
-        PartitionNames partitionNames = streamLoadTask.getPartitions();
+        PartitionNames partitionNames = taskInfo.getPartitions();
         if (partitionNames != null) {
             for (String partName : partitionNames.getPartitionNames()) {
                 Partition part = destTable.getPartition(partName, partitionNames.isTemp());

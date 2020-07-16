@@ -18,6 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -26,6 +29,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -271,6 +275,11 @@ public class LoadStmt extends DdlStmt {
 
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
+            }
+            Table table = Catalog.getCurrentCatalog().getDb(label.getDbName()).getTable(dataDescription.getTableName());
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND &&
+                    (!(table instanceof OlapTable) || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
+                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
             }
         }
         if (isLoadFromTable) {

@@ -105,6 +105,15 @@ void NodeChannel::open() {
     request.set_load_mem_limit(_parent->_load_mem_limit);
     request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
 
+    // set load info
+    std::map<TMergeType::type, PTabletWriterOpenRequest::PMergeType>::const_iterator it = _type_map.find(_parent->_merge_type);
+    if (it == _type_map.end() ) {
+        LOG(WARNING) << "merge type [" << _parent->_merge_type << "] is invalid, set to default APPEND";
+        request.set_merge_type(PTabletWriterOpenRequest::APPEND);
+    } else {
+        request.set_merge_type(it->second);
+    }
+    request.set_delete_slot_id(_parent->_delete_slot_id);
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
 
@@ -543,6 +552,9 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _non_blocking_send_timer = ADD_TIMER(_profile, "NonBlockingSendTime");
     _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
     _load_mem_limit = state->get_load_mem_limit();
+
+    _merge_type = state->get_merge_type();
+    _delete_slot_id = state->get_delete_slot_id();
 
     // open all channels
     auto& partitions = _partition->get_partitions();

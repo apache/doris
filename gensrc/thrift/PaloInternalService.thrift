@@ -137,7 +137,10 @@ struct TQueryOptions {
   // if set, this will overwrite the BE config.
   30: optional i32 max_pushdown_conditions_per_column
   // whether enable spilling to disk
-  31: optional bool enable_spilling = false;
+  31: optional bool enable_spilling = false
+  // for batch load
+  32: optional Types.TMergeType merge_type
+  33: optional i32 delete_slot_id = -1
 }
     
 

@@ -519,5 +519,21 @@ int64_t RuntimeState::get_load_mem_limit() {
     }
 }
 
+TMergeType::type RuntimeState::get_merge_type() {
+    TMergeType::type merge_type = TMergeType::APPEND;
+    if (_query_options.__isset.merge_type) {
+        merge_type = _query_options.merge_type;
+    }
+    return merge_type;
+}
+
+int32_t RuntimeState::get_delete_slot_id() {
+    int32_t slot_offset = -1;
+    if (_query_options.__isset.delete_slot_id) {
+        slot_offset = _query_options.delete_slot_id;
+    }
+    return slot_offset;
+}
+
 } // end namespace doris
 

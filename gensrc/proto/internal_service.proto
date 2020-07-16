@@ -70,6 +70,13 @@ message PTabletWriterOpenRequest {
     required bool need_gen_rollup = 7;
     optional int64 load_mem_limit = 8;
     optional int64 load_channel_timeout_s = 9;
+    enum PMergeType {
+        APPEND = 0;
+        MERGE = 1;
+        DELETE = 2;
+    }
+    optional PMergeType merge_type = 10  [default = APPEND];
+    optional int32 delete_slot_id = 11 [default = -1];
 };
 
 message PTabletWriterOpenResult {

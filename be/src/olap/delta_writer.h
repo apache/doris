@@ -50,6 +50,8 @@ struct WriteRequest {
     TupleDescriptor* tuple_desc;
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
+    PTabletWriterOpenRequest::PMergeType merge_type;
+    int delete_slot_id;
 };
 
 // Writer for a particular (load, index, tablet).
@@ -63,6 +65,8 @@ public:
     OLAPStatus init();
 
     OLAPStatus write(Tuple* tuple);
+    OLAPStatus write(Tuple* tuple, TupleDescriptor* tuple_desc);
+
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
     // wait for all memtables to be flushed.

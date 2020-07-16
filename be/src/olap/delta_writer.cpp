@@ -24,6 +24,7 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "runtime/tuple.h"
 
 namespace doris {
 
@@ -133,7 +134,8 @@ OLAPStatus DeltaWriter::init() {
     writer_context.partition_id = _req.partition_id;
     writer_context.tablet_schema_hash = _req.schema_hash;
     writer_context.rowset_type = _storage_engine->default_rowset_type();
-    if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+    if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET
+        || _req.merge_type != PTabletWriterOpenRequest::APPEND) {
         writer_context.rowset_type = BETA_ROWSET;
     }
     writer_context.rowset_path_prefix = _tablet->tablet_path();
@@ -154,13 +156,24 @@ OLAPStatus DeltaWriter::init() {
     _is_init = true;
     return OLAP_SUCCESS;
 }
-
 OLAPStatus DeltaWriter::write(Tuple* tuple) {
+    return write(tuple, nullptr);
+}
+OLAPStatus DeltaWriter::write(Tuple* tuple,  TupleDescriptor* tuple_desc) {
     if (!_is_init) {
         RETURN_NOT_OK(init());
     }
+    bool is_delete = false;
+    if (tuple_desc != nullptr) {
 
-    _mem_table->insert(tuple);
+    }
+    if (_req.delete_slot_id >= 0) {
+        const SlotDescriptor* slot = tuple_desc->slots()[_req.delete_slot_id];
+        if (slot->type() == TYPE_BOOLEAN) {
+            is_delete = *reinterpret_cast<const bool*>(tuple->get_slot(slot->tuple_offset()));
+        }
+    }
+    _mem_table->insert(tuple, is_delete);
 
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
@@ -194,8 +207,8 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
 
 void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
-                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker.get()));
+                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(), _mem_tracker.get(),
+                                  _tablet->keys_type() == UNIQUE_KEYS && _req.delete_slot_id > 0));
 }
 
 OLAPStatus DeltaWriter::close() {

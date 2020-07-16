@@ -237,6 +237,11 @@ private:
     int64_t _mem_exceeded_block_ns = 0;
     int64_t _queue_push_lock_ns = 0;
     int64_t _actual_consume_ns = 0;
+    std::map<TMergeType::type, PTabletWriterOpenRequest::PMergeType> _type_map = {
+        {TMergeType::APPEND, PTabletWriterOpenRequest::APPEND},
+        {TMergeType::MERGE, PTabletWriterOpenRequest::MERGE},
+        {TMergeType::DELETE, PTabletWriterOpenRequest::DELETE}
+    };
 };
 
 class IndexChannel {
@@ -393,6 +398,9 @@ private:
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
+    TMergeType::type _merge_type = TMergeType::APPEND;
+    int32_t _delete_slot_id = -1;
+    // 
 };
 
 } // namespace stream_load

@@ -495,6 +495,11 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
+    // get load type(APPEND|MERGE|DELETE)
+    TMergeType::type get_merge_type();
+
+    int32_t get_delete_slot_id();
+
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;

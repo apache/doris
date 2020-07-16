@@ -116,6 +116,8 @@ public class LoadLoadingTask extends LoadTask {
          */
         curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));
+        curCoordinator.setMergeType(this.fileGroups.get(0).getMergeType());
+        curCoordinator.setDelSlotId(planner.getDelSlotId());
 
         try {
             QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);

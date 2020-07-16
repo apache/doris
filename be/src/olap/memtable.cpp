@@ -18,10 +18,10 @@
 #include "olap/memtable.h"
 
 #include "common/logging.h"
+#include "olap/row.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_writer.h"
-#include "olap/row_cursor.h"
-#include "olap/row.h"
 #include "olap/schema.h"
 #include "runtime/tuple.h"
 #include "util/debug_util.h"
@@ -32,20 +32,31 @@ namespace doris {
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker)
-    : _tablet_id(tablet_id),
-      _schema(schema),
-      _tablet_schema(tablet_schema),
-      _tuple_desc(tuple_desc),
-      _slot_descs(slot_descs),
-      _keys_type(keys_type),
-      _row_comparator(_schema),
-      _rowset_writer(rowset_writer) {
-
-    _schema_size = _schema->schema_size();
+        : MemTable(tablet_id, schema, tablet_schema, slot_descs, tuple_desc, keys_type,
+                   rowset_writer, mem_tracker, false) {}
+MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+                   const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
+                   KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker,
+                   bool with_delete_flag)
+        : _tablet_id(tablet_id),
+          _schema(schema),
+          _tablet_schema(tablet_schema),
+          _tuple_desc(tuple_desc),
+          _slot_descs(slot_descs),
+          _keys_type(keys_type),
+          _row_comparator(_schema),
+          _rowset_writer(rowset_writer),
+          _with_delete(with_delete_flag) {
+    if (_with_delete) {
+        _schema_size = _schema->schema_size() + 1;
+    } else {
+        _schema_size = _schema->schema_size();
+    }
     _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker));
     _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
     _table_mem_pool.reset(new MemPool(_mem_tracker.get()));
-    _skip_list = new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
+    _skip_list =
+            new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
 }
 
 MemTable::~MemTable() {
@@ -61,6 +72,10 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
 }
 
 void MemTable::insert(const Tuple* tuple) {
+    insert(tuple, false);
+}
+
+void MemTable::insert(const Tuple* tuple, bool is_delete) {
     bool overwritten = false;
     uint8_t* _tuple_buf = nullptr;
     if (_keys_type == KeysType::DUP_KEYS) {
@@ -69,6 +84,8 @@ void MemTable::insert(const Tuple* tuple) {
         ContiguousRow row(_schema, _tuple_buf);
         _tuple_to_row(tuple, &row, _table_mem_pool.get());
         _skip_list->Insert((TableKey)_tuple_buf, &overwritten);
+        LOG(INFO) << "is_delete: " << row.is_delete();
+
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
         return;
     }
@@ -78,7 +95,8 @@ void MemTable::insert(const Tuple* tuple) {
     // _skiplist.  If it exists, we aggregate the new row into the row in skiplist.
     // otherwise, we need to copy it into _table_mem_pool before we can insert it.
     _tuple_buf = _buffer_mem_pool->allocate(_schema_size);
-    ContiguousRow src_row(_schema, _tuple_buf);
+    ContiguousRow src_row(_schema, _tuple_buf, _with_delete);
+    src_row.set_delete(is_delete);
     _tuple_to_row(tuple, &src_row, _buffer_mem_pool.get());
 
     bool is_exist = _skip_list->Find((TableKey)_tuple_buf, &_hint);
@@ -86,7 +104,7 @@ void MemTable::insert(const Tuple* tuple) {
         _aggregate_two_row(src_row, _hint.curr->key);
     } else {
         _tuple_buf = _table_mem_pool->allocate(_schema_size);
-        ContiguousRow dst_row(_schema, _tuple_buf);
+        ContiguousRow dst_row(_schema, _tuple_buf, _with_delete);
         copy_row_in_memtable(&dst_row, src_row, _table_mem_pool.get());
         _skip_list->InsertWithHint((TableKey)_tuple_buf, is_exist, &_hint);
     }
@@ -102,13 +120,13 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         const void* value = tuple->get_slot(slot->tuple_offset());
-        _schema->column(i)->consume(
-                &cell, (const char*)value, is_null, mem_pool, &_agg_object_pool);
+        _schema->column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
+                                    &_agg_object_pool);
     }
 }
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
-    ContiguousRow dst_row(_schema, row_in_skiplist);
+    ContiguousRow dst_row(_schema, row_in_skiplist, _with_delete);
     agg_update_row(&dst_row, src_row, _table_mem_pool.get());
 }
 
@@ -119,7 +137,7 @@ OLAPStatus MemTable::flush() {
         Table::Iterator it(_skip_list);
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             char* row = (char*)it.key();
-            ContiguousRow dst_row(_schema, row);
+            ContiguousRow dst_row(_schema, row, _with_delete);
             agg_finalize_row(&dst_row, _table_mem_pool.get());
             RETURN_NOT_OK(_rowset_writer->add_row(dst_row));
         }

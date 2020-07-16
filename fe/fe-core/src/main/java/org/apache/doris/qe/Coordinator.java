@@ -33,6 +33,7 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -64,6 +65,7 @@ import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
+import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanFragmentDestination;
@@ -288,6 +290,15 @@ public class Coordinator {
 
     public void setTimeout(int timeout) {
         this.queryOptions.setQuery_timeout(timeout);
+    }
+
+    public void setMergeType(LoadTask.MergeType mergeType) {
+        this.queryOptions.setMerge_type(TMergeType.valueOf(mergeType.name()));
+
+    }
+
+    public void setDelSlotId(int id) {
+        this.queryOptions.setDelete_slot_id(id);
     }
 
     public void clearExportStatus() {

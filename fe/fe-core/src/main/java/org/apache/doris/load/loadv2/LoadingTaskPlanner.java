@@ -26,12 +26,14 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.Load;
 import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapTableSink;
@@ -52,6 +54,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+
+import static org.apache.doris.catalog.AggregateType.REPLACE;
 
 public class LoadingTaskPlanner {
     private static final Logger LOG = LogManager.getLogger(LoadingTaskPlanner.class);
@@ -76,6 +80,11 @@ public class LoadingTaskPlanner {
     private List<ScanNode> scanNodes = Lists.newArrayList();
 
     private int nextNodeId = 0;
+    private int delSlotId = -1;
+
+    public int getDelSlotId() {
+        return delSlotId;
+    }
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
@@ -114,7 +123,13 @@ public class LoadingTaskPlanner {
                 slotDesc.setIsNullable(false);
             }
         }
-
+        // Add a virtual column to indicate whether the data in this row is deleted
+        SlotDescriptor delSlotDesc = descTable.addSlotDescriptor(tupleDesc);
+        delSlotDesc.setIsMaterialized(true);
+        delSlotDesc.setColumn(new Column(Load.BATCH_DELETE_VIRTUAL_COL, Type.BOOLEAN, false, REPLACE, false,
+                String.valueOf(fileGroups.get(0).getMergeType() == LoadTask.MergeType.DELETE),
+                "merge load virtual column"));
+        delSlotId = delSlotDesc.getId().asInt();
         // Generate plan trees
         // 1. Broker scan node
         BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",

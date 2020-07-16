@@ -137,6 +137,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
     public static final String VERSION = "v1";
+    public static final String BATCH_DELETE_VIRTUAL_COL = "__DORIS_BATCH_DELETE_COL__";
 
     // valid state change map
     private static final Map<JobState, Set<JobState>> STATE_CHANGE_MAP = Maps.newHashMap();
@@ -961,7 +962,8 @@ public class Load {
         // check mapping column exist in schema
         // !! all column mappings are in columnExprs !!
         for (ImportColumnDesc importColumnDesc : columnExprs) {
-            if (importColumnDesc.isColumn()) {
+            if (importColumnDesc.isColumn()
+                    || importColumnDesc.getColumnName().equalsIgnoreCase(BATCH_DELETE_VIRTUAL_COL)) {
                 continue;
             }
 
