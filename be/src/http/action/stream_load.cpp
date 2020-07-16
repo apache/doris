@@ -392,7 +392,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type = std::toupper(http_req->header(HTTP_MERGE_TYPE));
         if (merge_type == "MERGE" || merge_type == "DELETE" || merge_type == "APPEND") {
-            request.__set_merge_type(http_req->header(HTTP_MERGE_TYPE));
+            request.__set_merge_type(merge_type);
         } else {
             return Status::InvalidArgument("Invalid merge type " + merge_type);
         }
