@@ -298,5 +298,10 @@ void escape_for_html(const std::string& in, std::stringstream* out) {
         }
     }
 }
+std::string escape_for_html_to_string(const std::string& in) {
+    std::stringstream str;
+    escape_for_html(in, &str);
+    return str.str();
+}
 
 }

@@ -37,6 +37,8 @@
 #include "util/mutex.h"
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
+#include "util/easy_json.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -75,8 +77,7 @@ public:
     // already been removed, this is a no-op.
     void remove_thread(const pthread_t& pthread_id, const std::string& category);
 
-    void start_instrumentation(const WebPageHandler::ArgumentMap& args,
-                                 std::stringstream* output) const;
+    void start_instrumentation(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const;
 
 private:
     // Container class for any details we want to capture about a thread
@@ -98,7 +99,7 @@ private:
         int64_t _thread_id;
     };
 
-    void summarize_thread_descriptor(const ThreadDescriptor& desc, std::stringstream* output) const;
+    void summarize_thread_descriptor(const ThreadDescriptor& desc, EasyJson* ej) const;
 
     // A ThreadCategory is a set of threads that are logically related.
     // TODO: unordered_map is incompatible with pthread_t, but would be more
@@ -172,11 +173,16 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
     ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
-void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
-                                        std::stringstream* output) const {
+void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const {
     const auto* category_name = FindOrNull(args, "group");
     if (category_name) {
         bool requested_all = (*category_name == "all");
+        ej->Set("requested_thread_group", EasyJson::kObject);
+        (*ej)["group_name"] = escape_for_html_to_string(*category_name);
+        (*ej)["requested_all"] = requested_all;
+
+        // The critical section is as short as possible so as to minimize the delay
+        // imposed on new threads that acquire the lock in write mode.
         vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
             MutexLock l(&_lock);
@@ -195,8 +201,10 @@ void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
             }
         }
 
+        EasyJson found = (*ej).Set("found", EasyJson::kObject);
+        EasyJson threads = found.Set("threads", EasyJson::kArray);
         for (const auto& desc : descriptors_to_print) {
-            summarize_thread_descriptor(desc, output);
+            summarize_thread_descriptor(desc, &threads);
         }
     } else {
         // List all thread groups and the number of threads running in each.
@@ -210,27 +218,33 @@ void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args,
                 thread_categories_info.emplace_back(category.first, category.second.size());
             }
 
-            *output << "total_threads_running=" << running;
+            (*ej)["total_threads_running"] = running;
+            EasyJson groups = ej->Set("groups", EasyJson::kArray);
             for (const auto& elem : thread_categories_info) {
-                *output << "group_name=" << elem.first;
-                *output << "threads_running=" << elem.second;
+                string category_arg;
+                url_encode(elem.first, &category_arg);
+                LOG(INFO) << "encode url path: " << category_arg;
+                EasyJson group = groups.PushBack(EasyJson::kObject);
+                group["encoded_group_name"] = category_arg;
+                group["group_name"] = elem.first;
+                group["threads_running"] = elem.second;
             }
         }
     }
 }
 
-void ThreadMgr::summarize_thread_descriptor(const ThreadMgr::ThreadDescriptor& desc,
-                                            std::stringstream* output) const {
+void ThreadMgr::summarize_thread_descriptor(const ThreadMgr::ThreadDescriptor& desc, EasyJson* ej) const {
     ThreadStats stats;
     Status status = get_thread_stats(desc.thread_id(), &stats);
     if (!status.ok()) {
         LOG(WARNING) << "Could not get per-thread statistics: " << status.to_string();
     }
 
-    *output << "thread_name=" << desc.name();
-    *output << "user_sec=" << static_cast<double>(stats.user_ns) / 1e9;
-    *output << "kernel_sec=" << static_cast<double>(stats.kernel_ns) / 1e9;
-    *output << "iowait_sec=" << static_cast<double>(stats.iowait_ns) / 1e9;
+    EasyJson thread = ej->PushBack(EasyJson::kObject);
+    thread["thread_name"] = desc.name();
+    thread["user_sec"] = static_cast<double>(stats.user_ns) / 1e9;
+    thread["kernel_sec"] = static_cast<double>(stats.kernel_ns) / 1e9;
+    thread["iowait_sec"] = static_cast<double>(stats.iowait_ns) / 1e9;
 }
 
 Thread::~Thread() {
@@ -466,9 +480,8 @@ Status ThreadJoiner::join() {
 }
 
 void start_thread_instrumentation(WebPageHandler* web_page_handler) {
-    web_page_handler->register_page("/threadz", "Threadz",
-                                    boost::bind(&ThreadMgr::start_instrumentation, thread_manager.get(),
-                                              boost::placeholders::_1, boost::placeholders::_2),
-                                    true);
+    web_page_handler->register_template_page("/threadz", "Threadz",
+            boost::bind(&ThreadMgr::start_instrumentation, thread_manager.get(),
+                    boost::placeholders::_1, boost::placeholders::_2),true);
 }
 } // namespace doris

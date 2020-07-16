@@ -54,6 +54,8 @@ bool base64_decode(const std::string& in, std::string* out);
 // judiciously.
 void escape_for_html(const std::string& in, std::stringstream* out);
 
+// Same as above, but returns a string.
+std::string escape_for_html_to_string(const std::string& in);
 }
 
 #endif
