@@ -17,8 +17,10 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.loadv2.dpp.DppResult;
 import org.apache.doris.thrift.TEtlState;
 
 import com.google.common.base.Strings;
@@ -31,7 +33,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 public class EtlStatus implements Writable {
-    public static final String DEFAULT_TRACKING_URL = "N/A";
+    public static final String DEFAULT_TRACKING_URL = FeConstants.null_string;
     
     private TEtlState state;
     private String trackingUrl;
@@ -40,12 +42,21 @@ public class EtlStatus implements Writable {
     // not persist
     private Map<String, Long> fileMap;
 
+    // for spark not persist
+    // 0 - 100
+    private int progress;
+    private String failMsg;
+    private DppResult dppResult;
+
     public EtlStatus() {
         this.state = TEtlState.RUNNING;
         this.trackingUrl = DEFAULT_TRACKING_URL;
         this.stats = Maps.newHashMap();
         this.counters = Maps.newHashMap();
         this.fileMap = Maps.newHashMap();
+        this.progress = 0;
+        this.failMsg = "";
+        this.dppResult = null;
     }
 
     public TEtlState getState() {
@@ -101,16 +112,51 @@ public class EtlStatus implements Writable {
         this.fileMap.putAll(fileMap);
     }
 
+    public int getProgress() {
+        return progress;
+    }
+
+    public void setProgress(int progress) {
+        this.progress = progress;
+    }
+
+    public String getFailMsg() {
+        return failMsg;
+    }
+
+    public void setFailMsg(String failMsg) {
+        this.failMsg = failMsg;
+    }
+
+    public DppResult getDppResult() {
+        return dppResult;
+    }
+
+    public void setDppResult(DppResult dppResult) {
+        this.dppResult = dppResult;
+    }
+
     public void reset() {
         this.stats.clear();
         this.counters.clear();
         this.fileMap.clear();
+        this.progress = 0;
+        this.failMsg = "";
+        this.dppResult = null;
     }
 
     @Override
     public String toString() {
-        return "EtlTaskStatus [state=" + state + ", trackingUrl=" + trackingUrl + ", stats=" + stats + ", counters="
-                + counters + "]";
+        return "EtlStatus{" +
+                "state=" + state +
+                ", trackingUrl='" + trackingUrl + '\'' +
+                ", stats=" + stats +
+                ", counters=" + counters +
+                ", fileMap=" + fileMap +
+                ", progress=" + progress +
+                ", failMsg='" + failMsg + '\'' +
+                ", dppResult='" + dppResult + '\'' +
+                '}';
     }
 
     public void write(DataOutput out) throws IOException {

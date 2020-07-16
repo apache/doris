@@ -78,7 +78,7 @@ public:
     // todo(kks): Unify AggregateInfo::init method and Field::agg_init method
 
     // This function will initialize destination with source.
-    // This functionn differs copy functionn in that if this filed
+    // This functionn differs copy functionn in that if this field
     // contain aggregate information, this functionn will initialize
     // destination in aggregate format, and update with srouce content.
     virtual void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool, ObjectPool* agg_pool) const {
@@ -189,12 +189,12 @@ public:
         _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
     }
 
-    // deep copy filed content from `src` to `dst` without null-byte
+    // deep copy field content from `src` to `dst` without null-byte
     inline void deep_copy_content(char* dst, const char* src, MemPool* mem_pool) const {
         _type_info->deep_copy(dst, src, mem_pool);
     }
 
-    // shallow copy filed content from `src` to `dst` without null-byte.
+    // shallow copy field content from `src` to `dst` without null-byte.
     // for string like type, shallow copy only copies Slice, not the actual data pointed by slice.
     inline void shallow_copy_content(char* dst, const char* src) const {
         _type_info->shallow_copy(dst, src);

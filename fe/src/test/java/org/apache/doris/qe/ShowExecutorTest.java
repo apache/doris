@@ -17,9 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescribeStmt;
@@ -68,6 +65,10 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
+
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 
 public class ShowExecutorTest {
     private ConnectContext ctx;
@@ -191,7 +192,7 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = auth;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 
@@ -295,10 +296,6 @@ public class ShowExecutorTest {
         Catalog catalog = AccessTestUtil.fetchAdminCatalog();
 
         new MockUp<Catalog>() {
-            @Mock
-            Catalog getInstance() {
-                return catalog;
-            }
             @Mock
             Catalog getCurrentCatalog() {
                 return catalog;

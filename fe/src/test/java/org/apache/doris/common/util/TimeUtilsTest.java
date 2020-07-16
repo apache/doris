@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 
 import org.apache.doris.common.DdlException;
 import org.junit.Assert;
@@ -145,7 +146,7 @@ public class TimeUtilsTest {
 
     @Test
     public void testDateTrans() throws AnalysisException {
-        Assert.assertEquals("N/A", TimeUtils.longToTimeString(-2));
+        Assert.assertEquals(FeConstants.null_string, TimeUtils.longToTimeString(-2));
 
         long timestamp = 1426125600000L;
         Assert.assertEquals("2015-03-12 10:00:00", TimeUtils.longToTimeString(timestamp));

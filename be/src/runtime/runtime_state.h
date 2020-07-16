@@ -31,6 +31,7 @@
 #include <sstream>
 #include <vector>
 
+#include "cctz/time_zone.h"
 #include "common/global_types.h"
 #include "util/logging.h"
 #include "runtime/mem_pool.h"
@@ -143,6 +144,9 @@ public:
     const std::string& timezone() const {
         return _timezone;
     }
+    const cctz::time_zone& timezone_obj() const {
+        return _timezone_obj;
+    }
     const std::string& user() const {
         return _user;
     }
@@ -201,10 +205,6 @@ public:
     // on first use.
     Status create_codegen();
 
-    BufferedBlockMgr* block_mgr() {
-        DCHECK(_block_mgr.get() != NULL);
-        return _block_mgr.get();
-    }
     BufferedBlockMgr2* block_mgr2() {
         DCHECK(_block_mgr2.get() != NULL);
         return _block_mgr2.get();
@@ -467,6 +467,10 @@ public:
         return _query_options.disable_stream_preaggregations;
     }
 
+    bool enable_spill() const {
+        return _query_options.enable_spilling;
+    }
+
      // the following getters are only valid after Prepare()
     InitialReservations* initial_reservations() const { 
         return _initial_reservations; 
@@ -496,10 +500,6 @@ private:
     friend class TestEnv;
 
     // Use a custom block manager for the query for testing purposes.
-    void set_block_mgr(const boost::shared_ptr<BufferedBlockMgr>& block_mgr) {
-        _block_mgr = block_mgr;
-    }
-    // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const boost::shared_ptr<BufferedBlockMgr2>& block_mgr) {
         _block_mgr2 = block_mgr;
     }
@@ -507,6 +507,10 @@ private:
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 2048;
+
+    // put runtime state before _obj_pool, so that it will be deconstructed after
+    // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
+    RuntimeProfile _profile;
 
     DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;
@@ -536,6 +540,7 @@ private:
     //Query-global timestamp_ms
     int64_t _timestamp_ms;
     std::string _timezone;
+    cctz::time_zone _timezone_obj;
 
     TUniqueId _query_id;
     TUniqueId _fragment_instance_id;
@@ -545,8 +550,6 @@ private:
     // Thread resource management object for this fragment's execution.  The runtime
     // state is responsible for returning this pool to the thread mgr.
     ThreadResourceMgr::ResourcePool* _resource_pool;
-
-    RuntimeProfile _profile;
 
     // all mem limits that apply to this query
     std::vector<MemTracker*> _mem_trackers;
@@ -580,7 +583,6 @@ private:
     // BufferedBlockMgr object used to allocate and manage blocks of input data in memory
     // with a fixed memory budget.
     // The block mgr is shared by all fragments for this query.
-    boost::shared_ptr<BufferedBlockMgr> _block_mgr;
     boost::shared_ptr<BufferedBlockMgr2> _block_mgr2;
 
     // This is the node id of the root node for this plan fragment. This is used as the

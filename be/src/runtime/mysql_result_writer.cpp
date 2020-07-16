@@ -61,11 +61,10 @@ Status MysqlResultWriter::init(RuntimeState* state) {
 }
 
 void MysqlResultWriter::_init_profile() {
-    RuntimeProfile* profile = _parent_profile->create_child("MySQLResultWriter", true, true);
-    _append_row_batch_timer = ADD_TIMER(profile, "AppendBatchTime");
-    _convert_tuple_timer = ADD_CHILD_TIMER(profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(profile, "ResultRendTime", "AppendBatchTime");
-    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
+    _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
+    _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
+    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultRendTime", "AppendBatchTime");
+    _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
 }
 
 Status MysqlResultWriter::_add_one_row(TupleRow* row) {

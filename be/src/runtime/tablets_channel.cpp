@@ -248,7 +248,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         _tablet_writers.emplace(tablet.tablet_id(), writer);
     }
     _s_tablet_writer_count += _tablet_writers.size();
-    DCHECK(_tablet_writers.size() == params.tablets_size());
+    DCHECK_EQ(_tablet_writers.size(), params.tablets_size());
     return Status::OK();
 }
 

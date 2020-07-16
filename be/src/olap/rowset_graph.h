@@ -26,14 +26,14 @@ namespace doris {
 
 class RowsetGraph {
 public:
-    OLAPStatus construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas);
-    OLAPStatus reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas);
-    OLAPStatus add_version_to_graph(const Version& version);
+    void construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+    void reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+    void add_version_to_graph(const Version& version);
     OLAPStatus delete_version_from_graph(const Version& version);
     OLAPStatus capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path) const;
 private:
-    OLAPStatus _add_vertex_to_graph(int64_t vertex_value);
+    void _add_vertex_to_graph(int64_t vertex_value);
 
     // OLAP version contains two parts, [start_version, end_version]. In order
     // to construct graph, the OLAP version has two corresponding vertex, one

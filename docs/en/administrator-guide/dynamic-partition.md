@@ -89,6 +89,10 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     When specified as `MONTH`, the suffix format of the dynamically created partition name is `yyyyMM`, for example, `202003`.
 
+* `dynamic_partition.time_zone`
+
+    The time zone of the dynamic partition, if not filled in, defaults to the time zone of the current machine's system, such as `Asia/Shanghai`, if you want to know the supported TimeZone, you can found in `https://en.wikipedia.org/wiki/List_of_tz_database_time_zones`.
+
 * `dynamic_partition.start`
 
     The starting offset of the dynamic partition, usually a negative number. Depending on the `time_unit` attribute, based on the current day (week / month), the partitions with a partition range before this offset will be deleted. If not filled, the default is `-2147483648`, that is, the history partition will not be  deleted.
@@ -104,7 +108,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 * `dynamic_partition.buckets`
 
     The number of buckets corresponding to the dynamically created partitions.
-    
+
+* `dynamic_partition.replication_num`
+
+    The replication number of dynamic partition.If not filled in, defaults to the number of table's replication number.    
+
 * `dynamic_partition.start_day_of_week`
 
     When `time_unit` is` WEEK`, this parameter is used to specify the starting point of the week. The value ranges from 1 to 7. Where 1 is Monday and 7 is Sunday. The default is 1, which means that every week starts on Monday.

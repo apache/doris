@@ -191,6 +191,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts,
         page = std::move(decompressed_page);
         page_slice = Slice(page.get(), footer->uncompressed_size() + footer_size + 4);
         opts.stats->uncompressed_bytes_read += page_slice.size;
+    } else {
+        opts.stats->uncompressed_bytes_read += body_size;
     }
 
     *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);

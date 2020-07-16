@@ -64,7 +64,7 @@ under the License.
             
     3. 修改分区属性
         语法：
-            MODIFY PARTITION partition_name SET ("key" = "value", ...)
+            MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
         说明：
             1) 当前支持修改分区的下列属性：
                 - storage_medium
@@ -105,8 +105,6 @@ under the License.
         例子：DROP ROLLUP r1,r2
     2.2 注意：
             1) 不能删除 base index
-            2) 执行 DROP ROLLUP 一段时间内，可以通过 RECOVER 语句恢复被删除的 rollup index。详见 RECOVER 语句
-
             
     schema change 支持如下几种修改方式：
     1. 向指定 index 的指定位置添加一列
@@ -154,7 +152,6 @@ under the License.
             5) 目前支持以下类型的转换（精度损失由用户保证）
                 TINYINT/SMALLINT/INT/BIGINT 转换成 TINYINT/SMALLINT/INT/BIGINT/DOUBLE。
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
-                LARGEINT 转换成 DOUBLE
                 VARCHAR 支持修改最大长度
                 VARCHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
                 VARCHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
@@ -232,12 +229,20 @@ under the License.
     4. 修改分区副本数
         ALTER TABLE example_db.my_table
         MODIFY PARTITION p1 SET("replication_num"="1");
+        
+    5. 批量修改指定分区
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+        
+    6. 批量修改所有分区
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (*) SET("storage_medium"="HDD");
 
-    5. 删除分区
+    7. 删除分区
         ALTER TABLE example_db.my_table
         DROP PARTITION p1;
         
-    6. 增加一个指定上下界的分区
+    8. 增加一个指定上下界的分区
 
         ALTER TABLE example_db.my_table
         ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));

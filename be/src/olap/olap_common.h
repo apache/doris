@@ -166,9 +166,10 @@ enum OLAPCompressionType {
 };
 
 enum PushType {
-    PUSH_NORMAL = 1,
-    PUSH_FOR_DELETE = 2,
-    PUSH_FOR_LOAD_DELETE = 3,
+    PUSH_NORMAL = 1,            // for broker/hadoop load
+    PUSH_FOR_DELETE = 2,        // for delete
+    PUSH_FOR_LOAD_DELETE = 3,   // not use
+    PUSH_NORMAL_V2 = 4,         // for spark load
 };
 
 enum ReaderType {
@@ -243,9 +244,9 @@ struct OlapReaderStatistics {
     // total read bytes in memory
     int64_t bytes_read = 0;
 
-    int64_t block_load_ns = 0;
+    int64_t block_load_ns = 0; 
     int64_t blocks_load = 0;
-    int64_t block_fetch_ns = 0;
+    int64_t block_fetch_ns = 0;  // time of rowset reader's `next_batch()` call
     int64_t block_seek_num = 0;
     int64_t block_seek_ns = 0;
     int64_t block_convert_ns = 0;
@@ -255,6 +256,7 @@ struct OlapReaderStatistics {
     int64_t rows_vec_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
 
+    int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
     int64_t rows_del_filtered = 0;
@@ -264,7 +266,7 @@ struct OlapReaderStatistics {
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
 
-    int64_t bitmap_index_filter_count = 0;
+    int64_t rows_bitmap_index_filtered = 0;
     int64_t bitmap_index_filter_timer = 0;
 };
 

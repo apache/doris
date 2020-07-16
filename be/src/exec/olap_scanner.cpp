@@ -58,10 +58,7 @@ OlapScanner::OlapScanner(
             _direct_conjunct_size(parent->_direct_conjunct_size) {
     _reader.reset(new Reader());
     DCHECK(_reader.get() != NULL);
-    _ctor_status = _prepare(scan_range, key_ranges, parent->_olap_filter, parent->_is_null_vector);
-    if (!_ctor_status.ok()) {
-        LOG(WARNING) << "OlapScanner preapre failed, status:" << _ctor_status.get_error_msg();
-    }
+
     _rows_read_counter = parent->rows_read_counter();
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }
@@ -69,7 +66,7 @@ OlapScanner::OlapScanner(
 OlapScanner::~OlapScanner() {
 }
 
-Status OlapScanner::_prepare(
+Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls) {
     // Get olap table
@@ -123,7 +120,6 @@ Status OlapScanner::_prepare(
 }
 
 Status OlapScanner::open() {
-    RETURN_IF_ERROR(_ctor_status);
     SCOPED_TIMER(_parent->_reader_init_timer);
 
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
@@ -469,13 +465,14 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
+    COUNTER_UPDATE(_parent->_key_range_filtered_counter, _reader->stats().rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
 
     COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
 
-    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().bitmap_index_filter_count);
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().rows_bitmap_index_filtered);
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 

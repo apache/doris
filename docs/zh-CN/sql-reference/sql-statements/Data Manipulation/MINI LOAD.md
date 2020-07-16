@@ -87,8 +87,8 @@ under the License.
                             （如果不指定columns，则数据列面的列也可以是表里面的其它非HLL列）通过","分割
                             指定多个hll列使用“:”分割，例如: 'hll1,cuid:hll2,device'
 
-        strict_mode:        指定当前导入是否使用严格模式，默认为 true。严格模式下，非空原始数据在列类型转化后结果为 NULL 的会被过滤。
-                            指定方式为 'strict_mode=false'
+        strict_mode:        指定当前导入是否使用严格模式，默认为 false。严格模式下，非空原始数据在列类型转化后结果为 NULL 的会被过滤。
+                            指定方式为 'strict_mode=true'
     
     NOTE: 
         1. 此种导入方式当前是在一台机器上完成导入工作，因而不宜进行数据量较大的导入工作。

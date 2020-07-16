@@ -23,13 +23,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 
-import com.google.common.base.Preconditions;
+import com.google.common.base.Preconditions; 
 import com.google.common.collect.ImmutableMap;
 
-import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.LogManager; 
 import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
@@ -53,7 +54,8 @@ public class TimeUtils {
     private static final TimeZone TIME_ZONE;
 
     // set CST to +08:00 instead of America/Chicago
-    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of("CST", DEFAULT_TIME_ZONE);
+    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of(
+            "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE);
 
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
@@ -125,13 +127,22 @@ public class TimeUtils {
         return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
     }
 
-    public static TimeZone getDefaultTimeZone() {
-        return TimeZone.getTimeZone(ZoneId.of(DEFAULT_TIME_ZONE, timeZoneAliasMap));
+    // return the time zone of current system
+    public static TimeZone getSystemTimeZone() {
+        return TimeZone.getTimeZone(ZoneId.of(ZoneId.systemDefault().getId(), timeZoneAliasMap));
     }
 
+    // get time zone of given zone name, or return system time zone if name is null.
+    public static TimeZone getOrSystemTimeZone(String timeZone) {
+        if (timeZone == null) {
+            return getSystemTimeZone();
+        }
+        return TimeZone.getTimeZone(ZoneId.of(timeZone, timeZoneAliasMap));
+    }
+    
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp <= 0L) {
-            return "N/A";
+            return FeConstants.null_string;
         }
         return dateFormat.format(new Date(timeStamp));
     }

@@ -100,12 +100,6 @@ TEST_F(DorisMetricsTest, Normal) {
         ASSERT_STREQ("102", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->http_request_duration_us.increment(103);
-        auto metric = metrics->get_metric("http_request_duration_us");
-        ASSERT_TRUE(metric != nullptr);
-        ASSERT_STREQ("103", metric->to_string().c_str());
-    }
-    {
         DorisMetrics::instance()->http_request_send_bytes.increment(104);
         auto metric = metrics->get_metric("http_request_send_bytes");
         ASSERT_TRUE(metric != nullptr);
@@ -122,12 +116,6 @@ TEST_F(DorisMetricsTest, Normal) {
         auto metric = metrics->get_metric("query_scan_rows");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("105", metric->to_string().c_str());
-    }
-    {
-        DorisMetrics::instance()->ranges_processed_total.increment(13);
-        auto metric = metrics->get_metric("ranges_processed_total");
-        ASSERT_TRUE(metric != nullptr);
-        ASSERT_STREQ("13", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->push_requests_success_total.increment(106);

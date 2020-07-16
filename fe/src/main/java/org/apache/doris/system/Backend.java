@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,6 +95,9 @@ public class Backend implements Writable {
     // this field is set by tablet report, and just for metric monitor, no need to persist.
     private AtomicLong tabletMaxCompactionScore = new AtomicLong(0);
 
+    // additional backendStatus information for BE, display in JSON format
+    private BackendStatus backendStatus = new BackendStatus();
+
     public Backend() {
         this.host = "";
         this.version = "";
@@ -105,9 +109,9 @@ public class Backend implements Writable {
         this.bePort = new AtomicInteger();
         this.httpPort = new AtomicInteger();
         this.beRpcPort = new AtomicInteger();
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
-        this.ownerClusterName = new AtomicReference<String>("");
+        this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
@@ -123,12 +127,12 @@ public class Backend implements Writable {
         this.beRpcPort = new AtomicInteger(-1);
         this.lastUpdateMs = new AtomicLong(-1L);
         this.lastStartTime = new AtomicLong(-1L);
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
         this.isAlive = new AtomicBoolean(false);
         this.isDecommissioned = new AtomicBoolean(false);
 
-        this.ownerClusterName = new AtomicReference<String>(""); 
+        this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
     }
@@ -262,6 +266,10 @@ public class Backend implements Writable {
         this.disksRef.set(disks);
     }
 
+    public BackendStatus getBackendStatus() {
+        return backendStatus;
+    }
+
     /**
      * backend belong to some cluster
      * 
@@ -295,7 +303,7 @@ public class Backend implements Writable {
     }
 
     public boolean hasPathHash() {
-        return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
+        return disksRef.get().values().stream().allMatch(DiskInfo::hasPathHash);
     }
 
     public long getTotalCapacityB() {
@@ -344,6 +352,36 @@ public class Backend implements Writable {
             }
         }
         return maxPct;
+    }
+
+    public boolean diskExceedLimitByStorageMedium(TStorageMedium storageMedium) {
+        if (getDiskNumByStorageMedium(storageMedium) <= 0) {
+            return true;
+        }
+        ImmutableMap<String, DiskInfo> diskInfos = disksRef.get();
+        boolean exceedLimit = true;
+        for (DiskInfo diskInfo : diskInfos.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium() == storageMedium && !diskInfo.exceedLimit(true)) {
+                exceedLimit = false;
+                break;
+            }
+        }
+        return exceedLimit;
+    }
+
+    public boolean diskExceedLimit() {
+        if (getDiskNum() <= 0) {
+            return true;
+        }
+        ImmutableMap<String, DiskInfo> diskInfos = disksRef.get();
+        boolean exceedLimit = true;
+        for (DiskInfo diskInfo : diskInfos.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE && !diskInfo.exceedLimit(true)) {
+                exceedLimit = false;
+                break;
+            }
+        }
+        return exceedLimit;
     }
 
     public String getPathByPathHash(long pathHash) {
@@ -435,7 +473,7 @@ public class Backend implements Writable {
             disksRef.set(ImmutableMap.copyOf(newDiskInfos));
             Catalog.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
             // log disk changing
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
+            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(this);
         }
     }
 
@@ -630,6 +668,26 @@ public class Backend implements Writable {
 
     public long getTabletMaxCompactionScore() {
         return tabletMaxCompactionScore.get();
+    }
+
+    private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {
+        return disksRef.get().values().stream().filter(v -> v.getStorageMedium() == storageMedium).count();
+    }
+
+    private int getDiskNum() {
+        return disksRef.get().size();
+    }
+
+    /**
+     * Note: This class must be a POJO in order to display in JSON format
+     * Add additional information in the class to show in `show backends`
+     * if just change new added backendStatus, you can do like following
+     *     BackendStatus status = Backend.getBackendStatus();
+     *     status.newItem = xxx;
+     */
+    public class BackendStatus {
+        // this will be output as json, so not using FeConstants.null_string;
+        public String lastSuccessReportTabletsTime = "N/A";
     }
 }
 

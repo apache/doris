@@ -79,9 +79,6 @@ public class Database extends MetaObject implements Writable {
     private String fullQualifiedName;
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
-    
-    // temp for trace
-    private Map<String, Throwable> allLocks = Maps.newConcurrentMap();
 
     // table family group map
     private Map<Long, Table> idToTable;
@@ -123,32 +120,28 @@ public class Database extends MetaObject implements Writable {
 
     public void readLock() {
         this.rwLock.readLock().lock();
-        allLocks.put(Long.toString(Thread.currentThread().getId()), new Exception());
     }
 
-    public void printLocks() {
-        for (Throwable exception: allLocks.values()) {
-            LOG.debug("a lock in db [{}]", fullQualifiedName, exception);
+    public boolean tryReadLock(long timeout, TimeUnit unit) {
+        try {
+            return this.rwLock.readLock().tryLock(timeout, unit);
+        } catch (InterruptedException e) {
+            LOG.warn("failed to try read lock at db[" + id + "]", e);
+            return false;
         }
     }
 
     public void readUnlock() {
         this.rwLock.readLock().unlock();
-        allLocks.remove(Long.toString(Thread.currentThread().getId()));
     }
 
     public void writeLock() {
         this.rwLock.writeLock().lock();
-        allLocks.put(Long.toString(Thread.currentThread().getId()), new Exception());
     }
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            boolean result =  this.rwLock.writeLock().tryLock(timeout, unit);
-            if (result) {
-                allLocks.put(Long.toString(Thread.currentThread().getId()), new Exception());
-            }
-            return result;
+            return this.rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
@@ -157,7 +150,6 @@ public class Database extends MetaObject implements Writable {
 
     public void writeUnlock() {
         this.rwLock.writeLock().unlock();
-        allLocks.remove(Long.toString(Thread.currentThread().getId()));
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
@@ -301,10 +293,10 @@ public class Database extends MetaObject implements Writable {
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
-                    Catalog.getInstance().getEditLog().logCreateTable(info);
+                    Catalog.getCurrentCatalog().getEditLog().logCreateTable(info);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
-                    Catalog.getCurrentCatalog().getEsStateStore().registerTable((EsTable)table);
+                    Catalog.getCurrentCatalog().getEsRepository().registerTable((EsTable)table);
                 }
             }
             return result;
@@ -558,7 +550,7 @@ public class Database extends MetaObject implements Writable {
 
     public synchronized void addFunction(Function function) throws UserException {
         addFunctionImpl(function, false);
-        Catalog.getInstance().getEditLog().logAddFunction(function);
+        Catalog.getCurrentCatalog().getEditLog().logAddFunction(function);
     }
 
     public synchronized void replayAddFunction(Function function) {
@@ -583,7 +575,7 @@ public class Database extends MetaObject implements Writable {
             }
             // Get function id for this UDF, use CatalogIdGenerator. Only get function id
             // when isReplay is false
-            long functionId = Catalog.getInstance().getNextId();
+            long functionId = Catalog.getCurrentCatalog().getNextId();
             function.setId(functionId);
         }
 
@@ -597,7 +589,7 @@ public class Database extends MetaObject implements Writable {
 
     public synchronized void dropFunction(FunctionSearchDesc function) throws UserException {
         dropFunctionImpl(function);
-        Catalog.getInstance().getEditLog().logDropFunction(function);
+        Catalog.getCurrentCatalog().getEditLog().logDropFunction(function);
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {

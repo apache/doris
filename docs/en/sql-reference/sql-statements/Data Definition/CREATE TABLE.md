@@ -35,7 +35,7 @@ Syntax:
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
     (column_definition1[, column_definition2, ...]
     [, index_definition1[, ndex_definition12,]])
-    [ENGINE = [olap|mysql|broker]]
+    [ENGINE = [olap|mysql|broker|hive]]
     [key_desc]
     [COMMENT "table comment"]
     [partition_desc]
@@ -104,7 +104,7 @@ Syntax:
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type
-    Default is olap. Options are: olap, mysql, broker
+    Default is olap. Options are: olap, mysql, broker, hive
     1) For mysql, properties should include:
 
         ```
@@ -123,7 +123,7 @@ Syntax:
         table_name in CREATE TABLE stmt is table is Doris. They can be different or same.
         MySQL table created in Doris is for accessing data in MySQL database.
         Doris does not maintain and store any data from MySQL table.
-    1) For broker, properties should include:
+    2) For broker, properties should include:
 
         ```
         PROPERTIES (
@@ -145,6 +145,16 @@ Syntax:
     Notice:
         Files name in "path" is separated by ",". If file name includes ",", use "%2c" instead.     If file name includes "%", use "%25" instead.
         Support CSV and Parquet. Support GZ, BZ2, LZ4, LZO(LZOP)
+    3) For hive, properties should include:
+        ```
+        PROPERTIES (
+            "database" = "hive_db_name",
+            "table" = "hive_table_name",
+            "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+        )
+        ```
+        "database" is the name of the database corresponding to the hive table, "table" is the name of the hive table, and "hive.metastore.uris" is the hive metastore service address.
+        Notice: At present, hive external tables are only used for Spark Load and query is not supported.
 4. key_desc
     Syntax:
         key_type(k1[,k2 ...])
@@ -212,6 +222,7 @@ Syntax:
         ```
 
         storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
+                                Note: when FE configuration 'enable_strict_storage_medium_check' is' True ', if the corresponding storage medium is not set in the cluster, the construction clause 'Failed to find enough host in all backends with storage medium is SSD|HDD'.
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
@@ -575,6 +586,23 @@ Syntax:
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES ("in_memory"="true");
+```
+
+13. Create a hive external table
+```
+    CREATE TABLE example_db.table_hive
+    (
+      k1 TINYINT,
+      k2 VARCHAR(50),
+      v INT
+    )
+    ENGINE=hive
+    PROPERTIES
+    (
+      "database" = "hive_db_name",
+      "table" = "hive_table_name",
+      "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    );
 ```
 
 ## keyword

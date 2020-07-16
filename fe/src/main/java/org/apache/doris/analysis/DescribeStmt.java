@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
@@ -105,7 +106,7 @@ public class DescribeStmt extends ShowStmt {
                                                 dbTableName.getTbl());
         }
 
-        Database db = Catalog.getInstance().getDb(dbTableName.getDb());
+        Database db = Catalog.getCurrentCatalog().getDb(dbTableName.getDb());
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbTableName.getDb());
         }
@@ -175,7 +176,7 @@ public class DescribeStmt extends ShowStmt {
                                                              column.isAllowNull() ? "Yes" : "No",
                                                              ((Boolean) column.isKey()).toString(),
                                                              column.getDefaultValue() == null
-                                                                     ? "N/A" : column.getDefaultValue(),
+                                                                     ? FeConstants.null_string : column.getDefaultValue(),
                                                              extraStr);
 
                             if (j == 0) {

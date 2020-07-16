@@ -33,6 +33,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -120,7 +121,7 @@ public class DeleteHandler implements Writable {
         String tableName = stmt.getTableName();
         String partitionName = stmt.getPartitionName();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getInstance().getDb(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
@@ -493,7 +494,16 @@ public class DeleteHandler implements Writable {
                 String value = null;
                 try {
                     BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
+                    // if a bool cond passed to be, be's zone_map cannot handle bool correctly,
+                    // change it to a tinyint type here;
                     value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
+                    if (column.getDataType() == PrimitiveType.BOOLEAN ) {
+                        if (value.toLowerCase().equals("true")) {
+                            binaryPredicate.setChild(1, LiteralExpr.create("1", Type.TINYINT));
+                        } else if (value.toLowerCase().equals("false")) {
+                            binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
+                        }
+                    }
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {
                     // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
@@ -566,7 +576,7 @@ public class DeleteHandler implements Writable {
     // show delete stmt
     public List<List<Comparable>> getDeleteInfosByDb(long dbId, boolean forUser) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             return infos;
         }

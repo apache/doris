@@ -92,7 +92,7 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
             for (int i = 0; i < _parquet_column_ids.size(); i++) {
                 std::shared_ptr<arrow::Field>  field = field_schema->field(i);
                 if (!field) {
-                    LOG(WARNING) << "Get filed schema failed. Column order:" << i;
+                    LOG(WARNING) << "Get field schema failed. Column order:" << i;
                     return Status::InternalError(status.ToString());
                 }
                 _parquet_column_type.emplace_back(field->type()->id());
@@ -158,6 +158,9 @@ inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescript
 
 Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) {
     if (_current_line_of_group >= _rows_of_group) {// read next row group
+        VLOG(7) << "read_record_batch, current group id:" << _current_group << " current line of group:" 
+        << _current_line_of_group << " is larger than rows group size:"
+        << _rows_of_group << ". start to read next row group";
         _current_group++;
         if (_current_group >= _total_groups) {// read completed.
             _parquet_column_ids.clear();
@@ -177,6 +180,9 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
         }
         _current_line_of_batch = 0;
     } else if (_current_line_of_batch >= _batch->num_rows()) {
+        VLOG(7) << "read_record_batch, current group id:" << _current_group << " current line of batch:" 
+        << _current_line_of_batch << " is larger than batch size:"
+        << _batch->num_rows() << ". start to read next batch";
         arrow::Status status = _rb_batch->ReadNext(&_batch);
         if (!status.ok()) {
             return Status::InternalError("Read Batch Error With Libarrow.");

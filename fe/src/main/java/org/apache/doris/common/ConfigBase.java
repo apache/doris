@@ -237,7 +237,7 @@ public class ConfigBase {
         LOG.info("set config {} to {}", key, value);
     }
 
-    public synchronized static List<List<String>> getConfigInfo() throws DdlException {
+    public synchronized static List<List<String>> getConfigInfo(PatternMatcher matcher) throws DdlException {
         List<List<String>> configs = Lists.newArrayList();
         Field[] fields = confClass.getFields();
         for (Field f : fields) {
@@ -248,6 +248,9 @@ public class ConfigBase {
             }
 
             String confKey = anno.value().equals("") ? f.getName() : anno.value();
+            if (matcher != null && !matcher.match(confKey)) {
+                continue;
+            }
             String confVal;
             try {
                 confVal = String.valueOf(f.get(null));

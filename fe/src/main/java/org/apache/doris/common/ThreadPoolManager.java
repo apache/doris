@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -69,7 +70,7 @@ public class ThreadPoolManager {
 
     public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
         for (String poolMetricType : poolMerticTypes) {
-            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool", MetricUnit.NUMBER, "thread_pool statistics") {
+            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool", MetricUnit.NOUNIT, "thread_pool statistics") {
                 @Override
                 public Integer getValue() {
                     String metricType = this.getLabels().get(1).getValue();
@@ -111,6 +112,13 @@ public class ThreadPoolManager {
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
         nameToThreadPoolMap.put(poolName, threadPool);
         return threadPool;
+    }
+
+    public static ScheduledThreadPoolExecutor newScheduledThreadPool(int maxNumThread, String poolName) {
+        ThreadFactory threadFactory = namedThreadFactory(poolName);
+        ScheduledThreadPoolExecutor scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(maxNumThread, threadFactory);
+        nameToThreadPoolMap.put(poolName, scheduledThreadPoolExecutor);
+        return scheduledThreadPoolExecutor;
     }
 
     /**

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -25,10 +26,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.UtFrameUtils;
-
-import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
@@ -37,18 +37,17 @@ import java.util.UUID;
 
 public class PlannerTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
+    private static ConnectContext ctx;
 
     @After
     public void tearDown() throws Exception {
         FileUtils.deleteDirectory(new File(runningDir));
     }
 
-    @Test
-    public void testSetOperation() throws Exception {
-        // union
-
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+    @BeforeClass
+    public static void setUp() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
+        ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
@@ -57,6 +56,11 @@ public class PlannerTest {
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    @Test
+    public void testSetOperation() throws Exception {
+        // union
         String sql1 = "explain select * from\n"
                 + "  (select k1, k2 from db1.tbl1\n"
                 + "   union all\n"
@@ -69,7 +73,7 @@ public class PlannerTest {
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
-        String plan1 = planner1.getExplainString(fragments1, TExplainLevel.VERBOSE);
+        String plan1 = planner1.getExplainString(fragments1, TExplainLevel.NORMAL);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "UNION"));
         String sql2 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
                 + "union distinct\n"
@@ -94,7 +98,7 @@ public class PlannerTest {
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
         List<PlanFragment> fragments2 = planner2.getFragments();
-        String plan2 = planner2.getExplainString(fragments2, TExplainLevel.VERBOSE);
+        String plan2 = planner2.getExplainString(fragments2, TExplainLevel.NORMAL);
         Assert.assertEquals(4, StringUtils.countMatches(plan2, "UNION"));
 
         // intersect
@@ -110,7 +114,7 @@ public class PlannerTest {
         stmtExecutor3.execute();
         Planner planner3 = stmtExecutor3.planner();
         List<PlanFragment> fragments3 = planner3.getFragments();
-        String plan3 = planner3.getExplainString(fragments3, TExplainLevel.VERBOSE);
+        String plan3 = planner3.getExplainString(fragments3, TExplainLevel.NORMAL);
         Assert.assertEquals(1, StringUtils.countMatches(plan3, "INTERSECT"));
         String sql4 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
                 + "intersect distinct\n"
@@ -136,7 +140,7 @@ public class PlannerTest {
         stmtExecutor4.execute();
         Planner planner4 = stmtExecutor4.planner();
         List<PlanFragment> fragments4 = planner4.getFragments();
-        String plan4 = planner4.getExplainString(fragments4, TExplainLevel.VERBOSE);
+        String plan4 = planner4.getExplainString(fragments4, TExplainLevel.NORMAL);
         Assert.assertEquals(3, StringUtils.countMatches(plan4, "INTERSECT"));
 
         // except
@@ -152,7 +156,7 @@ public class PlannerTest {
         stmtExecutor5.execute();
         Planner planner5 = stmtExecutor5.planner();
         List<PlanFragment> fragments5 = planner5.getFragments();
-        String plan5 = planner5.getExplainString(fragments5, TExplainLevel.VERBOSE);
+        String plan5 = planner5.getExplainString(fragments5, TExplainLevel.NORMAL);
         Assert.assertEquals(1, StringUtils.countMatches(plan5, "EXCEPT"));
 
         String sql6 = "select * from db1.tbl1 where k1='a' and k4=1\n"
@@ -167,7 +171,7 @@ public class PlannerTest {
         stmtExecutor6.execute();
         Planner planner6 = stmtExecutor6.planner();
         List<PlanFragment> fragments6 = planner6.getFragments();
-        String plan6 = planner6.getExplainString(fragments6, TExplainLevel.VERBOSE);
+        String plan6 = planner6.getExplainString(fragments6, TExplainLevel.NORMAL);
         Assert.assertEquals(1, StringUtils.countMatches(plan6, "EXCEPT"));
 
         String sql7 = "select * from db1.tbl1 where k1='a' and k4=1\n"
@@ -182,7 +186,7 @@ public class PlannerTest {
         stmtExecutor7.execute();
         Planner planner7 = stmtExecutor7.planner();
         List<PlanFragment> fragments7 = planner7.getFragments();
-        String plan7 = planner7.getExplainString(fragments7, TExplainLevel.VERBOSE);
+        String plan7 = planner7.getExplainString(fragments7, TExplainLevel.NORMAL);
         Assert.assertEquals(1, StringUtils.countMatches(plan7, "EXCEPT"));
 
         // mixed
@@ -198,7 +202,7 @@ public class PlannerTest {
         stmtExecutor8.execute();
         Planner planner8 = stmtExecutor8.planner();
         List<PlanFragment> fragments8 = planner8.getFragments();
-        String plan8 = planner8.getExplainString(fragments8, TExplainLevel.VERBOSE);
+        String plan8 = planner8.getExplainString(fragments8, TExplainLevel.NORMAL);
         Assert.assertEquals(1, StringUtils.countMatches(plan8, "UNION"));
         Assert.assertEquals(1, StringUtils.countMatches(plan8, "INTERSECT"));
         Assert.assertEquals(1, StringUtils.countMatches(plan8, "EXCEPT"));
@@ -227,10 +231,82 @@ public class PlannerTest {
         stmtExecutor9.execute();
         Planner planner9 = stmtExecutor9.planner();
         List<PlanFragment> fragments9 = planner9.getFragments();
-        String plan9 = planner9.getExplainString(fragments9, TExplainLevel.VERBOSE);
+        String plan9 = planner9.getExplainString(fragments9, TExplainLevel.NORMAL);
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "UNION"));
         Assert.assertEquals(3, StringUtils.countMatches(plan9, "INTERSECT"));
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "EXCEPT"));
+
+        String sql10 = "select 499 union select 670 except select 499";
+        StmtExecutor stmtExecutor10 = new StmtExecutor(ctx, sql10);
+        stmtExecutor10.execute();
+        Planner planner10 = stmtExecutor10.planner();
+        List<PlanFragment> fragments10 = planner10.getFragments();
+        Assert.assertTrue(fragments10.get(0).getPlanRoot().getFragment()
+                .getPlanRoot().getChild(0) instanceof AggregationNode);
+        Assert.assertTrue(fragments10.get(0).getPlanRoot()
+                .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
+    }
+
+    @Test
+    public void testPushDown() throws Exception{
+        String sql1 =
+                "SELECT\n" +
+                "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
+                "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
+                "    k4\n" +
+                "FROM\n" +
+                "(\n" +
+                "    SELECT\n" +
+                "        k1,\n" +
+                "        k2,\n" +
+                "        k3,\n" +
+                "        SUM(k4) AS k4\n" +
+                "    FROM  db1.tbl1\n" +
+                "    WHERE k1 = 0\n" +
+                "        AND k4 = 1\n" +
+                "        AND k3 = 'foo'\n" +
+                "    GROUP BY \n" +
+                "    GROUPING SETS (\n" +
+                "        (k1),\n" +
+                "        (k1, k2),\n" +
+                "        (k1, k3),\n" +
+                "        (k1, k2, k3)\n" +
+                "    )\n" +
+                ") t\n" +
+                "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
+        StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+        stmtExecutor1.execute();
+        Planner planner1 = stmtExecutor1.planner();
+        List<PlanFragment> fragments1 = planner1.getFragments();
+        Assert.assertEquals("if",
+                fragments1.get(0).getPlanRoot().conjuncts.get(0).getChild(0).getFn().functionName());
+        Assert.assertEquals(3, fragments1.get(0).getPlanRoot().getChild(0).getChild(0).conjuncts.size());
+
+        String sql2 =
+                "SELECT\n" +
+                        "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
+                        "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
+                        "    k4\n" +
+                        "FROM\n" +
+                        "(\n" +
+                        "    SELECT\n" +
+                        "        k1,\n" +
+                        "        k2,\n" +
+                        "        k3,\n" +
+                        "        SUM(k4) AS k4\n" +
+                        "    FROM  db1.tbl1\n" +
+                        "    WHERE k1 = 0\n" +
+                        "        AND k4 = 1\n" +
+                        "        AND k3 = 'foo'\n" +
+                        "    GROUP BY k1, k2, k3\n" +
+                        ") t\n" +
+                        "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
+        StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
+        stmtExecutor2.execute();
+        Planner planner2 = stmtExecutor2.planner();
+        List<PlanFragment> fragments2 = planner2.getFragments();
+        Assert.assertEquals(4, fragments2.get(0).getPlanRoot().getChild(0).conjuncts.size());
+
     }
 
 }

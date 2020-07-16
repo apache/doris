@@ -43,7 +43,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -131,7 +130,8 @@ public class MaterializedViewSelector {
         // Step5: columns required to compute output expr are available in the view output
         checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToMeta);
         // Step6: if table type is aggregate and the candidateIndexIdToSchema is empty,
-        if (table.getKeysType() == KeysType.AGG_KEYS && candidateIndexIdToMeta.size() == 0) {
+        if ((table.getKeysType() == KeysType.AGG_KEYS || table.getKeysType() == KeysType.UNIQUE_KEYS)
+                && candidateIndexIdToMeta.size() == 0) {
             // the base index will be added in the candidateIndexIdToSchema.
             /**
              * In Doris, it is allowed that the aggregate table should be scanned directly
@@ -473,8 +473,7 @@ public class MaterializedViewSelector {
 
         // Step4: compute the output column
         // ISSUE-3174: all of columns which belong to top tuple should be considered in selector.
-        ArrayList<TupleId> topTupleIds = Lists.newArrayList();
-        selectStmt.getMaterializedTupleIds(topTupleIds);
+        List<TupleId> topTupleIds = selectStmt.getTableRefIdsWithoutInlineView();
         for (TupleId tupleId : topTupleIds) {
             TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
             tupleDescriptor.getTableNameToColumnNames(columnNamesInQueryOutput);

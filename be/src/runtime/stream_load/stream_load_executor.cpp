@@ -47,6 +47,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 // submit this params
 #ifndef BE_TEST
     ctx->ref();
+    ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
@@ -85,7 +86,8 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                     LOG(WARNING) << "fragment execute failed"
                                  << ", query_id="
                                  << UniqueId(ctx->put_result.params.params.query_id)
-                                 << ", err_msg=" << status.get_error_msg() << ctx->brief();
+                                 << ", err_msg=" << status.get_error_msg()
+                                 << ", "<< ctx->brief();
                     // cancel body_sink, make sender known it
                     if (ctx->body_sink != nullptr) {
                         ctx->body_sink->cancel();
@@ -100,7 +102,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                         break;
                     }
                 }
+                ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
                 ctx->promise.set_value(status);
+
                 if (ctx->unref()) {
                     delete ctx;
                 }
@@ -168,6 +172,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     request.sync = true;
     request.commitInfos = std::move(ctx->commit_infos);
     request.__isset.commitInfos = true;
+    request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
 
     // set attachment if has
     TTxnCommitAttachment attachment;

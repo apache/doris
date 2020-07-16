@@ -29,6 +29,7 @@ import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.persist.BatchDropInfo;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
@@ -247,6 +248,11 @@ public final class LocalJournalCursor implements JournalCursor {
             }
             case OperationType.OP_MODIFY_PARTITION: {
                 ModifyPartitionInfo info = ModifyPartitionInfo.read(in);
+                ret.setData(info);
+                break;
+            }
+            case OperationType.OP_BATCH_MODIFY_PARTITION: {
+                BatchModifyPartitionsInfo info = BatchModifyPartitionsInfo.read(in);
                 ret.setData(info);
                 break;
             }

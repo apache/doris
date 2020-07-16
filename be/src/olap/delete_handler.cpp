@@ -155,6 +155,8 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
         }
     } else if (field_type == OLAP_FIELD_TYPE_DATE || field_type == OLAP_FIELD_TYPE_DATETIME) {
         valid_condition = valid_datetime(value_str);
+    } else if (field_type == OLAP_FIELD_TYPE_BOOL) {
+        valid_condition = valid_bool(value_str);
     } else {
         OLAP_LOG_WARNING("unknown field type. [type=%d]", field_type);
     }

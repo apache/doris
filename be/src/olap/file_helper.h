@@ -51,7 +51,6 @@ public:
     // The argument mode specifies the permissions to use in case a new file is created.
     OLAPStatus open_with_mode(const std::string& file_name, int flag, int mode);
     OLAPStatus close();
-    OLAPStatus release();
 
     OLAPStatus pread(void* buf, size_t size, size_t offset);
     OLAPStatus write(const void* buf, size_t buf_size);
@@ -106,6 +105,7 @@ public:
     }
 
 private:
+    OLAPStatus _release();
     static Cache* _s_fd_cache;
 
     int _fd;

@@ -123,6 +123,9 @@ public class Planner {
             str.append("PLAN FRAGMENT " + i + "\n");
             str.append(fragment.getExplainString(explainLevel));
         }
+        if (explainLevel == TExplainLevel.VERBOSE) {
+            str.append(plannerContext.getRootAnalyzer().getDescTbl().getExplainString());
+        }
         return str.toString();
     }
 

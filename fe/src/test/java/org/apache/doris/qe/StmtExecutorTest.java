@@ -154,7 +154,7 @@ public class StmtExecutorTest {
 
                 ctx.getDatabase();
                 minTimes = 0;
-                result = "testDb";
+                result = "testCluster:testDb";
 
                 ctx.getSessionVariable();
                 minTimes = 0;
@@ -175,7 +175,7 @@ public class StmtExecutorTest {
                            @Mocked SqlParser parser,
                            @Mocked Planner planner,
                            @Mocked Coordinator coordinator) throws Exception {
-        Catalog catalog = Catalog.getInstance();
+        Catalog catalog = Catalog.getCurrentCatalog();
         Deencapsulation.setField(catalog, "canRead", new AtomicBoolean(true));
 
         new Expectations() {
@@ -232,7 +232,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = -1L;
 
-                Catalog.getInstance();
+                Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
             }
@@ -665,7 +665,7 @@ public class StmtExecutorTest {
 
                 useStmt.getDatabase();
                 minTimes = 0;
-                result = "testDb";
+                result = "testCluster:testDb";
 
                 useStmt.getRedirectStatus();
                 minTimes = 0;

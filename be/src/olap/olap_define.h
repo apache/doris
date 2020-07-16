@@ -128,7 +128,6 @@ enum OLAPStatus {
     OLAP_ERR_EVAL_CONJUNCTS_ERROR = -120,
     OLAP_ERR_COPY_FILE_ERROR =  -121,
     OLAP_ERR_FILE_ALREADY_EXIST =  -122,
-    OLAP_ERR_TOO_FEW_FILE_DESCRITPROR =  -123,
 
     // common errors codes
     // [-200, -300)

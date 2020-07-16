@@ -99,10 +99,6 @@ public class CastExpr extends Expr {
                 if (toType.isNull()) {
                     continue;
                 }
-                // Disable casting from string to boolean
-                if (fromType.isStringType() && toType.isBoolean()) {
-                    continue;
-                }
                 // Disable casting from boolean to decimal or datetime or date
                 if (fromType.isBoolean() &&
                         (toType.equals(Type.DECIMAL) || toType.equals(Type.DECIMALV2) ||
@@ -185,10 +181,10 @@ public class CastExpr extends Expr {
         FunctionName fnName = new FunctionName(getFnName(type));
         Function searchDesc = new Function(fnName, collectChildReturnTypes(), Type.INVALID, false);
         if (isImplicit) {
-            fn = Catalog.getInstance().getFunction(
+            fn = Catalog.getCurrentCatalog().getFunction(
                     searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
-            fn = Catalog.getInstance().getFunction(
+            fn = Catalog.getCurrentCatalog().getFunction(
                     searchDesc, Function.CompareMode.IS_IDENTICAL);
         }
 

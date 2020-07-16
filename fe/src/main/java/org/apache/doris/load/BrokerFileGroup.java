@@ -27,6 +27,7 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -77,6 +78,10 @@ public class BrokerFileGroup implements Writable {
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
     // filter the data which has been conformed
     private Expr whereExpr;
+
+    // load from table
+    private long srcTableId = -1;
+    private boolean isLoadFromTable = false;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -165,6 +170,33 @@ public class BrokerFileGroup implements Writable {
 
         // FilePath
         filePaths = dataDescription.getFilePaths();
+
+        if (dataDescription.isLoadFromTable()) {
+            String srcTableName = dataDescription.getSrcTableName();
+            // src table should be hive table
+            Table srcTable = db.getTable(srcTableName);
+            if (srcTable == null) {
+                throw new DdlException("Unknown table " + srcTableName + " in database " + db.getFullName());
+            }
+            if (!(srcTable instanceof HiveTable)) {
+                throw new DdlException("Source table " + srcTableName + " is not HiveTable");
+            }
+            // src table columns should include all columns of loaded table
+            for (Column column : olapTable.getBaseSchema()) {
+                boolean isIncluded = false;
+                for (Column srcColumn : srcTable.getBaseSchema()) {
+                    if (srcColumn.getName().equalsIgnoreCase(column.getName())) {
+                        isIncluded = true;
+                        break;
+                    }
+                }
+                if (!isIncluded) {
+                    throw new DdlException("Column " + column.getName() + " is not in Source table");
+                }
+            }
+            srcTableId = srcTable.getId();
+            isLoadFromTable = true;
+        }
     }
 
     public long getTableId() {
@@ -207,8 +239,20 @@ public class BrokerFileGroup implements Writable {
         return columnExprList;
     }
 
+    public List<String> getFileFieldNames() {
+        return fileFieldNames;
+    }
+
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
         return columnToHadoopFunction;
+    }
+
+    public long getSrcTableId() {
+        return srcTableId;
+    }
+
+    public boolean isLoadFromTable() {
+        return isLoadFromTable;
     }
 
     @Override
@@ -261,6 +305,8 @@ public class BrokerFileGroup implements Writable {
             sb.append(path);
         }
         sb.append("]");
+        sb.append(",srcTableId=").append(srcTableId);
+        sb.append(",isLoadFromTable=").append(isLoadFromTable);
         sb.append("}");
 
         return sb.toString();
@@ -310,6 +356,10 @@ public class BrokerFileGroup implements Writable {
             out.writeBoolean(true);
             Text.writeString(out, fileFormat);
         }
+
+        // src table
+        out.writeLong(srcTableId);
+        out.writeBoolean(isLoadFromTable);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -359,6 +409,11 @@ public class BrokerFileGroup implements Writable {
             if (in.readBoolean()) {
                 fileFormat = Text.readString(in);
             }
+        }
+        // src table
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
+            srcTableId = in.readLong();
+            isLoadFromTable = in.readBoolean();
         }
 
         // There are no columnExprList in the previous load job which is created before function is supported.

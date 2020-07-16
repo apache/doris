@@ -79,10 +79,8 @@ public class CatalogTestUtil {
     public static String testTxnLable10 = "testTxnLable10";
     public static String testTxnLable11 = "testTxnLable11";
     public static String testTxnLable12 = "testTxnLable12";
-    public static String testPartitionedEsTable1 = "partitionedEsTable1";
-    public static long testPartitionedEsTableId1 = 14;
-    public static String testUnPartitionedEsTable1 = "unpartitionedEsTable1";
-    public static long testUnPartitionedEsTableId1 = 15;
+    public static String testEsTable1 = "partitionedEsTable1";
+    public static long testEsTableId1 = 14;
 
     public static Catalog createTestCatalog() throws InstantiationException, IllegalAccessException,
             IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
@@ -229,8 +227,7 @@ public class CatalogTestUtil {
         
         // add a es table to catalog
         try {
-            createPartitionedEsTable(db);
-            createUnPartitionedEsTable(db);
+            createEsTable(db);
         } catch (DdlException e) {
             // TODO Auto-generated catch block
             // e.printStackTrace();
@@ -238,21 +235,18 @@ public class CatalogTestUtil {
         return db;
     }
     
-    public static void createPartitionedEsTable(Database db) throws DdlException {
+    public static void createEsTable(Database db) throws DdlException {
         // columns
-        List<Column> columns = new ArrayList<Column>();
-        Column k1 = new Column("k1", PrimitiveType.DATE);
-        k1.setIsKey(true);
-        columns.add(k1);
-        Column k2 = new Column("k2", PrimitiveType.INT);
-        k2.setIsKey(true);
-        columns.add(k2);
-        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        List<Column> columns = new ArrayList<>();
+        Column userId = new Column("userId", PrimitiveType.VARCHAR);
+        columns.add(userId);
+        columns.add(new Column("time", PrimitiveType.BIGINT));
+        columns.add(new Column("type", PrimitiveType.VARCHAR));
 
         // table
         List<Column> partitionColumns = Lists.newArrayList();
         List<SingleRangePartitionDesc> singleRangePartitionDescs = Lists.newArrayList();
-        partitionColumns.add(k1);
+        partitionColumns.add(userId);
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
                                                                    new PartitionKeyDesc(Lists
@@ -262,43 +256,14 @@ public class CatalogTestUtil {
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.HOSTS, "xxx");
-        properties.put(EsTable.INDEX, "indexa");
+        properties.put(EsTable.INDEX, "doe");
+        properties.put(EsTable.TYPE, "doc");
         properties.put(EsTable.PASSWORD, "");
         properties.put(EsTable.USER, "root");
-        EsTable esTable = new EsTable(testPartitionedEsTableId1, testPartitionedEsTable1, 
+        properties.put(EsTable.DOC_VALUE_SCAN, "true");
+        properties.put(EsTable.KEYWORD_SNIFF, "true");
+        EsTable esTable = new EsTable(testEsTableId1, testEsTable1,
                 columns, properties, partitionInfo);
-        db.createTable(esTable);
-    }
-    
-    public static void createUnPartitionedEsTable(Database db) throws DdlException {
-        // columns
-        List<Column> columns = new ArrayList<Column>();
-        Column k1 = new Column("k1", PrimitiveType.DATE);
-        k1.setIsKey(true);
-        columns.add(k1);
-        Column k2 = new Column("k2", PrimitiveType.INT);
-        k2.setIsKey(true);
-        columns.add(k2);
-        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
-
-        // table
-        List<Column> partitionColumns = Lists.newArrayList();
-        List<SingleRangePartitionDesc> singleRangePartitionDescs = Lists.newArrayList();
-        partitionColumns.add(k1);
-
-        singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
-                                                                   new PartitionKeyDesc(Lists
-                                                                           .newArrayList(new PartitionValue("100"))),
-                                                                   null));
-
-        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(EsTable.HOSTS, "xxx");
-        properties.put(EsTable.INDEX, "indexa");
-        properties.put(EsTable.PASSWORD, "");
-        properties.put(EsTable.USER, "root");
-        EsTable esTable = new EsTable(testUnPartitionedEsTableId1, testUnPartitionedEsTable1, 
-                    columns, properties, partitionInfo);
         db.createTable(esTable);
     }
 

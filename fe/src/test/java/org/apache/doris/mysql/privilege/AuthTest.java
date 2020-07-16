@@ -32,6 +32,7 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DomainResolver;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
@@ -1061,7 +1062,7 @@ public class AuthTest {
         List<AccessPrivilege> usagePrivileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
         // TODO(wyb): spark-load
-        GrantStmt.disableGrantResource = false;
+        Config.enable_spark_load = true;
 
         // ------ grant|revoke resource to|from user ------
         // 1. create user with no role

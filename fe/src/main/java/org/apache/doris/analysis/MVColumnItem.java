@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Type;
 
 /**
  * This is a result of semantic analysis for AddMaterializedViewClause.
@@ -27,6 +28,8 @@ import org.apache.doris.catalog.AggregateType;
  */
 public class MVColumnItem {
     private String name;
+    // the origin type of slot ref
+    private Type type;
     private boolean isKey;
     private AggregateType aggregationType;
     private boolean isAggregationTypeImplicit;
@@ -38,6 +41,14 @@ public class MVColumnItem {
 
     public String getName() {
         return name;
+    }
+
+    public Type getType() {
+        return type;
+    }
+
+    public void setType(Type type) {
+        this.type = type;
     }
 
     public void setIsKey(boolean key) {

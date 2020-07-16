@@ -30,6 +30,9 @@ namespace config {
     // port for brpc
     CONF_Int32(brpc_port, "8060");
 
+    // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
+    CONF_Int32(brpc_num_threads, "-1")
+
     // Declare a selection strategy for those servers have many ips.
     // Note that there should at most one ip match this list.
     // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -43,6 +46,16 @@ namespace config {
     CONF_mInt64(tc_use_memory_min, "10737418240");
     // free memory rate.[0-100]
     CONF_mInt64(tc_free_memory_rate, "20");
+
+    // Bound on the total amount of bytes allocated to thread caches.
+    // This bound is not strict, so it is possible for the cache to go over this bound
+    // in certain circumstances. This value defaults to 1GB
+    // If you suspect your application is not scaling to many threads due to lock contention in TCMalloc,
+    // you can try increasing this value. This may improve performance, at a cost of extra memory
+    // use by TCMalloc.
+    // reference: https://gperftools.github.io/gperftools/tcmalloc.html: TCMALLOC_MAX_TOTAL_THREAD_CACHE_BYTES
+    //            https://github.com/gperftools/gperftools/issues/1111
+    CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 
     // process memory limit specified as number of bytes
     // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
@@ -65,7 +78,7 @@ namespace config {
     // the count of thread to high priority batch load
     CONF_Int32(push_worker_count_high_priority, "3");
     // the count of thread to publish version
-    CONF_Int32(publish_version_worker_count, "2");
+    CONF_Int32(publish_version_worker_count, "8");
     // the count of thread to clear transaction task
     CONF_Int32(clear_transaction_task_worker_count, "1");
     // the count of thread to delete
@@ -171,6 +184,8 @@ namespace config {
     CONF_Int32(port, "20001");
     // default thrift client connect timeout(in seconds)
     CONF_Int32(thrift_connect_timeout_seconds, "3");
+    // default thrift client retry interval (in milliseconds)
+    CONF_mInt64(thrift_client_retry_interval_ms, "1000");
     // max row count number for single scan range
     CONF_mInt32(doris_scan_range_row_count, "524288");
     // size of scanner queue between scanner thread and compute thread
@@ -179,6 +194,9 @@ namespace config {
     CONF_mInt32(doris_scanner_row_num, "16384");
     // number of max scan keys
     CONF_mInt32(doris_max_scan_key_num, "1024");
+    // the max number of push down values of a single column.
+    // if exceed, no conditions will be pushed down for that column.
+    CONF_mInt32(max_pushdown_conditions_per_column, "1024");
     // return_row / total_row
     CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
     // (Advanced) Maximum size of per-query receive-side buffer
@@ -268,10 +286,14 @@ namespace config {
     // This config can be set to 0, which means to forbid any compaction, for some special cases.
     CONF_Int32(max_compaction_concurrency, "-1");
 
+    // Threshold to logging compaction trace, in seconds.
+    CONF_mInt32(base_compaction_trace_threshold, "10");
+    CONF_mInt32(cumulative_compaction_trace_threshold, "2");
+
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
     // Number of webserver workers
-    CONF_Int32(webserver_num_workers, "5");
+    CONF_Int32(webserver_num_workers, "48");
     // Period to update rate counters and sampling counters in ms.
     CONF_mInt32(periodic_counter_update_period_ms, "500");
 
@@ -300,8 +322,9 @@ namespace config {
     CONF_mInt32(olap_table_sink_send_interval_ms, "10");
 
     // Fragment thread pool
-    CONF_Int32(fragment_pool_thread_num, "64");
-    CONF_Int32(fragment_pool_queue_size, "1024");
+    CONF_Int32(fragment_pool_thread_num_min, "64");
+    CONF_Int32(fragment_pool_thread_num_max, "512");
+    CONF_Int32(fragment_pool_queue_size, "2048");
 
     //for cast
     // CONF_Bool(cast, "true");
@@ -515,7 +538,6 @@ namespace config {
 
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_load_tablet_failure, "false");
-
 } // namespace config
 
 } // namespace doris

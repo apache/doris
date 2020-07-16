@@ -20,14 +20,20 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
+import com.google.common.collect.Lists;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -35,6 +41,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -94,6 +101,28 @@ public class AlterTest {
                 ")\n" +
                 "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
                 "PROPERTIES('replication_num' = '1');");
+
+        createTable("CREATE TABLE test.tbl4\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    k2 int,\n" +
+                "    v1 int sum\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "    PARTITION p1 values less than('2020-02-01'),\n" +
+                "    PARTITION p2 values less than('2020-03-01'),\n" +
+                "    PARTITION p3 values less than('2020-04-01'),\n" +
+                "    PARTITION p4 values less than('2020-05-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
+                "PROPERTIES" +
+                "(" +
+                "    'replication_num' = '1',\n" +
+                "    'in_memory' = 'false',\n" +
+                "    'storage_medium' = 'SSD',\n" +
+                "    'storage_cooldown_time' = '9999-12-31 00:00:00'\n" +
+                ");");
     }
 
     @AfterClass
@@ -211,6 +240,65 @@ public class AlterTest {
         // add partition when dynamic partition is disable
         stmt = "alter table test.tbl1 add partition p4 values less than('2020-04-10') ('replication_num' = '1')";
         alterTable(stmt, false);
+    }
+
+    // test batch update range partitions' properties
+    @Test
+    public void testBatchUpdatePartitionProperties() throws Exception {
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl4 = (OlapTable) db.getTable("tbl4");
+        Partition p1 = tbl4.getPartition("p1");
+        Partition p2 = tbl4.getPartition("p2");
+        Partition p3 = tbl4.getPartition("p3");
+        Partition p4 = tbl4.getPartition("p4");
+
+        // batch update replication_num property
+        String stmt = "alter table test.tbl4 modify partition (p1, p2, p4) set ('replication_num' = '3')";
+        List<Partition> partitionList = Lists.newArrayList(p1, p2, p4);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(partition.getId())));
+        }
+        alterTable(stmt, false);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(Short.valueOf("3"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(partition.getId())));
+        }
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(p3.getId())));
+
+        // batch update in_memory property
+        stmt = "alter table test.tbl4 modify partition (p1, p2, p3) set ('in_memory' = 'true')";
+        partitionList = Lists.newArrayList(p1, p2, p3);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(false, tbl4.getPartitionInfo().getIsInMemory(partition.getId()));
+        }
+        alterTable(stmt, false);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(true, tbl4.getPartitionInfo().getIsInMemory(partition.getId()));
+        }
+        Assert.assertEquals(false, tbl4.getPartitionInfo().getIsInMemory(p4.getId()));
+
+        // batch update storage_medium and storage_cool_down properties
+        stmt = "alter table test.tbl4 modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
+        DateLiteral dateLiteral = new DateLiteral("9999-12-31 00:00:00", Type.DATETIME);
+        long coolDownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, coolDownTimeMs);
+        partitionList = Lists.newArrayList(p2, p3, p4);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        alterTable(stmt, false);
+        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(newDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // batch update range partitions' properties with *
+        stmt = "alter table test.tbl4 modify partition (*) set ('replication_num' = '1')";
+        partitionList = Lists.newArrayList(p1, p2, p3, p4);
+        alterTable(stmt, false);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(partition.getId())));
+        }
     }
 
     @Test

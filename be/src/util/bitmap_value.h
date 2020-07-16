@@ -993,6 +993,10 @@ public:
                 _type = SINGLE;
                 break;
             case SINGLE:
+                //there is no need to convert the type if two variables are equal
+                if (_sv == value) {
+                    break;
+                }
                 _bitmap.add(_sv);
                 _bitmap.add(value);
                 _type = BITMAP;

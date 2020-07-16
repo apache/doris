@@ -18,6 +18,7 @@
 package org.apache.doris.common.publish;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -27,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 public class FixedTimePublisher {
     private static FixedTimePublisher INSTANCE;
 
-    private ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+    private ScheduledThreadPoolExecutor scheduler = ThreadPoolManager.newScheduledThreadPool(1, "Fixed-Time-Publisher");
     private ClusterStatePublisher publisher;
 
     public FixedTimePublisher(ClusterStatePublisher publisher) {

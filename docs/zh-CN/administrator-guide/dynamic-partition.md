@@ -87,6 +87,10 @@ under the License.
     
     当指定为 `MONTH` 时，动态创建的分区名后缀格式为 `yyyyMM`，例如 `202003`。
 
+* `dynamic_partition.time_zone`
+
+    动态分区的时区，如果不填写，则默认为当前机器的系统的时区，例如 `Asia/Shanghai`，如果想获取当前支持的时区设置，可以参考 `https://en.wikipedia.org/wiki/List_of_tz_database_time_zones`。
+
 * `dynamic_partition.start`
 
     动态分区的起始偏移，为负数。根据 `time_unit` 属性的不同，以当天（星期/月）为基准，分区范围在此偏移之前的分区将会被删除。如果不填写，则默认为 `-2147483648`，即不删除历史分区。
@@ -102,7 +106,11 @@ under the License.
 * `dynamic_partition.buckets`
 
     动态创建的分区所对应的分桶数量。
-    
+  
+* `dynamic_partition.replication_num`
+
+    动态创建的分区所对应的副本数量，如果不填写，则默认为该表创建时指定的副本数量。
+
 * `dynamic_partition.start_day_of_week`
 
     当 `time_unit` 为 `WEEK` 时，该参数用于指定每周的起始点。取值为 1 到 7。其中 1 表示周一，7 表示周日。默认为 1，即表示每周以周一为起始点。

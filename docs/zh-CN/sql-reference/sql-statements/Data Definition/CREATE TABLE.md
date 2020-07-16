@@ -35,7 +35,7 @@ under the License.
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
     (column_definition1[, column_definition2, ...]
     [, index_definition1[, ndex_definition12,]])
-    [ENGINE = [olap|mysql|broker]]
+    [ENGINE = [olap|mysql|broker|hive]]
     [key_desc]
     [COMMENT "table comment"];
     [partition_desc]
@@ -111,7 +111,7 @@ under the License.
         当前仅支持BITMAP索引， BITMAP索引仅支持应用于单列
 
 3. ENGINE 类型
-    默认为 olap。可选 mysql, broker
+    默认为 olap。可选 mysql, broker, hive
     1) 如果是 mysql，则需要在 properties 提供以下信息：
 
 ```
@@ -127,11 +127,11 @@ under the License.
 
     注意：
         "table" 条目中的 "table_name" 是 mysql 中的真实表名。
-        而 CREATE TABLE 语句中的 table_name 是该 mysql 表在 Palo 中的名字，可以不同。
+        而 CREATE TABLE 语句中的 table_name 是该 mysql 表在 Doris 中的名字，可以不同。
     
-    在 Palo 创建 mysql 表的目的是可以通过 Palo 访问 mysql 数据库。
-        而 Palo 本身并不维护、存储任何 mysql 数据。
-    1) 如果是 broker，表示表的访问需要通过指定的broker, 需要在 properties 提供以下信息：
+    在 Doris 创建 mysql 表的目的是可以通过 Doris 访问 mysql 数据库。
+        而 Doris 本身并不维护、存储任何 mysql 数据。
+    2) 如果是 broker，表示表的访问需要通过指定的broker, 需要在 properties 提供以下信息：
         ```
         PROPERTIES (
         "broker_name" = "broker_name",
@@ -152,17 +152,29 @@ under the License.
         "path" 中如果有多个文件，用逗号[,]分割。如果文件名中包含逗号，那么使用 %2c 来替代。如果文件名中包含 %，使用 %25 代替
         现在文件内容格式支持CSV，支持GZ，BZ2，LZ4，LZO(LZOP) 压缩格式。
 
+    3) 如果是 hive，则需要在 properties 提供以下信息：
+    ```
+    PROPERTIES (
+        "database" = "hive_db_name",
+        "table" = "hive_table_name",
+        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    )
+
+    ```
+    其中 database 是 hive 表对应的库名字，table 是 hive 表的名字，hive.metastore.uris 是 hive metastore 服务地址。
+    注意：目前hive外部表仅用于Spark Load使用，不支持查询。
+
 1. key_desc
     语法：
         `key_type(k1[,k2 ...])`
     说明：
         数据按照指定的key列进行排序，且根据不同的key_type具有不同特性。
-        key_type支持一下类型：
+        key_type支持以下类型：
                 AGGREGATE KEY:key列相同的记录，value列按照指定的聚合类型进行聚合，
                              适合报表、多维分析等业务场景。
                 UNIQUE KEY:key列相同的记录，value列按导入顺序进行覆盖，
                              适合按key列进行增删改查的点查询业务。
-                DUPLICATE KEY:key列相同的记录，同时存在于Palo中，
+                DUPLICATE KEY:key列相同的记录，同时存在于Doris中，
                              适合存储明细数据或者数据无聚合特性的业务场景。
         默认为DUPLICATE KEY，key列为列定义中前36个字节, 如果前36个字节的列数小于3，将使用前三列。
     注意：
@@ -231,10 +243,11 @@ under the License.
     ```
 
        storage_medium：        用于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
-           storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
-                                   默认存放 30 天。
-                                   格式为："yyyy-MM-dd HH:mm:ss"
-           replication_num:        指定分区的副本数。默认为 3
+                               注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`. 
+       storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
+                               默认存放 30 天。
+                               格式为："yyyy-MM-dd HH:mm:ss"
+       replication_num:        指定分区的副本数。默认为 3
     
        当表为单分区表时，这些属性为表的属性。
            当表为两级分区时，这些属性为附属于每一个分区。
@@ -605,6 +618,24 @@ under the License.
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES ("in_memory"="true");
+```
+
+13. 创建一个hive外部表
+
+```
+    CREATE TABLE example_db.table_hive
+    (
+      k1 TINYINT,
+      k2 VARCHAR(50),
+      v INT
+    )
+    ENGINE=hive
+    PROPERTIES
+    (
+      "database" = "hive_db_name",
+      "table" = "hive_table_name",
+      "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    );
 ```
 
 ## keyword

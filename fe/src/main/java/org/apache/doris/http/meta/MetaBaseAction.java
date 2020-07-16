@@ -91,7 +91,7 @@ public class MetaBaseAction extends WebBaseAction {
 
     private boolean isFromValidFe(BaseRequest request) {
         String clientHost = request.getHostString();
-        Frontend fe = Catalog.getInstance().getFeByHost(clientHost);
+        Frontend fe = Catalog.getCurrentCatalog().getFeByHost(clientHost);
         if (fe == null) {
             LOG.warn("request is not from valid FE. client: {}", clientHost);
             return false;

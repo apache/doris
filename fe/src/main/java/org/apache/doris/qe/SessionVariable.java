@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -72,6 +73,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
+    public static final String ENABLE_SPILLING = "enable_spilling";
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
@@ -88,7 +90,6 @@ public class SessionVariable implements Serializable, Writable {
      * Using only the exec_mem_limit variable does not make a good distinction of memory limit between the two parts.
      */
     public static final String LOAD_MEM_LIMIT = "load_mem_limit";
-    public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
     public static final String USE_V2_ROLLUP = "use_v2_rollup";
     public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
@@ -96,11 +97,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String STORAGE_ENGINE = "storage_engine";
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
+    // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
+    public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
+    public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
+
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
 
-    @VariableMgr.VarAttr(name = "enable_spilling")
+    @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
 
     // query timeout in second.
@@ -179,7 +184,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE)
-    private String timeZone = "CST";
+    private String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     private int exchangeInstanceParallel = -1;
@@ -220,10 +225,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     private long loadMemLimit = 0L;
 
-    // the default rowset type flag which will be passed to Backends through heartbeat
-    @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
-    private String defaultRowsetType = "alpha";
-
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     private boolean useV2Rollup = false;
 
@@ -241,6 +242,12 @@ public class SessionVariable implements Serializable, Writable {
     private String storageEngine = "olap";
     @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
     private int divPrecisionIncrement = 4;
+
+    // -1 means unset, BE will use its config value
+    @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
+    private int maxScanKeyNum = -1;
+    @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
+    private int maxPushdownConditionsPerColumn = -1;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -451,8 +458,20 @@ public class SessionVariable implements Serializable, Writable {
         return divPrecisionIncrement;
     }
 
-    public String getDefaultRowsetType() {
-        return defaultRowsetType;
+    public int getMaxScanKeyNum() {
+        return maxScanKeyNum;
+    }
+
+    public void setMaxScanKeyNum(int maxScanKeyNum) {
+        this.maxScanKeyNum = maxScanKeyNum;
+    }
+
+    public int getMaxPushdownConditionsPerColumn() {
+        return maxPushdownConditionsPerColumn;
+    }
+
+    public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
+        this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
     }
 
     // Serialize to thrift object
@@ -474,6 +493,14 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatch_size(batchSize);
         tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
         tResult.setLoad_mem_limit(loadMemLimit);
+
+        if (maxScanKeyNum > -1) {
+            tResult.setMax_scan_key_num(maxScanKeyNum);
+        }
+        if (maxPushdownConditionsPerColumn > -1) {
+            tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
+        }
+        tResult.setEnable_spilling(enableSpilling);
         return tResult;
     }
 

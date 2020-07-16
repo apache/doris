@@ -62,7 +62,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 > Note 1: Only ADMIN users can set variable at global-level.
 > Note 2: Global-level variables do not affect variable values in the current session, only variables in new sessions.
 
-Variables that support global-level setting include:
+Variables that support both session-level and global-level setting include:
 
 * `time_zone`
 * `wait_timeout`
@@ -73,6 +73,10 @@ Variables that support global-level setting include:
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+
+Variables that support only global-level setting include:
+
+* `default_rowset_type`
 
 At the same time, variable settings also support constant expressions. Such as:
 
@@ -155,7 +159,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `exec_mem_limit`
 
-    Used to set the memory limit for a single query. The default is 2GB, in bytes.
+    Used to set the memory limit for a single query. The default is 2GB, you can set it in B/K/KB/M/MB/G/GB/T/TB/P/PB, the default is B.
     
     This parameter is used to limit the memory that can be used by an instance of a single query fragment in a query plan. A query plan may have multiple instances, and a BE node may execute one or more instances. Therefore, this parameter does not accurately limit the memory usage of a query across the cluster, nor does it accurately limit the memory usage of a query on a single BE node. The specific needs need to be judged according to the generated query plan.
     
@@ -235,6 +239,14 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     Used for compatible JDBC connection pool C3P0. No practical effect.
     
+* `max_pushdown_conditions_per_column`
+
+    For the specific meaning of this variable, please refer to the description of `max_pushdown_conditions_per_column` in [BE Configuration](./config/be_config.md). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
+
+* `max_scan_key_num`
+
+    For the specific meaning of this variable, please refer to the description of `doris_max_scan_key_num` in [BE Configuration](./config/be_config.md). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
+
 * `net_buffer_length`
 
     Used for compatibility with MySQL clients. No practical effect.

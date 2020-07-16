@@ -269,6 +269,12 @@ This configuration can play a role in certain scenarios. Assume that the initial
 
 ### `enable_materialized_view`
 
+This configuration is used to turn on and off the creation of materialized views. If set to true, the function to create a materialized view is enabled. The user can create a materialized view through the `CREATE MATERIALIZED VIEW` command. If set to false, materialized views cannot be created.
+
+If you get an error `The materialized view is coming soon` or `The materialized view is disabled` when creating the materialized view, it means that the configuration is set to false and the function of creating the materialized view is turned off. You can start to create a materialized view by modifying the configuration to true.
+
+This variable is a dynamic configuration, and users can modify the configuration through commands after the FE process starts. You can also modify the FE configuration file and restart the FE to take effect.
+
 ### `enable_metric_calculator`
 
 ### `enable_spilling`
@@ -412,6 +418,10 @@ Generally it is not recommended to increase this configuration value. An excessi
 ### `max_small_file_number`
 
 ### `max_small_file_size_bytes`
+
+### `max_stream_load_timeout_second`
+
+This configuration is specifically used to limit timeout setting for stream load. It is to prevent that failed stream load transactions cannot be canceled within a short time because of the user's large timeout setting. 
 
 ### `max_tolerable_backend_down_num`
 
@@ -581,3 +591,20 @@ The value for thrift_client_timeout_ms is set to be larger than zero to prevent 
 
 ### `with_k8s_certs`
 
+### `enable_strict_storage_medium_check`
+
+This configuration indicates that when the table is being built, it checks for the presence of the appropriate storage medium in the cluster. For example, when the user specifies that the storage medium is' SSD 'when the table is built, but only' HDD 'disks exist in the cluster,
+
+If this parameter is' True ', the error 'Failed to find enough host in all Backends with storage medium with storage medium is SSD, need 3'.
+
+If this parameter is' False ', no error is reported when the table is built. Instead, the table is built on a disk with 'HDD' as the storage medium.
+
+### `thrift_server_type`
+
+This configuration represents the service model used by The Thrift Service of FE, is of type String and is case-insensitive.
+
+If this parameter is 'SIMPLE', then the 'TSimpleServer' model is used, which is generally not suitable for production and is limited to test use.
+
+If the parameter is 'THREADED', then the 'TThreadedSelectorServer' model is used, which is a non-blocking I/O model, namely the master-slave Reactor model, which can timely respond to a large number of concurrent connection requests and performs well in most scenarios.
+
+If this parameter is `THREAD_POOL`, then the `TThreadPoolServer` model is used, the model for blocking I/O model, use the thread pool to handle user connections, the number of simultaneous connections are limited by the number of thread pool, if we can estimate the number of concurrent requests in advance, and tolerant enough thread resources cost, this model will have a better performance, the service model is used by default.

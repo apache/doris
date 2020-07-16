@@ -38,6 +38,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -316,10 +317,6 @@ abstract public class DorisHttpTestCase {
                 return new MaterializedViewHandler();
             }
             @Mock
-            Catalog getInstance() {
-                return catalog;
-            }
-            @Mock
             Catalog getCurrentCatalog() {
                 return catalog;
             }
@@ -347,14 +344,6 @@ abstract public class DorisHttpTestCase {
 
     public void doSetUp() {
 
-    }
-
-    /**
-     * A runnable that can throw any checked exception.
-     */
-    @FunctionalInterface
-    public interface ThrowingRunnable {
-        void run() throws Throwable;
     }
 
     public void expectThrowsNoException(ThrowingRunnable runnable) {

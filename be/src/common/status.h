@@ -142,6 +142,12 @@ public:
         return Status(TStatusCode::ABORTED, msg, precise_code, msg2);
     }
 
+    static Status DataQualityError(const Slice& msg,
+                          int16_t precise_code = -1,
+                          const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::DATA_QUALITY_ERROR, msg, precise_code, msg2);
+    }
+
     bool ok() const { return _state == nullptr; }
 
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
@@ -163,6 +169,8 @@ public:
 
     // @return @c true iff the status indicates ServiceUnavailable.
     bool is_service_unavailable() const { return code() == TStatusCode::SERVICE_UNAVAILABLE; }
+
+    bool is_data_quality_error() const { return code() == TStatusCode::DATA_QUALITY_ERROR; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
@@ -291,6 +299,15 @@ private:
             return ret_code;    \
         }   \
     } while (0);
-}
+
+#define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix) \
+    do {    \
+        const Status& _s = (stmt);  \
+        if (UNLIKELY(!_s.ok())) {   \
+            LOG(WARNING) << (warning_prefix) << ", error: "  << _s.to_string(); \
+            return _s;    \
+        }   \
+    } while (0);
+}  // namespace doris
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))

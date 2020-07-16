@@ -34,6 +34,7 @@
 #include "util/thrift_util.h"
 #include "util/runtime_profile.h"
 #include "runtime/client_cache.h"
+#include "monotime.h"
 
 namespace doris {
 
@@ -68,8 +69,9 @@ Status ThriftRpcHelper::rpc(
         try {
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "retrying call frontend service, address="
-                    << address << ", reason=" << e.what();
+            LOG(WARNING) << "retrying call frontend service after " << config::thrift_client_retry_interval_ms
+                << " ms, address=" << address << ", reason=" << e.what();
+            SleepFor(MonoDelta::FromMilliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "client repoen failed. address=" << address
@@ -79,10 +81,11 @@ Status ThriftRpcHelper::rpc(
             callback(client);
         }
     } catch (apache::thrift::TException& e) {
+        LOG(WARNING) << "call frontend service failed, address=" << address
+                     << ", reason=" << e.what();
+        SleepFor(MonoDelta::FromMilliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
         client.reopen(timeout_ms);
-        LOG(WARNING) << "call frontend service failed, address=" << address
-            << ", reason=" << e.what();
         return Status::ThriftRpcError("failed to call frontend service");
     }
     return Status::OK();

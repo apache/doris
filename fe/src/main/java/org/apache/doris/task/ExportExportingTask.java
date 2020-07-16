@@ -276,7 +276,7 @@ public class ExportExportingTask extends MasterTask {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
+            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
         } catch (AnalysisException e) {
             String failMsg = "get broker failed. export job: " + job.getId() + ". msg: " + e.getMessage();
             LOG.warn(failMsg);

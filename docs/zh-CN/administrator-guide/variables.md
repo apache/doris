@@ -62,7 +62,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 > 注1：只有 ADMIN 用户可以设置变量的全局生效。
 > 注2：全局生效的变量不影响当前会话的变量值，仅影响新的会话中的变量。
 
-支持全局生效的变量包括：
+既支持当前会话生效又支持全局生效的变量包括：
 
 * `time_zone`
 * `wait_timeout`
@@ -73,6 +73,10 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+
+只支持全局生效的变量包括：
+
+* `default_rowset_type`
 
 同时，变量设置也支持常量表达式。如：
 
@@ -155,7 +159,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `exec_mem_limit`
 
-    用于设置单个查询的内存限制。默认为 2GB，单位为字节。
+    用于设置单个查询的内存限制。默认为 2GB，单位为B/K/KB/M/MB/G/GB/T/TB/P/PB, 默认为B。
     
     该参数用于限制一个查询计划中，单个查询计划的实例所能使用的内存。一个查询计划可能有多个实例，一个 BE 节点可能执行一个或多个实例。所以该参数并不能准确限制一个查询在整个集群的内存使用，也不能准确限制一个查询在单一 BE 节点上的内存使用。具体需要根据生成的查询计划判断。
     
@@ -233,6 +237,14 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `max_allowed_packet`
 
     用于兼容 JDBC 连接池 C3P0。 无实际作用。
+    
+* `max_pushdown_conditions_per_column`
+
+    该变量的具体含义请参阅 [BE 配置项](./config/be_config.md) 中 `max_pushdown_conditions_per_column` 的说明。该变量默认置为 -1，表示使用 `be.conf` 中的配置值。如果设置大于 0，则当前会话中的查询会使用该变量值，而忽略 `be.conf` 中的配置值。
+
+* `max_scan_key_num`
+
+    该变量的具体含义请参阅 [BE 配置项](./config/be_config.md) 中 `doris_max_scan_key_num` 的说明。该变量默认置为 -1，表示使用 `be.conf` 中的配置值。如果设置大于 0，则当前会话中的查询会使用该变量值，而忽略 `be.conf` 中的配置值。
     
 * `net_buffer_length`
 

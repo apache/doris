@@ -68,7 +68,7 @@ under the License.
 
         timeout: 指定导入的超时时间。单位秒。默认是 600 秒。可设置范围为 1 秒 ~ 259200 秒。
 
-        strict_mode: 用户指定此次导入是否开启严格模式，默认为开启。关闭方式为 -H "strict_mode: false"。
+        strict_mode: 用户指定此次导入是否开启严格模式，默认为关闭。开启方式为 -H "strict_mode: true"。
 
         timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
 
@@ -158,6 +158,7 @@ under the License.
                {"category":"Java","author":"avc","title":"Effective Java","price":95},
                {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
               ]
+
     11. 匹配模式，导入json数据
        json数据格式：
            [

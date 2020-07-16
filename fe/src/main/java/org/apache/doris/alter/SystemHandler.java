@@ -140,7 +140,7 @@ public class SystemHandler extends AlterHandler {
             }
 
             if (!Strings.isNullOrEmpty(destClusterName) 
-                    && Catalog.getInstance().getCluster(destClusterName) == null) {
+                    && Catalog.getCurrentCatalog().getCluster(destClusterName) == null) {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }
             Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), 
@@ -172,22 +172,22 @@ public class SystemHandler extends AlterHandler {
 
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
-            Catalog.getInstance().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
+            Catalog.getCurrentCatalog().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
         } else if (alterClause instanceof DropObserverClause) {
             DropObserverClause clause = (DropObserverClause) alterClause;
-            Catalog.getInstance().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
+            Catalog.getCurrentCatalog().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(), clause.getPort());
         } else if (alterClause instanceof AddFollowerClause) {
             AddFollowerClause clause = (AddFollowerClause) alterClause;
-            Catalog.getInstance().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
+            Catalog.getCurrentCatalog().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
         } else if (alterClause instanceof DropFollowerClause) {
             DropFollowerClause clause = (DropFollowerClause) alterClause;
-            Catalog.getInstance().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
+            Catalog.getCurrentCatalog().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(), clause.getPort());
         } else if (alterClause instanceof ModifyBrokerClause) {
             ModifyBrokerClause clause = (ModifyBrokerClause) alterClause;
-            Catalog.getInstance().getBrokerMgr().execute(clause);
+            Catalog.getCurrentCatalog().getBrokerMgr().execute(clause);
         } else if (alterClause instanceof AlterLoadErrorUrlClause) {
             AlterLoadErrorUrlClause clause = (AlterLoadErrorUrlClause) alterClause;
-            Catalog.getInstance().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
+            Catalog.getCurrentCatalog().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }
@@ -254,7 +254,7 @@ public class SystemHandler extends AlterHandler {
 
         for (Backend backend : backends) {
             if (backend.setDecommissioned(false)) {
-                Catalog.getInstance().getEditLog().logBackendStateChange(backend);
+                Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
             } else {
                 LOG.info("backend is not decommissioned[{}]", backend.getHost());
             }

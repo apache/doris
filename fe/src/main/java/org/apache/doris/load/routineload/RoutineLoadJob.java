@@ -17,14 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.EvictingQueue;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
@@ -69,6 +61,16 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.EvictingQueue;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -803,6 +805,16 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                     entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
+            if (!routineLoadTaskInfoOptional.isPresent()) {
+                // not find task in routineLoadTaskInfoList. this may happen in following case:
+                //      After the txn of the task is COMMITTED, but before it becomes VISIBLE,
+                //      the routine load job has been paused and then start again.
+                //      The routineLoadTaskInfoList will be cleared when job being paused.
+                //      So the task can not be found here.
+                // This is a normal case, we just print a log here to observe.
+                LOG.info("Can not find task with transaction {} after visible, job: {}", txnState.getTransactionId(), id);
+                return;
+            }
             RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
             if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED) {
                 // TODO(cmy): Normally, this should not happen. But for safe reason, just pause the job
@@ -924,8 +936,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
         }
 
+        routineLoadTaskInfo.setTxnStatus(txnStatus);
+
         if (state == JobState.RUNNING) {
-            routineLoadTaskInfo.setTxnStatus(txnStatus);
             if (txnStatus == TransactionStatus.ABORTED) {
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
                 Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
@@ -977,13 +990,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                              .add("current_job_state", getState())
-                              .add("desire_job_state", jobState)
-                              .add("msg", reason)
-                              .build());
-        }
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                .add("current_job_state", getState())
+                .add("desire_job_state", jobState)
+                .add("msg", reason)
+                .build());
+      
         checkStateTransform(jobState);
         switch (jobState) {
             case RUNNING:
@@ -1010,7 +1022,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         if (!isReplay && jobState != JobState.RUNNING) {
-            Catalog.getInstance().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
+            Catalog.getCurrentCatalog().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                          .add("current_job_state", getState())

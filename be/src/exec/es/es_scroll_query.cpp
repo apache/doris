@@ -76,14 +76,20 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     // note: add `query` for this value....
     es_query_dsl.AddMember("query", query_node, allocator);
     bool pure_docvalue = true;
-    // check docvalue sacan optimization
-    if (docvalue_context.size() == 0 || docvalue_context.size() < fields.size()) {
-        pure_docvalue = false;
+
+    // Doris FE already has checked docvalue-scan optimization
+    if (properties.find(ESScanReader::KEY_DOC_VALUES_MODE) != properties.end()) {
+        pure_docvalue = atoi(properties.at(ESScanReader::KEY_DOC_VALUES_MODE).c_str());
     } else {
-        for (auto& select_field : fields) {
-            if (docvalue_context.find(select_field) == docvalue_context.end()) {
-                pure_docvalue = false;
-                break;
+        // check docvalue scan optimization, used for compatibility
+        if (docvalue_context.size() == 0 || docvalue_context.size() < fields.size()) {
+            pure_docvalue = false;
+        } else {
+            for (auto& select_field : fields) {
+                if (docvalue_context.find(select_field) == docvalue_context.end()) {
+                    pure_docvalue = false;
+                    break;
+                }
             }
         }
     }

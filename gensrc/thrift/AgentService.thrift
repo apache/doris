@@ -21,6 +21,7 @@ namespace java org.apache.doris.thrift
 include "Status.thrift"
 include "Types.thrift"
 include "PaloInternalService.thrift"
+include "PlanNodes.thrift"
 include "Descriptors.thrift"
 include "Exprs.thrift"
 
@@ -103,6 +104,13 @@ struct TAlterTabletReqV2 {
     // version of data which this alter task should transform
     5: optional Types.TVersion alter_version
     6: optional Types.TVersionHash alter_version_hash // Deprecated
+    7: optional list<TAlterMaterializedViewParam> materialized_view_params
+}
+
+struct TAlterMaterializedViewParam {
+    1: required string column_name
+    2: optional string origin_column_name
+    3: optional Exprs.TExpr mv_expr
 }
 
 struct TClusterInfo {
@@ -127,6 +135,9 @@ struct TPushReq {
     // fe should inform be that this request is running during schema change
     // be should write two files
     13: optional bool is_schema_changing
+    // 14 and 15 are used by spark load
+    14: optional PlanNodes.TBrokerScanRange broker_scan_range
+    15: optional Descriptors.TDescriptorTable desc_tbl
 }
 
 struct TCloneReq {

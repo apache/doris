@@ -40,6 +40,7 @@ import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +58,9 @@ public class TabletInvertedIndex {
     private static final Logger LOG = LogManager.getLogger(TabletInvertedIndex.class);
 
     public static final int NOT_EXIST_VALUE = -1;
+
+    public static final TabletMeta NOT_EXIST_TABLET_META = new TabletMeta(NOT_EXIST_VALUE, NOT_EXIST_VALUE,
+            NOT_EXIST_VALUE, NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD);
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -113,18 +117,19 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              Set<Pair<Long, Integer>> tabletWithoutPartitionId) {
-        long start = 0L;
-        readLock();
-        try {
-            LOG.info("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
-            start = System.currentTimeMillis();
-            for (TTablet backendTablet : backendTablets.values()) {
-                for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
-                    if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
-                        tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash()));
-                    }
+
+        for (TTablet backendTablet : backendTablets.values()) {
+            for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
+                if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
+                    tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash()));
                 }
             }
+        }
+
+        readLock();
+        long start = System.currentTimeMillis();
+        try {
+            LOG.info("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 // traverse replicas in meta with this backend
@@ -252,84 +257,10 @@ public class TabletInvertedIndex {
                  tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), (end - start));
     }
 
-    public long getDbId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getDbId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getTableId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getTableId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-    
-    public TabletMeta getTabletMetaByReplica(long replicaId) {
-        readLock();
-        try {
-            Long tabletId = replicaToTabletMap.get(replicaId);
-            if (tabletId == null) {
-                return null;
-            }
-            return tabletMetaMap.get(tabletId);
-        } finally {
-            readUnlock();
-        }
-    }
-    
     public Long getTabletIdByReplica(long replicaId) {
         readLock();
         try {
             return replicaToTabletMap.get(replicaId);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getPartitionId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getPartitionId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getIndexId(long tabletId) {
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getIndexId();
-            }
-            return NOT_EXIST_VALUE;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public int getEffectiveSchemaHash(long tabletId) {
-        // always get old schema hash(as effective one)
-        readLock();
-        try {
-            if (tabletMetaMap.containsKey(tabletId)) {
-                return tabletMetaMap.get(tabletId).getOldSchemaHash();
-            }
-            return NOT_EXIST_VALUE;
         } finally {
             readUnlock();
         }
@@ -343,10 +274,18 @@ public class TabletInvertedIndex {
             readUnlock();
         }
     }
-    
-    public Set<Long> getTabletBackends(long tabletId) {
-        Map<Long, Replica> backendIdToReplica = replicaMetaTable.row(tabletId);
-        return backendIdToReplica.keySet();
+
+    public List<TabletMeta> getTabletMetaList(List<Long> tabletIdList) {
+        List<TabletMeta> tabletMetaList = new ArrayList<>(tabletIdList.size());
+        readLock();
+        try {
+            for (Long tabletId : tabletIdList) {
+                tabletMetaList.add(tabletMetaMap.getOrDefault(tabletId, NOT_EXIST_TABLET_META));
+            }
+            return tabletMetaList;
+        } finally {
+            readUnlock();
+        }
     }
 
     private boolean needSync(Replica replicaInFe, TTabletInfo backendTabletInfo) {
@@ -377,8 +316,8 @@ public class TabletInvertedIndex {
     }
     
     /**
-     * if be's report version < fe's meta version, or tablet is unused, it means some version is missing in BE
-     * because of some unrecoverable failure.
+     * Be will set `used' to false for bad replicas and `version_miss' to true for replicas with hole
+     * in their version chain. In either case, those replicas need to be fixed by TabletScheduler.
      */
     private boolean needRecover(Replica replicaInFe, int schemaHashInFe, TTabletInfo backendTabletInfo) {
         if (replicaInFe.getState() != ReplicaState.NORMAL) {

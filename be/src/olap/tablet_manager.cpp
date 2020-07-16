@@ -1307,6 +1307,8 @@ OLAPStatus TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& r
     // TODO(lingbin): when beta-rowset is default, should remove it
     if (request.__isset.storage_format && request.storage_format == TStorageFormat::V2) {
         (*tablet_meta)->set_preferred_rowset_type(BETA_ROWSET);
+    } else {
+        (*tablet_meta)->set_preferred_rowset_type(ALPHA_ROWSET);
     }
     return res;
 }

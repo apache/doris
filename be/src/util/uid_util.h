@@ -58,8 +58,8 @@ inline void from_hex(T* ret, const std::string& buf) {
 }
 
 struct UniqueId {
-    int64_t hi;
-    int64_t lo;
+    int64_t hi = 0;
+    int64_t lo = 0;
 
     UniqueId(int64_t hi_, int64_t lo_) : hi(hi_), lo(lo_) { }
     UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) { }

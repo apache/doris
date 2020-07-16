@@ -171,7 +171,14 @@ public:
     int64_t number_unselected_rows = 0;
     int64_t loaded_bytes = 0;
     int64_t start_nanos = 0;
+    int64_t start_write_data_nanos = 0;
     int64_t load_cost_nanos = 0;
+    int64_t begin_txn_cost_nanos = 0;
+    int64_t stream_load_put_cost_nanos = 0;
+    int64_t commit_and_publish_txn_cost_nanos = 0;
+    int64_t read_data_cost_nanos = 0;
+    int64_t write_data_cost_nanos = 0;
+
     std::string error_url = "";
     // if label already be used, set existing job's status here
     // should be RUNNING or FINISHED

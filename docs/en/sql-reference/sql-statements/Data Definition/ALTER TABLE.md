@@ -64,7 +64,7 @@ under the License.
             
     3. Modify the partition properties
         grammar:
-            MODIFY PARTITION partition_name SET ("key" = "value", ...)
+            MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
         Description:
             1) The following attributes of the modified partition are currently supported.
                 - storage_medium
@@ -106,8 +106,7 @@ under the License.
         example：DROP ROLLUP r1,r2
     2.2 note:
             1) Cannot delete base index
-            2) Execute DROP ROLLUP For a period of time, the deleted rollup index can be restored by the RECOVER statement. See the RECOVER statement for details.
-    
+               
             
     Schema change supports the following modifications:
     1. Add a column to the specified location of the specified index
@@ -155,7 +154,6 @@ under the License.
             5) The following types of conversions are currently supported (accuracy loss is guaranteed by the user)
                 TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL is converted to VARCHAR
-                Convert LARGEINT to DOUBLE
                 VARCHAR supports modification of maximum length
                 Convert VARCHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.
                 Convert VARCHAR to DATE (currently support six formats: "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d")
@@ -234,12 +232,20 @@ under the License.
     4. Modify the number of partition copies
         ALTER TABLE example_db.my_table
         MODIFY PARTITION p1 SET("replication_num"="1");
+        
+    5. Batch modify the specified partitions
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+        
+    6. Batch modify all partitions
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (*) SET("storage_medium"="HDD");
 
-    5. Delete the partition
+    7. Delete the partition
         ALTER TABLE example_db.my_table
         DROP PARTITION p1;
         
-    6. Add a partition that specifies the upper and lower bounds
+    8. Add a partition that specifies the upper and lower bounds
 
         ALTER TABLE example_db.my_table
         ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));

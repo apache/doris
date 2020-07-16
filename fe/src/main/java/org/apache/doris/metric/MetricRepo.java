@@ -22,6 +22,7 @@ import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -42,7 +43,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
-import java.util.Timer;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetricRepo {
@@ -52,6 +54,7 @@ public final class MetricRepo {
     private static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
     
     public static AtomicBoolean isInit = new AtomicBoolean(false);
+    public static final SystemMetrics SYSTEM_METRICS = new SystemMetrics();
 
     public static final String TABLET_NUM = "tablet_num";
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
@@ -83,7 +86,7 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
-    private static Timer metricTimer = new Timer();
+    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newScheduledThreadPool(1, "Metric-Timer-Pool");
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
     public static synchronized void init() {
@@ -97,10 +100,10 @@ public final class MetricRepo {
         for (EtlJobType jobType : EtlJobType.values()) {
             for (JobState state : JobState.values()) {
                 GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
-                        MetricUnit.NUMBER, "job statistics") {
+                        MetricUnit.NOUNIT, "job statistics") {
                     @Override
                     public Long getValue() {
-                        if (!Catalog.getInstance().isMaster()) {
+                        if (!Catalog.getCurrentCatalog().isMaster()) {
                             return 0L;
                         }
                         return loadManger.getLoadJobNum(state, jobType);
@@ -114,17 +117,17 @@ public final class MetricRepo {
         }
 
         // running alter job
-        Alter alter = Catalog.getInstance().getAlterInstance();
+        Alter alter = Catalog.getCurrentCatalog().getAlterInstance();
         for (JobType jobType : JobType.values()) {
             if (jobType != JobType.SCHEMA_CHANGE && jobType != JobType.ROLLUP) {
                 continue;
             }
             
             GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
-                    MetricUnit.NUMBER, "job statistics") {
+                    MetricUnit.NOUNIT, "job statistics") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getInstance().isMaster()) {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
                         return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
@@ -145,7 +148,7 @@ public final class MetricRepo {
 
         // connections
         GaugeMetric<Integer> conections = (GaugeMetric<Integer>) new GaugeMetric<Integer>(
-                "connection_total", MetricUnit.NUMBER, "total connections") {
+                "connection_total", MetricUnit.CONNECTIONS, "total connections") {
             @Override
             public Integer getValue() {
                 return ExecuteEnv.getInstance().getScheduler().getConnectionNum();
@@ -155,10 +158,10 @@ public final class MetricRepo {
 
         // journal id
         GaugeMetric<Long> maxJournalId = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "max_journal_id", MetricUnit.NUMBER, "max journal id of this frontends") {
+                "max_journal_id", MetricUnit.NOUNIT, "max journal id of this frontends") {
             @Override
             public Long getValue() {
-                EditLog editLog = Catalog.getInstance().getEditLog();
+                EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
                 if (editLog == null) {
                     return -1L;
                 }
@@ -169,10 +172,10 @@ public final class MetricRepo {
 
         // scheduled tablet num
         GaugeMetric<Long> scheduledTabletNum = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "scheduled_tablet_num", MetricUnit.NUMBER, "number of tablets being scheduled") {
+                "scheduled_tablet_num", MetricUnit.NOUNIT, "number of tablets being scheduled") {
             @Override
             public Long getValue() {
-                if (!Catalog.getInstance().isMaster()) {
+                if (!Catalog.getCurrentCatalog().isMaster()) {
                     return 0L;
                 }
                 return (long) Catalog.getCurrentCatalog().getTabletScheduler().getTotalNum();
@@ -182,50 +185,50 @@ public final class MetricRepo {
 
         // qps, rps and error rate
         // these metrics should be set an init value, in case that metric calculator is not running
-        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NUMBER, "query per second");
+        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT, "query per second");
         GAUGE_QUERY_PER_SECOND.setValue(0.0);
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_PER_SECOND);
-        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NUMBER, "request per second");
+        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT, "request per second");
         GAUGE_REQUEST_PER_SECOND.setValue(0.0);
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_REQUEST_PER_SECOND);
-        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NUMBER, "query error rate");
+        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT, "query error rate");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_ERR_RATE);
         GAUGE_QUERY_ERR_RATE.setValue(0.0);
         GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score",
-                MetricUnit.NUMBER, "max tablet compaction score of all backends");
+                MetricUnit.NOUNIT, "max tablet compaction score of all backends");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
         GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(0L);
 
         // 2. counter
-        COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.NUMBER, "total request");
+        COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.REQUESTS, "total request");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
-        COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.NUMBER, "total query");
+        COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.REQUESTS, "total query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
-        COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.NUMBER, "total error query");
+        COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
-        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", MetricUnit.NUMBER, "total load submit");
+        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", MetricUnit.REQUESTS, "total load submit");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
-        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", MetricUnit.NUMBER, "total load finished");
+        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", MetricUnit.REQUESTS, "total load finished");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_FINISHED);
-        COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log_write", MetricUnit.NUMBER, "counter of edit log write into bdbje");
+        COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log_write", MetricUnit.OPERATIONS, "counter of edit log write into bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_WRITE);
-        COUNTER_EDIT_LOG_READ = new LongCounterMetric("edit_log_read", MetricUnit.NUMBER, "counter of edit log read from bdbje");
+        COUNTER_EDIT_LOG_READ = new LongCounterMetric("edit_log_read", MetricUnit.OPERATIONS, "counter of edit log read from bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_READ);
         COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log_size_bytes", MetricUnit.BYTES, "size of edit log");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_SIZE_BYTES);
-        COUNTER_IMAGE_WRITE = new LongCounterMetric("image_write", MetricUnit.NUMBER, "counter of image generated");
+        COUNTER_IMAGE_WRITE = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image generated");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE);
-        COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push", MetricUnit.NUMBER,
+        COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push", MetricUnit.OPERATIONS,
                 "counter of image succeeded in pushing to other frontends");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH);
 
-        COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.NUMBER, "counter of rejected transactions");
+        COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.REQUESTS, "counter of rejected transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_REJECT);
-        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", MetricUnit.NUMBER, "counter of begining transactions");
+        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", MetricUnit.REQUESTS, "counter of begining transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_BEGIN);
-        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success", MetricUnit.NUMBER, "counter of success transactions");
+        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success", MetricUnit.REQUESTS, "counter of success transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_SUCCESS);
-        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed", MetricUnit.NUMBER, "counter of failed transactions");
+        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed", MetricUnit.REQUESTS, "counter of failed transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_FAILED);
 
         COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS, "total rows of routine load");
@@ -241,11 +244,61 @@ public final class MetricRepo {
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
 
+        // init system metrics
+        initSystemMetrics();
+
+        updateMetrics();
         isInit.set(true);
 
         if (Config.enable_metric_calculator) {
-            metricTimer.scheduleAtFixedRate(metricCalculator, 0, 15 * 1000 /* 15s */);
+            metricTimer.scheduleAtFixedRate(metricCalculator, 0, 15 * 1000L, TimeUnit.MILLISECONDS);
         }
+    }
+
+    private static void initSystemMetrics() {
+        // TCP retransSegs
+        GaugeMetric<Long> tcpRetransSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "snmp", MetricUnit.NOUNIT, "All TCP packets retransmitted") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.tcpRetransSegs;
+            }
+        };
+        tcpRetransSegs.addLabel(new MetricLabel("name", "tcp_retrans_segs"));
+        PALO_METRIC_REGISTER.addPaloMetrics(tcpRetransSegs);
+
+        // TCP inErrs
+        GaugeMetric<Long> tpcInErrs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "snmp", MetricUnit.NOUNIT, "The number of all problematic TCP packets received") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.tcpInErrs;
+            }
+        };
+        tpcInErrs.addLabel(new MetricLabel("name", "tcp_in_errs"));
+        PALO_METRIC_REGISTER.addPaloMetrics(tpcInErrs);
+
+        // TCP inSegs
+        GaugeMetric<Long> tpcInSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "snmp", MetricUnit.NOUNIT, "The number of all TCP packets received") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.tcpInSegs;
+            }
+        };
+        tpcInSegs.addLabel(new MetricLabel("name", "tcp_in_segs"));
+        PALO_METRIC_REGISTER.addPaloMetrics(tpcInSegs);
+
+        // TCP outSegs
+        GaugeMetric<Long> tpcOutSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "snmp", MetricUnit.NOUNIT, "The number of all TCP packets send with RST") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.tcpOutSegs;
+            }
+        };
+        tpcOutSegs.addLabel(new MetricLabel("name", "tcp_out_segs"));
+        PALO_METRIC_REGISTER.addPaloMetrics(tpcOutSegs);
     }
 
     // to generate the metrics related to tablets of each backends
@@ -267,10 +320,10 @@ public final class MetricRepo {
 
             // tablet number of each backends
             GaugeMetric<Long> tabletNum = (GaugeMetric<Long>) new GaugeMetric<Long>(TABLET_NUM,
-                    MetricUnit.NUMBER, "tablet number") {
+                    MetricUnit.NOUNIT, "tablet number") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getInstance().isMaster()) {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
                         return 0L;
                     }
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
@@ -281,11 +334,11 @@ public final class MetricRepo {
 
             // max compaction score of tablets on each backends
             GaugeMetric<Long> tabletMaxCompactionScore = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                    TABLET_MAX_COMPACTION_SCORE, MetricUnit.NUMBER,
+                    TABLET_MAX_COMPACTION_SCORE, MetricUnit.NOUNIT,
                     "tablet max compaction score") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getInstance().isMaster()) {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
                         return 0L;
                     }
                     return be.getTabletMaxCompactionScore();
@@ -301,6 +354,10 @@ public final class MetricRepo {
         if (!isInit.get()) {
             return "";
         }
+
+        // update the metrics first
+        updateMetrics();
+
         StringBuilder sb = new StringBuilder();
         // jvm
         JvmService jvmService = new JvmService();
@@ -323,6 +380,11 @@ public final class MetricRepo {
         visitor.getNodeInfo(sb);
 
         return sb.toString();
+    }
+
+    // update some metrics to make a ready to be visited
+    private static void updateMetrics() {
+        SYSTEM_METRICS.update();
     }
 
     public static synchronized List<Metric> getMetricsByName(String name) {

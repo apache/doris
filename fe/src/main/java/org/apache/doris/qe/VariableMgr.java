@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.EditLog;
 
@@ -220,6 +221,15 @@ public class VariableMgr {
                     setVar.getType(), setVar.getVariable(),
                     new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(setVar.getValue().getStringValue())));
         }
+        if (setVar.getVariable().toLowerCase().equals("exec_mem_limit")) {
+            try {
+            setVar = new SetVar(
+                    setVar.getType(), setVar.getVariable(),
+                    new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(setVar.getValue().getStringValue()))));
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
 
         // To modify to default value.
         VarAttr attr = ctx.getField().getAnnotation(VarAttr.class);
@@ -264,7 +274,7 @@ public class VariableMgr {
     }
 
     private static void writeGlobalVariableUpdate(SessionVariable variable, String msg) {
-        EditLog editLog = Catalog.getInstance().getEditLog();
+        EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
         editLog.logGlobalVariable(variable);
     }
 

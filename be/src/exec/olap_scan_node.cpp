@@ -57,7 +57,6 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
         _start(false),
         _scanner_done(false),
         _transfer_done(false),
-        _wait_duration(0, 0, 1, 0),
         _status(Status::OK()),
         _resource_info(nullptr),
         _buffered_bytes(0),
@@ -72,56 +71,43 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _direct_conjunct_size = _conjunct_ctxs.size();
 
+    const TQueryOptions& query_options = state->query_options();
+    if (query_options.__isset.max_scan_key_num) {
+        _max_scan_key_num = query_options.max_scan_key_num;
+    } else {
+        _max_scan_key_num = config::doris_max_scan_key_num;
+    }
+
+    if (query_options.__isset.max_pushdown_conditions_per_column) {
+        _max_pushdown_conditions_per_column = query_options.max_pushdown_conditions_per_column;
+    } else {
+        _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
+    }
+
     return Status::OK();
 }
 
 void OlapScanNode::_init_counter(RuntimeState* state) {
-#if 0
-    ADD_TIMER(profile, "GetTabletTime");
-    ADD_TIMER(profile, "InitReaderTime");
-    ADD_TIMER(profile, "ShowHintsTime");
-    ADD_TIMER(profile, "BlockLoadTime");
-    ADD_TIMER(profile, "IndexLoadTime");
-    ADD_TIMER(profile, "VectorPredicateEvalTime");
-    ADD_TIMER(profile, "ScannerTimer");
-    ADD_TIMER(profile, "IOTimer");
-    ADD_TIMER(profile, "DecompressorTimer");
-    ADD_TIMER(profile, "RLETimer");
-
-    ADD_COUNTER(profile, "RawRowsRead", TUnit::UNIT);
-    ADD_COUNTER(profile, "IndexStreamCacheMiss", TUnit::UNIT);
-    ADD_COUNTER(profile, "IndexStreamCacheHit", TUnit::UNIT);
-    ADD_COUNTER(profile, "BlockLoadCount", TUnit::UNIT);
-#endif
     ADD_TIMER(_runtime_profile, "ShowHintsTime");
 
     _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
-    _read_compressed_counter =
-        ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
-    _read_uncompressed_counter =
-        ADD_COUNTER(_runtime_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _read_compressed_counter = ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
+    _read_uncompressed_counter = ADD_COUNTER(_runtime_profile, "UncompressedBytesRead", TUnit::BYTES);
     _block_load_timer = ADD_TIMER(_runtime_profile, "BlockLoadTime");
-    _block_load_counter =
-        ADD_COUNTER(_runtime_profile, "BlocksLoad", TUnit::UNIT);
-    _block_fetch_timer =
-        ADD_TIMER(_runtime_profile, "BlockFetchTime");
-    _raw_rows_counter =
-        ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
+    _block_load_counter = ADD_COUNTER(_runtime_profile, "BlocksLoad", TUnit::UNIT);
+    _block_fetch_timer = ADD_TIMER(_runtime_profile, "BlockFetchTime");
+    _raw_rows_counter = ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
     _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
     _block_seek_counter = ADD_COUNTER(_runtime_profile, "BlockSeekCount", TUnit::UNIT);
 
-    _rows_vec_cond_counter =
-        ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
-    _vec_cond_timer =
-        ADD_TIMER(_runtime_profile, "VectorPredEvalTime");
+    _rows_vec_cond_counter = ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _vec_cond_timer = ADD_TIMER(_runtime_profile, "VectorPredEvalTime");
 
-    _stats_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
-    _bf_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
-    _del_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
+    _stats_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _del_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
+    _key_range_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
 
     _io_timer = ADD_TIMER(_runtime_profile, "IOTimer");
     _decompressor_timer = ADD_TIMER(_runtime_profile, "DecompressorTimer");
@@ -132,8 +118,10 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
 
-    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "BitmapIndexFilterCount", TUnit::UNIT);
+    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
+
+    _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -197,9 +185,9 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
     // check if Canceled.
     if (state->is_cancelled()) {
-        boost::unique_lock<boost::mutex> l(_row_batches_lock);
+        std::unique_lock<std::mutex> l(_row_batches_lock);
         _transfer_done = true;
-        boost::lock_guard<SpinLock> guard(_status_mutex);
+        std::lock_guard<SpinLock> guard(_status_mutex);
         if (LIKELY(_status.ok())) {
             _status = Status::Cancelled("Cancelled");
         }
@@ -227,13 +215,14 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     // wait for batch from queue
     RowBatch* materialized_batch = NULL;
     {
-        boost::unique_lock<boost::mutex> l(_row_batches_lock);
+        std::unique_lock<std::mutex> l(_row_batches_lock);
         while (_materialized_row_batches.empty() && !_transfer_done) {
             if (state->is_cancelled()) {
                 _transfer_done = true;
             }
 
-            _row_batch_added_cv.timed_wait(l, _wait_duration);
+            // use wait_for, not wait, in case to capture the state->is_cancelled()
+            _row_batch_added_cv.wait_for(l, std::chrono::seconds(1));
         }
 
         if (!_materialized_row_batches.empty()) {
@@ -260,7 +249,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 
             {
-                boost::unique_lock<boost::mutex> l(_row_batches_lock);
+                std::unique_lock<std::mutex> l(_row_batches_lock);
                 _transfer_done = true;
             }
 
@@ -287,7 +276,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
     // all scanner done, change *eos to true
     *eos = true;
-    boost::lock_guard<SpinLock> guard(_status_mutex);
+    std::lock_guard<SpinLock> guard(_status_mutex);
     return _status;
 }
 
@@ -306,7 +295,7 @@ Status OlapScanNode::close(RuntimeState* state) {
 
     // change done status
     {
-        boost::unique_lock<boost::mutex> l(_row_batches_lock);
+        std::unique_lock<std::mutex> l(_row_batches_lock);
         _transfer_done = true;
     }
     // notify all scanner thread
@@ -545,7 +534,7 @@ Status OlapScanNode::build_scan_key() {
             break;
         }
 
-        ExtendScanKeyVisitor visitor(_scan_keys);
+        ExtendScanKeyVisitor visitor(_scan_keys, _max_scan_key_num);
         RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
     }
 
@@ -569,7 +558,7 @@ static Status get_hints(
         tablet_id, schema_hash, true, &err);
     if (table == nullptr) {
         std::stringstream ss;
-        ss << "failed to get tablet: " << tablet_id << "with schema hash: "
+        ss << "failed to get tablet: " << tablet_id << " with schema hash: "
             << schema_hash << ", reason: " << err;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
@@ -692,12 +681,17 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
             }
             OlapScanner* scanner = new OlapScanner(
                 state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
+            // add scanner to pool before doing prepare.
+            // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool->add(scanner);
+            RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _olap_filter, _is_null_vector));
+    
             _olap_scanners.push_back(scanner);
-	    disk_set.insert(scanner->scan_disk());
+            disk_set.insert(scanner->scan_disk());
         }
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
+    COUNTER_SET(_num_scanners, static_cast<int64_t>(_olap_scanners.size()));
 
     // init progress
     std::stringstream ss;
@@ -706,8 +700,8 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     _progress.set_logging_level(1);
 
     _transfer_thread.add_thread(
-        new boost::thread(
-            &OlapScanNode::transfer_thread, this, state));
+            new boost::thread(
+                &OlapScanNode::transfer_thread, this, state));
 
     return Status::OK();
 }
@@ -715,10 +709,10 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
 template<class T>
 Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot) {
     // 1. Normalize InPredicate, add to ColumnValueRange
-    RETURN_IF_ERROR(normalize_in_predicate(slot, &range));
+    RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
 
     // 2. Normalize BinaryPredicate , add to ColumnValueRange
-    RETURN_IF_ERROR(normalize_binary_predicate(slot, &range));
+    RETURN_IF_ERROR(normalize_noneq_binary_predicate(slot, &range));
 
     // 3. Add range to Column->ColumnValueRange map
     _column_value_ranges[slot->col_name()] = range;
@@ -736,100 +730,114 @@ static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
     return false;
 }
 
+// Construct the ColumnValueRange for one specified column
+// It will only handle the InPredicate and eq BinaryPredicate in _conjunct_ctxs.
+// It will try to push down conditions of that column as much as possible,
+// But if the number of conditions exceeds the limit, none of conditions will be pushed down.
 template<class T>
-Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
+Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
+    bool meet_eq_binary = false;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
             InPredicate* pred = dynamic_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
             if (pred->is_not_in()) {
+                // can not push down NOT IN predicate to storage engine
                 continue;
             }
 
             if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
+                // not a slot ref(column)
+                continue;
+            }
+
+            std::vector<SlotId> slot_ids;
+            if (pred->get_child(0)->get_slot_ids(&slot_ids) != 1) {
+                // not a single column predicate
+                continue;
+            }
+
+            if (slot_ids[0] != slot->id()) {
+                // predicate not related to current column
                 continue;
             }
 
             if (pred->get_child(0)->type().type != slot->type().type) {
                 if (!ignore_cast(slot, pred->get_child(0))) {
+                    // the type of predicate not match the slot's type
                     continue;
                 }
             }
 
-            if (pred->is_not_in()) {
+            VLOG(1) << slot->col_name() << " fixed_values add num: "
+                    << pred->hybird_set()->size();
+
+            // if there are too many elements in InPredicate, exceed the limit,
+            // we will not push any condition of this column to storage engine.
+            // because too many conditions pushed down to storage engine may even
+            // slow down the query process.
+            // ATTN: This is just an experience value. You may need to try
+            // different thresholds to improve performance.
+            if (pred->hybird_set()->size() > _max_pushdown_conditions_per_column) {
+                VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
+                        << " excede limit " << _max_pushdown_conditions_per_column;
                 continue;
             }
-            std::vector<SlotId> slot_ids;
 
-            if (1 == pred->get_child(0)->get_slot_ids(&slot_ids)) {
-                // 1.1 Skip if slot not match conjunct
-                if (slot_ids[0] != slot->id()) {
-                    continue;
+            // begin to push InPredicate value into ColumnValueRange
+            HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+            while (iter->has_next()) {
+                // column in (NULL,...) counldn't push down to StorageEngine
+                // so that discard whole ColumnValueRange
+                if (NULL == iter->get_value()) {
+                    range->clear();
+                    break;
                 }
 
-                VLOG(1) << slot->col_name() << " fixed_values add num: "
-                        << pred->hybird_set()->size();
-
-                // 1.2 Skip if InPredicate value size larger then max_scan_key_num
-                if (pred->hybird_set()->size() > config::doris_max_scan_key_num) {
-                    VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
-                            << " excede limit " << config::doris_max_scan_key_num;
-                    continue;
+                switch (slot->type().type) {
+                case TYPE_TINYINT: {
+                    int32_t v = *reinterpret_cast<int8_t*>(const_cast<void*>(iter->get_value()));
+                    range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                    break;
                 }
-
-                // 1.3 Push InPredicate value into ColumnValueRange
-                HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
-                while (iter->has_next()) {
-                    // column in (NULL,...) counldn't push down to StorageEngine
-                    // so that discard whole ColumnValueRange
-                    if (NULL == iter->get_value()) {
-                        range->clear();
-                        break;
-                    }
-
-                    switch (slot->type().type) {
-                    case TYPE_TINYINT: {
-                        int32_t v = *reinterpret_cast<int8_t*>(const_cast<void*>(iter->get_value()));
-                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
-                        break;
-                    }
-                    case TYPE_DATE: {
-                        DateTimeValue date_value =
-                            *reinterpret_cast<const DateTimeValue*>(iter->get_value());
-                        date_value.cast_to_date();
-                        range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
-                        break;
-                    }
-                    case TYPE_DECIMAL:
-                    case TYPE_DECIMALV2:
-                    case TYPE_LARGEINT:
-                    case TYPE_CHAR:
-                    case TYPE_VARCHAR:
-	                case TYPE_HLL:
-                    case TYPE_SMALLINT:
-                    case TYPE_INT:
-                    case TYPE_BIGINT:
-                    case TYPE_DATETIME: {
-                        range->add_fixed_value(*reinterpret_cast<T*>(const_cast<void*>(iter->get_value())));
-                        break;
-                    }
-                    case TYPE_BOOLEAN: {
-                        bool v = *reinterpret_cast<bool*>(const_cast<void*>(iter->get_value()));
-                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
-                        break;
-                    }
-                    default: {
-                        break;
-                    }
-                    }
-                    iter->next();
+                case TYPE_DATE: {
+                    DateTimeValue date_value =
+                        *reinterpret_cast<const DateTimeValue*>(iter->get_value());
+                    date_value.cast_to_date();
+                    range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
+                    break;
                 }
+                case TYPE_DECIMAL:
+                case TYPE_DECIMALV2:
+                case TYPE_LARGEINT:
+                case TYPE_CHAR:
+                case TYPE_VARCHAR:
+                case TYPE_HLL:
+                case TYPE_SMALLINT:
+                case TYPE_INT:
+                case TYPE_BIGINT:
+                case TYPE_DATETIME: {
+                    range->add_fixed_value(*reinterpret_cast<T*>(const_cast<void*>(iter->get_value())));
+                    break;
+                }
+                case TYPE_BOOLEAN: {
+                    bool v = *reinterpret_cast<bool*>(const_cast<void*>(iter->get_value()));
+                    range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                    break;
+                }
+                default: {
+                    break;
+                }
+                }
+                iter->next();
             }
-        }
+            
+        } // end of handle in predicate
 
         // 2. Normalize eq conjuncts like 'where col = value'
         if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type()
                 && FILTER_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
+
             Expr* pred = _conjunct_ctxs[conj_idx]->root();
             DCHECK(pred->get_num_children() == 2);
 
@@ -838,30 +846,42 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         != TExprNodeType::SLOT_REF) {
                     continue;
                 }
+
+                std::vector<SlotId> slot_ids;
+                if (pred->get_child(child_idx)->get_slot_ids(&slot_ids) != 1) {
+                    // not a single column predicate
+                    continue;
+                }
+
+                if (slot_ids[0] != slot->id()) {
+                    // predicate not related to current column
+                    continue;
+                }
+
                 if (pred->get_child(child_idx)->type().type != slot->type().type) {
                     if (!ignore_cast(slot, pred->get_child(child_idx))) {
+                        // the type of predicate not match the slot's type
                         continue;
                     }
                 }
 
-                std::vector<SlotId> slot_ids;
-                if (1 == pred->get_child(child_idx)->get_slot_ids(&slot_ids)) {
-                    if (slot_ids[0] != slot->id()) {
-                        continue;
-                    }
+                Expr* expr = pred->get_child(1 - child_idx);
+                if (!expr->is_constant()) {
+                    // only handle constant value
+                    continue;
+                }
 
-                    Expr* expr = pred->get_child(1 - child_idx);
-                    if (!expr->is_constant()) {
-                        continue;
-                    }
+                void* value = _conjunct_ctxs[conj_idx]->get_value(expr, NULL);
+                // for case: where col = null
+                if (value == NULL) {
+                    continue;
+                }
 
-                    void* value = _conjunct_ctxs[conj_idx]->get_value(expr, NULL);
-                    // for case: where col = null
-                    if (value == NULL) {
-                        continue;
-                    }
-
-                    switch (slot->type().type) {
+                // begin to push condition value into ColumnValueRange
+                // clear the ColumnValueRange before adding new fixed values.
+                // because for AND compound predicates, it can overwrite previous conditions
+                range->clear();
+                switch (slot->type().type) {
                     case TYPE_TINYINT: {
                         int32_t v = *reinterpret_cast<int8_t*>(value);
                         range->add_fixed_value(*reinterpret_cast<T*>(&v));
@@ -894,15 +914,42 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                     }
                     default: {
                         LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
-                                     << expr->type() << "]";
+                            << expr->type() << "]";
                         return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
                     }
-                    }
                 }
+
+                meet_eq_binary = true;
+            } // end for each binary predicate child
+        } // end of handling eq binary predicate
+
+        if (range->get_fixed_value_size() > 0) {
+            // this columns already meet some eq predicates(IN or Binary),
+            // There is no need to continue to iterate.
+            // TODO(cmy): In fact, this part of the judgment should be completed in
+            // the FE query planning stage. For the following predicate conditions,
+            // it should be possible to eliminate at the FE side.
+            //      WHERE A = 1 and A in (2,3,4)
+
+            if (meet_eq_binary) {
+                // meet_eq_binary is true, means we meet at least one eq binary predicate.
+                // this flag is to handle following case:
+                // There are 2 conjuncts, first in a InPredicate, and second is a BinaryPredicate.
+                // Firstly, we met a InPredicate, and add lots of values in ColumnValueRange,
+                // if breaks, doris will read many rows filtered by these values.
+                // But if continue to handle the BinaryPredicate, the value in ColumnValueRange
+                // may become only one, which can reduce the rows read from storage engine.
+                // So the strategy is to use the BinaryPredicate as much as possible.
+                break;
             }
-        }
+        } 
+
     }
 
+    if (range->get_fixed_value_size() > _max_pushdown_conditions_per_column) {
+        // exceed limit, no conditions will be pushed down to storage engine.
+        range->clear();
+    }
     return Status::OK();
 }
 
@@ -928,7 +975,7 @@ void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescript
 }
 
 template<class T>
-Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
+Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         Expr *root_expr =  _conjunct_ctxs[conj_idx]->root();
         if (TExprNodeType::BINARY_PRED != root_expr->node_type()
@@ -996,7 +1043,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                 case TYPE_DECIMALV2:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
-			    case TYPE_HLL:
+                case TYPE_HLL:
                 case TYPE_DATETIME:
                 case TYPE_SMALLINT:
                 case TYPE_INT:
@@ -1037,7 +1084,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
         if (!status.ok()) {
-            boost::lock_guard<SpinLock> guard(_status_mutex);
+            std::lock_guard<SpinLock> guard(_status_mutex);
             _status = status;
             break;
         }
@@ -1074,7 +1121,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         int assigned_thread_num = 0;
         // copy to local
         {
-            boost::unique_lock<boost::mutex> l(_scan_batches_lock);
+            std::unique_lock<std::mutex> l(_scan_batches_lock);
             assigned_thread_num = _running_thread;
             // int64_t buf_bytes = __sync_fetch_and_add(&_buffered_bytes, 0);
             // How many thread can apply to this query
@@ -1126,7 +1173,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         RowBatchInterface* scan_batch = NULL;
         {
             // 1 scanner idle task not empty, assign new sanner task
-            boost::unique_lock<boost::mutex> l(_scan_batches_lock);
+            std::unique_lock<std::mutex> l(_scan_batches_lock);
 
             // scanner_row_num = 16k
             // 16k * 10 * 12 * 8 = 15M(>2s)  --> nice=10
@@ -1168,7 +1215,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 
     state->resource_pool()->release_thread_token(true);
     VLOG(1) << "TransferThread finish.";
-    boost::unique_lock<boost::mutex> l(_row_batches_lock);
+    std::unique_lock<std::mutex> l(_row_batches_lock);
     _transfer_done = true;
     _row_batch_added_cv.notify_all();
 }
@@ -1181,7 +1228,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     if (!scanner->is_open()) {
         status = scanner->open();
         if (!status.ok()) {
-            boost::lock_guard<SpinLock> guard(_status_mutex);
+            std::lock_guard<SpinLock> guard(_status_mutex);
             _status = status;
             eos = true;
         }
@@ -1233,11 +1280,11 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     }
 
     {
-        boost::unique_lock<boost::mutex> l(_scan_batches_lock);
+        std::unique_lock<std::mutex> l(_scan_batches_lock);
         // if we failed, check status.
         if (UNLIKELY(!status.ok())) {
             _transfer_done = true;
-            boost::lock_guard<SpinLock> guard(_status_mutex);
+            std::lock_guard<SpinLock> guard(_status_mutex);
             if (LIKELY(_status.ok())) {
                 _status = status;
             }
@@ -1245,7 +1292,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
 
         bool global_status_ok = false;
         {
-            boost::lock_guard<SpinLock> guard(_status_mutex);
+            std::lock_guard<SpinLock> guard(_status_mutex);
             global_status_ok = _status.ok();
         }
         if (UNLIKELY(!global_status_ok)) {
@@ -1269,7 +1316,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         // that can assure this object can keep live before we finish.
         scanner->close(_runtime_state);
 
-        boost::unique_lock<boost::mutex> l(_scan_batches_lock);
+        std::unique_lock<std::mutex> l(_scan_batches_lock);
         _progress.update(1);
         if (_progress.done()) {
             // this is the right out
@@ -1281,7 +1328,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
 
 Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
     {
-        boost::unique_lock<boost::mutex> l(_row_batches_lock);
+        std::unique_lock<std::mutex> l(_row_batches_lock);
 
         while (UNLIKELY(_materialized_row_batches.size()
                         >= _max_materialized_row_batches

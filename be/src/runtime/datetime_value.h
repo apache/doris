@@ -27,9 +27,9 @@
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
-#include "exprs/timezone_db.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -241,7 +241,9 @@ public:
 
     // Convert this datetime value to string by the format string
     bool to_format_string(const char* format, int len, char* to) const;
-    int compute_format_len(const char* format, int len) const;
+
+    // compute the length of data format pattern
+    static int compute_format_len(const char* format, int len);
 
     // Convert this value to uint64_t
     // Will check its type
@@ -340,10 +342,12 @@ public:
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
+    bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
     
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
     bool from_unixtime(int64_t, const std::string& timezone);
+    bool from_unixtime(int64_t, const cctz::time_zone& ctz);
 
     bool operator==(const DateTimeValue& other) const {
         // NOTE: This is not same with MySQL.
@@ -498,34 +502,6 @@ private:
         return _neg ? -tmp : tmp;
     }
 
-    bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) const {
-        re2::StringPiece value;
-        if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value, 1)) {
-            bool postive = value[0] != '-';
-
-            //Regular expression guarantees hour and minute mush be int 
-            int hour = std::stoi(value.substr(1, 2).as_string());
-            int minute = std::stoi(value.substr(4, 2).as_string());
-
-            // timezone offsets around the world extended from -12:00 to +14:00
-            if (!postive && hour > 12) {
-                return false;
-            } else if (postive && hour > 14) {
-                return false;
-            }
-            int offset = hour * 60 * 60 + minute * 60;
-            offset *= postive ? 1 : -1;
-            ctz = cctz::fixed_time_zone(cctz::seconds(offset));
-            return true;
-        } else if (timezone == "CST"){
-            // Supports offset and region timezone type, "CST" use here is compatibility purposes.
-            ctz = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
-            return true;
-        } else {
-            return cctz::load_time_zone(timezone, &ctz);
-        }
-    }
-
     // Check wether value of field is valid.
     bool check_range() const;
     bool check_date() const;
@@ -580,6 +556,7 @@ private:
 
     static DateTimeValue _s_min_datetime_value;
     static DateTimeValue _s_max_datetime_value;
+    // RE2 obj is thread safe
     static RE2 time_zone_offset_format_reg;
 };
 

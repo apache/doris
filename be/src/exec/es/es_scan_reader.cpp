@@ -27,13 +27,16 @@
 #include "exec/es/es_scroll_query.h"
 
 namespace doris {
-const std::string REUQEST_SCROLL_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,_id,hits.hits._source.fields,hits.hits.fields";
+
+// hits.hits._id used for obtain ES document `_id`
+const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
+// hits.hits._score used for processing field not exists in one batch
+const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
+
 const std::string REQUEST_SCROLL_PATH = "_scroll";
 const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
-
-const std::string REQUEST_SEARCH_FILTER_PATH = "filter_path=hits.hits._source,hits.total,_id,hits.hits._source.fields,hits.hits.fields";
 
 ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props, bool doc_value_mode) : 
         _scroll_keep_alive(config::es_scroll_keepalive), 
@@ -57,6 +60,7 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
 
     std::string batch_size_str = props.at(KEY_BATCH_SIZE);
     _batch_size = atoi(batch_size_str.c_str());
+    std::string filter_path = _doc_value_mode ? DOCVALUE_SCROLL_SEARCH_FILTER_PATH : SOURCE_SCROLL_SEARCH_FILTER_PATH;
 
     if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
         _exactly_once = true;
@@ -65,7 +69,7 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
         scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type << "/_search?"
                 << "terminate_after=" << props.at(KEY_TERMINATE_AFTER)
                 << REQUEST_PREFERENCE_PREFIX << _shards
-                << "&" << REUQEST_SCROLL_FILTER_PATH;
+                << "&" << filter_path;
         _search_url = scratch.str();
     } else {
         _exactly_once = false;
@@ -75,13 +79,12 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
         scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type << "/_search?"
                 << "scroll=" << _scroll_keep_alive
                 << REQUEST_PREFERENCE_PREFIX << _shards
-                << "&" << REUQEST_SCROLL_FILTER_PATH
+                << "&" << filter_path
                 << "&terminate_after=" << batch_size_str;
         _init_scroll_url = scratch.str();
-        _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
+        _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + filter_path;
     }
     _eos = false;
-    
 }
 
 ESScanReader::~ESScanReader() {
@@ -159,7 +162,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         _eos = true;
     } else {
         _scroll_id = scroll_parser->get_scroll_id();
-        if (scroll_parser->get_total() == 0) {
+        if (scroll_parser->get_size() == 0) {
             _eos = true;
             return Status::OK();
         }

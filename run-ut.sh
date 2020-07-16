@@ -76,20 +76,23 @@ else
     done
 fi
 
+CMAKE_BUILD_TYPE=${BUILD_TYPE:-ASAN}
+CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
 echo "Build Backend UT"
 
+CMAKE_BUILD_DIR=${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
 if [ ${CLEAN} -eq 1 ]; then
-    rm ${DORIS_HOME}/be/ut_build/ -rf
+    rm ${CMAKE_BUILD_DIR} -rf
     rm ${DORIS_HOME}/be/output/ -rf
 fi
 
-if [ ! -d ${DORIS_HOME}/be/ut_build ]; then
-    mkdir -p ${DORIS_HOME}/be/ut_build/
+if [ ! -d ${CMAKE_BUILD_DIR} ]; then
+    mkdir -p ${CMAKE_BUILD_DIR}
 fi
 
-cd ${DORIS_HOME}/be/ut_build/
+cd ${CMAKE_BUILD_DIR}
 
-${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON
+${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
 make -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
@@ -102,7 +105,7 @@ echo "    Running PaloBe Unittest    "
 echo "******************************"
 
 cd ${DORIS_HOME}
-export DORIS_TEST_BINARY_DIR=${DORIS_HOME}/be/ut_build
+export DORIS_TEST_BINARY_DIR=${CMAKE_BUILD_DIR}
 export TERM=xterm
 export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
 export LOG_DIR=${DORIS_HOME}/log
@@ -212,6 +215,7 @@ ${DORIS_TEST_BINARY_DIR}/exec/es_scan_reader_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_query_builder_test
 ${DORIS_TEST_BINARY_DIR}/exec/tablet_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/tablet_sink_test
+${DORIS_TEST_BINARY_DIR}/exec/buffered_reader_test
 
 # Running runtime Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/external_scan_context_mgr_test
@@ -307,6 +311,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/key_coder_test
 ${DORIS_TEST_BINARY_DIR}/olap/page_cache_test
 ${DORIS_TEST_BINARY_DIR}/olap/hll_test
 ${DORIS_TEST_BINARY_DIR}/olap/selection_vector_test
+# ${DORIS_TEST_BINARY_DIR}/olap/push_handler_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test

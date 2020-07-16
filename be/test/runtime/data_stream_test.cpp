@@ -377,7 +377,7 @@ protected:
     void start_receiver(TPartitionType::type stream_type, int num_senders, int receiver_num,
                         int buffer_size, bool is_merging, TUniqueId* out_id = NULL) {
         VLOG_QUERY << "start receiver";
-        RuntimeProfile* profile = _obj_pool.add(new RuntimeProfile(&_obj_pool, "TestReceiver"));
+        RuntimeProfile* profile = _obj_pool.add(new RuntimeProfile("TestReceiver"));
         TUniqueId instance_id;
         get_next_instance_id(&instance_id);
         _receiver_info.push_back(ReceiverInfo(stream_type, num_senders, receiver_num));

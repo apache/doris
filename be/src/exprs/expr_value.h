@@ -47,7 +47,7 @@ struct ExprValue {
     DecimalValue decimal_val;
     DecimalV2Value decimalv2_val;
 
-    ExprValue() : 
+    ExprValue() :
             bool_val(false),
             tinyint_val(0),
             smallint_val(0),
@@ -74,7 +74,7 @@ struct ExprValue {
     ExprValue(int64_t i, int32_t f) : decimal_val(i, f), decimalv2_val(i, f) {}
 
     // c'tor for string values
-    ExprValue(const std::string& str) : 
+    ExprValue(const std::string& str) :
             string_data(str),
             string_val(const_cast<char*>(string_data.data()), string_data.size()) {
     }
@@ -177,7 +177,7 @@ struct ExprValue {
             return &bigint_val;
 
         case TYPE_LARGEINT:
-            large_int_val = 0;
+            large_int_val = std::numeric_limits<int128_t>::min();
             return &large_int_val;
 
         case TYPE_FLOAT:
@@ -229,7 +229,7 @@ struct ExprValue {
             return &bigint_val;
 
         case TYPE_LARGEINT:
-            large_int_val = 0;
+            large_int_val = std::numeric_limits<int128_t>::max();
             return &large_int_val;
 
         case TYPE_FLOAT:

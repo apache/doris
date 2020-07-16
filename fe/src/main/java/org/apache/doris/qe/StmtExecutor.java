@@ -47,6 +47,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
@@ -64,6 +65,8 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.qe.QueryDetail;
+import org.apache.doris.qe.QueryDetailQueue;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
@@ -168,13 +171,13 @@ public class StmtExecutor {
     }
 
     public boolean isForwardToMaster() {
-        if (Catalog.getInstance().isMaster()) {
+        if (Catalog.getCurrentCatalog().isMaster()) {
             return false;
         }
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
-        if ((parsedStmt instanceof QueryStmt) && !Catalog.getInstance().isMaster()
-                && !Catalog.getInstance().canRead()) {
+        if ((parsedStmt instanceof QueryStmt) && !Catalog.getCurrentCatalog().isMaster()
+                && !Catalog.getCurrentCatalog().canRead()) {
             return true;
         }
 
@@ -223,6 +226,10 @@ public class StmtExecutor {
 
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+
+        // set query id
+        UUID uuid = UUID.randomUUID();
+        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
         try {
             // analyze this query
             analyze(context.getSessionVariable().toThrift());
@@ -340,7 +347,6 @@ public class StmtExecutor {
         profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
-        System.out.println(builder.toString());
         ProfileManager.getInstance().pushProfile(profile);
     }
 
@@ -437,6 +443,7 @@ public class StmtExecutor {
                 parsedStmt.analyze(analyzer);
                 if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
                     boolean isExplain = parsedStmt.isExplain();
+                    boolean isVerbose = parsedStmt.isVerbose();
                     // Apply expr and subquery rewrites.
                     boolean reAnalyze = false;
 
@@ -472,7 +479,7 @@ public class StmtExecutor {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
                         }
-                        if (isExplain) parsedStmt.setIsExplain(isExplain);
+                        if (isExplain) parsedStmt.setIsExplain(isExplain, isVerbose);
                     }
                 }
 
@@ -559,12 +566,17 @@ public class StmtExecutor {
         context.getMysqlChannel().reset();
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
 
-        // assign query id before explain query return
-        UUID uuid = UUID.randomUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
+                                                  DebugUtil.printId(context.queryId()),
+                                                  context.getStartTime(), -1, -1,
+                                                  QueryDetail.QueryMemState.RUNNING,
+                                                  context.getDatabase(),
+                                                  originStmt.originStmt);
+        context.setQueryDetail(queryDetail);
+        QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
+            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.isVerbose() ? TExplainLevel.VERBOSE: TExplainLevel.NORMAL.NORMAL);
             handleExplainStmt(explainString);
             return;
         }
@@ -844,7 +856,7 @@ public class StmtExecutor {
         for (List<String> row : resultSet.getResultRows()) {
             serializer.reset();
             for (String item : row) {
-                if (item == null) {
+                if (item == null || item.equals(FeConstants.null_string)) {
                     serializer.writeNull();
                 } else {
                     serializer.writeLenEncodedString(item);

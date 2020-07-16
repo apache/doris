@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -33,7 +34,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.external.EsUtil;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -87,6 +88,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("mysql");
         engineNames.add("broker");
         engineNames.add("elasticsearch");
+        engineNames.add("hive");
     }
 
     // for backup. set to -1 for normal use
@@ -253,8 +255,12 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
+        // TODO(wyb): spark-load
+        if (engineName.equals("hive") && !Config.enable_spark_load) {
+            throw new AnalysisException("Spark Load from hive table is comming soon");
+        }
         // analyze key desc
-        if (!(engineName.equals("mysql") || engineName.equals("broker"))) {
+        if (!(engineName.equals("mysql") || engineName.equals("broker") || engineName.equals("hive"))) {
             // olap table
             if (keysDesc == null) {
                 List<String> keysColumnNames = Lists.newArrayList();
@@ -275,11 +281,29 @@ public class CreateTableStmt extends DdlStmt {
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
                     for (ColumnDef columnDef : columnDefs) {
-                        keyLength += columnDef.getType().getStorageLayoutBytes();
-                        if (keysColumnNames.size() < FeConstants.shortkey_max_column_count
-                                || keyLength < FeConstants.shortkey_maxsize_bytes) {
-                            keysColumnNames.add(columnDef.getName());
+                        keyLength += columnDef.getType().getIndexSize();
+                        if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
+                                || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                            if (keysColumnNames.size() == 0
+                                    && columnDef.getType().getPrimitiveType().isCharFamily()) {
+                                keysColumnNames.add(columnDef.getName());
+                            }
+                            break;
                         }
+                        if (columnDef.getType().isFloatingPointType()) {
+                            break;
+                        }
+                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
+                            keysColumnNames.add(columnDef.getName());
+                            break;
+                        }
+                        keysColumnNames.add(columnDef.getName());
+                    }
+                    // The OLAP table must has at least one short key and the float and double should not be short key.
+                    // So the float and double could not be the first column in OLAP table.
+                    if (keysColumnNames.isEmpty()) {
+                        throw new AnalysisException("The first column could not be float or double,"
+                                + " use decimal instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
@@ -299,7 +323,7 @@ public class CreateTableStmt extends DdlStmt {
                 }
             }
         } else {
-            // mysql and broker do not need key desc
+            // mysql, broker and hive do not need key desc
             if (keysDesc != null) {
                 throw new AnalysisException("Create " + engineName + " table should not contain keys desc");
             }
@@ -322,24 +346,12 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isHllType()) {
-                if (columnDef.isKey()) {
-                    throw new AnalysisException("HLL can't be used as keys, " +
-                            "please specify the aggregation type HLL_UNION");
-                }
                 hasHll = true;
             }
 
-            if (columnDef.getType().isBitmapType()) {
-                if (columnDef.isKey()) {
-                    throw new AnalysisException("BITMAP can't be used as keys, ");
-                }
-            }
 
             if (columnDef.getAggregateType() == BITMAP_UNION) {
-                if (columnDef.isKey()) {
-                    throw new AnalysisException("Key column can't has the BITMAP_UNION aggregation type");
-                }
-                hasBitmap = true;
+                hasBitmap = columnDef.getType().isBitmapType();
             }
 
             if (!columnSet.add(columnDef.getName())) {
@@ -445,7 +457,7 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         if (engineName.equals("mysql") || engineName.equals("broker") 
-                || engineName.equals("elasticsearch")) {
+                || engineName.equals("elasticsearch") || engineName.equals("hive")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;

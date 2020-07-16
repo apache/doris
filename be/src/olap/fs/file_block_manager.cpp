@@ -31,6 +31,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/fs/block_id.h"
 #include "olap/fs/block_manager_metrics.h"
+#include "olap/storage_engine.h"
 #include "runtime/mem_tracker.h"
 #include "util/doris_metrics.h"
 #include "util/file_cache.h"
@@ -385,7 +386,11 @@ FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts) :
         _metrics.reset(new internal::BlockManagerMetrics());
     }
 
-    _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", config::file_descriptor_cache_capacity));
+    #ifdef BE_TEST
+        _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", config::file_descriptor_cache_capacity));
+    #else
+        _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", StorageEngine::instance()->file_cache()));
+    #endif
 }
 
 FileBlockManager::~FileBlockManager() {

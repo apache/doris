@@ -17,12 +17,14 @@
 
 package org.apache.doris.utframe;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -33,6 +35,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -55,6 +58,7 @@ import java.io.StringReader;
 import java.net.ServerSocket;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -166,9 +170,17 @@ public class UtFrameUtils {
         backend.start();
 
         // add be
-        List<Pair<String, Integer>> bes = Lists.newArrayList();
-        bes.add(Pair.create(backend.getHost(), backend.getHeartbeatPort()));
-        Catalog.getCurrentSystemInfo().addBackends(bes, false, "default_cluster");
+        Backend be = new Backend(10001, backend.getHost(), backend.getHeartbeatPort());
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        DiskInfo diskInfo1 = new DiskInfo("/path1");
+        diskInfo1.setTotalCapacityB(1000000);
+        diskInfo1.setAvailableCapacityB(500000);
+        diskInfo1.setDataUsedCapacityB(480000);
+        disks.put(diskInfo1.getRootPath(), diskInfo1);
+        be.setDisks(ImmutableMap.copyOf(disks));
+        be.setAlive(true);
+        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        Catalog.getCurrentSystemInfo().addBackend(be);
 
         // sleep to wait first heartbeat
         Thread.sleep(6000);
@@ -205,7 +217,7 @@ public class UtFrameUtils {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
+            return planner.getExplainString(planner.getFragments(), TExplainLevel.NORMAL);
         } else {
             return ctx.getState().getErrorMessage();
         }

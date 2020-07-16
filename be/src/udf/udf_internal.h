@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_UDF_UDF_INTERNAL_H
 #define DORIS_BE_UDF_UDF_INTERNAL_H
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <string.h>
@@ -108,7 +108,7 @@ public:
     // This is used where the lifetime of the allocation is clear.
     // For UDFs, the allocations can be freed at the row level.
     // TODO: free them at the batch level and save some copies?
-    uint8_t* allocate_local(int byte_size);
+    uint8_t* allocate_local(int64_t byte_size);
 
     // Frees all allocations returned by AllocateLocal().
     void free_local_allocations();

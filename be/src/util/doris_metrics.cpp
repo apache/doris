@@ -34,11 +34,9 @@ DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _
     REGISTER_DORIS_METRIC(fragment_requests_total);
     REGISTER_DORIS_METRIC(fragment_request_duration_us);
     REGISTER_DORIS_METRIC(http_requests_total);
-    REGISTER_DORIS_METRIC(http_request_duration_us);
     REGISTER_DORIS_METRIC(http_request_send_bytes);
     REGISTER_DORIS_METRIC(query_scan_bytes);
     REGISTER_DORIS_METRIC(query_scan_rows);
-    REGISTER_DORIS_METRIC(ranges_processed_total);
 
     REGISTER_DORIS_METRIC(memtable_flush_total);
     REGISTER_DORIS_METRIC(memtable_flush_duration_us);
@@ -180,7 +178,6 @@ DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _
     REGISTER_DORIS_METRIC(disk_sync_total);
     REGISTER_DORIS_METRIC(blocks_open_reading);
     REGISTER_DORIS_METRIC(blocks_open_writing);
-    REGISTER_DORIS_METRIC(blocks_push_remote_duration_us);
 }
 
 void DorisMetrics::initialize(
@@ -196,7 +193,7 @@ void DorisMetrics::initialize(
         _metrics.register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
         gauge = disks_data_used_capacity.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_state.set_key(path, MetricUnit::BYTES);
+        gauge = disks_state.set_key(path, MetricUnit::NOUNIT);
         _metrics.register_metric("disks_state", MetricLabels().add("path", path), gauge);
     }
 

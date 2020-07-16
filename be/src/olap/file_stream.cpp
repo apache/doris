@@ -98,9 +98,9 @@ OLAPStatus ReadOnlyFileStream::_assure_data() {
                 OLAP_LOG_WARNING("fail to decompress err=%d", res);
                 return res;
             }
-            _stats->uncompressed_bytes_read += _compressed_helper->limit();
         }
     }
+    _stats->uncompressed_bytes_read += _compressed_helper->limit();
 
     _uncompressed = _compressed_helper;
     _current_compress_position = file_cursor_used;
