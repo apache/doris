@@ -238,7 +238,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     /**
-     * check if there exists a load job before the endTransactionId have all
+     * Check whether a load job already exists before checking all `TransactionId` related with this load job have finished.
      * finished
      * 
      * @throws AnalysisException is database does not exist anymore
