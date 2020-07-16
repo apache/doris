@@ -27,6 +27,10 @@ log/
 fe_plugins/*/target
 fe_plugins/output
 fe/mocked
+fe/fe-core/target
+fe_plugins/**/.classpath
+fe_plugins/**/.factorypath
+samples/**/.classpath
 
 
 #ignore eclipse project file & idea  project file

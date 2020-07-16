@@ -128,6 +128,10 @@ private:
     std::vector<ExprContext*> _partition_expr_ctxs;
     std::vector<PartitionInfo*> _partition_infos;
 
+    // Delete informations
+    std::vector<ExprContext*> _delete_expr_ctxs;
+    TMergeType::type _merge_type;
+
     // Profile information
     //
     RuntimeProfile::Counter* _wait_scanner_timer;

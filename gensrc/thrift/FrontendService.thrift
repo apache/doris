@@ -551,6 +551,8 @@ struct TStreamLoadPutRequest {
     23: optional bool strip_outer_array
     24: optional string jsonpaths
     25: optional i64 thrift_rpc_timeout_ms
+    26: optional PlanNodes.TMergeType merge_type
+    27: optional string delete_condition
 }
 
 struct TStreamLoadPutResult {

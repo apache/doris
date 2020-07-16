@@ -96,6 +96,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("alter", new Integer(SqlParserSymbols.KW_ALTER));
         keywordMap.put("and", new Integer(SqlParserSymbols.KW_AND));
         keywordMap.put("anti", new Integer(SqlParserSymbols.KW_ANTI));
+        keywordMap.put("append", new Integer(SqlParserSymbols.KW_APPEND));
         keywordMap.put("as", new Integer(SqlParserSymbols.KW_AS));
         keywordMap.put("asc", new Integer(SqlParserSymbols.KW_ASC));
         keywordMap.put("authors", new Integer(SqlParserSymbols.KW_AUTHORS));

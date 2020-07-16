@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -151,7 +152,8 @@ public class DataDescriptionTest {
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                                         new FunctionCallExpr("bitmap_dict", params));
         desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
-                                   "testHiveTable", false, Lists.newArrayList(predicate), null);
+                                   "testHiveTable", false, Lists.newArrayList(predicate),
+                null, LoadTask.MergeType.APPEND, null);
         desc.analyze("testDb");
         sql = "DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET (`k1` = bitmap_dict(`k2`))";
         Assert.assertEquals(sql, desc.toSql());
