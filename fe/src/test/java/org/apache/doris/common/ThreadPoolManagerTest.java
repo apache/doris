@@ -29,9 +29,9 @@ public class ThreadPoolManagerTest {
 
     @Test
     public void testNormal() throws InterruptedException {
-        ThreadPoolExecutor testCachedPool = ThreadPoolManager.newDaemonCacheThreadPool(2, "test_cache_pool");
+        ThreadPoolExecutor testCachedPool = ThreadPoolManager.newDaemonCacheThreadPool(2, "test_cache_pool", true);
         ThreadPoolExecutor testFixedThreaddPool = ThreadPoolManager.newDaemonFixedThreadPool(2, 2,
-                "test_fixed_thread_pool");
+                "test_fixed_thread_pool", true);
 
         ThreadPoolManager.registerThreadPoolMetric("test_cache_pool", testCachedPool);
         ThreadPoolManager.registerThreadPoolMetric("test_fixed_thread_pool", testFixedThreaddPool);
