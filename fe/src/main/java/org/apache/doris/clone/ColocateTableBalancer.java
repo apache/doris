@@ -469,8 +469,11 @@ public class ColocateTableBalancer extends MasterDaemon {
             }
 
             List<Long> allBackendIds = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<Long> allBackendIdsAvailable = allBackendIds.stream()
+                    .filter(infoService::checkBackendAvailable)
+                    .collect(Collectors.toList());
             List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
-            if (balance(groupId, allBackendIds, colocateIndex, infoService, balancedBackendsPerBucketSeq)) {
+            if (balance(groupId, allBackendIdsAvailable, colocateIndex, infoService, balancedBackendsPerBucketSeq)) {
                 colocateIndex.addBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
                 ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
                 Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info);
