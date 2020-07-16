@@ -54,7 +54,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String COLLATION_DATABASE = "collation_database";
     public static final String COLLATION_SERVER = "collation_server";
     public static final String SQL_AUTO_IS_NULL = "SQL_AUTO_IS_NULL";
-    public static final String SQL_SELECT_LIMIT = "sql_select_limit";
     public static final String MAX_ALLOWED_PACKET = "max_allowed_packet";
     public static final String AUTO_INCREMENT_INCREMENT = "auto_increment_increment";
     public static final String QUERY_CACHE_TYPE = "query_cache_type";
@@ -151,9 +150,6 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     private boolean sqlAutoIsNull = false;
-
-    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
-    private long sqlSelectLimit = 9223372036854775807L;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
@@ -315,10 +311,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isSqlAutoIsNull() {
         return sqlAutoIsNull;
-    }
-
-    public long getSqlSelectLimit() {
-        return sqlSelectLimit;
     }
 
     public int getMaxAllowedPacket() {
@@ -556,7 +548,8 @@ public class SessionVariable implements Serializable, Writable {
             queryCacheType = in.readInt();
             autoIncrementIncrement = in.readInt();
             maxAllowedPacket = in.readInt();
-            sqlSelectLimit = in.readLong();
+            //read unused sqlSelectLimit
+            in.readLong();
             sqlAutoIsNull = in.readBoolean();
             collationDatabase = Text.readString(in);
             collationConnection = Text.readString(in);
