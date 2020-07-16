@@ -221,6 +221,7 @@ export default {
       width 1280px
       z-index 1
       .text
+        padding-left 1.6rem
         .title
           font-family PingFangSC-Semibold
           font-size 3.1rem
