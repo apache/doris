@@ -73,16 +73,16 @@ public class Replica implements Writable {
     private long backendId;
     // the version could be queried
     @SerializedName(value = "version")
-    private long version;
+    private volatile long version;
     @SerializedName(value = "versionHash")
     private long versionHash;
     private int schemaHash = -1;
     @SerializedName(value = "dataSize")
-    private long dataSize = 0;
+    private volatile long dataSize = 0;
     @SerializedName(value = "rowCount")
-    private long rowCount = 0;
+    private volatile long rowCount = 0;
     @SerializedName(value = "state")
-    private ReplicaState state;
+    private volatile ReplicaState state;
 
     // the last load failed version
     @SerializedName(value = "lastFailedVersion")
