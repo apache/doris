@@ -35,5 +35,13 @@ public class IsNullPredicateTest {
         } catch (AnalysisException e) {
             Assert.fail();
         }
+        
+        IsNullPredicate isNotNullPredicate = new IsNullPredicate(new NullLiteral(), true);
+
+        try {
+            isNotNullPredicate.analyzeImpl(analyzer);
+        } catch (AnalysisException e) {
+            Assert.fail();
+        }
     }
 }
