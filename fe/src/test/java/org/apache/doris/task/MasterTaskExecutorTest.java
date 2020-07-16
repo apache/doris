@@ -33,7 +33,8 @@ public class MasterTaskExecutorTest {
 
     @Before
     public void setUp() {
-        executor = new MasterTaskExecutor(THREAD_NUM);
+        executor = new MasterTaskExecutor("master_task_executor_test", THREAD_NUM, false);
+        executor.start();
     }
     
     @After
