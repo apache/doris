@@ -388,7 +388,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_timeout(ctx->timeout_second);
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
-    request.__set_load_type("APPEND");
+    request.__set_merge_type("APPEND");
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type = std::toupper(http_req->header(HTTP_MERGE_TYPE));
         if (merge_type == "MERGE" || merge_type == "DELETE" || merge_type == "APPEND") {
