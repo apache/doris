@@ -17,6 +17,10 @@
 
 package org.apache.doris.common.proc;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Multimap;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -34,18 +38,12 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class StatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -108,7 +106,7 @@ public class StatisticProcDir implements ProcDirInterface {
             }
 
             ++totalDbNum;
-            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             db.readLock();
             try {
                 int dbTableNum = 0;
@@ -137,7 +135,7 @@ public class StatisticProcDir implements ProcDirInterface {
                                 Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
                                         infoService, db.getClusterName(),
                                         partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                        replicationNum, availableBackendsNum);
+                                        replicationNum, aliveBeIdsInCluster);
 
                                 // here we treat REDUNDANT as HEALTHY, for user friendly.
                                 if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT

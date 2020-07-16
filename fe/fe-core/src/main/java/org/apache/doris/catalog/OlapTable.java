@@ -1229,7 +1229,7 @@ public class OlapTable extends Table {
     }
 
     public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
-        int availableBackendsNum = infoService.getClusterBackendIds(clusterName, true).size();
+        List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(clusterName, true);
         for (Partition partition : idToPartition.values()) {
             long visibleVersion = partition.getVisibleVersion();
             long visibleVersionHash = partition.getVisibleVersionHash();
@@ -1242,7 +1242,7 @@ public class OlapTable extends Table {
 
                     Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
                             infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum,
-                            availableBackendsNum);
+                            aliveBeIdsInCluster);
                     if (statusPair.first != TabletStatus.HEALTHY) {
                         LOG.info("table {} is not stable because tablet {} status is {}. replicas: {}",
                                 id, tablet.getId(), statusPair.first, tablet.getReplicas());
