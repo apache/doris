@@ -112,7 +112,13 @@ There are two ways to configure FE configuration items:
 
 ### `agent_task_resend_wait_time_ms`
 
-当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于agent_task_task_resend_wait_time_ms时，ReportHandler可以重新发送代理任务。    
+This configuration will decide whether to resend agent task when create_time for agent_task is set, only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task.     
+
+This configuration is currently mainly used to solve the problem of repeated sending of `PUBLISH_VERSION` agent tasks. The current default value of this configuration is 5000, which is an experimental value.
+ 
+Because there is a certain time delay between submitting agent tasks to AgentTaskQueue and submitting to be, Increasing the value of this configuration can effectively solve the problem of repeated sending of agent tasks,
+
+But at the same time, it will cause the submission of failed or failed execution of the agent task to be executed again for an extended period of time.
 
 ### `alter_table_timeout_second`
 
