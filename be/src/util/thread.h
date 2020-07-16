@@ -20,26 +20,23 @@
 
 #include <pthread.h>
 #include <syscall.h>
+
 #include <atomic>
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
 #include "http/web_page_handler.h"
+#include "util/countdown_latch.h"
 
 namespace doris {
 
 class Thread : public RefCountedThreadSafe<Thread> {
 public:
-    enum CreateFlags {
-        NO_FLAGS = 0,
-        NO_STACK_WATCHDOG = 1
-    };
+    enum CreateFlags { NO_FLAGS = 0, NO_STACK_WATCHDOG = 1 };
 
     template <class F>
     static Status create_with_flags(const std::string& category, const std::string& name,
-                                   const F& f, uint64_t flags,
-                                   scoped_refptr<Thread>* holder) {
+                                    const F& f, uint64_t flags, scoped_refptr<Thread>* holder) {
         return start_thread(category, name, f, flags, holder);
     }
 
@@ -146,17 +143,15 @@ private:
     };
 
     // User function to be executed by this thread.
-    typedef std::function<void ()> ThreadFunctor;
+    typedef std::function<void()> ThreadFunctor;
     Thread(const std::string& category, const std::string& name, ThreadFunctor functor)
-      : _thread(0),
-        _tid(INVALID_TID),
-        _functor(std::move(functor)),
-        _category(std::move(category)),
-        _name(std::move(name)),
-        _done(1),
-        _joinable(false)
-      {}
-
+            : _thread(0),
+              _tid(INVALID_TID),
+              _functor(std::move(functor)),
+              _category(std::move(category)),
+              _name(std::move(name)),
+              _done(1),
+              _joinable(false) {}
 
     // Library-specific thread ID.
     pthread_t _thread;
@@ -173,7 +168,7 @@ private:
     int64_t _tid;
 
     const ThreadFunctor _functor;
-    
+
     const std::string _category;
     const std::string _name;
 
@@ -189,7 +184,7 @@ private:
     // Thread local pointer to the current thread of execution. Will be NULL if the current
     // thread is not a Thread.
     static __thread Thread* _tls;
-    
+
     // Wait for the running thread to publish its tid.
     int64_t wait_for_tid() const;
 
@@ -281,8 +276,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(ThreadJoiner);
 };
 
-// Registers /threadz with the debug webserver, and creates thread-tracking metrics under
-// the given entity. If 'web' is NULL, does not register the path handler.
+// Registers /threadz with the debug webserver.
 void start_thread_instrumentation(WebPageHandler* web_page_handler);
 
 } //namespace doris
