@@ -722,7 +722,7 @@ public class DatabaseTransactionMgr {
                                                 + " if its not a upgrate stage, its a fatal error. ", transactionState, replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
-                                    // the replica's version is larger than or equal to current transaction partition's version and version hash
+                                    // the replica's version is larger than or equal to current transaction partition's version
                                     // the replica is normal, then remove it from error replica ids
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
