@@ -20,12 +20,13 @@
 #include <sys/prctl.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <boost/bind.hpp>
 #include <cstring>
 #include <limits>
 #include <map>
 #include <memory>
 #include <string>
-#include <boost/bind.hpp>
 
 #include "common/logging.h"
 #include "gutil/atomicops.h"
@@ -34,10 +35,10 @@
 #include "gutil/once.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "util/easy_json.h"
 #include "util/mutex.h"
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
-#include "util/easy_json.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -190,7 +191,7 @@ void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args, E
             if (category) {
                 for (const auto& elem : *category) {
                     descriptors_to_print.emplace_back(elem.second);
-		}
+                }
             }
         } else {
             MutexLock l(&_lock);
@@ -233,7 +234,8 @@ void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args, E
     }
 }
 
-void ThreadMgr::summarize_thread_descriptor(const ThreadMgr::ThreadDescriptor& desc, EasyJson* ej) const {
+void ThreadMgr::summarize_thread_descriptor(const ThreadMgr::ThreadDescriptor& desc,
+                                            EasyJson* ej) const {
     ThreadStats stats;
     Status status = get_thread_stats(desc.thread_id(), &stats);
     if (!status.ok()) {
@@ -480,8 +482,10 @@ Status ThreadJoiner::join() {
 }
 
 void start_thread_instrumentation(WebPageHandler* web_page_handler) {
-    web_page_handler->register_template_page("/threadz", "Threadz",
+    web_page_handler->register_template_page(
+            "/threadz", "Threadz",
             boost::bind(&ThreadMgr::start_instrumentation, thread_manager.get(),
-                    boost::placeholders::_1, boost::placeholders::_2),true);
+                        boost::placeholders::_1, boost::placeholders::_2),
+            true);
 }
 } // namespace doris
