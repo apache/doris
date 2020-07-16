@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -47,6 +48,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+
+import static org.apache.doris.load.loadv2.LoadTask.MergeType.APPEND;
 // used to describe data info which is needed to import.
 //
 //      data_desc:
@@ -119,6 +122,8 @@ public class DataDescription {
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
+    private LoadTask.MergeType mergeType = APPEND;
+    private Expr deleteCondition;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -128,7 +133,8 @@ public class DataDescription {
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
-        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null, isNegative, columnMappingList, null);
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
+                isNegative, columnMappingList, null, APPEND, null);
     }
 
     public DataDescription(String tableName,
@@ -140,7 +146,9 @@ public class DataDescription {
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
-                           Expr whereExpr) {
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -152,6 +160,8 @@ public class DataDescription {
         this.columnMappingList = columnMappingList;
         this.whereExpr = whereExpr;
         this.srcTableName = null;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
     }
 
     // data from table external_hive_table
@@ -160,7 +170,9 @@ public class DataDescription {
                            String srcTableName,
                            boolean isNegative,
                            List<Expr> columnMappingList,
-                           Expr whereExpr) {
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = null;
@@ -172,6 +184,9 @@ public class DataDescription {
         this.columnMappingList = columnMappingList;
         this.whereExpr = whereExpr;
         this.srcTableName = srcTableName;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition
+        ;
     }
 
     public String getTableName() {

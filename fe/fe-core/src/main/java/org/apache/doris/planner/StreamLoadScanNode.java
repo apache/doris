@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.Load;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanNode;
@@ -69,7 +70,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     // TODO(zc): now we use scanRange
     // input parameter
     private Table dstTable;
-    private StreamLoadTask streamLoadTask;
+    private LoadTaskInfo taskInfo;
 
     // helper
     private Analyzer analyzer;
@@ -81,11 +82,11 @@ public class StreamLoadScanNode extends LoadScanNode {
 
     // used to construct for streaming loading
     public StreamLoadScanNode(
-            TUniqueId loadId, PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, StreamLoadTask streamLoadTask) {
+            TUniqueId loadId, PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, LoadTaskInfo taskInfo) {
         super(id, tupleDesc, "StreamLoadScanNode");
         this.loadId = loadId;
         this.dstTable = dstTable;
-        this.streamLoadTask = streamLoadTask;
+        this.taskInfo = taskInfo;
     }
 
     @Override
@@ -97,25 +98,25 @@ public class StreamLoadScanNode extends LoadScanNode {
         brokerScanRange = new TBrokerScanRange();
 
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-        rangeDesc.file_type = streamLoadTask.getFileType();
-        rangeDesc.format_type = streamLoadTask.getFormatType();
+        rangeDesc.file_type = taskInfo.getFileType();
+        rangeDesc.format_type = taskInfo.getFormatType();
         if (rangeDesc.format_type == TFileFormatType.FORMAT_JSON) {
-            if (!streamLoadTask.getJsonPaths().isEmpty()) {
-                rangeDesc.setJsonpaths(streamLoadTask.getJsonPaths());
+            if (!taskInfo.getJsonPaths().isEmpty()) {
+                rangeDesc.setJsonpaths(taskInfo.getJsonPaths());
             }
-            rangeDesc.setStrip_outer_array(streamLoadTask.isStripOuterArray());
+            rangeDesc.setStrip_outer_array(taskInfo.isStripOuterArray());
         }
         rangeDesc.splittable = false;
-        switch (streamLoadTask.getFileType()) {
+        switch (taskInfo.getFileType()) {
             case FILE_LOCAL:
-                rangeDesc.path = streamLoadTask.getPath();
+                rangeDesc.path = taskInfo.getPath();
                 break;
             case FILE_STREAM:
                 rangeDesc.path = "Invalid Path";
                 rangeDesc.load_id = loadId;
                 break;
             default:
-                throw new UserException("unsupported file type, type=" + streamLoadTask.getFileType());
+                throw new UserException("unsupported file type, type=" + taskInfo.getFileType());
         }
         rangeDesc.start_offset = 0;
         rangeDesc.size = -1;
@@ -124,19 +125,19 @@ public class StreamLoadScanNode extends LoadScanNode {
         srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor("StreamLoadScanNode");
 
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
-        params.setStrict_mode(streamLoadTask.isStrictMode());
+        params.setStrict_mode(taskInfo.isStrictMode());
 
-        Load.initColumns(dstTable, streamLoadTask.getColumnExprDescs(), null /* no hadoop function */,
+        Load.initColumns(dstTable, taskInfo.getColumnExprDescs(), null /* no hadoop function */,
                 exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
-        initWhereExpr(streamLoadTask.getWhereExpr(), analyzer);
+        initWhereExpr(taskInfo.getWhereExpr(), analyzer);
 
         computeStats(analyzer);
         createDefaultSmap(analyzer);
 
-        if (streamLoadTask.getColumnSeparator() != null) {
-            String sep = streamLoadTask.getColumnSeparator().getColumnSeparator();
+        if (taskInfo.getColumnSeparator() != null) {
+            String sep = taskInfo.getColumnSeparator().getColumnSeparator();
             params.setColumn_separator(sep.getBytes(Charset.forName("UTF-8"))[0]);
         } else {
             params.setColumn_separator((byte) '\t');
@@ -155,7 +156,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     }
 
     private void finalizeParams() throws UserException {
-        boolean negative = streamLoadTask.getNegative();
+        boolean negative = taskInfo.getNegative();
         Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
         for (SlotDescriptor dstSlotDesc : desc.getSlots()) {
             if (!dstSlotDesc.isMaterialized()) {

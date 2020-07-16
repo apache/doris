@@ -32,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -43,7 +44,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.StringReader;
 import java.util.List;
 
-public class StreamLoadTask {
+public class StreamLoadTask implements LoadTaskInfo {
 
     private static final Logger LOG = LogManager.getLogger(StreamLoadTask.class);
 
@@ -65,6 +66,8 @@ public class StreamLoadTask {
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int timeout = Config.stream_load_default_timeout_second;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
+    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    private Expr deleteCondition;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -143,6 +146,14 @@ public class StreamLoadTask {
         this.jsonPaths = jsonPaths;
     }
 
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
@@ -155,7 +166,7 @@ public class StreamLoadTask {
             setColumnToColumnExpr(request.getColumns());
         }
         if (request.isSetWhere()) {
-            setWhereExpr(request.getWhere());
+            whereExpr = parseWhereExpr(request.getWhere());
         }
         if (request.isSetColumnSeparator()) {
             setColumnSeparator(request.getColumnSeparator());
@@ -196,36 +207,16 @@ public class StreamLoadTask {
             }
             stripOuterArray = request.isStrip_outer_array();
         }
-    }
-
-    public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        TUniqueId dummyId = new TUniqueId();
-        TFileFormatType fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-        if (routineLoadJob.getFormat().equals("json")) {
-            fileFormatType = TFileFormatType.FORMAT_JSON;
+        if (request.isSetMerge_type()) {
+            try {
+                mergeType = LoadTask.MergeType.valueOf(request.getMerge_type().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new UserException("unknown merge type " + request.getMerge_type());
+            }
         }
-        StreamLoadTask streamLoadTask = new StreamLoadTask(dummyId, -1L /* dummy txn id*/,
-                TFileType.FILE_STREAM, fileFormatType);
-        streamLoadTask.setOptionalFromRoutineLoadJob(routineLoadJob);
-        return streamLoadTask;
-    }
-
-    private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        // copy the columnExprDescs, cause it may be changed when planning.
-        // so we keep the columnExprDescs in routine load job as origin.
-        if (routineLoadJob.getColumnDescs() != null) {
-            columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
+        if (request.isSetDelete_condition()) {
+            deleteCondition = parseWhereExpr(request.getDelete_condition());
         }
-        whereExpr = routineLoadJob.getWhereExpr();
-        columnSeparator = routineLoadJob.getColumnSeparator();
-        partitions = routineLoadJob.getPartitions();
-        strictMode = routineLoadJob.isStrictMode();
-        timezone = routineLoadJob.getTimezone();
-        timeout = (int) routineLoadJob.getMaxBatchIntervalS() * 2;
-        if (!routineLoadJob.getJsonPaths().isEmpty()) {
-            jsonPaths = routineLoadJob.getJsonPaths();
-        }
-        stripOuterArray = routineLoadJob.isStripOuterArray();
     }
 
     // used for stream load
@@ -257,7 +248,7 @@ public class StreamLoadTask {
         }
     }
 
-    private void setWhereExpr(String whereString) throws UserException {
+    private Expr parseWhereExpr(String whereString) throws UserException {
         String whereSQL = new String("WHERE " + whereString);
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)));
         ImportWhereStmt whereStmt;
@@ -279,7 +270,7 @@ public class StreamLoadTask {
             LOG.warn("failed to parse where header, sql={}", whereSQL, e);
             throw new UserException("parse columns header failed", e);
         }
-        whereExpr = whereStmt.getExpr();
+        return whereStmt.getExpr();
     }
 
     private void setColumnSeparator(String oriSeparator) throws AnalysisException {

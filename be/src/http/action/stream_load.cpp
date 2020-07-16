@@ -17,6 +17,7 @@
 
 #include "http/action/stream_load.h"
 
+#include <cctype>
 #include <deque>
 #include <future>
 #include <sstream>
@@ -387,6 +388,22 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_timeout(ctx->timeout_second);
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
+    request.__set_load_type("APPEND");
+    if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
+        std::string merge_type = std::toupper(http_req->header(HTTP_MERGE_TYPE));
+        if (merge_type == "MERGE" || merge_type == "DELETE" || merge_type == "APPEND") {
+            request.__set_load_type(http_req->header(HTTP_MERGE_TYPE));
+        } else {
+            return Status::InvalidArgument("Invalid merge type " + merge_type);
+        }
+    }
+    if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
+        if (merge_type == "MERGE") {
+            request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
+        } else {
+            return Status::InvalidArgument("not support delete when merge type is not merge.");
+        }
+    }
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
 #ifndef BE_TEST

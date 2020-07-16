@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 
 import com.google.common.collect.Lists;
@@ -36,6 +37,8 @@ import java.util.Map;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
+
+import static org.apache.doris.load.loadv2.LoadTask.MergeType.APPEND;
 
 public class CreateRoutineLoadStmtTest {
 
@@ -70,7 +73,8 @@ public class CreateRoutineLoadStmtTest {
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
-                                                                                typeName, customProperties);
+                                                                                typeName, customProperties,
+                                                                                APPEND);
 
         new MockUp<StatementBase>() {
             @Mock
@@ -119,7 +123,8 @@ public class CreateRoutineLoadStmtTest {
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
-                                                                                typeName, customProperties);
+                                                                                typeName, customProperties,
+                                                                                APPEND);
         new MockUp<StatementBase>() {
             @Mock
             public void analyze(Analyzer analyzer1) {

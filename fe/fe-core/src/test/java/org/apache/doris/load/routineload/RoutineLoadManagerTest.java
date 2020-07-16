@@ -35,6 +35,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
@@ -93,7 +94,8 @@ public class RoutineLoadManagerTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
-                                                                                typeName, customProperties);
+                                                                                typeName, customProperties,
+                                                                                LoadTask.MergeType.APPEND);
         createRoutineLoadStmt.setOrigStmt(new OriginStatement("dummy", 0));
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, "default_cluster", 1L, 1L,
@@ -162,7 +164,8 @@ public class RoutineLoadManagerTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
-                                                                                typeName, customProperties);
+                                                                                typeName, customProperties,
+                                                                                LoadTask.MergeType.APPEND);
         createRoutineLoadStmt.setOrigStmt(new OriginStatement("dummy", 0));
 
 
