@@ -77,7 +77,10 @@ private:
     int64_t _get_input_num_rows_from_seg_grps();
 
 protected:
+    // the root tracker for this compaction
     MemTracker _mem_tracker;
+
+    // the child of root, only track rowset readers mem
     MemTracker _readers_tracker;
     TabletSharedPtr _tablet;
 
