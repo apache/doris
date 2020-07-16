@@ -27,21 +27,28 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
 
 public class MasterTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterTaskExecutor.class);
 
-    private ScheduledExecutorService executor;
+    private ThreadPoolExecutor executor;
     private Map<Long, Future<?>> runningTasks;
+    public ScheduledThreadPoolExecutor scheduledThreadPool;
 
-    public MasterTaskExecutor(int threadNum) {
-        executor = ThreadPoolManager.newScheduledThreadPool(threadNum, "Master-Task-Executor-Pool");
+    public MasterTaskExecutor(String name, int threadNum, boolean needRegisterMetric) {
+        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "_pool", needRegisterMetric);
         runningTasks = Maps.newHashMap();
-        executor.scheduleAtFixedRate(new TaskChecker(), 0L, 1000L, TimeUnit.MILLISECONDS);
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
     }
-    
+
+    public void start() {
+        scheduledThreadPool.scheduleAtFixedRate(new TaskChecker(), 0L, 1000L, TimeUnit.MILLISECONDS);
+    }
+
     /**
      * submit task to task executor
      * @param task
@@ -61,6 +68,7 @@ public class MasterTaskExecutor {
     }
     
     public void close() {
+        scheduledThreadPool.shutdown();
         executor.shutdown();
         runningTasks.clear();
     }
@@ -70,7 +78,7 @@ public class MasterTaskExecutor {
             return runningTasks.size();
         }
     }
-    
+
     private class TaskChecker implements Runnable {
         @Override
         public void run() {
