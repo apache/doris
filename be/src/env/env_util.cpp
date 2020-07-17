@@ -31,25 +31,23 @@ Status open_file_for_write(Env* env, const string& path, shared_ptr<WritableFile
     return open_file_for_write(WritableFileOptions(), env, path, file);
 }
 
-Status open_file_for_write(const WritableFileOptions& opts,
-                           Env *env, const string &path,
-                           shared_ptr<WritableFile> *file) {
+Status open_file_for_write(const WritableFileOptions& opts, Env* env, const string& path,
+                           shared_ptr<WritableFile>* file) {
     unique_ptr<WritableFile> w;
     RETURN_IF_ERROR(env->new_writable_file(opts, path, &w));
     file->reset(w.release());
     return Status::OK();
 }
 
-Status open_file_for_random(Env *env, const string &path, shared_ptr<RandomAccessFile> *file) {
+Status open_file_for_random(Env* env, const string& path, shared_ptr<RandomAccessFile>* file) {
     unique_ptr<RandomAccessFile> r;
     RETURN_IF_ERROR(env->new_random_access_file(path, &r));
     file->reset(r.release());
     return Status::OK();
 }
 
-static Status do_write_string_to_file(Env* env, const Slice& data,
-                                  const std::string& fname,
-                                  bool should_sync) {
+static Status do_write_string_to_file(Env* env, const Slice& data, const std::string& fname,
+                                      bool should_sync) {
     unique_ptr<WritableFile> file;
     Status s = env->new_writable_file(fname, &file);
     if (!s.ok()) {
