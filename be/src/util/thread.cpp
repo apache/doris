@@ -40,6 +40,7 @@
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
+#include "http/web_page_handler.h"
 
 namespace doris {
 

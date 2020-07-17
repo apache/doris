@@ -28,6 +28,7 @@
 #include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
+#include "util/thread.h"
 
 namespace doris {
 
