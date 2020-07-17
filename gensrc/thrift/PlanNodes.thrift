@@ -67,6 +67,12 @@ enum TDebugAction {
   FAIL
 }
 
+enum TMergeType {
+  APPEND,
+  MERGE,
+  DELETE
+}
+
 struct TKeyRange {
   1: required i64 begin_key
   2: required i64 end_key
@@ -203,6 +209,8 @@ struct TBrokerScanNode {
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
+    4: optional list<Exprs.TExpr> delete_condition
+    5: optional TMergeType merge_type
 }
 
 struct TEsScanNode {

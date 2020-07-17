@@ -29,6 +29,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -208,13 +209,16 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetMerge_type()) {
             try {
-                mergeType = LoadTask.MergeType.valueOf(request.getMerge_type().toUpperCase());
+                mergeType = LoadTask.MergeType.valueOf(request.getMerge_type().toString());
             } catch (IllegalArgumentException e) {
-                throw new UserException("unknown merge type " + request.getMerge_type());
+                throw new UserException("unknown merge type " + request.getMerge_type().toString());
             }
         }
         if (request.isSetDelete_condition()) {
             deleteCondition = parseWhereExpr(request.getDelete_condition());
+        }
+        if (negative && mergeType != LoadTask.MergeType.APPEND) {
+            throw new AnalysisException("Negative is only used when merge type is append.");
         }
     }
 

@@ -599,6 +599,9 @@ public class DataDescription {
     public void analyze(String fullDbName) throws AnalysisException {
         checkLoadPriv(fullDbName);
         analyzeWithoutCheckPriv();
+        if (isNegative && mergeType != APPEND) {
+            throw new AnalysisException("Negative is only used when merge type is append.");
+        }
     }
 
     public void analyzeWithoutCheckPriv() throws AnalysisException {

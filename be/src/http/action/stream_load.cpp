@@ -17,7 +17,6 @@
 
 #include "http/action/stream_load.h"
 
-#include <cctype>
 #include <deque>
 #include <future>
 #include <sstream>
@@ -57,6 +56,7 @@
 #include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -388,18 +388,22 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_timeout(ctx->timeout_second);
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
-    request.__set_merge_type("APPEND");
+    request.__set_merge_type(TMergeType::APPEND);
+    StringCaseMap<std::string, TMergeType> merge_type_map = {
+        { "APPEND", TMergeType::APPEND },
+        { "DELETE", TMergeType::DELETE },
+        { "MERGE", TMergeType::MERGE }
+    };
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type = http_req->header(HTTP_MERGE_TYPE);
-        std::transform(merge_type.begin(), merge_type.end(), merge_type.begin(), ::toupper);
-        if (merge_type == "MERGE" || merge_type == "DELETE" || merge_type == "APPEND") {
+        if (merge_type_map.find(merge_type) != merge_type_map.end() ) {
             request.__set_merge_type(merge_type);
         } else {
             return Status::InvalidArgument("Invalid merge type " + merge_type);
         }
     }
     if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
-        if (request.merge_type == "MERGE") {
+        if (request.merge_type == TMergeType::APPEND) {
             request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
         } else {
             return Status::InvalidArgument("not support delete when merge type is not merge.");
