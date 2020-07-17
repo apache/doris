@@ -28,7 +28,10 @@
 
 namespace doris {
 
-DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _metrics(_name) {
+const std::string DorisMetrics::_s_registry_name = "doris_be";
+const std::string DorisMetrics::_s_hook_name = "doris_metrics";
+
+DorisMetrics::DorisMetrics() : _metrics(_s_registry_name) {
 #define REGISTER_DORIS_METRIC(name) _metrics.register_metric(#name, &name)
     // You can put DorisMetrics's metrics initial code here
     REGISTER_DORIS_METRIC(fragment_requests_total);
@@ -167,7 +170,7 @@ DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _
     REGISTER_DORIS_METRIC(max_network_send_bytes_rate);
     REGISTER_DORIS_METRIC(max_network_receive_bytes_rate);
 
-    _metrics.register_hook(_hook_name, std::bind(&DorisMetrics::_update, this));
+    _metrics.register_hook(_s_hook_name, std::bind(&DorisMetrics::_update, this));
 
     REGISTER_DORIS_METRIC(readable_blocks_total);
     REGISTER_DORIS_METRIC(writable_blocks_total);
@@ -187,13 +190,13 @@ void DorisMetrics::initialize(
         const std::vector<std::string>& network_interfaces) {
     // disk usage
     for (auto& path : paths) {
-        IntGauge* gauge = disks_total_capacity.set_key(path, MetricUnit::BYTES);
+        IntGauge* gauge = disks_total_capacity.add_metric(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_avail_capacity.set_key(path, MetricUnit::BYTES);
+        gauge = disks_avail_capacity.add_metric(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_data_used_capacity.set_key(path, MetricUnit::BYTES);
+        gauge = disks_data_used_capacity.add_metric(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_state.set_key(path, MetricUnit::NOUNIT);
+        gauge = disks_state.add_metric(path, MetricUnit::NOUNIT);
         _metrics.register_metric("disks_state", MetricLabels().add("path", path), gauge);
     }
 

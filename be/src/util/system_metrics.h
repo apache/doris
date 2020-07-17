@@ -83,7 +83,7 @@ private:
 private:
     static const char* _s_hook_name;
 
-    std::unique_ptr<CpuMetrics> _cpu_total;
+    std::unique_ptr<CpuMetrics> _cpu_metrics;
     std::unique_ptr<MemoryMetrics> _memory_metrics;
     std::map<std::string, DiskMetrics*> _disk_metrics;
     std::map<std::string, NetMetrics*> _net_metrics;
