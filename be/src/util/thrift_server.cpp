@@ -32,7 +32,12 @@
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TServerSocket.h>
 
+#include "util/doris_metrics.h"
+
 namespace doris {
+
+DEFINE_COUNTER_METRIC_3ARG(thrift_current_connections, MetricUnit::CONNECTIONS, "Number of currently active connections");
+DEFINE_GAUGE_METRIC_3ARG(thrift_connections_total, MetricUnit::CONNECTIONS, "Total connections made over the lifetime of this server");
 
 // Helper class that starts a server in a separate thread, and handles
 // the inter-thread communication to monitor whether it started
@@ -222,8 +227,8 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
     }
 
     if (_thrift_server->_metrics_enabled) {
-        _thrift_server->_connections_total->increment(1L);
-        _thrift_server->_current_connections->increment(1L);
+        _thrift_server->thrift_connections_total.increment(1L);
+        _thrift_server->thrift_current_connections.increment(1L);
     }
 
     // Store the _session_key in the per-client context to avoid recomputing
@@ -254,7 +259,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
     }
 
     if (_thrift_server->_metrics_enabled) {
-        _thrift_server->_current_connections->increment(-1L);
+        _thrift_server->thrift_current_connections.increment(-1L);
     }
 }
 
@@ -262,7 +267,6 @@ ThriftServer::ThriftServer(
         const std::string& name,
         const boost::shared_ptr<apache::thrift::TProcessor>& processor,
         int port,
-        MetricRegistry* metrics,
         int num_worker_threads,
         ServerType server_type) :
             _started(false),
@@ -274,17 +278,14 @@ ThriftServer::ThriftServer(
             _server(NULL),
             _processor(processor),
             _session_handler(NULL) {
-    if (metrics != NULL) {
+    // TODO(yingchun): when to disable?
+    if (true) {
         _metrics_enabled = true;
-        _current_connections.reset(new IntGauge(MetricUnit::CONNECTIONS));
-        metrics->register_metric("thrift_current_connections", 
-                                 MetricLabels().add("name", name),
-                                 _current_connections.get());
 
-        _connections_total.reset(new IntCounter(MetricUnit::CONNECTIONS));
-        metrics->register_metric("thrift_connections_total",
-                                 MetricLabels().add("name", name),
-                                 _connections_total.get());
+        // TODO(yingchun): these metrics are not compaitable with old versions
+        _thrift_server_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("thrift_server.") + name, {{"name", name}});
+        METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
+        METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
     } else {
         _metrics_enabled = false;
     }

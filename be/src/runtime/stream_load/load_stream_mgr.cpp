@@ -15,33 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "olap/rowset/rowset_id_generator.h"
-#include "util/spinlock.h"
-#include "util/uid_util.h"
+#include "runtime/stream_load/load_stream_mgr.h"
 
 namespace doris {
 
-class UniqueRowsetIdGenerator : public RowsetIdGenerator {
-public:
-    UniqueRowsetIdGenerator(const UniqueId& backend_uid);
-    ~UniqueRowsetIdGenerator();
+DEFINE_GAUGE_METRIC_2ARG(stream_load_pipe_count, MetricUnit::NOUNIT);
 
-    RowsetId next_id() override;
+LoadStreamMgr::LoadStreamMgr() {
+    // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
+    // actual size of all StreamLoadPipe.
+    REGISTER_HOOK_METRIC(stream_load_pipe_count, [this]() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _stream_map.size();
+    });
+}
 
-    bool id_in_use(const RowsetId& rowset_id) const override;
-
-    void release_id(const RowsetId& rowset_id) override;
-
-private:
-    mutable SpinLock _lock;
-    const UniqueId _backend_uid;
-    const int64_t _version = 2; // modify it when create new version id generator
-    std::atomic<int64_t> _inc_id;
-    std::unordered_set<int64_t> _valid_rowset_id_hi;
-
-    DISALLOW_COPY_AND_ASSIGN(UniqueRowsetIdGenerator);
-}; // UniqueRowsetIdGenerator
-
-} // namespace doris
+LoadStreamMgr::~LoadStreamMgr() {
+    DEREGISTER_HOOK_METRIC(stream_load_pipe_count);
+}
+}

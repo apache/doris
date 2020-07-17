@@ -15,33 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "olap/rowset/rowset_id_generator.h"
-#include "util/spinlock.h"
-#include "util/uid_util.h"
+#include "util/brpc_stub_cache.h"
 
 namespace doris {
 
-class UniqueRowsetIdGenerator : public RowsetIdGenerator {
-public:
-    UniqueRowsetIdGenerator(const UniqueId& backend_uid);
-    ~UniqueRowsetIdGenerator();
+DEFINE_GAUGE_METRIC_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
 
-    RowsetId next_id() override;
+BrpcStubCache::BrpcStubCache() {
+    _stub_map.init(239);
+    REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() {
+        std::lock_guard<SpinLock> l(_lock);
+        return _stub_map.size();
+    });
+}
 
-    bool id_in_use(const RowsetId& rowset_id) const override;
-
-    void release_id(const RowsetId& rowset_id) override;
-
-private:
-    mutable SpinLock _lock;
-    const UniqueId _backend_uid;
-    const int64_t _version = 2; // modify it when create new version id generator
-    std::atomic<int64_t> _inc_id;
-    std::unordered_set<int64_t> _valid_rowset_id_hi;
-
-    DISALLOW_COPY_AND_ASSIGN(UniqueRowsetIdGenerator);
-}; // UniqueRowsetIdGenerator
-
-} // namespace doris
+BrpcStubCache::~BrpcStubCache() {
+    DEREGISTER_HOOK_METRIC(brpc_endpoint_stub_count);
+    for (auto& stub : _stub_map) {
+        delete stub.second;
+    }
+}
+}

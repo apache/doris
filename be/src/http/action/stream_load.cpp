@@ -59,10 +59,10 @@
 
 namespace doris {
 
-METRIC_DEFINE_INT_COUNTER(streaming_load_requests_total, MetricUnit::REQUESTS);
-METRIC_DEFINE_INT_COUNTER(streaming_load_bytes, MetricUnit::BYTES);
-METRIC_DEFINE_INT_COUNTER(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
-METRIC_DEFINE_INT_GAUGE(streaming_load_current_processing, MetricUnit::REQUESTS);
+DEFINE_COUNTER_METRIC_2ARG(streaming_load_requests_total, MetricUnit::REQUESTS);
+DEFINE_COUNTER_METRIC_2ARG(streaming_load_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_METRIC_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
@@ -88,17 +88,15 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_requests_total",
-                                            &streaming_load_requests_total);
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_bytes",
-                                            &streaming_load_bytes);
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_duration_ms",
-                                            &streaming_load_duration_ms);
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_current_processing",
-                                            &streaming_load_current_processing);
+    _stream_load_entity = DorisMetrics::instance()->metric_registry()->register_entity("stream_load", {});
+    METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
+    METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
+    METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
+    METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
 }
 
 StreamLoadAction::~StreamLoadAction() {
+    DorisMetrics::instance()->metric_registry()->deregister_entity("stream_load");
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {

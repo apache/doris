@@ -84,7 +84,7 @@ public:
 
     void test_shutdown();
 
-    void init_metrics(MetricRegistry* metrics, const std::string& key_prefix);
+    void init_metrics(const std::string& name);
 
 private:
     template <class T> friend class ClientCache;
@@ -109,17 +109,18 @@ private:
     typedef boost::unordered_map<void*, ThriftClientImpl*> ClientMap;
     ClientMap _client_map;
 
-    // MetricRegistry
     bool _metrics_enabled;
 
     // max connections per host in this cache, -1 means unlimited
     int _max_cache_size_per_host;
 
+    MetricEntity* _thrift_client_metric_entity;
+
     // Number of clients 'checked-out' from the cache
-    std::unique_ptr<IntGauge> _used_clients;
+    IntGauge thrift_used_clients;
 
     // Total clients in the cache, including those in use
-    std::unique_ptr<IntGauge> _opened_clients;
+    IntGauge thrift_opened_clients;
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status create_client(const TNetworkAddress& hostport, client_factory factory_method,
@@ -226,12 +227,12 @@ public:
         return _client_cache_helper.test_shutdown();
     }
 
-    // Adds metrics for this cache to the supplied MetricRegistry instance. The
-    // metrics have keys that are prefixed by the key_prefix argument
+    // Adds metrics for this cache.
+    // The metrics have an identification by the 'name' argument
     // (which should not end in a period).
     // Must be called before the cache is used, otherwise the metrics might be wrong
-    void init_metrics(MetricRegistry* metrics, const std::string& key_prefix) {
-        _client_cache_helper.init_metrics(metrics, key_prefix);
+    void init_metrics(const std::string& name) {
+        _client_cache_helper.init_metrics(name);
     }
 
 private:
