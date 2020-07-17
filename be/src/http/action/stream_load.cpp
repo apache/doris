@@ -391,7 +391,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.__set_merge_type("APPEND");
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type = http_req->header(HTTP_MERGE_TYPE);
-        std::transform(merge_type.begin(), merge_type.end(), merge_type.begin(), std::toupper);
+        std::transform(merge_type.begin(), merge_type.end(), merge_type.begin(), ::toupper);
         if (merge_type == "MERGE" || merge_type == "DELETE" || merge_type == "APPEND") {
             request.__set_merge_type(merge_type);
         } else {
@@ -399,7 +399,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     }
     if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
-        if (request.merge_type() == "MERGE") {
+        if (request.merge_type == "MERGE") {
             request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
         } else {
             return Status::InvalidArgument("not support delete when merge type is not merge.");
