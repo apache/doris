@@ -174,9 +174,12 @@ public:
 
     void revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     inline const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
+    inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_inc_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_inc_rs_meta_by_version(const Version& version) const;
+    void delete_stale_rs_meta_by_version(const Version& version);
+    RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
 
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     void remove_delete_predicate_by_version(const Version& version);
@@ -219,8 +222,14 @@ private:
 
     TabletState _tablet_state = TABLET_NOTREADY;
     TabletSchema _schema;
+
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
+    // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
+    // These stale rowsets meta are been removed when rowsets' pathVersion is expired, 
+    // this policy is judged and computed by TimestampedVersionTracker.
+    std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
+
     DelPredicateArray _del_pred_array;
     AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode = false;
@@ -323,6 +332,10 @@ inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const 
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
     return _inc_rs_metas;
+}
+
+inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_stale_rs_metas() const {
+    return _stale_rs_metas;
 }
 
 // Only for unit test now.

@@ -982,6 +982,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
             for (const auto& tablet : all_tablets) {
                 tablet->delete_expired_inc_rowsets();
+                tablet->delete_expired_stale_rowset();
             }
             all_tablets.clear();
 

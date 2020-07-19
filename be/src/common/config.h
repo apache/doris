@@ -232,6 +232,8 @@ namespace config {
     CONF_mInt32(pending_data_expire_time_sec, "1800");
     // inc_rowset expired interval
     CONF_mInt32(inc_rowset_expired_sec, "1800");
+    // inc_rowset snapshot rs sweep time interval
+    CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "3600");
     CONF_Int32(min_garbage_sweep_interval, "180");
@@ -538,6 +540,10 @@ namespace config {
 
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_load_tablet_failure, "false");
+
+    // Whether to continue to start be when load tablet from header failed.
+    CONF_Bool(ignore_rowset_stale_unconsistent_delete, "false");
+
 } // namespace config
 
 } // namespace doris

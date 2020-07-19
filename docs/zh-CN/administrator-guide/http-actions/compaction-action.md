@@ -56,13 +56,25 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
     "cumulative point": 50,
     "last cumulative failure time": "2019-12-16 18:13:43.224",
     "last base failure time": "2019-12-16 18:13:23.320",
-    "last cumu success time": "2019-12-16 18:12:15.110",
+    "last cumu success time": ,
     "last base success time": "2019-12-16 18:11:50.780",
     "rowsets": [
         "[0-48] 10 DATA OVERLAPPING",
         "[49-49] 2 DATA OVERLAPPING",
         "[50-50] 0 DELETE NONOVERLAPPING",
         "[51-51] 5 DATA OVERLAPPING"
+    ],
+    "stale version path": [
+        {
+            "path id": "2",
+            "last create time": "2019-12-16 18:11:15.110",
+            "path list": "2-> [0-24] -> [25-48]"
+        }, 
+        {
+            "path id": "1",
+            "last create time": "2019-12-16 18:13:15.110",
+            "path list": "1-> [25-40] -> [40-48]"
+        }
     ]
 }
 ```
@@ -73,6 +85,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
 * last cumulative failure time：上一次尝试 cumulative compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 cumulative compaction。
 * last base failure time：上一次尝试 base compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 base compaction。
 * rowsets：该 tablet 当前的 rowset 集合。如 [0-48] 表示 0-48 版本。第二位数字表示该版本中 segment 的数量。`DELETE` 表示 delete 版本。`DATA` 表示数据版本。`OVERLAPPING` 和 `NONOVERLAPPING` 表示segment数据是否重叠。
+* stale version path：该 table 当前被合并rowset集合的合并版本路径，该结构是一个数组结构，每个元素表示一个合并路径。每个元素中包含了三个属性：path id 表示版本路径id，last create time 表示当前路径上最近的 rowset 创建时间，默认在这个时间半个小时之后这条路径上的所有 rowset 会被过期删除。
 
 ### 示例
 
