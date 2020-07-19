@@ -222,6 +222,8 @@ public:
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
     void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
+    // caller should hold the _meta_lock before calling this method
+    void generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const;
 
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
