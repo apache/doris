@@ -17,11 +17,11 @@
 
 package org.apache.doris.alter;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTabletInfo;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
 import org.apache.logging.log4j.LogManager;
@@ -283,12 +284,21 @@ public abstract class AlterJob implements Writable {
 
     public abstract void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl);
 
+    // return true if all previous load job has been finished.
+    // return false if not
     public boolean isPreviousLoadFinished() {
         if (isPreviousLoadFinished) {
             return true;
         } else {
-            isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
-                    transactionId, dbId, Lists.newArrayList(tableId));
+            try {
+                isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr()
+                        .isPreviousTransactionsFinished(transactionId, dbId, Lists.newArrayList(tableId));
+            } catch (AnalysisException e) {
+                // this is a deprecated method, so just return true to make the compilation happy.
+                LOG.warn("failed to check previous load status for db: {}, tbl: {}, {}", 
+                        dbId, tableId, e.getMessage());
+                return true;
+            }
             return isPreviousLoadFinished;
         }
     }
