@@ -63,6 +63,18 @@ If the tablet exists, the result is returned in JSON format:
         "[49-49] 2 DATA OVERLAPPING",
         "[50-50] 0 DELETE NONOVERLAPPING",
         "[51-51] 5 DATA OVERLAPPING"
+    ],
+    "stale version path": [
+        {
+            "path id": "2",
+            "last create time": "2019-12-16 18:11:15.110",
+            "path list": "2-> [0-24] -> [25-48]"
+        }, 
+        {
+            "path id": "1",
+            "last create time": "2019-12-16 18:13:15.110",
+            "path list": "1-> [25-40] -> [40-48]"
+        }
     ]
 }
 ```
@@ -73,6 +85,7 @@ Explanation of results:
 * last cumulative failure time: The time when the last cumulative compaction failed. After 10 minutes by default, cumulative compaction is attempted on the this tablet again.
 * last base failure time: The time when the last base compaction failed. After 10 minutes by default, base compaction is attempted on the this tablet again.
 * rowsets: The current rowsets collection of this tablet. [0-48] means a rowset with version 0-48. The second number is the number of segments in a rowset. The `DELETE` indicates the delete version. `OVERLAPPING` and `NONOVERLAPPING` indicates whether data between segments is overlap.
+* stale version path: The merged version path of the rowset collection currently merged in the tablet. It is an array structure and each element represents a merged path. Each element contains three attributes: path id indicates the version path id, and last create time indicates the creation time of the most recent rowset on the path. By default, all rowsets on this path will be deleted after half an hour at the last create time.
 
 ### Examples
 
