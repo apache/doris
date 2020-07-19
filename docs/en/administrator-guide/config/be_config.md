@@ -245,6 +245,15 @@ When BE starts, it will check all the paths under the `storage_root_path` in  co
 
 The default value is `false`.
 
+### ignore_rowset_stale_unconsistent_delete
+
+* Type: boolean
+* Description：It is used to decide whether to delete the outdated merged rowset if it cannot form a consistent version path.
+* Default: false
+
+The merged expired rowset version path will be deleted after half an hour. In abnormal situations, deleting these versions will result in the problem that the consistent path of the query cannot be constructed. When the configuration is false, the program check is strict and the program will directly report an error and exit.
+When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispathed by fe, -230 error will appear.
+
 ### inc_rowset_expired_sec
 
 * Type: boolean
@@ -261,8 +270,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 1. If the tablet information is not repairable, you can delete the wrong tablet through the `meta_tool` tool under the condition that other copies are normal.
 2. Set `ignore_load_tablet_failure` to true, BE will ignore these wrong tablets and start normally.
-
-### `inc_rowset_expired_sec`
 
 ### `index_stream_cache_capacity`
 
@@ -453,6 +460,14 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `tablet_meta_checkpoint_min_new_rowsets_num`
 
 ### `tablet_stat_cache_update_interval_second`
+
+### `tablet_rowset_stale_sweep_time_sec`
+
+* Type: int64
+* Description: It is used to control the expiration time of cleaning up the merged rowset version. When the current time now() minus the max created rowset‘s create time in a version path is greater than tablet_rowset_stale_sweep_time_sec, the current path is cleaned up and these merged rowsets are deleted, the unit is second.
+* Default: 1800
+
+When writing is too frequent and the disk time is insufficient, you can configure less tablet_rowset_stale_sweep_time_sec. However, if this time is less than 5 minutes, it may cause fe to query the version that has been merged, causing a query -230 error.
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
