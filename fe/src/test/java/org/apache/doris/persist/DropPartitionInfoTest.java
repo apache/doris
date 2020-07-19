@@ -28,46 +28,43 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
-public class DropInfoTest {
+public class DropPartitionInfoTest {
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_89);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_88);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./dropInfo");
+        File file = new File("./dropPartitionInfo");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
-        DropInfo info1 = new DropInfo();
+
+        DropPartitionInfo info1 = new DropPartitionInfo(1L, 2L, "test_partition", false, true);
         info1.write(dos);
-        
-        DropInfo info2 = new DropInfo(1, 2, -1, true);
-        info2.write(dos);
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
-        DropInfo rInfo1 = DropInfo.read(dis);
+
+        DropPartitionInfo rInfo1 = DropPartitionInfo.read(dis);
+
+        Assert.assertEquals(Long.valueOf(1L), rInfo1.getDbId());
+        Assert.assertEquals(Long.valueOf(2L), rInfo1.getTableId());
+        Assert.assertEquals("test_partition", rInfo1.getPartitionName());
+        Assert.assertFalse(rInfo1.isTempPartition());
+        Assert.assertTrue(rInfo1.isForceDrop());
+
         Assert.assertTrue(rInfo1.equals(info1));
-        
-        DropInfo rInfo2 = DropInfo.read(dis);
-        Assert.assertTrue(rInfo2.equals(info2));
-        
-        Assert.assertEquals(1, rInfo2.getDbId());
-        Assert.assertEquals(2, rInfo2.getTableId());
-        Assert.assertTrue(rInfo2.isForceDrop());
-        
-        Assert.assertTrue(rInfo2.equals(rInfo2));
-        Assert.assertFalse(rInfo2.equals(this));
-        Assert.assertFalse(info2.equals(new DropInfo(0, 2, -1L, true)));
-        Assert.assertFalse(info2.equals(new DropInfo(1, 0, -1L, true)));
-        Assert.assertFalse(info2.equals(new DropInfo(1, 2, -1L, false)));
-        Assert.assertTrue(info2.equals(new DropInfo(1, 2, -1L, true)));
+        Assert.assertFalse(rInfo1.equals(this));
+        Assert.assertFalse(info1.equals(new DropPartitionInfo(-1L, 2L, "test_partition", false, true)));
+        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, -2L, "test_partition", false, true)));
+        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition1", false, true)));
+        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", true, true)));
+        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", false, false)));
+        Assert.assertTrue(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", false, true)));
 
         // 3. delete files
         dis.close();
