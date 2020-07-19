@@ -372,7 +372,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             if (res != OLAP_SUCCESS) {
                 break;
             }
-            ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
+            ref_tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
         } else {
             ReadLock rdlock(ref_tablet->get_header_lock_ptr());
             // get latest version
@@ -404,7 +404,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 break;
             }
 
-            ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
+            ref_tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
         }
 
         vector<RowsetMetaSharedPtr> rs_metas;

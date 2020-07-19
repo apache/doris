@@ -126,7 +126,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        generate_tablet_meta_copy(new_tablet_meta);
+        generate_tablet_meta_copy_unlocked(new_tablet_meta);
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -1052,6 +1052,15 @@ void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) cons
         ReadLock rdlock(&_meta_lock);
         _tablet_meta->to_meta_pb(&tablet_meta_pb);
     }
+    new_tablet_meta->init_from_pb(tablet_meta_pb);
+}
+
+// this is a unlocked version of generate_tablet_meta_copy()
+// some method already hold the _meta_lock before calling this,
+// such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
+void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const {
+    TabletMetaPB tablet_meta_pb;
+    _tablet_meta->to_meta_pb(&tablet_meta_pb);
     new_tablet_meta->init_from_pb(tablet_meta_pb);
 }
 
