@@ -102,7 +102,7 @@ public class PullLoadTaskPlanner {
         scanNode.init(analyzer);
         scanNodes.add(scanNode);
 
-        // rewrite node
+        // equal node
         OlapRewriteNode rewriteNode = new OlapRewriteNode(
                 new PlanNodeId(nextNodeId++), scanNode, table, tupleDesc, slotRefs);
         rewriteNode.init(analyzer);

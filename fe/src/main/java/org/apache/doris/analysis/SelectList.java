@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Select list items plus distinct clause.
  */
-class SelectList {
+public class SelectList {
     private boolean isDistinct;
 
     // ///////////////////////////////////////
@@ -87,7 +87,7 @@ class SelectList {
             if (item.isStar()) {
                 continue;
             }
-            // rewrite subquery in select list
+            // equal subquery in select list
             if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                 List<Subquery> subqueryExprs = Lists.newArrayList();
                 item.getExpr().collect(Subquery.class, subqueryExprs);

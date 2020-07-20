@@ -75,7 +75,6 @@ public final class RollupSelector {
                 return v2RollupIndexId;
             }
         }
-
         // Get first partition to select best prefix index rollups, because MaterializedIndex ids in one rollup's partitions are all same.
         final List<Long> bestPrefixIndexRollups = selectBestPrefixIndexRollup(conjuncts, isPreAggregation);
         return selectBestRowCountRollup(bestPrefixIndexRollups, partitionIds);

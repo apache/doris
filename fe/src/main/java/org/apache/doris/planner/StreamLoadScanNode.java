@@ -17,8 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
@@ -31,6 +29,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -49,6 +48,10 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,13 +191,15 @@ public class StreamLoadScanNode extends LoadScanNode {
             // check hll_hash
             if (dstSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
                 if (!(expr instanceof FunctionCallExpr)) {
-                    throw new AnalysisException("HLL column must use hll_hash function, like "
-                            + dstSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
+                    throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                            + dstSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH + "(xxx)");
                 }
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
-                if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash") && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
-                    throw new AnalysisException("HLL column must use hll_hash function, like "
-                            + dstSlotDesc.getColumn().getName() + "=hll_hash(xxx) or " + dstSlotDesc.getColumn().getName() + "=hll_empty()");
+                if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)
+                        && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
+                    throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                            + dstSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH
+                            + "(xxx) or " + dstSlotDesc.getColumn().getName() + "=hll_empty()");
                 }
                 expr.setType(Type.HLL);
             }

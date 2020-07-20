@@ -48,6 +48,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -338,8 +339,7 @@ public class Load {
 
                 final String resultColumn = pairList.get(0);
                 final String hashColumn = pairList.get(1);
-                final Pair<String, List<String>> pair = new Pair<String, List<String>>(
-                        DataDescription.FUNCTION_HASH_HLL,
+                final Pair<String, List<String>> pair = new Pair<String, List<String>>(FunctionSet.HLL_HASH,
                         Arrays.asList(hashColumn));
                 dataDescription.addColumnMapping(resultColumn, pair);
             }

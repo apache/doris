@@ -23,7 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * Class describing between predicates. After successful analysis, we rewrite
+ * Class describing between predicates. After successful analysis, we equal
  * the between predicate to a conjunctive/disjunctive compound predicate
  * to be handed to the backend.
  */

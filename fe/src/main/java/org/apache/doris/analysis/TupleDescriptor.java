@@ -259,7 +259,7 @@ public class TupleDescriptor {
         for (SlotDescriptor slot: slots) slot.setIsMaterialized(true);
     }
 
-    public void getTableNameToColumnNames(Map<String, Set<String>> tupleDescToColumnNames) {
+    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         for (SlotDescriptor slotDescriptor : slots) {
             if (!slotDescriptor.isMaterialized()) {
                 continue;
@@ -269,16 +269,16 @@ public class TupleDescriptor {
                 Preconditions.checkState(parent != null);
                 Table table = parent.getTable();
                 Preconditions.checkState(table != null);
-                String tableName = table.getName();
-                Set<String> columnNames = tupleDescToColumnNames.get(tableName);
+                Long tableId = table.getId();
+                Set<String> columnNames = tableIdToColumnNames.get(tableId);
                 if (columnNames == null) {
                     columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                    tupleDescToColumnNames.put(tableName, columnNames);
+                    tableIdToColumnNames.put(tableId, columnNames);
                 }
                 columnNames.add(slotDescriptor.getColumn().getName());
             } else {
                 for (Expr expr : slotDescriptor.getSourceExprs()) {
-                    expr.getTableNameToColumnNames(tupleDescToColumnNames);
+                    expr.getTableIdToColumnNames(tableIdToColumnNames);
                 }
             }
         }

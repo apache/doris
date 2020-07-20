@@ -68,7 +68,7 @@ public class ColumnDef {
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
-        private static String ZERO = new String(new byte[] {0});
+        public static String ZERO = new String(new byte[] {0});
         // default "value", "0" means empty hll
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "0" means empty bitmap

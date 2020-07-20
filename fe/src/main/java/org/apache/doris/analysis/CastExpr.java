@@ -43,7 +43,7 @@ public class CastExpr extends Expr {
     private final TypeDef targetTypeDef;
 
     // True if this is a "pre-analyzed" implicit cast.
-    private final boolean isImplicit;
+    private boolean isImplicit;
 
     // True if this cast does not change the type.
     private boolean noOp = false;
@@ -137,10 +137,14 @@ public class CastExpr extends Expr {
         if (isImplicit) {
             return getChild(0).toSql();
         }
-        if (type.isStringType()) {
-            return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+        if (isAnalyzed) {
+            if (type.isStringType()) {
+                return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+            } else {
+                return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            }
         } else {
-            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
         }
     }
 
@@ -165,6 +169,10 @@ public class CastExpr extends Expr {
 
     public boolean isImplicit() {
         return isImplicit;
+    }
+
+    public void setImplicit(boolean implicit) {
+        isImplicit = implicit;
     }
 
     public void analyze() throws AnalysisException {

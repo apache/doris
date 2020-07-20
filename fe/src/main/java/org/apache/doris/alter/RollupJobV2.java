@@ -19,7 +19,6 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -732,11 +731,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.jobState = jobState;
     }
 
-    private void setColumnsDefineExpr(List<MVColumnItem> items) {
-        for (MVColumnItem item : items) {
+    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) {
+        for (Entry<String, Expr> entry : columnNameToDefineExpr.entrySet()) {
             for (Column column : rollupSchema) {
-                if (column.getName().equals(item.getName())) {
-                    column.setDefineExpr(item.getDefineExpr());
+                if (column.getName().equals(entry.getKey())) {
+                    column.setDefineExpr(entry.getValue());
                     break;
                 }
             }
@@ -812,8 +811,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            stmt.analyzeSelectClause();
-            setColumnsDefineExpr(stmt.getMVColumnItemList());
+            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
+            setColumnsDefineExpr(columnNameToDefineExpr);
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + origStmt, e);
         }

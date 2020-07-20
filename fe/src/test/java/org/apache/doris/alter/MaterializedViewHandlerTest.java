@@ -173,40 +173,12 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testInvalidMVColumn(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
-                                    @Injectable OlapTable olapTable) {
-        final String mvName = "mv1";
-        final String mvColumnName = "mv_k1";
-        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName);
-        new Expectations() {
-            {
-                olapTable.hasMaterializedIndex(mvName);
-                result = false;
-                createMaterializedViewStmt.getMVName();
-                result = mvName;
-                createMaterializedViewStmt.getMVColumnItemList();
-                result = Lists.newArrayList(mvColumnItem);
-                olapTable.getColumn(mvColumnName);
-                result = null;
-            }
-        };
-        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
-        try {
-            Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                                   createMaterializedViewStmt, olapTable);
-            Assert.fail();
-        } catch (Exception e) {
-            System.out.print(e.getMessage());
-        }
-    }
-
-    @Test
     public void testInvalidAggregateType(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
                                          @Injectable OlapTable olapTable) {
         final String mvName = "mv1";
         final String columnName = "mv_k1";
         Column baseColumn = new Column(columnName, Type.INT, false, AggregateType.SUM, "", "");
-        MVColumnItem mvColumnItem = new MVColumnItem(columnName);
+        MVColumnItem mvColumnItem = new MVColumnItem(columnName, Type.BIGINT);
         mvColumnItem.setIsKey(true);
         mvColumnItem.setAggregationType(null, false);
         new Expectations() {
@@ -239,7 +211,7 @@ public class MaterializedViewHandlerTest {
         final String mvName = "mv1";
         final String columnName1 = "k1";
         Column baseColumn1 = new Column(columnName1, Type.VARCHAR, false, AggregateType.NONE, "", "");
-        MVColumnItem mvColumnItem = new MVColumnItem(columnName1);
+        MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
         mvColumnItem.setIsKey(true);
         mvColumnItem.setAggregationType(null, false);
         new Expectations() {
@@ -250,7 +222,7 @@ public class MaterializedViewHandlerTest {
                 result = mvName;
                 createMaterializedViewStmt.getMVColumnItemList();
                 result = Lists.newArrayList(mvColumnItem);
-                olapTable.getColumn(columnName1);
+                olapTable.getBaseColumn(columnName1);
                 result = baseColumn1;
                 olapTable.getKeysType();
                 result = KeysType.DUP_KEYS;

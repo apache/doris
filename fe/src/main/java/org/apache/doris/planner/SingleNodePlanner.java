@@ -752,17 +752,20 @@ public class SingleNodePlanner {
         return root;
     }
 
-    public void selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer) throws UserException {
+    public boolean selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer)
+            throws UserException {
+        boolean selectFailed = false;
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             for (TableRef tableRef : selectStmt.getTableRefs()) {
                 if (tableRef instanceof InlineViewRef) {
-                    selectMaterializedView(((InlineViewRef) tableRef).getViewStmt(), analyzer);
+                    selectFailed |= selectMaterializedView(((InlineViewRef) tableRef).getViewStmt(),
+                            ((InlineViewRef) tableRef).getAnalyzer());
                 }
             }
             List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
             if (scanNodeList == null) {
-                return;
+                return selectFailed;
             }
             MaterializedViewSelector materializedViewSelector = new MaterializedViewSelector(selectStmt, analyzer);
             for (ScanNode scanNode : scanNodeList) {
@@ -773,19 +776,30 @@ public class SingleNodePlanner {
                 if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
                     continue;
                 }
-                MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector.selectBestMV(
-                        olapScanNode);
-                olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(), bestIndexInfo.isPreAggregation(),
-                        bestIndexInfo.getReasonOfDisable());
+                // select index by the old Rollup selector
+                olapScanNode.selectBestRollupByRollupSelector(analyzer);
+                // select index by the new Materialized selector
+                MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector.selectBestMV(olapScanNode);
+                if (bestIndexInfo == null) {
+                    selectFailed |= true;
+                    TupleId tupleId = olapScanNode.getTupleId();
+                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
+                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
+                    continue;
+                }
+                // if the new selected index id is different from the old one, scan node will be updated.
+                olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
+                        bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
             }
 
         } else {
             Preconditions.checkState(queryStmt instanceof SetOperationStmt);
             SetOperationStmt unionStmt = (SetOperationStmt) queryStmt;
             for (SetOperationStmt.SetOperand unionOperand : unionStmt.getOperands()) {
-                selectMaterializedView(unionOperand.getQueryStmt(), analyzer);
+                selectFailed |= selectMaterializedView(unionOperand.getQueryStmt(), analyzer);
             }
         }
+        return selectFailed;
     }
 
     /**

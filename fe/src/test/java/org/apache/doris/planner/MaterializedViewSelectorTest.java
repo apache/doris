@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -38,7 +39,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.commons.lang3.builder.ToStringExclude;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -90,8 +90,8 @@ public class MaterializedViewSelectorTest {
                 result = tableADesc;
                 tableADesc.getTable();
                 result = tableA;
-                tableA.getName();
-                result = "tableA";
+                tableA.getId();
+                result = 1;
 
                 aggregateInfo.getAggregateExprs();
                 result = Lists.newArrayList(tableAColumn2Sum, tableBColumn1Max);
@@ -114,36 +114,51 @@ public class MaterializedViewSelectorTest {
                 result = tableBDesc;
                 tableBDesc.getTable();
                 result = tableB;
-                tableB.getName();
-                result = "tableB";
+                tableB.getId();
+                result = 2;
+
+                tableAColumn2Desc.isMaterialized();
+                result = true;
+                tableBColumn1Desc.isMaterialized();
+                result = true;
+                tableAColumn2Desc.getColumn().getName();
+                result = "c2";
+                tableBColumn1Desc.getColumn().getName();
+                result = "c1";
             }
         };
 
         MaterializedViewSelector materializedViewSelector = new MaterializedViewSelector(selectStmt, analyzer);
-        Map<String, Set<String>> columnNamesInPredicates =
+        Map<Long, Set<String>> columnNamesInPredicates =
                 Deencapsulation.getField(materializedViewSelector, "columnNamesInPredicates");
         Assert.assertEquals(0, columnNamesInPredicates.size());
         Assert.assertFalse(Deencapsulation.getField(materializedViewSelector, "isSPJQuery"));
-        Map<String, Set<String>> columnNamesInGrouping =
+        Map<Long, Set<String>> columnNamesInGrouping =
                 Deencapsulation.getField(materializedViewSelector, "columnNamesInGrouping");
         Assert.assertEquals(1, columnNamesInGrouping.size());
-        Set<String> tableAColumnNamesInGrouping = columnNamesInGrouping.get("tableA");
+        Set<String> tableAColumnNamesInGrouping = columnNamesInGrouping.get(new Long(1));
         Assert.assertNotEquals(tableAColumnNamesInGrouping, null);
         Assert.assertEquals(1, tableAColumnNamesInGrouping.size());
         Assert.assertTrue(tableAColumnNamesInGrouping.contains("c1"));
-        Map<String, Set<MaterializedViewSelector.AggregatedColumn>> aggregateColumnsInQuery =
-                Deencapsulation.getField(materializedViewSelector, "aggregateColumnsInQuery");
+        Map<Long, Set<FunctionCallExpr>> aggregateColumnsInQuery =
+                Deencapsulation.getField(materializedViewSelector, "aggColumnsInQuery");
         Assert.assertEquals(2, aggregateColumnsInQuery.size());
-        Set<MaterializedViewSelector.AggregatedColumn> tableAAgggregatedColumns = aggregateColumnsInQuery.get("tableA");
+        Set<FunctionCallExpr> tableAAgggregatedColumns = aggregateColumnsInQuery.get(new Long(1));
         Assert.assertEquals(1, tableAAgggregatedColumns.size());
-        MaterializedViewSelector.AggregatedColumn aggregatedColumn1 = tableAAgggregatedColumns.iterator().next();
-        Assert.assertEquals("c2", Deencapsulation.getField(aggregatedColumn1, "columnName"));
-        Assert.assertTrue("SUM".equalsIgnoreCase(Deencapsulation.getField(aggregatedColumn1, "aggFunctionName")));
-        Set<MaterializedViewSelector.AggregatedColumn> tableBAgggregatedColumns = aggregateColumnsInQuery.get("tableB");
+        FunctionCallExpr aggregatedColumn1 = tableAAgggregatedColumns.iterator().next();
+        List<Expr> aggColumn1Params = aggregatedColumn1.getParams().exprs();
+        Assert.assertEquals(1, aggColumn1Params.size());
+        Assert.assertTrue(aggColumn1Params.get(0) instanceof SlotRef);
+        Assert.assertEquals("c2", ((SlotRef) aggColumn1Params.get(0)).getColumnName());
+        Assert.assertTrue("SUM".equalsIgnoreCase(aggregatedColumn1.getFnName().getFunction()));
+        Set<FunctionCallExpr> tableBAgggregatedColumns = aggregateColumnsInQuery.get(new Long(2));
         Assert.assertEquals(1, tableBAgggregatedColumns.size());
-        MaterializedViewSelector.AggregatedColumn aggregatedColumn2 = tableBAgggregatedColumns.iterator().next();
-        Assert.assertEquals("c1", Deencapsulation.getField(aggregatedColumn2, "columnName"));
-        Assert.assertTrue("MAX".equalsIgnoreCase(Deencapsulation.getField(aggregatedColumn2, "aggFunctionName")));
+        FunctionCallExpr aggregatedColumn2 = tableBAgggregatedColumns.iterator().next();
+        List<Expr> aggColumn2Params = aggregatedColumn2.getParams().exprs();
+        Assert.assertEquals(1, aggColumn2Params.size());
+        Assert.assertTrue(aggColumn2Params.get(0) instanceof SlotRef);
+        Assert.assertEquals("c1", ((SlotRef) aggColumn2Params.get(0)).getColumnName());
+        Assert.assertTrue("MAX".equalsIgnoreCase(aggregatedColumn2.getFnName().getFunction()));
     }
 
     @Test
@@ -268,6 +283,8 @@ public class MaterializedViewSelectorTest {
                 result = null;
                 indexMeta1.getSchema();
                 result = index1Columns;
+                indexMeta1.getKeysType();
+                result = KeysType.DUP_KEYS;
                 indexMeta2.getSchema();
                 result = index2Columns;
                 indexMeta3.getSchema();
@@ -276,10 +293,11 @@ public class MaterializedViewSelectorTest {
         };
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
-        MaterializedViewSelector.AggregatedColumn aggregatedColumn = Deencapsulation.newInnerInstance
-                (MaterializedViewSelector.AggregatedColumn.class, selector, "C1", "sum");
-        Set<MaterializedViewSelector.AggregatedColumn> aggregatedColumnsInQueryOutput = Sets.newHashSet();
-        aggregatedColumnsInQueryOutput.add(aggregatedColumn);
+        TableName tableName = new TableName("db1", "table1");
+        SlotRef slotRef = new SlotRef(tableName, "C1");
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", Lists.newArrayList(slotRef));
+        Set<FunctionCallExpr> aggregatedColumnsInQueryOutput = Sets.newHashSet();
+        aggregatedColumnsInQueryOutput.add(functionCallExpr);
         Deencapsulation.setField(selector, "isSPJQuery", false);
         Deencapsulation.invoke(selector, "checkAggregationFunction", aggregatedColumnsInQueryOutput,
                                candidateIndexIdToSchema);
