@@ -394,7 +394,7 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
 
-nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties;
+nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties, opt_datasource_properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
@@ -733,9 +733,20 @@ alter_stmt ::=
         RESULT = new AlterDatabaseRename(dbName, newDbName);
     :}
     | KW_ALTER KW_ROUTINE KW_LOAD job_label:jobLabel opt_properties:properties
-      KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
+      opt_datasource_properties:customProperties
     {:
         RESULT = new AlterRoutineLoadStmt(jobLabel, properties, type, customProperties);
+    :}
+    ;
+
+opt_datasource_properties ::=
+    // empty
+    {:
+        RESULT = Maps.newHashMap();
+    :}
+    | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
+    {:
+        RESULT = customProperties;
     :}
     ;
 
