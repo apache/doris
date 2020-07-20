@@ -41,7 +41,7 @@ public class ClusterStatePublisher {
     private static final Logger LOG = LogManager.getLogger(ClusterStatePublisher.class);
     private static ClusterStatePublisher INSTANCE;
 
-    private ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(5, 256, "cluster-state-publisher");
+    private ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(5, 256, "cluster-state-publisher", true);
 
     private SystemInfoService clusterInfoService;
 

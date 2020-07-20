@@ -48,14 +48,14 @@ public class ConnectScheduler {
     private AtomicInteger nextConnectionId;
     private Map<Long, ConnectContext> connectionMap = Maps.newHashMap();
     private Map<String, AtomicInteger> connByUser = Maps.newHashMap();
-    private ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_connection_scheduler_threads_num, "connect-scheduler-pool");
+    private ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
 
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
     //    Let timeout is 10m, and 5000 qps, then there are up to 3000000 tasks in scheduler.
     // 2. Use a thread to poll maybe lose some accurate, but is enough to us.
-    private ScheduledExecutorService checkTimer = ThreadPoolManager.newScheduledThreadPool(1,
-            "Connect-Scheduler-Check-Timer");
+    private ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+            "Connect-Scheduler-Check-Timer", true);
 
     public ConnectScheduler(int maxConnections) {
         this.maxConnections = maxConnections;

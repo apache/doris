@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -35,6 +36,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -55,8 +57,8 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TTabletType;
+import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -307,6 +309,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType, origStmt);
+        tbl.rebuildFullSchema();
     }
 
     /**
@@ -319,9 +322,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
 
-        if (!isPreviousLoadFinished()) {
-            LOG.info("wait transactions before {} to be finished, rollup job: {}", watershedTxnId, jobId);
-            return;
+        try {
+            if (!isPreviousLoadFinished()) {
+                LOG.info("wait transactions before {} to be finished, rollup job: {}", watershedTxnId, jobId);
+                return;
+            }
+        } catch (AnalysisException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         LOG.info("previous transactions are all finished, begin to send rollup tasks. job: {}", jobId);
@@ -352,6 +359,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     long rollupTabletId = rollupTablet.getId();
                     long baseTabletId = tabletIdMap.get(rollupTabletId);
 
+                    Map<String, Expr> defineExprs = Maps.newHashMap();
+                    for (Column column : rollupSchema) {
+                        if (column.getDefineExpr() != null) {
+                            defineExprs.put(column.getName(), column.getDefineExpr());
+                        }
+                    }
+
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(
@@ -359,7 +373,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 rollupIndexId, baseIndexId,
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
-                                visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP);
+                                visibleVersion, visibleVersionHash, jobId, JobType.ROLLUP, defineExprs);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
@@ -480,6 +494,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             }
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
+        tbl.rebuildFullSchema();
     }
 
     /**
@@ -530,7 +545,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     }
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
-    protected boolean isPreviousLoadFinished() {
+    protected boolean isPreviousLoadFinished() throws AnalysisException {
         return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 

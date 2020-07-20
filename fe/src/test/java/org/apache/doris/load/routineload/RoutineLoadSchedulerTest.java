@@ -165,7 +165,7 @@ public class RoutineLoadSchedulerTest {
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
         routineLoadTaskScheduler.setInterval(5000);
 
-        ExecutorService executorService = ThreadPoolManager.newDaemonFixedThreadPool(2, 2, "routine-load-task-scheduler");
+        ExecutorService executorService = ThreadPoolManager.newDaemonFixedThreadPool(2, 2, "routine-load-task-scheduler", false);
         executorService.submit(routineLoadScheduler);
         executorService.submit(routineLoadTaskScheduler);
 

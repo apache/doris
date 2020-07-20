@@ -269,6 +269,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 # ${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
 ${DORIS_TEST_BINARY_DIR}/olap/options_test
+${DORIS_TEST_BINARY_DIR}/olap/timestamped_version_tracker_test
 
 # Running memory engine Unittest
 ${DORIS_TEST_BINARY_DIR}/olap/memory/hash_index_test

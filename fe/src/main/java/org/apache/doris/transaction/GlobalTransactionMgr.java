@@ -238,17 +238,25 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     /**
-     * check if there exists a load job before the endTransactionId have all finished
+     * Check whether a load job already exists before checking all `TransactionId` related with this load job have finished.
+     * finished
+     * 
+     * @throws AnalysisException is database does not exist anymore
      */
-    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList) {
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
+            throws AnalysisException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
             return dbTransactionMgr.isPreviousTransactionsFinished(endTransactionId, tableIdList);
         } catch (AnalysisException e) {
+            // NOTICE: At present, this situation will only happen when the database no longer exists.
+            // In fact, getDatabaseTransactionMgr() should explicitly throw a MetaNotFoundException,
+            // but changing the type of exception will cause a large number of code changes,
+            // which is not worth the loss.
+            // So here just simply think that AnalysisException only means that db does not exist.
             LOG.warn("Check whether all previous transactions in db [" + dbId + "] finished failed", e);
-            return false;
+            throw e;
         }
-
     }
 
     /**

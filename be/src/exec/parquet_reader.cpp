@@ -92,7 +92,7 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
             for (int i = 0; i < _parquet_column_ids.size(); i++) {
                 std::shared_ptr<arrow::Field>  field = field_schema->field(i);
                 if (!field) {
-                    LOG(WARNING) << "Get filed schema failed. Column order:" << i;
+                    LOG(WARNING) << "Get field schema failed. Column order:" << i;
                     return Status::InternalError(status.ToString());
                 }
                 _parquet_column_type.emplace_back(field->type()->id());

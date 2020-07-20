@@ -46,8 +46,8 @@ public class PullLoadJobMgr {
 
     private int concurrency = 10;
 
-    public PullLoadJobMgr() {
-        executorService = ThreadPoolManager.newDaemonCacheThreadPool(concurrency, "pull-load-job-mgr");
+    public PullLoadJobMgr(boolean needRegisterMetric) {
+        executorService = ThreadPoolManager.newDaemonCacheThreadPool(concurrency, "pull-load-job-mgr", needRegisterMetric);
     }
 
     /**

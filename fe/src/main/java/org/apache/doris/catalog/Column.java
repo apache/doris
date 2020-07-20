@@ -17,8 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -37,6 +39,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class represents the column-related metadata.
@@ -288,6 +292,12 @@ public class Column implements Writable {
             }
         }
 
+        // now we support convert decimal to varchar type
+        if ((getDataType() == PrimitiveType.DECIMAL && other.getDataType() == PrimitiveType.VARCHAR)
+                || (getDataType() == PrimitiveType.DECIMALV2 && other.getDataType() == PrimitiveType.VARCHAR)) {
+            return;
+        }
+
         if (this.getPrecision() != other.getPrecision()) {
             throw new DdlException("Cannot change precision");
         }
@@ -326,6 +336,17 @@ public class Column implements Writable {
 
     public void setDefineExpr(Expr expr) {
         defineExpr = expr;
+    }
+
+    public SlotRef getRefColumn() {
+        List<Expr> slots = new ArrayList<>();
+        if (defineExpr == null) {
+            return null;
+        } else {
+            defineExpr.collect(SlotRef.class, slots);
+            Preconditions.checkArgument(slots.size() == 1);
+            return (SlotRef) slots.get(0);
+        }
     }
 
     public String toSql() {

@@ -23,30 +23,32 @@
 #include <gperftools/profiler.h>
 #include <boost/bind.hpp>
 
-#include <thrift/protocol/TDebugProtocol.h>
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "common/resource_tls.h"
-#include "gen_cpp/DataSinks_types.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/QueryPlanExtra_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gutil/strings/substitute.h"
-#include "runtime/client_cache.h"
-#include "runtime/datetime_value.h"
-#include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
-#include "runtime/plan_fragment_executor.h"
 #include "service/backend_options.h"
+#include "runtime/plan_fragment_executor.h"
+#include "runtime/exec_env.h"
+#include "runtime/datetime_value.h"
+#include "util/stopwatch.hpp"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/stopwatch.hpp"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+#include "runtime/client_cache.h"
+#include "runtime/descriptors.h"
+#include "gen_cpp/HeartbeatService.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/DataSinks_types.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/QueryPlanExtra_types.h"
+#include <thrift/protocol/TDebugProtocol.h>
+#include "util/threadpool.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 
@@ -86,6 +88,8 @@ public:
     std::string to_http_path(const std::string& file_name);
 
     Status execute();
+
+    Status cancel_before_execute();
 
     Status cancel(const PPlanFragmentCancelReason& reason);
 
@@ -216,6 +220,13 @@ Status FragmentExecState::execute() {
     }
     DorisMetrics::instance()->fragment_requests_total.increment(1);
     DorisMetrics::instance()->fragment_request_duration_us.increment(duration_ns / 1000);
+    return Status::OK();
+}
+
+Status FragmentExecState::cancel_before_execute() {
+    // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
+    _executor.set_abort();
+    _executor.cancel();
     return Status::OK();
 }
 
@@ -364,26 +375,31 @@ void FragmentExecState::coordinator_callback(
     }
 }
 
-FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
-        _exec_env(exec_env),
-        _fragment_map(),
-        _stop(false),
-        _cancel_thread(std::bind<void>(&FragmentMgr::cancel_worker, this)),
-        // TODO(zc): we need a better thread-pool
-        // now one user can use all the thread pool, others have no resource.
-        _thread_pool(config::fragment_pool_thread_num, config::fragment_pool_queue_size) {
+FragmentMgr::FragmentMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env),
+          _fragment_map(),
+          _stop(false),
+          _cancel_thread(std::bind<void>(&FragmentMgr::cancel_worker, this)) {
     REGISTER_GAUGE_DORIS_METRIC(plan_fragment_count, [this]() {
         std::lock_guard<std::mutex> lock(_lock);
         return _fragment_map.size();
     });
+    // TODO(zc): we need a better thread-pool
+    // now one user can use all the thread pool, others have no resource.
+    ThreadPoolBuilder("FragmentMgrThreadPool")
+            .set_min_threads(config::fragment_pool_thread_num_min)
+            .set_max_threads(config::fragment_pool_thread_num_max)
+            .set_max_queue_size(config::fragment_pool_queue_size)
+            .build(&_thread_pool);
 }
 
 FragmentMgr::~FragmentMgr() {
     // stop thread
     _stop = true;
     _cancel_thread.join();
-    // Stop all the worker
-    _thread_pool.drain_and_shutdown();
+    // Stop all the worker, should wait for a while?
+    // _thread_pool->wait_for();
+    _thread_pool->shutdown();
 
     // Only me can delete
     {
@@ -421,13 +437,6 @@ Status FragmentMgr::exec_plan_fragment(
     return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
 }
 
-static void* fragment_executor(void* param) {
-    PriorityThreadPool::WorkFunction* func = (PriorityThreadPool::WorkFunction*)param;
-    (*func)();
-    delete func;
-    return nullptr;
-}
-
 Status FragmentMgr::exec_plan_fragment(
         const TExecPlanFragmentParams& params,
         FinishCallback cb) {
@@ -448,7 +457,7 @@ Status FragmentMgr::exec_plan_fragment(
             _exec_env,
             params.coord));
     RETURN_IF_ERROR(exec_state->prepare(params));
-    bool use_pool = true;
+
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
@@ -458,38 +467,19 @@ Status FragmentMgr::exec_plan_fragment(
         }
         // register exec_state before starting exec thread
         _fragment_map.insert(std::make_pair(fragment_instance_id, exec_state));
-
-        // Now, we the fragement is
-        if (_fragment_map.size() >= config::fragment_pool_thread_num) {
-            use_pool = false;
-        }
     }
 
-    if (use_pool) {
-        if (!_thread_pool.offer(
-                boost::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb))) {
-            {
-                // Remove the exec state added
-                std::lock_guard<std::mutex> lock(_lock);
-                _fragment_map.erase(fragment_instance_id);
-            }
-            return Status::InternalError("Put planfragment to failed.");
+    auto st = _thread_pool->submit_func(
+            std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb));
+    if (!st.ok()) {
+        {
+            // Remove the exec state added
+            std::lock_guard<std::mutex> lock(_lock);
+            _fragment_map.erase(fragment_instance_id);
         }
-    } else {
-        pthread_t id;
-        int ret = pthread_create(&id,
-                       nullptr,
-                       fragment_executor,
-                       new PriorityThreadPool::WorkFunction(
-                           std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb)));
-        if (ret != 0) {
-            std::string err_msg("Could not create thread.");
-            err_msg.append(strerror(ret));
-            err_msg.append(",");
-            err_msg.append(std::to_string(ret));
-            return Status::InternalError(err_msg);
-        }
-        pthread_detach(id);
+        exec_state->cancel_before_execute();
+        return Status::InternalError(strings::Substitute(
+                "Put planfragment to thread pool failed. err = $0", st.get_error_msg()));
     }
 
     return Status::OK();

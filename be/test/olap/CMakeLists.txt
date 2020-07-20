@@ -21,6 +21,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test/olap")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/olap")
 
+ADD_BE_TEST(timestamped_version_tracker_test)
 ADD_BE_TEST(row_block_test)
 ADD_BE_TEST(row_block_v2_test)
 ADD_BE_TEST(bit_field_test)

@@ -87,10 +87,8 @@ void Metric::hide() {
 bool MetricCollector::add_metic(const MetricLabels& labels, Metric* metric) {
     if (empty()) {
         _type = metric->type();
-    } else {
-        if (metric->type() != _type) {
-            return false;
-        }
+    } else if (metric->type() != _type) {
+        return false;
     }
     auto it = _metrics.emplace(labels, metric);
     return it.second;
@@ -107,14 +105,15 @@ void MetricCollector::remove_metric(Metric* metric) {
 
 Metric* MetricCollector::get_metric(const MetricLabels& labels) const {
     auto it = _metrics.find(labels);
-    if (it != std::end(_metrics)) {
+    if (it != _metrics.end()) {
         return it->second;
     }
     return nullptr;
 }
 
 void MetricCollector::get_metrics(std::vector<Metric*>* metrics) {
-    for (auto& it : _metrics) {
+    DCHECK(metrics != nullptr);
+    for (const auto& it : _metrics) {
         metrics->push_back(it.second);
     }
 }
@@ -124,7 +123,7 @@ MetricRegistry::~MetricRegistry() {
         std::lock_guard<SpinLock> l(_lock);
 
         std::vector<Metric*> metrics;
-        for (auto& it : _collectors) {
+        for (const auto& it : _collectors) {
             it.second->get_metrics(&metrics);
         }
         for (auto metric : metrics) {
@@ -138,11 +137,12 @@ MetricRegistry::~MetricRegistry() {
 bool MetricRegistry::register_metric(const std::string& name,
                                      const MetricLabels& labels,
                                      Metric* metric) {
+    DCHECK(metric != nullptr);
     metric->hide();
     std::lock_guard<SpinLock> l(_lock);
     MetricCollector* collector = nullptr;
     auto it = _collectors.find(name);
-    if (it == std::end(_collectors)) {
+    if (it == _collectors.end()) {
         collector = new MetricCollector();
         _collectors.emplace(name, collector);
     } else {
@@ -173,7 +173,7 @@ void MetricRegistry::_deregister_locked(Metric* metric) {
 Metric* MetricRegistry::get_metric(const std::string& name, const MetricLabels& labels) const {
     std::lock_guard<SpinLock> l(_lock);
     auto it = _collectors.find(name);
-    if (it != std::end(_collectors)) {
+    if (it != _collectors.end()) {
         return it->second->get_metric(labels);
     }
     return nullptr;

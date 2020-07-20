@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * ThreadPoolManager is a helper class for construct daemon thread pool with limit thread and memory resource.
  * thread names in thread pool are formatted as poolName-ID, where ID is a unique, sequentially assigned integer.
- * it provide three functions to construct thread pool now.
+ * it provide four functions to construct thread pool now.
  *
  * 1. newDaemonCacheThreadPool
  *    Wrapper over newCachedThreadPool with additional maxNumThread limit.
@@ -47,6 +47,8 @@ import java.util.concurrent.TimeUnit;
  *    Wrapper over newCachedThreadPool with additional blocking queue capacity limit.
  * 3. newDaemonThreadPool
  *    Wrapper over ThreadPoolExecutor, user can use it to construct thread pool more flexibly.
+ * 4. newDaemonScheduledThreadPool
+ *    Wrapper over ScheduledThreadPoolExecutor, but without delay task num limit and thread num limit now(NOTICE).
  *
  *  All thread pool constructed by ThreadPoolManager will be added to the nameToThreadPoolMap,
  *  so the thread pool name in fe must be unique.
@@ -66,6 +68,7 @@ public class ThreadPoolManager {
         for (Map.Entry<String, ThreadPoolExecutor> entry : nameToThreadPoolMap.entrySet()) {
             registerThreadPoolMetric(entry.getKey(), entry.getValue());
         }
+        nameToThreadPoolMap.clear();
     }
 
     public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
@@ -92,13 +95,14 @@ public class ThreadPoolManager {
         }
     }
 
-    public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread, String poolName) {
-        return newDaemonThreadPool(0, maxNumThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS, new SynchronousQueue(), new LogDiscardPolicy(poolName), poolName);
+    public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread, String poolName, boolean needRegisterMetric) {
+        return newDaemonThreadPool(0, maxNumThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS, new SynchronousQueue(),
+                new LogDiscardPolicy(poolName), poolName, needRegisterMetric);
     }
 
-    public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread, int queueSize, String poolName) {
+    public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread, int queueSize, String poolName, boolean needRegisterMetric) {
        return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME ,TimeUnit.SECONDS, new LinkedBlockingQueue<>(queueSize),
-               new BlockedPolicy(poolName, 60), poolName);
+               new BlockedPolicy(poolName, 60), poolName, needRegisterMetric);
     }
 
     public static ThreadPoolExecutor newDaemonThreadPool(int corePoolSize,
@@ -107,17 +111,25 @@ public class ThreadPoolManager {
                                                TimeUnit unit,
                                                BlockingQueue<Runnable> workQueue,
                                                RejectedExecutionHandler handler,
-                                               String poolName) {
+                                               String poolName,
+                                               boolean needRegisterMetric) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
-        nameToThreadPoolMap.put(poolName, threadPool);
+        if (needRegisterMetric) {
+            nameToThreadPoolMap.put(poolName, threadPool);
+        }
         return threadPool;
     }
 
-    public static ScheduledThreadPoolExecutor newScheduledThreadPool(int maxNumThread, String poolName) {
+    // Now, we have no delay task num limit and thread num limit in ScheduledThreadPoolExecutor,
+    // so it may cause oom when there are too many delay tasks or threads in ScheduledThreadPoolExecutor
+    // Please use this api only for scheduling short task at fix rate.
+    public static ScheduledThreadPoolExecutor newDaemonScheduledThreadPool(int corePoolSize, String poolName, boolean needRegisterMetric) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
-        ScheduledThreadPoolExecutor scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(maxNumThread, threadFactory);
-        nameToThreadPoolMap.put(poolName, scheduledThreadPoolExecutor);
+        ScheduledThreadPoolExecutor scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(corePoolSize, threadFactory);
+        if (needRegisterMetric) {
+            nameToThreadPoolMap.put(poolName, scheduledThreadPoolExecutor);
+        }
         return scheduledThreadPoolExecutor;
     }
 

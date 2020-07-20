@@ -44,16 +44,33 @@ TEST_F(MetricsTest, Counter) {
         ASSERT_STREQ("100", counter.to_string().c_str());
     }
     {
+        IntAtomicCounter counter(MetricUnit::NOUNIT);
+        ASSERT_EQ(0, counter.value());
+        counter.increment(100);
+        ASSERT_EQ(100, counter.value());
+
+        ASSERT_STREQ("100", counter.to_string().c_str());
+    }
+    {
+        UIntCounter counter(MetricUnit::NOUNIT);
+        ASSERT_EQ(0, counter.value());
+        counter.increment(100);
+        ASSERT_EQ(100, counter.value());
+
+        ASSERT_STREQ("100", counter.to_string().c_str());
+    }
+    {
         DoubleCounter counter(MetricUnit::NOUNIT);
         ASSERT_EQ(0.0, counter.value());
         counter.increment(1.23);
         ASSERT_EQ(1.23, counter.value());
 
-        ASSERT_STREQ("1.23", counter.to_string().c_str());
+        ASSERT_STREQ("1.230000", counter.to_string().c_str());
     }
 }
 
-void mt_updater(IntCounter* counter, std::atomic<uint64_t>* used_time) {
+template<typename T>
+void mt_updater(T* counter, std::atomic<uint64_t>* used_time) {
     sleep(1);
     MonotonicStopWatch watch;
     watch.start();
@@ -65,48 +82,81 @@ void mt_updater(IntCounter* counter, std::atomic<uint64_t>* used_time) {
 }
 
 TEST_F(MetricsTest, CounterPerf) {
-    IntCounter counter(MetricUnit::NOUNIT);
-    volatile int64_t sum = 0;
-
+    static const int kLoopCount = 100000000;
+    // volatile int64_t
     {
+        volatile int64_t sum = 0;
         MonotonicStopWatch watch;
         watch.start();
-        for (int i = 0; i < 100000000; ++i) {
-            counter.increment(1);
-        }
-        uint64_t elapsed = watch.elapsed_time();
-        LOG(INFO) << "counter elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / 100000000;
-    }
-    {
-        MonotonicStopWatch watch;
-        watch.start();
-        for (int i = 0; i < 100000000; ++i) {
+        for (int i = 0; i < kLoopCount; ++i) {
             sum += 1;
         }
         uint64_t elapsed = watch.elapsed_time();
-        LOG(INFO) << "value elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / 100000000;
+        ASSERT_EQ(kLoopCount, sum);
+        LOG(INFO) << "int64_t: elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / kLoopCount;
     }
-    ASSERT_EQ(100000000, counter.value());
-    ASSERT_EQ(100000000, sum);
+    // IntAtomicCounter
+    {
+        IntAtomicCounter counter(MetricUnit::NOUNIT);
+        MonotonicStopWatch watch;
+        watch.start();
+        for (int i = 0; i < kLoopCount; ++i) {
+            counter.increment(1);
+        }
+        uint64_t elapsed = watch.elapsed_time();
+        ASSERT_EQ(kLoopCount, counter.value());
+        LOG(INFO) << "IntAtomicCounter: elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / kLoopCount;
+    }
+    // IntCounter
+    {
+        IntCounter counter(MetricUnit::NOUNIT);
+        MonotonicStopWatch watch;
+        watch.start();
+        for (int i = 0; i < kLoopCount; ++i) {
+            counter.increment(1);
+        }
+        uint64_t elapsed = watch.elapsed_time();
+        ASSERT_EQ(kLoopCount, counter.value());
+        LOG(INFO) << "IntCounter: elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / kLoopCount;
+    }
+
+    // multi-thread for IntCounter
     {
         IntCounter mt_counter(MetricUnit::NOUNIT);
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater, &mt_counter, &used_time);
+            updaters.emplace_back(&mt_updater<IntCounter>, &mt_counter, &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
         }
-        LOG(INFO) << "mt_counter elapsed: " << used_time.load()
+        LOG(INFO) << "IntCounter multi-thread elapsed: " << used_time.load()
+                  << "ns, ns/iter:" << used_time.load() / (8 * 1000000L);
+        ASSERT_EQ(8 * 1000000L, mt_counter.value());
+    }
+    // multi-thread for IntAtomicCounter
+    {
+        IntAtomicCounter mt_counter(MetricUnit::NOUNIT);
+        std::vector<std::thread> updaters;
+        std::atomic<uint64_t> used_time(0);
+        for (int i = 0; i < 8; ++i) {
+            updaters.emplace_back(&mt_updater<IntAtomicCounter>, &mt_counter, &used_time);
+        }
+        for (int i = 0; i < 8; ++i) {
+            updaters[i].join();
+        }
+        LOG(INFO) << "IntAtomicCounter multi-thread elapsed: " << used_time.load()
                   << "ns, ns/iter:" << used_time.load() / (8 * 1000000L);
         ASSERT_EQ(8 * 1000000L, mt_counter.value());
     }
 }
 
 TEST_F(MetricsTest, Gauge) {
+    // IntGauge
     {
         IntGauge gauge(MetricUnit::NOUNIT);
         ASSERT_EQ(0, gauge.value());
@@ -115,13 +165,23 @@ TEST_F(MetricsTest, Gauge) {
 
         ASSERT_STREQ("100", gauge.to_string().c_str());
     }
+    // UIntGauge
+    {
+        UIntGauge gauge(MetricUnit::NOUNIT);
+        ASSERT_EQ(0, gauge.value());
+        gauge.set_value(100);
+        ASSERT_EQ(100, gauge.value());
+
+        ASSERT_STREQ("100", gauge.to_string().c_str());
+    }
+    // DoubleGauge
     {
         DoubleGauge gauge(MetricUnit::NOUNIT);
         ASSERT_EQ(0.0, gauge.value());
         gauge.set_value(1.23);
         ASSERT_EQ(1.23, gauge.value());
 
-        ASSERT_STREQ("1.23", gauge.to_string().c_str());
+        ASSERT_STREQ("1.230000", gauge.to_string().c_str());
     }
 }
 

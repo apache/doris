@@ -33,17 +33,17 @@ public:
     void set_metric(const std::string& key, int64_t val) {
         auto metric = metrics.find(key);
         if (metric != metrics.end()) {
-            metric->second.set_value(val);
+            metric->second->set_value(val);
         }
     }
 
-    IntGauge* set_key(const std::string& key, const MetricUnit unit) {
-        metrics.emplace(key, IntGauge(unit));
-        return &metrics.find(key)->second;
+    IntGauge* add_metric(const std::string& key, const MetricUnit unit) {
+        metrics.emplace(key, new IntGauge(unit));
+        return metrics.find(key)->second.get();
     }
 
 private:
-    std::unordered_map<std::string, IntGauge> metrics;
+    std::unordered_map<std::string, std::unique_ptr<IntGauge>> metrics;
 };
 
 #define REGISTER_GAUGE_DORIS_METRIC(name, func)                                                   \
@@ -210,8 +210,8 @@ private:
     void _update_process_fd_num();
 
 private:
-    const char* _name;
-    const char* _hook_name;
+    static const std::string _s_registry_name;
+    static const std::string _s_hook_name;
 
     MetricRegistry _metrics;
     SystemMetrics _system_metrics;

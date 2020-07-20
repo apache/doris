@@ -245,16 +245,23 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             } else {
                                 decimal_str = ((orc::Decimal128VectorBatch*) cvb)->values[_current_line_of_group].toString();
                             }
+                            
+                            int negative = decimal_str[0] == '-' ? 1 : 0;
+                            int decimal_scale_length = decimal_str.size() - negative;
 
                             std::string v;
-                            if (decimal_str.size() <= scale) {
+                            if (decimal_scale_length <= scale) {
                                 // decimal(5,2) : the integer of 0.01 is 1, so we should fill 0 befor integer
-                                v = "0.";
-                                int fill_zero = scale - decimal_str.size();
+                                v = std::string(negative ? "-0." : "0.");
+                                int fill_zero = scale - decimal_scale_length;
                                 while (fill_zero--) {
                                     v += "0";
                                 }
-                                v += decimal_str;
+                                if (negative) {
+                                    v += decimal_str.substr(1, decimal_str.length());
+                                } else {
+                                    v += decimal_str;
+                                }
                             } else {
                                 //Orc api will fill in 0 at the end, so size must greater than scale
                                 v = decimal_str.substr(0, decimal_str.size() - scale) + "." + decimal_str.substr(decimal_str.size() - scale);
