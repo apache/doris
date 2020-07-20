@@ -27,10 +27,10 @@ under the License.
 # GET LABEL STATE
 ## description
     NAME:
-        get_label_state: get label's state
+        get_load_state: get load's state of label
         
     SYNOPSIS
-        curl -u user:passwd http://host:port/api/{db}/{label}/_state
+        curl -u user:passwd http://host:port/api/{db}/get_load_state?label=xxx
 
     DESCRIPTION
 
@@ -51,9 +51,9 @@ under the License.
 
     1. Get status of label "testLabel" on database "testDb"
 
-        curl -u root http://host:port/api/testDb/testLabel/_state
+        curl -u root http://host:port/api/testDb/get_load_state?label=testLabel
  
 ## keyword
 
-    GET, LABEL, STATE
+    GET, LOAD, STATE
 

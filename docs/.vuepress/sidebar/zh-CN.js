@@ -83,7 +83,7 @@ module.exports = [
           "cancel-label",
           "compaction-action",
           "fe-get-log-file",
-          "get-label-state",
+          "get-load-state",
           "restore-tablet",
           "profile-action",
           "connection-action",
