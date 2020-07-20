@@ -389,7 +389,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
     request.__set_merge_type(TMergeType::APPEND);
-    StringCaseMap<std::string, TMergeType> merge_type_map = {
+    StringCaseMap<TMergeType::type> merge_type_map = {
         { "APPEND", TMergeType::APPEND },
         { "DELETE", TMergeType::DELETE },
         { "MERGE", TMergeType::MERGE }
@@ -397,7 +397,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type = http_req->header(HTTP_MERGE_TYPE);
         if (merge_type_map.find(merge_type) != merge_type_map.end() ) {
-            request.__set_merge_type(merge_type);
+            request.__set_merge_type(merge_type_map.find(merge_type)->second);
         } else {
             return Status::InvalidArgument("Invalid merge type " + merge_type);
         }
