@@ -243,6 +243,7 @@ Status JsonReader::_parse_json_doc(bool* eof) {
     uint8_t* json_str = nullptr;
     size_t length = 0;
     RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
+    LOG(INFO) << "cmy get json length: " << length;
     if (length == 0) {
         *eof = true;
         return Status::OK();

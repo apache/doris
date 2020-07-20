@@ -33,10 +33,12 @@ namespace doris {
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
     StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024,
-                   size_t min_chunk_size = 64 * 1024)
+                   size_t min_chunk_size = 64 * 1024,
+                   size_t total_length = -1)
         : _buffered_bytes(0),
         _max_buffered_bytes(max_buffered_bytes),
         _min_chunk_size(min_chunk_size),
+        _total_length(total_length),
         _finished(false), _cancelled(false) {
     }
     virtual ~StreamLoadPipe() { }
@@ -84,7 +86,7 @@ public:
         return _append(buf);
     }
 
-    Status read_one_message(uint8_t** data, size_t* length) override {
+    Status read_one_message2(uint8_t** data, size_t* length) {
         std::unique_lock<std::mutex> l(_lock);
         while (!_cancelled && !_finished && _buf_queue.empty()) {
             _get_cond.wait(l);
@@ -109,6 +111,17 @@ public:
         _buffered_bytes -= buf->limit;
         _put_cond.notify_one();
         return Status::OK();
+    }
+
+    Status read_one_message(uint8_t** data, size_t* length) override {
+        if (_total_length == -1) {
+            return Status::InternalError("invalid call");
+        }
+        *data = new uint8_t[_total_length];
+
+        *length = _total_length;
+        bool eof = false;
+        return read(*data, length, &eof);
     }
 
     Status read(uint8_t* data, size_t* data_size, bool* eof) override {
@@ -221,6 +234,7 @@ private:
     size_t _buffered_bytes;
     size_t _max_buffered_bytes;
     size_t _min_chunk_size;
+    size_t _total_length;
     std::deque<ByteBufferPtr> _buf_queue;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
