@@ -249,10 +249,7 @@ public class DatabaseTransactionMgr {
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
                                  TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
-        if (Config.enable_check_data_quota_on_load) {
-            checkDatabaseDataQuota();
-        }
-
+        checkDatabaseDataQuota();
         writeLock();
         try {
             Preconditions.checkNotNull(coordinator);

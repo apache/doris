@@ -267,10 +267,6 @@ FE 的配置项有两种方式进行配置：
 
 ### `enable_auth_check`
 
-### `enable_check_data_quota_on_load`
-
-该配置用于开启和关闭数据导入前的数据库数据量配额检查功能。如果当前数据库的数据量已经大于等于目前的数据库数据量配额,则拒绝数据导入任务。该配置默认值为true。
-
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`

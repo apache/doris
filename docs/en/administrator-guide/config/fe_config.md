@@ -267,12 +267,6 @@ This configuration can play a role in certain scenarios. Assume that the initial
 
 ### `enable_auth_check`
 
-### `enable_check_data_quota_on_load`
-
-This configuration is used to enable and disable the database data quota check function before data load. If the current database data volume is greater than or equal to the current database data volume quota, the data load job is rejected.
- 
-The default value of this configuration is true.
-
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`
