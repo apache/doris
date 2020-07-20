@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.io.Text;
@@ -39,6 +39,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
+import java.util.Map;
 
 public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "indexId")
@@ -106,11 +107,11 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return schemaVersion;
     }
 
-    private void setColumnsDefineExpr(List<MVColumnItem> items) {
-        for (MVColumnItem item : items) {
+    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) {
+        for (Map.Entry<String, Expr> entry : columnNameToDefineExpr.entrySet()) {
             for (Column column : schema) {
-                if (column.getName().equals(item.getName())) {
-                    column.setDefineExpr(item.getDefineExpr());
+                if (column.getName().equals(entry.getKey())) {
+                    column.setDefineExpr(entry.getValue());
                     break;
                 }
             }
@@ -169,8 +170,8 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
-            stmt.analyzeSelectClause();
-            setColumnsDefineExpr(stmt.getMVColumnItemList());
+            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
+            setColumnsDefineExpr(columnNameToDefineExpr);
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
         }

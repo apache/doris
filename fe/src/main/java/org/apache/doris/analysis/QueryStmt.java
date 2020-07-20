@@ -18,12 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -37,6 +36,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Abstract base class for any statement that returns results
@@ -112,6 +112,40 @@ public abstract class QueryStmt extends StatementBase {
 
     // represent the "INTO OUTFILE" clause
     protected OutFileClause outFileClause;
+
+    /**
+     * If the query stmt belongs to CreateMaterializedViewStmt,
+     * such as
+     * `CREATE MATERIALIZED VIEW mv AS SELECT bitmap_union(to_bitmap(k1)) from table`
+     * query stmt will not be rewrite by MVRewriter.
+     * The `bitmap_union(to_bitmap(k1))` is the definition of the mv column rather then a expr.
+     * So `forbiddenMVRewrite` will be set to true to protect the definition of the mv column from being overwritten.
+     * <p>
+     * In other query case, `forbiddenMVRewrite` is always false.
+     */
+    private boolean forbiddenMVRewrite = false;
+
+    /**
+     * If the tuple id in `disableMVRewriteTupleIds`, the expr which belongs to this tuple will not be MVRewritten.
+     * Initially this set is an empty set.
+     * When the scan node is unable to match any index in selecting the materialized view,
+     *   the tuple is added to this set.
+     * The query will be re-executed, and this tuple will not be mv rewritten.
+     * For example:
+     * TableA: (k1 int, k2 int, k3 int)
+     * MV: (k1 int, mv_bitmap_union_k2 bitmap bitmap_union)
+     * Query: select k3, bitmap_union(to_bitmap(k2)) from TableA
+     * First analyze: MV rewriter enable and this set is empty
+     *     select k3, bitmap_union(mv_bitmap_union_k2) from TableA
+     * SingleNodePlanner: could not select any index for TableA
+     *     Add table to disableMVRewriteTupleIds.
+     * `disableMVRewriteTupleIds` = {TableA}
+     * Re-executed:
+     * Second analyze: MV rewrite disable in table and use origin stmt.
+     *     select k3, bitmap_union(to_bitmap(k2)) from TableA
+     * SingleNodePlanner: base index selected
+     */
+    private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
@@ -208,36 +242,16 @@ public abstract class QueryStmt extends StatementBase {
         this.needToSql = needToSql;
     }
 
-
-    // for bitmap type, we rewrite count distinct to bitmap_union_count
-    // for hll type, we rewrite count distinct to hll_union_agg
-    protected Expr rewriteCountDistinctForBitmapOrHLL(Expr expr, Analyzer analyzer) {
-        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isRewriteCountDistinct()) {
+    protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
+        if (forbiddenMVRewrite) {
             return expr;
         }
-
-        for (int i = 0; i < expr.getChildren().size(); ++i) {
-            expr.setChild(i, rewriteCountDistinctForBitmapOrHLL(expr.getChild(i), analyzer));
-        }
-
-        if (!(expr instanceof FunctionCallExpr)) {
+        if (expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()))) {
             return expr;
         }
-
-        FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-        if (functionCallExpr.isCountDistinctBitmapOrHLL()) {
-            FunctionParams newParams = new FunctionParams(false, functionCallExpr.getParams().exprs());
-            if (expr.getChild(0).type.isBitmapType()) {
-                FunctionCallExpr bitmapExpr = new FunctionCallExpr(FunctionSet.BITMAP_UNION_COUNT, newParams);
-                bitmapExpr.analyzeNoThrow(analyzer);
-                return bitmapExpr;
-            } else  {
-                FunctionCallExpr hllExpr = new FunctionCallExpr("hll_union_agg", newParams);
-                hllExpr.analyzeNoThrow(analyzer);
-                return hllExpr;
-            }
-        }
-        return expr;
+        ExprRewriter rewriter = analyzer.getMVExprRewriter();
+        rewriter.reset();
+        return rewriter.rewrite(expr, analyzer);
     }
 
     /**
@@ -272,8 +286,8 @@ public abstract class QueryStmt extends StatementBase {
         // save the order by element after analyzed
         orderByElementsAfterAnalyzed = Lists.newArrayList();
         for (int i = 0; i < orderByElements.size(); i++) {
-            // rewrite count distinct
-            orderingExprs.set(i, rewriteCountDistinctForBitmapOrHLL(orderingExprs.get(i), analyzer));
+            // equal count distinct
+            orderingExprs.set(i, rewriteQueryExprByMvColumnExpr(orderingExprs.get(i), analyzer));
             OrderByElement orderByElement = new OrderByElement(orderingExprs.get(i), isAscOrder.get(i),
                     nullsFirstParams.get(i));
             orderByElementsAfterAnalyzed.add(orderByElement);
@@ -515,6 +529,26 @@ public abstract class QueryStmt extends StatementBase {
      */
     public void substituteResultExprs(ExprSubstitutionMap smap, Analyzer analyzer) {
         resultExprs = Expr.substituteList(resultExprs, smap, analyzer, true);
+    }
+
+    public boolean isForbiddenMVRewrite() {
+        return forbiddenMVRewrite;
+    }
+
+    public void forbiddenMVRewrite() {
+        this.forbiddenMVRewrite = true;
+    }
+
+    public void updateDisableTuplesMVRewriter(TupleId tupleId) {
+        disableTuplesMVRewriter.add(tupleId);
+    }
+
+    public void updateDisableTuplesMVRewriter(Set<TupleId> tupleIds) {
+        disableTuplesMVRewriter.addAll(tupleIds);
+    }
+
+    public Set<TupleId> getDisableTuplesMVRewriter() {
+        return disableTuplesMVRewriter;
     }
 
     /**

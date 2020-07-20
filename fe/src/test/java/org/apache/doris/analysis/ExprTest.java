@@ -69,21 +69,21 @@ public class ExprTest {
                 result = tableA;
                 tupleDescriptor2.getTable();
                 result = tableB;
-                tableA.getName();
-                result = "tableA";
-                tableB.getName();
-                result = "tableB";
+                tableA.getId();
+                result = 1;
+                tableB.getId();
+                result = 2;
 
             }
         };
 
-        Map<String, Set<String>> tableNameToColumnNames = Maps.newHashMap();
-        whereExpr.getTableNameToColumnNames(tableNameToColumnNames);
+        Map<Long, Set<String>> tableNameToColumnNames = Maps.newHashMap();
+        whereExpr.getTableIdToColumnNames(tableNameToColumnNames);
         Assert.assertEquals(tableNameToColumnNames.size(), 2);
-        Set<String> tableAColumns = tableNameToColumnNames.get("tableA");
+        Set<String> tableAColumns = tableNameToColumnNames.get(new Long(1));
         Assert.assertNotEquals(tableAColumns, null);
         Assert.assertTrue(tableAColumns.contains("c1"));
-        Set<String> tableBColumns = tableNameToColumnNames.get("tableB");
+        Set<String> tableBColumns = tableNameToColumnNames.get(new Long(2));
         Assert.assertNotEquals(tableBColumns, null);
         Assert.assertTrue(tableBColumns.contains("c1"));
     }

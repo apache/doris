@@ -104,7 +104,7 @@ public class FunctionCallExpr extends Expr {
 
     private FunctionCallExpr(
         FunctionName fnName, FunctionParams params, boolean isMergeAggFn) {
-                super();
+        super();
         this.fnName = fnName;
         fnParams = params;
         this.isMergeAggFn = isMergeAggFn;
@@ -234,7 +234,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     public boolean isCountStar() {
-        if (fnName.getFunction().equalsIgnoreCase("count")) {
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             if (fnParams.isStar()) {
                 return true;
             } else if (fnParams.exprs() == null || fnParams.exprs().isEmpty()) {
@@ -255,7 +255,7 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
 
-        if (!fnName.getFunction().equalsIgnoreCase("count")) {
+        if (!fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             return false;
         }
 
@@ -282,12 +282,12 @@ public class FunctionCallExpr extends Expr {
     }
 
     private void analyzeBuiltinAggFunction(Analyzer analyzer) throws AnalysisException {
-        if (fnParams.isStar() && !fnName.getFunction().equalsIgnoreCase("count")) {
+        if (fnParams.isStar() && !fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             throw new AnalysisException(
                     "'*' can only be used in conjunction with COUNT: " + this.toSql());
         }
 
-        if (fnName.getFunction().equalsIgnoreCase("count")) {
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             // for multiple exprs count must be qualified with distinct
             if (children.size() > 1 && !fnParams.isDistinct()) {
                 throw new AnalysisException(
@@ -464,7 +464,7 @@ public class FunctionCallExpr extends Expr {
             return "'*' can only be used in conjunction with COUNT";
         }
 
-        if (fnName.getFunction().equalsIgnoreCase("count")) {
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             if (!fnParams.isDistinct() && argTypes.length > 1) {
                 return "COUNT must have DISTINCT for multiple arguments: " + toSql();
             }
@@ -504,11 +504,11 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
-        if (fnName.getFunction().equals("count") && fnParams.isDistinct()) {
-            // Treat COUNT(DISTINCT ...) special because of how we do the rewrite.
+        if (fnName.getFunction().equals(FunctionSet.COUNT) && fnParams.isDistinct()) {
+            // Treat COUNT(DISTINCT ...) special because of how we do the equal.
             // There is no version of COUNT() that takes more than 1 argument but after
-            // the rewrite, we only need count(*).
-            // TODO: fix how we rewrite count distinct.
+            // the equal, we only need count(*).
+            // TODO: fix how we equal count distinct.
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[0],
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();

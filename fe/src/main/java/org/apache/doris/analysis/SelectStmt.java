@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -366,7 +367,7 @@ public class SelectStmt extends QueryStmt {
                         item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                     throw new AnalysisException("Subquery is not supported in the select list.");
                 }
-                Expr expr = rewriteCountDistinctForBitmapOrHLL(item.getExpr(), analyzer);
+                Expr expr = rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer);
                 resultExprs.add(expr);
                 SlotRef aliasRef = new SlotRef(null, item.toColumnLabel());
                 Expr existingAliasExpr = aliasSMap.get(aliasRef);
@@ -661,7 +662,7 @@ public class SelectStmt extends QueryStmt {
                     : makeCompound(temp, CompoundPredicate.Operator.OR);
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("rewrite ors: " + result.toSql());
+            LOG.debug("equal ors: " + result.toSql());
         }
         return result;
     }
@@ -995,7 +996,7 @@ public class SelectStmt extends QueryStmt {
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
             havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
-            havingClauseAfterAnaylzed = rewriteCountDistinctForBitmapOrHLL(havingClauseAfterAnaylzed, analyzer);
+            havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
             havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
             // can't contain analytic exprs
             Expr analyticExpr = havingClauseAfterAnaylzed.findFirstOf(AnalyticExpr.class);
@@ -1223,7 +1224,7 @@ public class SelectStmt extends QueryStmt {
         for (FunctionCallExpr inputExpr : distinctExprs) {
             Expr replaceExpr = null;
             final String functionName = inputExpr.getFnName().getFunction();
-            if (functionName.equalsIgnoreCase("COUNT")) {
+            if (functionName.equalsIgnoreCase(FunctionSet.COUNT)) {
                 final List<Expr> countInputExpr = Lists.newArrayList(inputExpr.getChild(0).clone(null));
                 replaceExpr = new FunctionCallExpr("MULTI_DISTINCT_COUNT",
                         new FunctionParams(inputExpr.isDistinct(), countInputExpr));
@@ -1283,7 +1284,7 @@ public class SelectStmt extends QueryStmt {
         com.google.common.base.Predicate<FunctionCallExpr> isCountPred =
                 new com.google.common.base.Predicate<FunctionCallExpr>() {
                     public boolean apply(FunctionCallExpr expr) {
-                        return expr.getFnName().getFunction().equals("count");
+                        return expr.getFnName().getFunction().equals(FunctionSet.COUNT);
                     }
                 };
 
@@ -1353,7 +1354,7 @@ public class SelectStmt extends QueryStmt {
                     Expr.substituteList(analyticExprs, rewriteSmap, analyzer, false);
             // This is to get rid the original exprs which have been rewritten.
             analyticExprs.clear();
-            // Collect the new exprs introduced through the rewrite and the non-rewrite exprs.
+            // Collect the new exprs introduced through the equal and the non-equal exprs.
             TreeNode.collect(updatedAnalyticExprs, AnalyticExpr.class, analyticExprs);
         }
 
@@ -1387,7 +1388,7 @@ public class SelectStmt extends QueryStmt {
         for (TableRef ref : fromClause_) {
             ref.rewriteExprs(rewriter, analyzer);
         }
-        // Also rewrite exprs in the statements of subqueries.
+        // Also equal exprs in the statements of subqueries.
         List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
             whereClause = rewriter.rewrite(whereClause, analyzer);
@@ -1423,7 +1424,7 @@ public class SelectStmt extends QueryStmt {
         selectList.rewriteExprs(rewriter, analyzer);
     }
 
-    /** rewrite subquery in case when to an inline view
+    /** equal subquery in case when to an inline view
      *  subquery in case when statement like
      *
      * SELECT CASE
@@ -1440,7 +1441,7 @@ public class SelectStmt extends QueryStmt {
      *         )
      *     END AS kk4
      * FROM t;
-     * this statement will be rewrite to
+     * this statement will be equal to
      *
      * SELECT CASE
      *         WHEN t1.a > k4 THEN t2.a

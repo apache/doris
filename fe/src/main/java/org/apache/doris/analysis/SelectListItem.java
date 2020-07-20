@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import com.google.common.base.Preconditions;
 
-class SelectListItem {
+public class SelectListItem {
     private Expr expr;
     // for "[name.]*"
     private final TableName tblName;

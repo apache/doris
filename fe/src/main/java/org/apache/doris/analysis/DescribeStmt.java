@@ -164,14 +164,11 @@ public class DescribeStmt extends ShowStmt {
                             if (bfColumns != null && bfColumns.contains(column.getName())) {
                                 extras.add("BLOOM_FILTER");
                             }
-                            if (column.getDefineExpr() != null) {
-                                extras.add(column.getDefineExpr().toSql().toUpperCase());
-                            }
                             String extraStr = StringUtils.join(extras, ",");
 
                             List<String> row = Arrays.asList("",
                                                              "",
-                                                             column.getName(),
+                                                             column.getDisplayName(),
                                                              column.getOriginType().toString(),
                                                              column.isAllowNull() ? "Yes" : "No",
                                                              ((Boolean) column.isKey()).toString(),

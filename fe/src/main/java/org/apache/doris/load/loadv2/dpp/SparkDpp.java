@@ -17,63 +17,65 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import com.google.common.base.Strings;
-import com.google.gson.Gson;
-import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.Path;
+
+import com.google.common.base.Strings;
+import com.google.gson.Gson;
+
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 import org.apache.parquet.column.ParquetProperties;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.spark.Partitioner;
+import org.apache.spark.TaskContext;
+import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.ForeachPartitionFunction;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.sql.Column;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
+import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder;
 import org.apache.spark.sql.catalyst.encoders.RowEncoder;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetWriteSupport;
 import org.apache.spark.sql.functions;
-import org.apache.spark.sql.RowFactory;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Column;
-import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.util.LongAccumulator;
-import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.TaskContext;
-
-import scala.Tuple2;
-import scala.collection.Seq;
 
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.HashSet;
-import java.util.Arrays;
 import java.util.stream.Collectors;
 
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.FSDataOutputStream;
+import scala.Tuple2;
 import scala.collection.JavaConverters;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import scala.collection.Seq;
 
 // This class is a Spark-based data preprocessing program,
 // which will make use of the distributed compute framework of spark to
@@ -490,7 +492,7 @@ public final class SparkDpp implements java.io.Serializable {
         // 2. process the mapping columns
         for (String mappingColumn : mappingColumns) {
             String mappingDescription = columnMappings.get(mappingColumn).toDescription();
-            if (mappingDescription.toLowerCase().contains("hll_hash")) {
+            if (mappingDescription.toLowerCase().contains(FunctionSet.HLL_HASH)) {
                 continue;
             }
             // here should cast data type to dst column type
