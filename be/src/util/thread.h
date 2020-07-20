@@ -277,7 +277,7 @@ private:
 };
 
 // Registers /threadz with the debug webserver.
-void start_thread_instrumentation(WebPageHandler* web_page_handler);
+void register_thread_display_page(WebPageHandler* web_page_handler);
 
 } //namespace doris
 

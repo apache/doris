@@ -78,7 +78,7 @@ public:
     // already been removed, this is a no-op.
     void remove_thread(const pthread_t& pthread_id, const std::string& category);
 
-    void start_instrumentation(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const;
+    void display_thread_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const;
 
 private:
     // Container class for any details we want to capture about a thread
@@ -174,7 +174,7 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
     ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
-void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const {
+void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const {
     const auto* category_name = FindOrNull(args, "group");
     if (category_name) {
         bool requested_all = (*category_name == "all");
@@ -188,10 +188,11 @@ void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args, E
         if (!requested_all) {
             MutexLock l(&_lock);
             const auto* category = FindOrNull(_thread_categories, *category_name);
-            if (category) {
-                for (const auto& elem : *category) {
-                    descriptors_to_print.emplace_back(elem.second);
-                }
+            if (!category) {
+                return;
+            }
+            for (const auto& elem : *category) {
+                descriptors_to_print.emplace_back(elem.second);
             }
         } else {
             MutexLock l(&_lock);
@@ -224,7 +225,6 @@ void ThreadMgr::start_instrumentation(const WebPageHandler::ArgumentMap& args, E
             for (const auto& elem : thread_categories_info) {
                 string category_arg;
                 url_encode(elem.first, &category_arg);
-                LOG(INFO) << "encode url path: " << category_arg;
                 EasyJson group = groups.PushBack(EasyJson::kObject);
                 group["encoded_group_name"] = category_arg;
                 group["group_name"] = elem.first;
@@ -481,10 +481,10 @@ Status ThreadJoiner::join() {
             strings::Substitute("Timed out after $0ms joining on $1", waited_ms, _thread->_name));
 }
 
-void start_thread_instrumentation(WebPageHandler* web_page_handler) {
+void register_thread_display_page(WebPageHandler* web_page_handler) {
     web_page_handler->register_template_page(
-            "/threadz", "Threadz",
-            boost::bind(&ThreadMgr::start_instrumentation, thread_manager.get(),
+            "/threadz", "Threads",
+            boost::bind(&ThreadMgr::display_thread_callback, thread_manager.get(),
                         boost::placeholders::_1, boost::placeholders::_2),
             true);
 }
