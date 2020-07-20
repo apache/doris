@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -38,6 +39,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -105,23 +107,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return convertedCustomProperties;
     }
 
-    public void resetConvertedCustomProperties() {
-        convertedCustomProperties.clear();
-    }
-
     @Override
     public void prepare() throws UserException {
         super.prepare();
         // should reset converted properties each time the job being prepared.
         // because the file info can be changed anytime.
-        resetConvertedCustomProperties();
-        convertCustomProperties();
+        convertCustomProperties(true);
     }
 
-    private void convertCustomProperties() throws DdlException {
-        if (!convertedCustomProperties.isEmpty() || customProperties.isEmpty()) {
+    private void convertCustomProperties(boolean rebuild) throws DdlException {
+        if (customProperties.isEmpty()) {
             return;
         }
+
+        if (!rebuild && !convertedCustomProperties.isEmpty()) {
+            return;
+        }
+
+        if (rebuild) {
+            convertedCustomProperties.clear();
+        }
+
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
@@ -328,7 +334,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
-        convertCustomProperties();
+        convertCustomProperties(false);
         return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
     }
 
@@ -492,5 +498,67 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
+    }
+
+    @Override
+    public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException {
+        if (!stmt.getTypeName().equalsIgnoreCase("kafka")) {
+            throw new DdlException("This not a Kafka routine load job");
+        }
+
+        Map<String, String> jobProperties = stmt.getAnalyzedProperties();
+        List<Pair<Integer, Long>> kafkaPartitionOffsets = stmt.getKafkaPartitionOffsets();
+        Map<String, String> customKafkaProperties = stmt.getCustomKafkaProperties();
+
+        writeLock();
+        try {
+            if (getState() != JobState.PAUSED) {
+                throw new DdlException("Only supports modification of PAUSED jobs");
+            }
+            
+            modifyPropertiesInternal(jobProperties, kafkaPartitionOffsets, customKafkaProperties);
+
+            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
+                    stmt.getTypeName(), jobProperties, customKafkaProperties, kafkaPartitionOffsets);
+            Catalog.getCurrentCatalog().getEditLog().logAlterRoutineLoadJob(log);
+
+            LOG.info("modify the properties of kafka routine load job: {}, kafkaPartitionOffsets: {},"
+                    + " jobProperties: {}, customProperties: {}", this.id, kafkaPartitionOffsets, jobProperties,
+                    customKafkaProperties);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void modifyPropertiesInternal(Map<String, String> jobProperties,
+            List<Pair<Integer, Long>> kafkaPartitionOffsets, Map<String, String> customKafkaProperties)
+            throws DdlException {
+        // modify partition offset first
+        if (!kafkaPartitionOffsets.isEmpty()) {
+            // So we can only modify the partition that is being consumed
+            ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
+        }
+        
+        if (!jobProperties.isEmpty()) {
+            this.jobProperties.putAll(jobProperties);
+        }
+
+        if (!customKafkaProperties.isEmpty()) {
+            this.customProperties.putAll(customKafkaProperties);
+            convertCustomProperties(true);
+        }
+    }
+
+    @Override
+    public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
+        try {
+            modifyPropertiesInternal(log.getJobProperties(), log.getKafkaPartitioinOffset(), log.getCustomProperties());
+        } catch (DdlException e) {
+            // should not happen
+            LOG.error("failed to replay modify kafka routine load job: {}", id, e);
+        }
+        LOG.info("replay modify the properties of kafka routine load job: {}, kafkaPartitionOffsets: {},"
+                + " jobProperties: {}, customProperties: {}", this.id, log.getKafkaPartitioinOffset(),
+                log.getJobProperties(), log.getCustomProperties());
     }
 }

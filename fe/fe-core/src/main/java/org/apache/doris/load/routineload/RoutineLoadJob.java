@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
@@ -48,6 +49,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -1410,4 +1412,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt, e);
         }
     }
+
+    abstract public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException;
+
+    abstract public void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 }

@@ -30,10 +30,20 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * ALTER ROUTINE LOAD db.label
+ * PROPERTIES(
+ * ...
+ * )
+ * FROM kafka (
+ * ...
+ * )
+ */
 public class AlterRoutineLoadStmt extends DdlStmt {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
@@ -60,21 +70,10 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     private final String typeName;
     private final Map<String, String> dataSourceProperties;
 
-    private int desiredConcurrentNum = 1;
-    private long maxErrorNum = -1;
-    private long maxBatchIntervalS = -1;
-    private long maxBatchRows = -1;
-    private long maxBatchSizeBytes = -1;
-    private Boolean strictMode = null;
-    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
-
-    private String jsonPaths = "";
-    private Boolean stripOuterArray = false;
-
-    private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
-
     // save analyzed properties
     private Map<String, String> analyzedProperties = Maps.newHashMap();
+    // save modified kafka partition offsets
+    private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
     // save analyzed kafka properties
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
@@ -82,24 +81,37 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             Map<String, String> dataSourceProperties) {
 
         this.labelName = labelName;
-        this.jobProperties = jobProperties;
-        this.typeName = typeName;
+        this.jobProperties = jobProperties != null ? jobProperties : Maps.newHashMap();
+        this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = dataSourceProperties;
     }
-    
-    /*
-    boolean hasDesiredConcurrentNum() { return desiredConcurrentNum > 0; }
-    boolean hasMaxErrorNum() { return maxErrorNum >=0; }
-    boolean hasMaxBatchIntervalS() { return maxBatchIntervalS > 0; }
-    boolean hasMaxBatchRows() { return maxBatchRows > 0; }
-    boolean hasMaxBatchSizeBytes() { return maxBatchSizeBytes > 0; }
-    boolean hasStrictMode() { return strictMode != null; }
-    boolean hasJsonPath() { return !Strings.isNu}
-    */
-    
+
+    public String getDbName() {
+        return labelName.getDbName();
+    }
+
+    public String getLabel() {
+        return labelName.getLabelName();
+    }
+
+    public String getTypeName() {
+        return typeName;
+    }
+
+    public Map<String, String> getAnalyzedProperties() {
+        return analyzedProperties;
+    }
+
+    public List<Pair<Integer, Long>> getKafkaPartitionOffsets() {
+        return kafkaPartitionOffsets;
+    }
+
+    public Map<String, String> getCustomKafkaProperties() {
+        return customKafkaProperties;
+    }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         labelName.analyze(analyzer);
@@ -108,6 +120,10 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         checkJobProperties();
         // check data source properties
         checkDataSourceProperties();
+
+        if (analyzedProperties.isEmpty() && customKafkaProperties.isEmpty() && kafkaPartitionOffsets.isEmpty()) {
+            throw new AnalysisException("No properties are specified");
+        }
     }
 
     private void checkJobProperties() throws UserException {
@@ -144,12 +160,12 @@ public class AlterRoutineLoadStmt extends DdlStmt {
                     String.valueOf(maxBatchIntervalS));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)) {
             long maxBatchRows = Util.getLongPropertyOrDefault(
                     jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY),
                     -1, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PRED,
                     CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY + " should > 200000");
-            analyzedProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
+            analyzedProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY,
                     String.valueOf(maxBatchRows));
         }
 
@@ -163,13 +179,12 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         }
 
         if (jobProperties.containsKey(LoadStmt.STRICT_MODE)) {
-            strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
-                    null, LoadStmt.STRICT_MODE + " should be a boolean");
+            boolean strictMode = Boolean.valueOf(jobProperties.get(LoadStmt.STRICT_MODE));
             analyzedProperties.put(LoadStmt.STRICT_MODE, String.valueOf(strictMode));
         }
 
         if (jobProperties.containsKey(LoadStmt.TIMEZONE)) {
-            timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.get(LoadStmt.TIMEZONE));
+            String timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.get(LoadStmt.TIMEZONE));
             analyzedProperties.put(LoadStmt.TIMEZONE, timezone);
         }
 
@@ -178,7 +193,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)) {
-            stripOuterArray = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY));
+            boolean stripOuterArray = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY));
             analyzedProperties.put(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY),
                     String.valueOf(stripOuterArray));
         }
@@ -202,16 +217,38 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     // this is mostly a copy method from CreateRoutineLoadStmt
     private void checkKafkaProperties() throws AnalysisException {
+
+        // check custom kafka property first, and then remove these properties.
+        Iterator<Map.Entry<String, String>> iter = dataSourceProperties.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String, String> dataSourceProperty = iter.next();
+            if (dataSourceProperty.getKey().startsWith("property.")) {
+                String propertyKey = dataSourceProperty.getKey();
+                String propertyValue = dataSourceProperty.getValue();
+                String propertyValueArr[] = propertyKey.split("\\.");
+                if (propertyValueArr.length < 2) {
+                    throw new AnalysisException("kafka property value could not be a empty string");
+                }
+                customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+                iter.remove();
+            }
+        }
+
+        // check kafka partition and offset properties
         Optional<String> optional = dataSourceProperties.keySet().stream().filter(
                 entity -> !CONFIGURABLE_KAFKA_PROPERTIES_SET.contains(entity)).filter(
                         entity -> !entity.startsWith("property.")).findFirst();
         if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid kafka custom property");
+            throw new AnalysisException("Do not support modify kafka custom property: " + optional.get());
         }
 
         // check partitions
         final String kafkaPartitionsString = dataSourceProperties.get(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY);
         if (kafkaPartitionsString != null) {
+            if (!dataSourceProperties.containsKey(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY)) {
+                throw new AnalysisException("Must also specify partition offset");
+            }
+
             kafkaPartitionsString.replaceAll(" ", "");
             if (kafkaPartitionsString.isEmpty()) {
                 throw new AnalysisException(
@@ -229,12 +266,16 @@ public class AlterRoutineLoadStmt extends DdlStmt {
                             + " must be a number string with comma-separated");
                 }
             }
+        } else {
+            if (dataSourceProperties.containsKey(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY)) {
+                throw new AnalysisException("Must also specify kafka partition");
+            }
         }
 
         // check offset
-        final String kafkaOffsetsString = dataSourceProperties.get(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY);
+        String kafkaOffsetsString = dataSourceProperties.get(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY);
         if (kafkaOffsetsString != null) {
-            kafkaOffsetsString.replaceAll(" ", "");
+            kafkaOffsetsString = kafkaOffsetsString.replaceAll(" ", "");
             if (kafkaOffsetsString.isEmpty()) {
                 throw new AnalysisException(
                         CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY + " could not be a empty string");
@@ -265,20 +306,6 @@ public class AlterRoutineLoadStmt extends DdlStmt {
                     }
                 }
             }
-        }
-
-        // check custom kafka property
-        for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
-            if (dataSourceProperty.getKey().startsWith("property.")) {
-                String propertyKey = dataSourceProperty.getKey();
-                String propertyValue = dataSourceProperty.getValue();
-                String propertyValueArr[] = propertyKey.split("\\.");
-                if (propertyValueArr.length < 2) {
-                    throw new AnalysisException("kafka property value could not be a empty string");
-                }
-                customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
-            }
-            // can be extended in the future which other prefix
         }
     }
 }

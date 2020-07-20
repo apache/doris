@@ -512,7 +512,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         try {
             value = Long.valueOf(valueString);
         } catch (NumberFormatException e) {
-            throw new AnalysisException(propertyName + " must be a integer");
+            throw new AnalysisException(propertyName + " must be a integer: " + valueString);
         }
         return value;
     }

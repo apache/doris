@@ -728,10 +728,14 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.REPLICA, String.valueOf(number));
     :}
-
     | KW_ALTER KW_DATABASE ident:dbName KW_RENAME ident:newDbName
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
+    :}
+    | KW_ALTER KW_ROUTINE KW_LOAD job_label:jobLabel opt_properties:properties
+      KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
+    {:
+        RESULT = new AlterRoutineLoadStmt(jobLabel, properties, type, customProperties);
     :}
     ;
 
