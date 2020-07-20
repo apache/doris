@@ -26,6 +26,7 @@ import java.lang.annotation.Target;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 /*
  * A simple statistic of tablet checker and scheduler
@@ -45,71 +46,71 @@ public class TabletSchedulerStat {
      * TabletChecker related
      */
     @StatField("num of tablet check round")
-    public AtomicLong counterTabletCheckRound = new AtomicLong(0L);
+    public LongAdder counterTabletCheckRound = new LongAdder();
     @StatField("cost of tablet check(ms)")
-    public AtomicLong counterTabletCheckCostMs = new AtomicLong(0L);
+    public LongAdder counterTabletCheckCostMs = new LongAdder();
     @StatField("num of tablet checked in tablet checker")
-    public AtomicLong counterTabletChecked = new AtomicLong(0L);
+    public LongAdder counterTabletChecked = new LongAdder();
     @StatField("num of unhealthy tablet checked in tablet checker")
-    public AtomicLong counterUnhealthyTabletNum = new AtomicLong(0L);
+    public LongAdder counterUnhealthyTabletNum = new LongAdder();
     @StatField("num of tablet being added to tablet scheduler")
-    public AtomicLong counterTabletAddToBeScheduled = new AtomicLong(0L);
+    public LongAdder counterTabletAddToBeScheduled = new LongAdder();
 
     /*
      * TabletScheduler related
      */
     @StatField("num of tablet schedule round")
-    public AtomicLong counterTabletScheduleRound = new AtomicLong(0L);
+    public LongAdder counterTabletScheduleRound = new LongAdder();
     @StatField("cost of tablet schedule(ms)")
-    public AtomicLong counterTabletScheduleCostMs = new AtomicLong(0L);
+    public LongAdder counterTabletScheduleCostMs = new LongAdder();
     @StatField("num of tablet being scheduled")
-    public AtomicLong counterTabletScheduled = new AtomicLong(0L);
+    public LongAdder counterTabletScheduled = new LongAdder();
     @StatField("num of tablet being scheduled succeeded")
-    public AtomicLong counterTabletScheduledSucceeded = new AtomicLong(0L);
+    public LongAdder counterTabletScheduledSucceeded = new LongAdder();
     @StatField("num of tablet being scheduled failed")
-    public AtomicLong counterTabletScheduledFailed = new AtomicLong(0L);
+    public LongAdder counterTabletScheduledFailed = new LongAdder();
     @StatField("num of tablet being scheduled discard")
-    public AtomicLong counterTabletScheduledDiscard = new AtomicLong(0L);
+    public LongAdder counterTabletScheduledDiscard = new LongAdder();
 
     /*
      * Tablet priority related
      */
     @StatField("num of tablet priority upgraded")
-    public AtomicLong counterTabletPrioUpgraded = new AtomicLong(0L);
+    public LongAdder counterTabletPrioUpgraded = new LongAdder();
     @StatField("num of tablet priority downgraded")
-    public AtomicLong counterTabletPrioDowngraded = new AtomicLong(0L);
+    public LongAdder counterTabletPrioDowngraded = new LongAdder();
 
     /*
      * Clone task related
      */
     @StatField("num of clone task")
-    public AtomicLong counterCloneTask = new AtomicLong(0L);
+    public LongAdder counterCloneTask = new LongAdder();
     @StatField("num of clone task succeeded")
-    public AtomicLong counterCloneTaskSucceeded = new AtomicLong(0L);
+    public LongAdder counterCloneTaskSucceeded = new LongAdder();
     @StatField("num of clone task failed")
-    public AtomicLong counterCloneTaskFailed = new AtomicLong(0L);
+    public LongAdder counterCloneTaskFailed = new LongAdder();
     @StatField("num of clone task timeout")
-    public AtomicLong counterCloneTaskTimeout = new AtomicLong(0L);
+    public LongAdder counterCloneTaskTimeout = new LongAdder();
 
     /*
      * replica unhealthy type
      */
     @StatField("num of replica missing error")
-    public AtomicLong counterReplicaMissingErr = new AtomicLong(0L);
+    public LongAdder counterReplicaMissingErr = new LongAdder();
     @StatField("num of replica version missing error")
-    public AtomicLong counterReplicaVersionMissingErr = new AtomicLong(0L);
+    public LongAdder counterReplicaVersionMissingErr = new LongAdder();
     @StatField("num of replica unavailable error")
-    public AtomicLong counterReplicaUnavailableErr = new AtomicLong(0L);
+    public LongAdder counterReplicaUnavailableErr = new LongAdder();
     @StatField("num of replica redundant error")
-    public AtomicLong counterReplicaRedundantErr = new AtomicLong(0L);
+    public LongAdder counterReplicaRedundantErr = new LongAdder();
     @StatField("num of replica missing in cluster error")
-    public AtomicLong counterReplicaMissingInClusterErr = new AtomicLong(0L);
+    public LongAdder counterReplicaMissingInClusterErr = new LongAdder();
     @StatField("num of balance scheduled")
-    public AtomicLong counterBalanceSchedule = new AtomicLong(0L);
+    public LongAdder counterBalanceSchedule = new LongAdder();
     @StatField("num of colocate replica mismatch")
-    public AtomicLong counterReplicaColocateMismatch = new AtomicLong(0L);
+    public LongAdder counterReplicaColocateMismatch = new LongAdder();
     @StatField("num of colocate replica redundant")
-    public AtomicLong counterReplicaColocateRedundant = new AtomicLong(0L);
+    public LongAdder counterReplicaColocateRedundant = new LongAdder();
 
     private TabletSchedulerStat lastSnapshot = null;
 
@@ -193,11 +194,11 @@ public class TabletSchedulerStat {
     public static void main(String[] args) {
         TabletSchedulerStat stat = new TabletSchedulerStat();
 
-        stat.counterCloneTask.addAndGet(300);
+        stat.counterCloneTask.add(300);
         System.out.println(stat.incrementalBrief());
 
-        stat.counterCloneTask.addAndGet(3);
-        stat.counterTabletChecked.incrementAndGet();
+        stat.counterCloneTask.add(3);
+        stat.counterTabletChecked.increment();
         System.out.println(stat.incrementalBrief());
     }
 }

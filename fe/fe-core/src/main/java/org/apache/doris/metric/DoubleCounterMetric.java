@@ -17,7 +17,7 @@
 
 package org.apache.doris.metric;
 
-import com.google.common.util.concurrent.AtomicDouble;
+import java.util.concurrent.atomic.DoubleAdder;
 
 public class DoubleCounterMetric extends CounterMetric<Double> {
 
@@ -25,15 +25,15 @@ public class DoubleCounterMetric extends CounterMetric<Double> {
         super(name, unit, description);
     }
 
-    private AtomicDouble value = new AtomicDouble(0.0);
+    private DoubleAdder value = new DoubleAdder();
 
     @Override
     public void increase(Double delta) {
-        value.addAndGet(delta);
+        value.add(delta);
     }
 
     @Override
     public Double getValue() {
-        return value.get();
+        return value.doubleValue();
     }
 }

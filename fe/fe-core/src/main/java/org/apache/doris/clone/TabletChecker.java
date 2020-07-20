@@ -181,7 +181,7 @@ public class TabletChecker extends MasterDaemon {
 
         removePriosIfNecessary();
 
-        stat.counterTabletCheckRound.incrementAndGet();
+        stat.counterTabletCheckRound.increment();
         LOG.info(stat.incrementalBrief());
     }
 
@@ -295,10 +295,10 @@ public class TabletChecker extends MasterDaemon {
 
         long cost = System.currentTimeMillis() - start;
 
-        stat.counterTabletCheckCostMs.addAndGet(cost);
-        stat.counterTabletChecked.addAndGet(totalTabletNum);
-        stat.counterUnhealthyTabletNum.addAndGet(unhealthyTabletNum);
-        stat.counterTabletAddToBeScheduled.addAndGet(addToSchedulerTabletNum);
+        stat.counterTabletCheckCostMs.add(cost);
+        stat.counterTabletChecked.add(totalTabletNum);
+        stat.counterUnhealthyTabletNum.add(unhealthyTabletNum);
+        stat.counterTabletAddToBeScheduled.add(addToSchedulerTabletNum);
 
         LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
                 unhealthyTabletNum, totalTabletNum, addToSchedulerTabletNum, tabletInScheduler, tabletNotReady, cost);

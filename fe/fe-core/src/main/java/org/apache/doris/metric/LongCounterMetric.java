@@ -17,7 +17,7 @@
 
 package org.apache.doris.metric;
 
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 public class LongCounterMetric extends CounterMetric<Long> {
 
@@ -25,15 +25,15 @@ public class LongCounterMetric extends CounterMetric<Long> {
         super(name, unit, description);
     }
 
-    private AtomicLong value = new AtomicLong(0L);
+    private LongAdder value = new LongAdder();
 
     @Override
     public void increase(Long delta) {
-        value.addAndGet(delta);
+        value.add(delta);
     }
 
     @Override
     public Long getValue() {
-        return value.get();
+        return value.longValue();
     }
 }

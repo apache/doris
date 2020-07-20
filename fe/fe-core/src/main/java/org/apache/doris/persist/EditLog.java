@@ -845,7 +845,7 @@ public class EditLog {
         long end = System.currentTimeMillis();
         numTransactions++;
         totalTimeTransactions += (end - start);
-        if (MetricRepo.isInit.get()) {
+        if (MetricRepo.isInit) {
             MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
         }
 
@@ -861,7 +861,7 @@ public class EditLog {
             txId = 0;
         }
 
-        if (MetricRepo.isInit.get()) {
+        if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(1L);
         }
     }

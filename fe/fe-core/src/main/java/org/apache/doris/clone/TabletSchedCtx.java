@@ -941,7 +941,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (originDynamicPriority != dynamicPriority) {
                 LOG.debug("downgrade dynamic priority from {} to {}, origin: {}, tablet: {}",
                     originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
-                stat.counterTabletPrioDowngraded.incrementAndGet();
+                stat.counterTabletPrioDowngraded.increment();
                 return true;
             }
         } else if (isUpgrade) {
@@ -950,7 +950,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (originDynamicPriority != dynamicPriority) {
                 LOG.debug("upgrade dynamic priority from {} to {}, origin: {}, tablet: {}",
                     originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
-                stat.counterTabletPrioUpgraded.incrementAndGet();
+                stat.counterTabletPrioUpgraded.increment();
                 return true;
             }
         }
