@@ -459,7 +459,7 @@ public class InsertStmt extends DdlStmt {
                     }
                 }
             }
-            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX)) {
+            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
                 SlotRef refColumn = column.getRefColumn();
                 if (refColumn == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, column.getName(), targetTable.getName());
