@@ -873,9 +873,8 @@ TEST_F(TestColumn, ConvertCharToHLL) {
     RowCursor mv_row_cursor;
     mv_row_cursor.init(mv_tablet_schema);
     mutable_block.get_row(0, &mv_row_cursor);
-
     auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
-    HyperLogLog hll(dst_slice->data);
+    HyperLogLog hll(*dst_slice);
     ASSERT_EQ(hll.estimate_cardinality(), 1);
 }
 }
