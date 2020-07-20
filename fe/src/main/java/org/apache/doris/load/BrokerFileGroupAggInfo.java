@@ -85,7 +85,7 @@ import java.util.stream.Collectors;
  *  PARTITION (p2, p3)
  * 
  *  will throw an Exception, because there is an overlap partition(p2) between 2 data descriptions. And we
- *  currently not allow this. You can rewrite the data descriptions like this:
+ *  currently not allow this. You can equal the data descriptions like this:
  *  
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
  *  INTO TABLE `tbl1`

@@ -80,7 +80,7 @@ public class AggregateFunction extends Function {
     private boolean isAggregateFn;
 
     // True if this function returns a non-null value on an empty input. It is used
-    // primarily during the rewrite of scalar subqueries.
+    // primarily during the equal of scalar subqueries.
     // TODO: Instead of manually setting this flag, we should identify this
     // property from the function itself (e.g. evaluating the function on an
     // empty input in BE).

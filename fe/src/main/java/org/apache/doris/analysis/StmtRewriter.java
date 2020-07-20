@@ -64,7 +64,7 @@ public class StmtRewriter {
     }
 
   /**
-   *  Calls the appropriate rewrite method based on the specific type of query stmt. See
+   *  Calls the appropriate equal method based on the specific type of query stmt. See
    *  rewriteSelectStatement() and rewriteUnionStatement() documentation.
    */
     public static QueryStmt rewriteQueryStatement(QueryStmt stmt, Analyzer analyzer)
@@ -96,7 +96,7 @@ public class StmtRewriter {
         if (result.hasWhereClause()) {
             // Push negation to leaf operands.
             result.whereClause = Expr.pushNegationToOperands(result.whereClause);
-            // Check if we can rewrite the subqueries in the WHERE clause. OR predicates with
+            // Check if we can equal the subqueries in the WHERE clause. OR predicates with
             // subqueries are not supported.
             if (hasSubqueryInDisjunction(result.whereClause)) {
                 throw new AnalysisException("Subqueries in OR predicates are not supported: "
@@ -116,15 +116,15 @@ public class StmtRewriter {
 
     /**
      * Rewrite having subquery.
-     * Step1: rewrite having subquery to where subquery
-     * Step2: rewrite where subquery
+     * Step1: equal having subquery to where subquery
+     * Step2: equal where subquery
      * <p>
      * For example:
      * select cs_item_sk, sum(cs_sales_price) from catalog_sales a group by cs_item_sk
      * having sum(cs_sales_price) >
      *        (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk);
      * <p>
-     * Step1: rewrite having subquery to where subquery
+     * Step1: equal having subquery to where subquery
      * Outer query is changed to inline view in rewritten query
      * Inline view of outer query:
      *     from (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
@@ -137,7 +137,7 @@ public class StmtRewriter {
      *     where a.sum_cs_sales_price >
      *           (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk)
      * <p>
-     * Step2: rewrite where subquery
+     * Step2: equal where subquery
      * Inline view of subquery:
      *     from (select b.cs_item_sk, min(cs_sales_price) from catalog_sales b group by cs_item_sk) c
      * Rewritten correlated predicate:
@@ -269,7 +269,7 @@ public class StmtRewriter {
         }
         LOG.info("New stmt {} is constructed after rewritten subquery of having clause.", result.toSql());
 
-        // rewrite where subquery
+        // equal where subquery
         result = rewriteSelectStatement(result, analyzer);
         LOG.debug("The final stmt is " + result.toSql());
         return result;
@@ -436,7 +436,7 @@ public class StmtRewriter {
         stmt.whereClause = stmt.whereClause.substitute(smap, analyzer, false);
 
         boolean hasNewVisibleTuple = false;
-        // Recursively rewrite all the exprs that contain subqueries and merge them
+        // Recursively equal all the exprs that contain subqueries and merge them
         // with 'stmt'.
         for (Expr expr : exprsWithSubqueries) {
             if (mergeExpr(stmt, rewriteExpr(expr, analyzer), analyzer)) {
@@ -490,7 +490,7 @@ public class StmtRewriter {
      */
     private static Expr rewriteExpr(Expr expr, Analyzer analyzer)
     throws AnalysisException {
-        // Extract the subquery and rewrite it.
+        // Extract the subquery and equal it.
         Subquery subquery = expr.getSubquery();
         Preconditions.checkNotNull(subquery);
         QueryStmt rewrittenStmt = rewriteSelectStatement((SelectStmt) subquery.getStatement(), subquery.getAnalyzer());
@@ -541,7 +541,7 @@ public class StmtRewriter {
         // Create a new inline view from the subquery stmt. The inline view will be added
         // to the stmt's table refs later. Explicitly set the inline view's column labels
         // to eliminate any chance that column aliases from the parent query could reference
-        // select items from the inline view after the rewrite.
+        // select items from the inline view after the equal.
         List<String> colLabels = Lists.newArrayList();
         // add a new alias for all of columns in subquery
         for (int i = 0; i < subqueryStmt.getColLabels().size(); ++i) {
@@ -555,7 +555,7 @@ public class StmtRewriter {
         List<Expr> onClauseConjuncts = extractCorrelatedPredicates(subqueryStmt);
         if (!onClauseConjuncts.isEmpty()) {
             canRewriteCorrelatedSubquery(expr, onClauseConjuncts);
-            // For correlated subqueries that are eligible for rewrite by transforming
+            // For correlated subqueries that are eligible for equal by transforming
             // into a join, a LIMIT clause has no effect on the results, so we can
             // safely remove it.
             // subqueryStmt.limitElement = null;
@@ -715,7 +715,7 @@ public class StmtRewriter {
                         expr.toSql());
             }
 
-            // We can rewrite the aggregate subquery using a cross join. All conjuncts
+            // We can equal the aggregate subquery using a cross join. All conjuncts
             // that were extracted from the subquery are added to stmt's WHERE clause.
             stmt.whereClause =
                 CompoundPredicate.createConjunction(onClausePredicate, stmt.whereClause);
@@ -911,11 +911,11 @@ public class StmtRewriter {
     }
 
     /**
-     * Checks if an expr containing a correlated subquery is eligible for rewrite by
+     * Checks if an expr containing a correlated subquery is eligible for equal by
      * tranforming into a join. 'correlatedPredicates' contains the correlated
      * predicates identified in the subquery. Throws an AnalysisException if 'expr'
-     * is not eligible for rewrite.
-     * TODO: Merge all the rewrite eligibility tests into a single function.
+     * is not eligible for equal.
+     * TODO: Merge all the equal eligibility tests into a single function.
      */
     private static void canRewriteCorrelatedSubquery(
             Expr expr, List<Expr> correlatedPredicates)

@@ -22,7 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.AnalysisException;
 
 /**
- * Base class for all Expr rewrite rules. A rule is free to modify Exprs in place,
+ * Base class for all Expr equal rules. A rule is free to modify Exprs in place,
  * but must return a different Expr object if any modifications were made.
  * An ExprRewriteRule is intended to apply its transformation on a single Expr and not
  * recursively on all its children. The recursive and repeated application of
@@ -35,10 +35,10 @@ import org.apache.doris.common.AnalysisException;
  */
 public interface ExprRewriteRule {
     /**
-     * Applies this rewrite rule to the given analyzed Expr. Returns the transformed and
+     * Applies this equal rule to the given analyzed Expr. Returns the transformed and
      * analyzed Expr or the original unmodified Expr if no changes were made. If any
      * changes were made, the transformed Expr is guaranteed to be a different Expr object,
      * so callers can rely on object reference comparison for change detection.
      */
-    public abstract Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException;
+    Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException;
 }

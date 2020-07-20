@@ -141,6 +141,14 @@ public class Column implements Writable {
         return this.name;
     }
 
+    public String getDisplayName() {
+        if (defineExpr == null) {
+            return name;
+        } else {
+            return defineExpr.toSql();
+        }
+    }
+
     public String getNameWithoutPrefix(String prefix) {
         if (isNameWithPrefix(prefix)) {
             return name.substring(prefix.length());

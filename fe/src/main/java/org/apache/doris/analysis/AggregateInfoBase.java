@@ -150,7 +150,7 @@ public abstract class AggregateInfoBase {
 
                 // COUNT(), NDV() and NDV_NO_FINALIZE() are non-nullable. The latter two are used
                 // by compute stats and compute incremental stats, respectively.
-                if (aggExpr.getFnName().getFunction().equals("count")
+                if (aggExpr.getFnName().getFunction().equals(FunctionSet.COUNT)
                         || aggExpr.getFnName().getFunction().equals("ndv")
                         || aggExpr.getFnName().getFunction().equals(FunctionSet.BITMAP_UNION_INT)
                         || aggExpr.getFnName().getFunction().equals("ndv_no_finalize")) {

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -74,7 +75,6 @@ import java.util.TreeSet;
  */
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
-    public static String FUNCTION_HASH_HLL = "hll_hash";
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
             "strftime",
@@ -84,7 +84,7 @@ public class DataDescription {
             "md5sum",
             "replace_value",
             "now",
-            "hll_hash",
+            FunctionSet.HLL_HASH,
             "substitute");
 
     private final String tableName;
@@ -399,7 +399,7 @@ public class DataDescription {
             validateMd5sum(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("replace_value")) {
             validateReplaceValue(args, mappingColumn);
-        } else if (functionName.equalsIgnoreCase(FUNCTION_HASH_HLL)) {
+        } else if (functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)) {
             validateHllHash(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("now")) {
             validateNowFunction(mappingColumn);

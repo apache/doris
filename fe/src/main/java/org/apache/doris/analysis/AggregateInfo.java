@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.thrift.TPartitionType;
@@ -532,7 +533,7 @@ public final class AggregateInfo extends AggregateInfoBase {
             Preconditions.checkState(inputExpr.isAggregateFunction());
             FunctionCallExpr aggExpr = null;
             if (!isMultiDistinct_) {
-                if (inputExpr.getFnName().getFunction().equalsIgnoreCase("COUNT")) {
+                if (inputExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
                     // COUNT(DISTINCT ...) ->
                     // COUNT(IF(IsNull(<agg slot 1>), NULL, IF(IsNull(<agg slot 2>), NULL, ...)))
                     // We need the nested IF to make sure that we do not count
@@ -543,7 +544,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                             inputDesc.getSlots());
                     Preconditions.checkNotNull(ifExpr);
                     ifExpr.analyzeNoThrow(analyzer);
-                    aggExpr = new FunctionCallExpr("count", Lists.newArrayList(ifExpr));
+                    aggExpr = new FunctionCallExpr(FunctionSet.COUNT, Lists.newArrayList(ifExpr));
                 } else if (inputExpr.getFnName().getFunction().equals("group_concat")) {
                     // Syntax: GROUP_CONCAT([DISTINCT] expression [, separator])
                     ArrayList<Expr> exprList = Lists.newArrayList();

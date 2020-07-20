@@ -38,7 +38,7 @@ public enum AggregateType {
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
 
     static {
-        compatibilityMap = new EnumMap<AggregateType, EnumSet<PrimitiveType>>(AggregateType.class);
+        compatibilityMap = new EnumMap<>(AggregateType.class);
         List<PrimitiveType> primitiveTypeList = Lists.newArrayList();
 
         primitiveTypeList.add(PrimitiveType.TINYINT);

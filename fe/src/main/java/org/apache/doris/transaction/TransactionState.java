@@ -501,7 +501,7 @@ public class TransactionState implements Writable {
             indexIds = Sets.newHashSet();
             loadedTblIndexes.put(table.getId(), indexIds);
         }
-        // always rewrite the index ids
+        // always equal the index ids
         indexIds.clear();
         for (Long indexId : table.getIndexIdToMeta().keySet()) {
             indexIds.add(indexId);

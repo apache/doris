@@ -307,6 +307,13 @@ public class OlapTable extends Table {
 
         long indexId = this.indexNameToId.remove(indexName);
         this.indexIdToMeta.remove(indexId);
+        // Some column of deleted index should be removed during `deleteIndexInfo` such as `mv_bitmap_union_c1`
+        // If deleted index id == base index id, the schema will not be rebuilt.
+        // The reason is that the base index has been removed from indexIdToMeta while the new base index hasn't changed.
+        // The schema could not be rebuild in here with error base index id.
+        if (indexId != baseIndexId) {
+            rebuildFullSchema();
+        }
         return true;
     }
 
@@ -344,6 +351,17 @@ public class OlapTable extends Table {
     public List<MaterializedIndex> getVisibleIndex() {
         Partition partition = idToPartition.values().stream().findFirst().get();
         return partition.getMaterializedIndices(IndexExtState.VISIBLE);
+    }
+
+    public Column getVisibleColumn(String columnName) {
+        for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
+            for (Column column : meta.getSchema()) {
+                if (column.getName().equalsIgnoreCase(columnName)) {
+                    return column;
+                }
+            }
+        }
+        return null;
     }
 
     // this is only for schema change.
@@ -1285,6 +1303,15 @@ public class OlapTable extends Table {
     @Override
     public List<Column> getBaseSchema() {
         return getSchemaByIndexId(baseIndexId);
+    }
+
+    public Column getBaseColumn(String columnName) {
+        for (Column column : getBaseSchema()) {
+            if (column.getName().equalsIgnoreCase(columnName)){
+                return column;
+            }
+        }
+        return null;
     }
 
     public int getKeysNum() {

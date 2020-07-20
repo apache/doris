@@ -17,37 +17,23 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Tested;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.planner.StreamLoadScanNode;
-import org.apache.doris.planner.StreamLoadScanNodeTest;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.DorisAssert;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 
-import org.apache.doris.thrift.TStreamLoadPutRequest;
-import org.apache.doris.utframe.DorisAssert;
-import org.apache.doris.utframe.UtFrameUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -58,7 +44,6 @@ import java.util.UUID;
 
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mocked;
 
 public class InsertStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -136,7 +121,8 @@ public class InsertStmtTest {
         v2.setIsAllowNull(false);
         columns.add(v2);
 
-        Column v3 = new Column("__doris_materialized_view_bitmap_k1", PrimitiveType.BITMAP);
+        Column v3 = new Column(CreateMaterializedViewStmt.mvColumnBuilder("bitmap_union", "k1"),
+                PrimitiveType.BITMAP);
         v3.setIsKey(false);
         v3.setAggregationType(AggregateType.BITMAP_UNION, false);
         v3.setIsAllowNull(false);
@@ -150,7 +136,7 @@ public class InsertStmtTest {
         v3.setDefineExpr(defineExpr);
         columns.add(v3);
 
-        Column v4 = new Column("__doris_materialized_view_hll_k2", PrimitiveType.HLL);
+        Column v4 = new Column(CreateMaterializedViewStmt.mvColumnBuilder("hll_union", "k2"), PrimitiveType.HLL);
         v4.setIsKey(false);
         v4.setAggregationType(AggregateType.HLL_UNION, false);
         v4.setIsAllowNull(false);

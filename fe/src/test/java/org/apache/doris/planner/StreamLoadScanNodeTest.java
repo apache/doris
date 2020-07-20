@@ -29,6 +29,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -300,7 +301,7 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {{
             catalog.getFunction((Function) any, (Function.CompareMode) any);
-            result = new ScalarFunction(new FunctionName("hll_hash"), Lists.newArrayList(), Type.BIGINT, false);
+            result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false);
         }};
         
         new Expectations() {
@@ -318,7 +319,7 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_STREAM);
-        request.setColumns("k1,k2, v1=hll_hash(k2)");
+        request.setColumns("k1,k2, v1=" + FunctionSet.HLL_HASH + "(k2)");
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, null);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
