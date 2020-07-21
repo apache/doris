@@ -875,7 +875,7 @@ TEST_F(TestColumn, ConvertCharToHLL) {
     mutable_block.get_row(0, &mv_row_cursor);
 
     auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
-    HyperLogLog hll(*dst_slice);
+    HyperLogLog hll(dst_slice->data);
     ASSERT_EQ(hll.estimate_cardinality(), 1);
 }
 }
