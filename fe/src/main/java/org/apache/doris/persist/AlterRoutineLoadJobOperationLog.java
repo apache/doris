@@ -17,7 +17,7 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.common.Pair;
+import org.apache.doris.analysis.DataSourceProperties;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -27,49 +27,34 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 
 public class AlterRoutineLoadJobOperationLog implements Writable {
 
     @SerializedName(value = "jobId")
     private long jobId;
-    @SerializedName(value = "type")
-    private String type;
     @SerializedName(value = "jobProperties")
     private Map<String, String> jobProperties;
-    @SerializedName(value = "customProperties")
-    private Map<String, String> customProperties;
-    @SerializedName(value = "kafkaPartitioinOffset")
-    private List<Pair<Integer, Long>> kafkaPartitioinOffset;
+    @SerializedName(value = "dataSourceProperties")
+    private DataSourceProperties dataSourceProperties;
 
     public AlterRoutineLoadJobOperationLog(long jobId, String type, Map<String, String> jobProperties,
-            Map<String, String> customProperties, List<Pair<Integer, Long>> kafkaPartitioinOffset) {
+            DataSourceProperties dataSourceProperties) {
         this.jobId = jobId;
-        this.type = type;
         this.jobProperties = jobProperties;
-        this.customProperties = customProperties;
-        this.kafkaPartitioinOffset = kafkaPartitioinOffset;
+        this.dataSourceProperties = dataSourceProperties;
     }
 
     public long getJobId() {
         return jobId;
     }
 
-    public String getType() {
-        return type;
-    }
-
     public Map<String, String> getJobProperties() {
         return jobProperties;
     }
 
-    public Map<String, String> getCustomProperties() {
-        return customProperties;
-    }
-
-    public List<Pair<Integer, Long>> getKafkaPartitioinOffset() {
-        return kafkaPartitioinOffset;
+    public DataSourceProperties getDataSourceProperties() {
+        return dataSourceProperties;
     }
 
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {
@@ -82,5 +67,4 @@ public class AlterRoutineLoadJobOperationLog implements Writable {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
     }
-
 }

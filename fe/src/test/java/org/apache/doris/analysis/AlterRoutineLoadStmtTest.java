@@ -87,9 +87,9 @@ public class AlterRoutineLoadStmtTest {
                 Assert.fail();
             }
 
-            Assert.assertEquals(2, stmt.getAnalyzedProperties().size());
-            Assert.assertTrue(stmt.getAnalyzedProperties().containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
-            Assert.assertTrue(stmt.getAnalyzedProperties().containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
+            Assert.assertEquals(2, stmt.getAnalyzedJobProperties().size());
+            Assert.assertTrue(stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
+            Assert.assertTrue(stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
             Assert.assertEquals(2, stmt.getCustomKafkaProperties().size());
             Assert.assertTrue(stmt.getCustomKafkaProperties().containsKey("group.id"));
             Assert.assertTrue(stmt.getCustomKafkaProperties().containsKey("client.id"));

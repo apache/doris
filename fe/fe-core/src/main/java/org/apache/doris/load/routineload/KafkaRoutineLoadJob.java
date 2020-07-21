@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.DataSourceProperties;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -502,13 +503,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException {
-        if (!stmt.getTypeName().equalsIgnoreCase("kafka")) {
-            throw new DdlException("This not a Kafka routine load job");
-        }
-
-        Map<String, String> jobProperties = stmt.getAnalyzedProperties();
-        List<Pair<Integer, Long>> kafkaPartitionOffsets = stmt.getKafkaPartitionOffsets();
-        Map<String, String> customKafkaProperties = stmt.getCustomKafkaProperties();
+        Map<String, String> jobProperties = stmt.getAnalyzedJobProperties();
+        DataSourceProperties dataSourceProperties = stmt.getDataSourceProperties();
 
         writeLock();
         try {
@@ -516,23 +512,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
             
-            modifyPropertiesInternal(jobProperties, kafkaPartitionOffsets, customKafkaProperties);
+            modifyPropertiesInternal(jobProperties, dataSourceProperties);
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    stmt.getTypeName(), jobProperties, customKafkaProperties, kafkaPartitionOffsets);
+                    jobProperties, dataSourceProperties);
             Catalog.getCurrentCatalog().getEditLog().logAlterRoutineLoadJob(log);
-
-            LOG.info("modify the properties of kafka routine load job: {}, kafkaPartitionOffsets: {},"
-                    + " jobProperties: {}, customProperties: {}", this.id, kafkaPartitionOffsets, jobProperties,
-                    customKafkaProperties);
         } finally {
             writeUnlock();
         }
     }
 
-    private void modifyPropertiesInternal(Map<String, String> jobProperties,
-            List<Pair<Integer, Long>> kafkaPartitionOffsets, Map<String, String> customKafkaProperties)
+    private void modifyPropertiesInternal(Map<String, String> jobProperties, DataSourceProperties dataSourceProperties)
             throws DdlException {
+
+        List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+        Map<String, String> customKafkaProperties = Maps.newHashMap();
+
+        if (dataSourceProperties != null) {
+            kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
+            customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
+        }
+
         // modify partition offset first
         if (!kafkaPartitionOffsets.isEmpty()) {
             // So we can only modify the partition that is being consumed
