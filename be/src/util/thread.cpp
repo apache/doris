@@ -21,12 +21,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <boost/bind.hpp>
 #include <cstring>
 #include <limits>
 #include <map>
 #include <memory>
 #include <string>
+#include <functional>
 
 #include "common/logging.h"
 #include "gutil/atomicops.h"
@@ -484,8 +484,7 @@ Status ThreadJoiner::join() {
 void register_thread_display_page(WebPageHandler* web_page_handler) {
     web_page_handler->register_template_page(
             "/threadz", "Threads",
-            boost::bind(&ThreadMgr::display_thread_callback, thread_manager.get(),
-                        boost::placeholders::_1, boost::placeholders::_2),
+            std::bind(&ThreadMgr::display_thread_callback, thread_manager.get(), _1, _2),
             true);
 }
 } // namespace doris

@@ -35,7 +35,12 @@ public:
     // CREATE_OR_OPEN               | opens             | creates
     // MUST_CREATE                  | fails             | creates
     // MUST_EXIST                   | opens             | fails
-    enum OpenMode { CREATE_OR_OPEN_WITH_TRUNCATE, CREATE_OR_OPEN, MUST_CREATE, MUST_EXIST };
+    enum OpenMode { 
+      CREATE_OR_OPEN_WITH_TRUNCATE, 
+      CREATE_OR_OPEN, 
+      MUST_CREATE, 
+      MUST_EXIST 
+    };
 
     Env() {}
     virtual ~Env() {}
@@ -260,7 +265,10 @@ public:
 // one of Append or PositionedAppend. We support only Append here.
 class WritableFile {
 public:
-    enum FlushMode { FLUSH_SYNC, FLUSH_ASYNC };
+    enum FlushMode { 
+      FLUSH_SYNC, 
+      FLUSH_ASYNC 
+    };
 
     WritableFile() {}
     virtual ~WritableFile() {}

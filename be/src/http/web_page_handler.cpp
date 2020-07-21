@@ -17,8 +17,7 @@
 
 #include "http/web_page_handler.h"
 
-#include <boost/bind.hpp>
-#include <boost/mem_fn.hpp>
+#include <functional>
 
 #include "common/config.h"
 #include "env/env.h"
@@ -51,7 +50,7 @@ WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
     _http_server->register_static_file_handler(this);
 
     TemplatePageHandlerCallback root_callback =
-            boost::bind<void>(boost::mem_fn(&WebPageHandler::root_handler), this, _1, _2);
+            std::bind<void>(std::mem_fn(&WebPageHandler::root_handler), this, _1, _2);
     register_template_page("/", "Home", root_callback, false /* is_on_nav_bar */);
 }
 
