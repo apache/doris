@@ -15,19 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2.dpp;
+package org.apache.doris.common;
 
-import com.esotericsoftware.kryo.Kryo;
-import org.apache.spark.serializer.KryoRegistrator;
+import com.google.common.base.Strings;
 
-/**
- * register etl classes with Kryo when using Kryo serialization.
- */
-public class DorisKryoRegistrator implements KryoRegistrator {
+// Exception for Spark DPP process
+public class SparkDppException extends Exception {
+    public SparkDppException(String msg, Throwable cause) {
+        super(Strings.nullToEmpty(msg), cause);
+    }
 
-    @Override
-    public void registerClasses(Kryo kryo) {
-        kryo.register(org.apache.doris.load.loadv2.Roaring64Map.class);
-        kryo.register(org.apache.doris.load.loadv2.BitmapValue.class);
+    public SparkDppException(Throwable cause) {
+        super(cause);
+    }
+
+    public SparkDppException(String msg, Throwable cause, boolean enableSuppression, boolean writableStackTrace) {
+        super(Strings.nullToEmpty(msg), cause, enableSuppression, writableStackTrace);
+    }
+
+    public SparkDppException(String msg) {
+        super(Strings.nullToEmpty(msg));
     }
 }

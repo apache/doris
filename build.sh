@@ -49,7 +49,8 @@ usage() {
 Usage: $0 <options>
   Optional options:
      --be               build Backend
-     --fe               build Frontend
+     --fe               build Frontend and Spark Dpp application
+     --spark-dpp        build Spark DPP application
      --clean            clean and build target
      --with-mysql       enable MySQL support(default)
      --without-mysql    disable MySQL support
@@ -57,12 +58,13 @@ Usage: $0 <options>
      --without-lzo      disable LZO compress  support
 
   Eg.
-    $0                                      build Backend and Frontend without clean
+    $0                                      build all
     $0 --be                                 build Backend without clean
     $0 --be --without-mysql                 build Backend with MySQL disable
     $0 --be --without-mysql --without-lzo   build Backend with both MySQL and LZO disable
-    $0 --fe --clean                         clean and build Frontend
-    $0 --fe --be --clean                    clean and build both Frontend and Backend
+    $0 --fe --clean                         clean and build Frontend and Spark Dpp application
+    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
+    $0 --spark-dpp                          build Spark DPP application alone
   "
   exit 1
 }
@@ -73,6 +75,7 @@ OPTS=$(getopt \
   -o 'h' \
   -l 'be' \
   -l 'fe' \
+  -l 'spark-dpp' \
   -l 'clean' \
   -l 'with-mysql' \
   -l 'without-mysql' \
@@ -89,26 +92,30 @@ eval set -- "$OPTS"
 
 BUILD_BE=
 BUILD_FE=
+BUILD_SPARK_DPP=
 CLEAN=
 RUN_UT=
 WITH_MYSQL=ON
 WITH_LZO=ON
 HELP=0
 if [ $# == 1 ] ; then
-    # defuat
+    # default
     BUILD_BE=1
     BUILD_FE=1
+    BUILD_SPARK_DPP=1
     CLEAN=0
     RUN_UT=0
 else
     BUILD_BE=0
     BUILD_FE=0
+    BUILD_SPARK_DPP=0
     CLEAN=0
     RUN_UT=0
     while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
+            --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             --ut) RUN_UT=1   ; shift ;;
             --with-mysql) WITH_MYSQL=ON; shift ;;
@@ -128,18 +135,19 @@ if [[ ${HELP} -eq 1 ]]; then
     exit
 fi
 
-if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 ]; then
-    echo "--clean can not be specified without --fe or --be"
+if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
+    echo "--clean can not be specified without --fe or --be or --spark-dpp"
     exit 1
 fi
 
 echo "Get params:
-    BUILD_BE    -- $BUILD_BE
-    BUILD_FE    -- $BUILD_FE
-    CLEAN       -- $CLEAN
-    RUN_UT      -- $RUN_UT
-    WITH_MYSQL  -- $WITH_MYSQL
-    WITH_LZO    -- $WITH_LZO
+    BUILD_BE            -- $BUILD_BE
+    BUILD_FE            -- $BUILD_FE
+    BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
+    CLEAN               -- $CLEAN
+    RUN_UT              -- $RUN_UT
+    WITH_MYSQL          -- $WITH_MYSQL
+    WITH_LZO            -- $WITH_LZO
 "
 
 # Clean and build generated code
@@ -175,14 +183,25 @@ cd ${DORIS_HOME}/docs
 ./build_help_zip.sh
 cd ${DORIS_HOME}
 
+# Assesmble FE modules
+FE_MODULES=
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
+    if [ ${BUILD_FE} -eq 1 ]; then
+        FE_MODULES="fe-common,spark-dpp,fe-core"
+    fi
+    if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+        FE_MODULES="fe-common,spark-dpp"
+    fi
+fi
+
 # Clean and build Frontend
-if [ ${BUILD_FE} -eq 1 ] ; then
-    echo "Build Frontend"
+if [ ${FE_MODULES}x != ""x ]; then
+    echo "Build Frontend Modules: $FE_MODULES"
     cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
         ${MVN_CMD} clean
     fi
-    ${MVN_CMD} package -DskipTests
+    ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests
     cd ${DORIS_HOME}
 fi
 
@@ -190,19 +209,29 @@ fi
 DORIS_OUTPUT=${DORIS_HOME}/output/
 mkdir -p ${DORIS_OUTPUT}
 
-#Copy Frontend and Backend
-if [ ${BUILD_FE} -eq 1 ]; then
-    install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
-               ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/
+# Copy Frontend and Backend
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
+    if [ ${BUILD_FE} -eq 1]; then
+        install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
+                   ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/ \
+                   ${DORIS_OUTPUT}/fe/spark-dpp/
 
-    cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
-    cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
-    rm -rf ${DORIS_OUTPUT}/fe/lib/*
-    cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
-    cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
-    cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
-    cp -r -p ${DORIS_HOME}/webroot/* ${DORIS_OUTPUT}/fe/webroot/
+        cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
+        cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
+        rm -rf ${DORIS_OUTPUT}/fe/lib/*
+        cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
+        cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+        cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
+        cp -r -p ${DORIS_HOME}/webroot/* ${DORIS_OUTPUT}/fe/webroot/
+        cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
+
+    elif [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+        install -d ${DORIS_OUTPUT}/fe/spark-dpp/
+        rm -rf ${DORIS_OUTPUT}/fe/spark-dpp/*
+        cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
+    fi
 fi
+
 if [ ${BUILD_BE} -eq 1 ]; then
     install -d ${DORIS_OUTPUT}/be/bin  \
                ${DORIS_OUTPUT}/be/conf \

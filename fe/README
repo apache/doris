@@ -1,0 +1,11 @@
+# fe-common
+
+This module is used to store some common classes of other modules.
+
+# fe-core
+
+This module is the main process module of FE.
+
+# spark-dpp
+
+This module is Spark DPP program, used for Spark Load function.

@@ -17,8 +17,7 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
 import com.google.common.base.Strings;
@@ -119,7 +118,7 @@ public final class SparkDpp implements java.io.Serializable {
         spark.sparkContext().register(invalidRows, "InvalidRowsAccumulator");
     }
 
-    private Dataset<Row> processRDDAggAndRepartition(Dataset<Row> dataframe, EtlJobConfig.EtlIndex currentIndexMeta) throws UserException {
+    private Dataset<Row> processRDDAggAndRepartition(Dataset<Row> dataframe, EtlJobConfig.EtlIndex currentIndexMeta) throws SparkDppException {
         final boolean isDuplicateTable = !StringUtils.equalsIgnoreCase(currentIndexMeta.indexType, "AGGREGATE")
                 && !StringUtils.equalsIgnoreCase(currentIndexMeta.indexType, "UNIQUE");
 
@@ -184,7 +183,7 @@ public final class SparkDpp implements java.io.Serializable {
     private void writePartitionedAndSortedDataframeToParquet(Dataset<Row> dataframe,
                                                              String pathPattern,
                                                              long tableId,
-                                                             EtlJobConfig.EtlIndex indexMeta) throws UserException {
+                                                             EtlJobConfig.EtlIndex indexMeta) throws SparkDppException {
         StructType outputSchema = dataframe.schema();
         StructType dstSchema = DataTypes.createStructType(
                 Arrays.asList(outputSchema.fields()).stream()
@@ -278,7 +277,7 @@ public final class SparkDpp implements java.io.Serializable {
     private void processRollupTree(RollupTreeNode rootNode,
                                    Dataset<Row> rootDataframe,
                                    long tableId, EtlJobConfig.EtlTable tableMeta,
-                                   EtlJobConfig.EtlIndex baseIndex) throws UserException {
+                                   EtlJobConfig.EtlIndex baseIndex) throws SparkDppException {
         Queue<RollupTreeNode> nodeQueue = new LinkedList<>();
         nodeQueue.offer(rootNode);
         int currentLevel = 0;
@@ -351,7 +350,7 @@ public final class SparkDpp implements java.io.Serializable {
                                                         List<String> valueColumnNames,
                                                         StructType dstTableSchema,
                                                         EtlJobConfig.EtlIndex baseIndex,
-                                                        List<Long> validPartitionIds) throws UserException {
+                                                        List<Long> validPartitionIds) throws SparkDppException {
         List<String> distributeColumns = partitionInfo.distributionColumnRefs;
         Partitioner partitioner = new DorisRangePartitioner(partitionInfo, partitionKeyIndex, partitionRangeKeys);
         Set<Integer> validPartitionIndex = new HashSet<>();
@@ -440,7 +439,7 @@ public final class SparkDpp implements java.io.Serializable {
     private Dataset<Row> convertSrcDataframeToDstDataframe(EtlJobConfig.EtlIndex baseIndex,
                                                            Dataset<Row> srcDataframe,
                                                            StructType dstTableSchema,
-                                                           EtlJobConfig.EtlFileGroup fileGroup) throws UserException {
+                                                           EtlJobConfig.EtlFileGroup fileGroup) throws SparkDppException {
         Dataset<Row> dataframe = srcDataframe;
         StructType srcSchema = dataframe.schema();
         Set<String> srcColumnNames = new HashSet<>();
@@ -471,7 +470,7 @@ public final class SparkDpp implements java.io.Serializable {
                 } else if (column.isAllowNull) {
                     dataframe = dataframe.withColumn(dstField.name(), functions.lit(null));
                 } else {
-                    throw new UserException("Reason: no data for column:" + dstField.name());
+                    throw new SparkDppException("Reason: no data for column:" + dstField.name());
                 }
             }
             if (column.columnType.equalsIgnoreCase("DATE")) {
@@ -492,7 +491,7 @@ public final class SparkDpp implements java.io.Serializable {
         // 2. process the mapping columns
         for (String mappingColumn : mappingColumns) {
             String mappingDescription = columnMappings.get(mappingColumn).toDescription();
-            if (mappingDescription.toLowerCase().contains(FunctionSet.HLL_HASH)) {
+            if (mappingDescription.toLowerCase().contains("hll_hash")) {
                 continue;
             }
             // here should cast data type to dst column type
@@ -517,7 +516,7 @@ public final class SparkDpp implements java.io.Serializable {
                                           EtlJobConfig.EtlFileGroup fileGroup,
                                           String fileUrl,
                                           EtlJobConfig.EtlIndex baseIndex,
-                                          List<EtlJobConfig.EtlColumn> columns) throws UserException {
+                                          List<EtlJobConfig.EtlColumn> columns) throws SparkDppException {
         List<String> columnValueFromPath = DppUtils.parseColumnsFromPath(fileUrl, fileGroup.columnsFromPath);
         List<String> dataSrcColumns = fileGroup.fileFieldNames;
         if (dataSrcColumns == null) {
@@ -630,7 +629,7 @@ public final class SparkDpp implements java.io.Serializable {
 
     // partition keys will be parsed into double from json
     // so need to convert it to partition columns' type
-    private Object convertPartitionKey(Object srcValue, Class dstClass) throws UserException {
+    private Object convertPartitionKey(Object srcValue, Class dstClass) throws SparkDppException {
         if (dstClass.equals(Float.class) || dstClass.equals(Double.class)) {
             return null;
         }
@@ -655,7 +654,7 @@ public final class SparkDpp implements java.io.Serializable {
             }
         } else {
             LOG.warn("unsupport partition key:" + srcValue);
-            throw new UserException("unsupport partition key:" + srcValue);
+            throw new SparkDppException("unsupport partition key:" + srcValue);
         }
     }
 
@@ -685,7 +684,7 @@ public final class SparkDpp implements java.io.Serializable {
     }
 
     private List<DorisRangePartitioner.PartitionRangeKey> createPartitionRangeKeys(
-            EtlJobConfig.EtlPartitionInfo partitionInfo, List<Class> partitionKeySchema) throws UserException {
+            EtlJobConfig.EtlPartitionInfo partitionInfo, List<Class> partitionKeySchema) throws SparkDppException {
         List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys = new ArrayList<>();
         for (EtlJobConfig.EtlPartition partition : partitionInfo.partitions) {
             DorisRangePartitioner.PartitionRangeKey partitionRangeKey = new DorisRangePartitioner.PartitionRangeKey();
@@ -716,7 +715,7 @@ public final class SparkDpp implements java.io.Serializable {
                                                List<String> filePaths,
                                                EtlJobConfig.EtlFileGroup fileGroup,
                                                StructType dstTableSchema)
-            throws UserException, IOException, URISyntaxException {
+            throws SparkDppException, IOException, URISyntaxException {
         Dataset<Row> fileGroupDataframe = null;
         for (String filePath : filePaths) {
             fileNumberAcc.add(1);
@@ -732,7 +731,7 @@ public final class SparkDpp implements java.io.Serializable {
             }
             if (fileGroup.columnSeparator == null) {
                 LOG.warn("invalid null column separator!");
-                throw new UserException("Reason: invalid null column separator!");
+                throw new SparkDppException("Reason: invalid null column separator!");
             }
             Dataset<Row> dataframe = null;
 
@@ -751,7 +750,7 @@ public final class SparkDpp implements java.io.Serializable {
                                                String hiveDbTableName,
                                                EtlJobConfig.EtlIndex baseIndex,
                                                EtlJobConfig.EtlFileGroup fileGroup,
-                                               StructType dstTableSchema) throws UserException {
+                                               StructType dstTableSchema) throws SparkDppException {
         // select base index columns from hive table
         StringBuilder sql = new StringBuilder();
         sql.append("select ");
