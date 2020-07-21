@@ -273,7 +273,7 @@ public class TabletScheduler extends MasterDaemon {
 
         selectTabletsForBalance();
 
-        stat.counterTabletScheduleRound.increment();
+        stat.counterTabletScheduleRound.incrementAndGet();
     }
 
 
@@ -371,7 +371,7 @@ public class TabletScheduler extends MasterDaemon {
                                 // we must release resource it current hold, and be scheduled again
                                 tabletCtx.releaseResource(this);
                                 // adjust priority to avoid some higher priority always be the first in pendingTablets
-                                stat.counterTabletScheduledFailed.increment();
+                                stat.counterTabletScheduledFailed.incrementAndGet();
                                 dynamicAdjustPrioAndAddBackToPendingTablets(tabletCtx, e.getMessage());
                             }
                         }
@@ -379,36 +379,36 @@ public class TabletScheduler extends MasterDaemon {
                         // we must release resource it current hold, and be scheduled again
                         tabletCtx.releaseResource(this);
                         // adjust priority to avoid some higher priority always be the first in pendingTablets
-                        stat.counterTabletScheduledFailed.increment();
+                        stat.counterTabletScheduledFailed.incrementAndGet();
                         dynamicAdjustPrioAndAddBackToPendingTablets(tabletCtx, e.getMessage());
                     }
                 } else if (e.getStatus() == Status.FINISHED) {
                     // schedule redundant tablet will throw this exception
-                    stat.counterTabletScheduledSucceeded.increment();
+                    stat.counterTabletScheduledSucceeded.incrementAndGet();
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getMessage());
                 } else {
                     Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
                     // discard
-                    stat.counterTabletScheduledDiscard.increment();
+                    stat.counterTabletScheduledDiscard.incrementAndGet();
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
                 }
                 continue;
             } catch (Exception e) {
                 LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
                         tabletCtx.getTabletId(), e);
-                stat.counterTabletScheduledFailed.increment();
+                stat.counterTabletScheduledFailed.incrementAndGet();
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
             }
 
             Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING);
-            stat.counterTabletScheduledSucceeded.increment();
+            stat.counterTabletScheduledSucceeded.incrementAndGet();
             addToRunningTablets(tabletCtx);
         }
 
         // must send task after adding tablet info to runningTablets.
         for (AgentTask task : batchTask.getAllTasks()) {
             if (AgentTaskQueue.addTask(task)) {
-                stat.counterCloneTask.increment();
+                stat.counterCloneTask.incrementAndGet();
             }
             LOG.info("add clone task to agent task queue: {}", task);
         }
@@ -417,7 +417,7 @@ public class TabletScheduler extends MasterDaemon {
         AgentTaskExecutor.submit(batchTask);
 
         long cost = System.currentTimeMillis() - start;
-        stat.counterTabletScheduleCostMs.add(cost);
+        stat.counterTabletScheduleCostMs.addAndGet(cost);
     }
 
     private synchronized void addToRunningTablets(TabletSchedCtx tabletCtx) {
@@ -441,7 +441,7 @@ public class TabletScheduler extends MasterDaemon {
         long currentTime = System.currentTimeMillis();
         tabletCtx.setLastSchedTime(currentTime);
         tabletCtx.setLastVisitedTime(currentTime);
-        stat.counterTabletScheduled.increment();
+        stat.counterTabletScheduled.incrementAndGet();
 
         // check this tablet again
         Database db = catalog.getDb(tabletCtx.getDbId());
@@ -603,7 +603,7 @@ public class TabletScheduler extends MasterDaemon {
      * 3. send clone task to destination backend
      */
     private void handleReplicaMissing(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
-        stat.counterReplicaMissingErr.increment();
+        stat.counterReplicaMissingErr.incrementAndGet();
         // find an available dest backend and path
         RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletCtx, false /* not for colocate */);
         Preconditions.checkNotNull(destPath);
@@ -626,7 +626,7 @@ public class TabletScheduler extends MasterDaemon {
      */
     private void handleReplicaVersionIncomplete(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
-        stat.counterReplicaVersionMissingErr.increment();
+        stat.counterReplicaVersionMissingErr.incrementAndGet();
         ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster());
         if (statistic == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -646,7 +646,7 @@ public class TabletScheduler extends MasterDaemon {
      */
     private void handleReplicaRelocating(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
-        stat.counterReplicaUnavailableErr.increment();
+        stat.counterReplicaUnavailableErr.incrementAndGet();
         handleReplicaMissing(tabletCtx, batchTask);
     }
 
@@ -664,7 +664,7 @@ public class TabletScheduler extends MasterDaemon {
      *  8. replica in higher load backend
      */
     private void handleRedundantReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
-        stat.counterReplicaRedundantErr.increment();
+        stat.counterReplicaRedundantErr.incrementAndGet();
 
         if (deleteBackendDropped(tabletCtx, force)
                 || deleteBadReplica(tabletCtx, force)
@@ -935,7 +935,7 @@ public class TabletScheduler extends MasterDaemon {
      */
     private void handleReplicaClusterMigration(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
-        stat.counterReplicaMissingInClusterErr.increment();
+        stat.counterReplicaMissingInClusterErr.incrementAndGet();
         handleReplicaMissing(tabletCtx, batchTask);
     }
 
@@ -953,7 +953,7 @@ public class TabletScheduler extends MasterDaemon {
     private void handleColocateMismatch(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
         Preconditions.checkNotNull(tabletCtx.getColocateBackendsSet());
 
-        stat.counterReplicaColocateMismatch.increment();
+        stat.counterReplicaColocateMismatch.incrementAndGet();
         // find an available dest backend and path
         RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletCtx, true /* for colocate */);
         Preconditions.checkNotNull(destPath);
@@ -994,7 +994,7 @@ public class TabletScheduler extends MasterDaemon {
      * Try to create a balance task for a tablet.
      */
     private void doBalance(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
-        stat.counterBalanceSchedule.increment();
+        stat.counterBalanceSchedule.incrementAndGet();
         LoadBalancer loadBalancer = new LoadBalancer(statisticMap);
         loadBalancer.createBalanceTask(tabletCtx, backendsWorkingSlots, batchTask);
     }
@@ -1151,12 +1151,12 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.increaseFailedRunningCounter();
             tabletCtx.setErrMsg(e.getMessage());
             if (e.getStatus() == Status.RUNNING_FAILED) {
-                stat.counterCloneTaskFailed.increment();
+                stat.counterCloneTaskFailed.incrementAndGet();
                 addToRunningTablets(tabletCtx);
                 return false;
             } else if (e.getStatus() == Status.UNRECOVERABLE) {
                 // unrecoverable
-                stat.counterTabletScheduledDiscard.increment();
+                stat.counterTabletScheduledDiscard.incrementAndGet();
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
                 return true;
             } else if (e.getStatus() == Status.FINISHED) {
@@ -1167,13 +1167,13 @@ public class TabletScheduler extends MasterDaemon {
         } catch (Exception e) {
             LOG.warn("got unexpected exception when finish clone task. tablet: {}",
                     tabletCtx.getTabletId(), e);
-            stat.counterTabletScheduledDiscard.increment();
+            stat.counterTabletScheduledDiscard.incrementAndGet();
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
             return true;
         }
 
         Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.FINISHED);
-        stat.counterCloneTaskSucceeded.increment();
+        stat.counterCloneTaskSucceeded.incrementAndGet();
         gatherStatistics(tabletCtx);
         finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, "finished");
         return true;
@@ -1240,7 +1240,7 @@ public class TabletScheduler extends MasterDaemon {
         // 2. release ctx
         timeoutTablets.stream().forEach(t -> {
             releaseTabletCtx(t, TabletSchedCtx.State.CANCELLED);
-            stat.counterCloneTaskTimeout.increment();
+            stat.counterCloneTaskTimeout.incrementAndGet();
         });
     }
 
