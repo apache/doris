@@ -97,6 +97,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         dynamicPartitionTableInfo.remove(new Pair<>(dbId, tableId));
     }
 
+    public boolean checkDynamicPartitionTableRegistered(Long dbId, Long tableId) {
+        return dynamicPartitionTableInfo.contains(new Pair<>(dbId, tableId));
+    }
+
     public String getRuntimeInfo(String tableName, String key) {
         Map<String, String> tableRuntimeInfo = runtimeInfos.getOrDefault(tableName, createDefaultRuntimeInfo());
         return tableRuntimeInfo.getOrDefault(key, DEFAULT_RUNTIME_VALUE);

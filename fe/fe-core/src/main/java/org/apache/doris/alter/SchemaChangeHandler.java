@@ -1392,8 +1392,15 @@ public class SchemaChangeHandler extends AlterHandler {
                     sendClearAlterTask(db, olapTable);
                     return;
                 } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
-                    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
-                    return;
+                    if (DynamicPartitionUtil.checkDynamicPartitionTableRegistered(db.getId(), olapTable.getId()) ||
+                            DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
+                        Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
+                        return;
+                    } else {
+                        // This table is not a dynamic partition table and didn't supply all dynamic partition properties
+                        throw new DdlException("Table {}.{} is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
+                                "to see how to change a normal table to a dynamic partition table.");
+                    }
                 } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
                     Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
                     Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
