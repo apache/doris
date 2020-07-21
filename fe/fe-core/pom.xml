@@ -20,7 +20,7 @@ under the License.
 -->
 
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -37,7 +37,22 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
+        <doris.thridparty>${basedir}/../../thirdparty</doris.thridparty>
     </properties>
+
+    <profiles>
+        <profile>
+            <id>thirdparty</id>
+            <activation>
+                <property>
+                    <name>env.DORIS_THIRDPARTY</name>
+                </property>
+            </activation>
+            <properties>
+                <doris.thridparty>${env.DORIS_THIRDPARTY}</doris.thridparty>
+            </properties>
+        </profile>
+    </profiles>
 
     <dependencies>
         <!-- https://mvnrepository.com/artifact/cglib/cglib -->
@@ -428,7 +443,7 @@ under the License.
             <artifactId>spark-launcher_2.12</artifactId>
         </dependency>
 
-		<!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
+        <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-sql_2.12</artifactId>
@@ -438,8 +453,26 @@ under the License.
 
     <build>
         <finalName>palo-fe</finalName>
-
         <plugins>
+            <!--thrift-->
+            <plugin>
+                <groupId>org.apache.thrift.tools</groupId>
+                <artifactId>maven-thrift-plugin</artifactId>
+                <version>0.1.11</version>
+                <configuration>
+                    <thriftExecutable>${doris.thridparty}/installed/bin/thrift</thriftExecutable>
+                    <thriftSourceRoot>${doris.home}/gensrc/thrift</thriftSourceRoot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>thrift-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!--jcup-->
             <plugin>
                 <groupId>net.sourceforge.czt.dev</groupId>
@@ -506,7 +539,7 @@ under the License.
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>1.6.0</version>
+                <version>3.0.0</version>
                 <executions>
                     <execution>
                         <id>gensrc</id>
@@ -535,7 +568,7 @@ under the License.
                             <arguments>
                                 <argument>-jar</argument>
                                 <argument>${settings.localRepository}/com/baidu/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}-jar-with-dependencies.jar</argument>
-                                <argument>--java_out=${doris.home}/gensrc/build/java/</argument>
+                                <argument>--java_out=${doris.home}/fe/fe-core/target/generated-sources/protobuf</argument>
                                 <argument>${doris.home}/gensrc/proto/internal_service.proto</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
@@ -543,29 +576,6 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
-
-            <!-- add gensrc java build src dir -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>1.7</version>
-                <executions>
-                    <execution>
-                        <id>add-source</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>add-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <!-- add arbitrary num of src dirs here -->
-                                <source>${doris.home}/gensrc/build/java/</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
             <!-- copy all dependency libs to target lib dir -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
