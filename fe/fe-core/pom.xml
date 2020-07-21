@@ -453,6 +453,7 @@ under the License.
 
     <build>
         <finalName>palo-fe</finalName>
+
         <plugins>
             <!--thrift-->
             <plugin>
@@ -542,6 +543,21 @@ under the License.
                 <version>3.0.0</version>
                 <executions>
                     <execution>
+                        <id>make-dir</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>mkdir</executable>
+                            <arguments>
+                                <argument>-p</argument>
+                                <argument>${basedir}/target/generated-sources/proto</argument>
+                            </arguments>
+                            <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>gensrc</id>
                         <phase>generate-sources</phase>
                         <goals>
@@ -568,7 +584,7 @@ under the License.
                             <arguments>
                                 <argument>-jar</argument>
                                 <argument>${settings.localRepository}/com/baidu/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}-jar-with-dependencies.jar</argument>
-                                <argument>--java_out=${doris.home}/fe/fe-core/target/generated-sources/protobuf</argument>
+                                <argument>--java_out=${basedir}/target/generated-sources/proto</argument>
                                 <argument>${doris.home}/gensrc/proto/internal_service.proto</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
@@ -576,6 +592,30 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- add gensrc java build src dir -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>1.7</version>
+                <executions>
+                    <execution>
+                        <id>add-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <!-- add arbitrary num of src dirs here -->
+                                <source>${basedir}/target/generated-sources/build/</source>
+                                <source>${basedir}/target/generated-sources/proto/</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- copy all dependency libs to target lib dir -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
