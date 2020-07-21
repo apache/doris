@@ -454,6 +454,7 @@ public:
     HighWaterMarkCounter* AddHighWaterMarkCounter(const std::string& name,
             TUnit::type unit, const std::string& parent_counter_name = "");
 
+    // Only for create MemTracker(using profile's counter to calc consumption)
     std::shared_ptr<HighWaterMarkCounter> AddSharedHighWaterMarkCounter(
         const std::string& name, TUnit::type unit,
         const std::string& parent_counter_name = "");
