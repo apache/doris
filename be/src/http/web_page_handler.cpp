@@ -50,7 +50,7 @@ WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
     _http_server->register_static_file_handler(this);
 
     TemplatePageHandlerCallback root_callback =
-            std::bind<void>(std::mem_fn(&WebPageHandler::root_handler), this, _1, _2);
+            std::bind<void>(std::mem_fn(&WebPageHandler::root_handler), this, std::placeholders::_1, std::placeholders::_2);
     register_template_page("/", "Home", root_callback, false /* is_on_nav_bar */);
 }
 

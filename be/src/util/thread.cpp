@@ -484,7 +484,8 @@ Status ThreadJoiner::join() {
 void register_thread_display_page(WebPageHandler* web_page_handler) {
     web_page_handler->register_template_page(
             "/threadz", "Threads",
-            std::bind(&ThreadMgr::display_thread_callback, thread_manager.get(), _1, _2),
+            std::bind(&ThreadMgr::display_thread_callback, thread_manager.get(), 
+            std::placeholders::_1, std::placeholders::_2),
             true);
 }
 } // namespace doris
