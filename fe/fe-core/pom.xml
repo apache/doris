@@ -37,7 +37,22 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
+        <doris.thridparty>${basedir}/../../thirdparty</doris.thridparty>
     </properties>
+
+    <profiles>
+        <profile>
+            <id>thirdparty</id>
+            <activation>
+                <property>
+                    <name>env.DORIS_THIRDPARTY</name>
+                </property>
+            </activation>
+            <properties>
+                <doris.thridparty>${env.DORIS_THIRDPARTY}</doris.thridparty>
+            </properties>
+        </profile>
+    </profiles>
 
     <dependencies>
         <!-- https://mvnrepository.com/artifact/cglib/cglib -->
@@ -440,6 +455,25 @@ under the License.
         <finalName>palo-fe</finalName>
 
         <plugins>
+            <!--thrift-->
+            <plugin>
+                <groupId>org.apache.thrift.tools</groupId>
+                <artifactId>maven-thrift-plugin</artifactId>
+                <version>0.1.11</version>
+                <configuration>
+                    <thriftExecutable>${doris.thridparty}/installed/bin/thrift</thriftExecutable>
+                    <thriftSourceRoot>${doris.home}/gensrc/thrift</thriftSourceRoot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>thrift-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!--jcup-->
             <plugin>
                 <groupId>net.sourceforge.czt.dev</groupId>
@@ -506,8 +540,23 @@ under the License.
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>1.6.0</version>
+                <version>3.0.0</version>
                 <executions>
+                    <execution>
+                        <id>make-dir</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>mkdir</executable>
+                            <arguments>
+                                <argument>-p</argument>
+                                <argument>${basedir}/target/generated-sources/proto</argument>
+                            </arguments>
+                            <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>gensrc</id>
                         <phase>generate-sources</phase>
@@ -535,7 +584,7 @@ under the License.
                             <arguments>
                                 <argument>-jar</argument>
                                 <argument>${settings.localRepository}/com/baidu/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}-jar-with-dependencies.jar</argument>
-                                <argument>--java_out=${doris.home}/gensrc/build/java/</argument>
+                                <argument>--java_out=${basedir}/target/generated-sources/proto</argument>
                                 <argument>${doris.home}/gensrc/proto/internal_service.proto</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
@@ -559,7 +608,8 @@ under the License.
                         <configuration>
                             <sources>
                                 <!-- add arbitrary num of src dirs here -->
-                                <source>${doris.home}/gensrc/build/java/</source>
+                                <source>${basedir}/target/generated-sources/build/</source>
+                                <source>${basedir}/target/generated-sources/proto/</source>
                             </sources>
                         </configuration>
                     </execution>

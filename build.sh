@@ -41,8 +41,7 @@ if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
     ${DORIS_THIRDPARTY}/build-thirdparty.sh
 fi
 
-#PARALLEL=$[$(nproc)/4+1]
-PARALLEL=12
+PARALLEL=$[$(nproc)/4+1]
 
 # Check args
 usage() {
@@ -148,6 +147,7 @@ echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
+   rm -rf ${DORIS_HOME}/fe/fe-core/target
 fi
 # DO NOT using parallel make(-j) for gensrc
 make
