@@ -39,6 +39,9 @@ public class FeConstants {
     // dpp version
     public static String dpp_version = "3_2_0";
 
+    // spark load version
+    public static String spark_dpp_version = "1_0_0";
+
     // bloom filter false positive probability
     public static double default_bloom_filter_fpp = 0.05;
 
