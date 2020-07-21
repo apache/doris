@@ -22,6 +22,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import avro.shaded.com.google.common.collect.Maps;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
@@ -74,7 +75,7 @@ public class PluginMgrTest {
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
-            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("auditdemo.zip"));
+            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("auditdemo.zip"), Maps.newHashMap());
             Catalog.getCurrentCatalog().installPlugin(stmt);
 
             PluginMgr pluginMgr = Catalog.getCurrentPluginMgr();
@@ -117,7 +118,7 @@ public class PluginMgrTest {
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
-            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("test_local_plugin"));
+            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("test_local_plugin"), Maps.newHashMap());
             Catalog.getCurrentCatalog().installPlugin(stmt);
 
             PluginMgr pluginMgr = Catalog.getCurrentPluginMgr();

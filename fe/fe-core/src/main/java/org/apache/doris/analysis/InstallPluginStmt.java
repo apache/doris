@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -26,20 +25,28 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.Map;
+
 public class InstallPluginStmt extends DdlStmt {
 
     private String pluginPath;
+    private Map<String, String> properties;
 
-    public InstallPluginStmt(String pluginPath) {
+    public InstallPluginStmt(String pluginPath, Map<String, String> properties) {
         this.pluginPath = pluginPath;
+        this.properties = properties;
     }
 
     public String getPluginPath() {
         return pluginPath;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         if (!Config.plugin_enable) {
