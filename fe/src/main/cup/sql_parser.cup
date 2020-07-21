@@ -2429,6 +2429,10 @@ opt_alter_type ::=
     {:
         RESULT = ShowAlterStmt.AlterType.COLUMN;
     :}
+    | KW_MATERIALIZED KW_VIEW
+    {:
+        RESULT = ShowAlterStmt.AlterType.MATERIALIZED_VIEW;
+    :}
     ;
 
 opt_builtin ::=

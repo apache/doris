@@ -17,9 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Range;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -32,9 +38,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -69,6 +77,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private String baseIndexName;
     private String dbName;
     private KeysType mvKeysType = KeysType.DUP_KEYS;
+    private List<String> partitionColumns = new ArrayList<>();
 
     public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt, Map<String, String> properties) {
         this.mvName = mvName;
@@ -166,6 +175,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                 mvColumnItem.setType(slotRef.getType());
                 mvColumnItemList.add(mvColumnItem);
+
+                partitionColumns.remove(columnName);
             } else if (selectListItem.getExpr() instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItem.getExpr();
                 String functionName = functionCallExpr.getFnName().getFunction();
@@ -207,9 +218,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 mvColumnItemList.add(mvColumnItem);
             }
         }
+
         // TODO(ML): only value columns of materialized view, such as select sum(v1) from table
         if (beginIndexOfAggregation == 0) {
             throw new AnalysisException("The materialized view must contain at least one key column");
+        }
+        if (partitionColumns.size() > 0) {
+            throw new AnalysisException("Partition columns must in group by clause");
         }
     }
 
@@ -221,6 +236,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         TableName tableName = tableRefList.get(0).getName();
         baseIndexName = tableName.getTbl();
         dbName = tableName.getDb();
+
+        OlapTable olapTable = (OlapTable) Catalog.getCurrentCatalog().getDb(dbName).getTable(tableName.getTbl());
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        if (partitionInfo instanceof RangePartitionInfo) {
+            partitionColumns = ((RangePartitionInfo) partitionInfo).getPartitionColumns().
+                    stream().map(Column::getName).collect(Collectors.toList());
+        }
     }
 
     private void analyzeOrderByClause() throws AnalysisException {

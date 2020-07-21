@@ -53,7 +53,7 @@ public class ShowAlterStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowAlterStmt.class);
 
     public static enum AlterType {
-        COLUMN, ROLLUP
+        COLUMN, ROLLUP, MATERIALIZED_VIEW
     }
 
     private AlterType type;
@@ -189,7 +189,7 @@ public class ShowAlterStmt extends ShowStmt {
         sb.append(db.getId());
         if (type == AlterType.COLUMN) {
             sb.append("/schema_change");
-        } else if (type == AlterType.ROLLUP) {
+        } else if (type == AlterType.ROLLUP || type == AlterType.MATERIALIZED_VIEW) {
             sb.append("/rollup");
         } else {
             throw new UserException("SHOW " + type.name() + " does not implement yet");
@@ -239,7 +239,7 @@ public class ShowAlterStmt extends ShowStmt {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         ImmutableList<String> titleNames = null;
-        if (type == AlterType.ROLLUP) {
+        if (type == AlterType.ROLLUP || type == AlterType.MATERIALIZED_VIEW) {
             titleNames = RollupProcDir.TITLE_NAMES;
         } else if (type == AlterType.COLUMN) {
             titleNames = SchemaChangeProcDir.TITLE_NAMES;

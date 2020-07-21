@@ -4887,7 +4887,7 @@ public class Catalog {
      * command). including SchemaChangeHandler and RollupHandler
      */
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
-        if (stmt.getAlterType() == AlterType.ROLLUP) {
+        if (stmt.getAlterType() == AlterType.ROLLUP || stmt.getAlterType() == AlterType.MATERIALIZED_VIEW) {
             this.getRollupHandler().cancel(stmt);
         } else if (stmt.getAlterType() == AlterType.COLUMN) {
             this.getSchemaChangeHandler().cancel(stmt);
