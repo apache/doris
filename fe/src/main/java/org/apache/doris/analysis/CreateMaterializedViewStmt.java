@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Range;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
