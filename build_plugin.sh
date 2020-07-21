@@ -83,7 +83,7 @@ echo "Get params:
 "
 
 # check if palo-fe.jar exist
-if [ ! -f "$DORIS_HOME/fe/target/palo-fe.jar" ]; then
+if [ ! -f "$DORIS_HOME/fe/fe-core/target/palo-fe.jar" ]; then
     echo "ERROR: palo-fe.jar does not exist. Please build FE first"
     exit -1
 fi
