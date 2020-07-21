@@ -17,10 +17,9 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.PaloFe;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.SparkResource;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -58,6 +57,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * SparkEtlJobHandler is responsible for
@@ -70,11 +70,9 @@ import java.util.Map;
 public class SparkEtlJobHandler {
     private static final Logger LOG = LogManager.getLogger(SparkEtlJobHandler.class);
 
-    private static final String APP_RESOURCE_NAME = "palo-fe.jar";
+    private static final String APP_RESOURCE_NAME = "spark-dpp.jar";
     private static final String CONFIG_FILE_NAME = "jobconfig.json";
     // private static final String APP_RESOURCE_LOCAL_PATH = PaloFe.DORIS_HOME_DIR + "/lib/" + APP_RESOURCE_NAME;
-    private static final String DPP_RESOURCE_LOCAL_PATH = PaloFe.DORIS_HOME_DIR + Config.spark_dpp_resource_local_path;
-    private static final String SPARK_RESOURCE_LOCAL_PATH = Config.spark_resource_path;
     private static final String JOB_CONFIG_DIR = "configs";
     private static final String ETL_JOB_NAME = "doris__%s";
     // 5min
@@ -99,7 +97,6 @@ public class SparkEtlJobHandler {
         String appResourceHdfsPath = configsHdfsDir + APP_RESOURCE_NAME;
         String jobConfigHdfsPath = configsHdfsDir + CONFIG_FILE_NAME;
         try {
-            // BrokerUtil.writeFile(APP_RESOURCE_LOCAL_PATH, appResourceHdfsPath, brokerDesc);
             byte[] configData = etlJobConfig.configToJson().getBytes("UTF-8");
             BrokerUtil.writeFile(configData, jobConfigHdfsPath, brokerDesc);
         } catch (UserException | UnsupportedEncodingException e) {
@@ -113,7 +110,7 @@ public class SparkEtlJobHandler {
         // spark://xx  |  client
         launcher.setMaster(resource.getMaster())
                 .setDeployMode(resource.getDeployMode().name().toLowerCase())
-                .setAppResource(appResourceHdfsPath)
+                //.setAppResource(appResourceHdfsPath)
                 .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .addAppArgs(jobConfigHdfsPath);
@@ -121,6 +118,17 @@ public class SparkEtlJobHandler {
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {
             launcher.setConf(entry.getKey(), entry.getValue());
         }
+
+        SparkRepository remoteRepository = new SparkRepository(resource.getRepositoryDir(),
+                FeConstants.spark_dpp_version, brokerDesc);
+        remoteRepository.initRepository();
+        SparkRepository.SparkArchive archive = remoteRepository.getCurrentArchive();
+        String remoteArchivePath = archive.remotePath;
+        List<SparkRepository.SparkLibrary> libraries = archive.libraries;
+        Optional<SparkRepository.SparkLibrary> optionalLibrary = libraries.stream().
+                filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.DPP).findFirst();
+        launcher.setAppResource(optionalLibrary.get().remotePath);
+        launcher.setConf("spark.yarn.archive", remoteArchivePath + "*.zip");
 
         // start app
         SparkAppHandle handle = null;

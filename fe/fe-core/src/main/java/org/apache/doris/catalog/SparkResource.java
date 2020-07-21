@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
-
+import org.apache.doris.load.loadv2.SparkRepository;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -59,7 +59,6 @@ public class SparkResource extends Resource {
     private static final String SPARK_MASTER = "spark.master";
     private static final String SPARK_SUBMIT_DEPLOY_MODE = "spark.submit.deployMode";
     private static final String WORKING_DIR = "working_dir";
-    private static final String REPOSITORY_DIR = "repository_dir";
     private static final String BROKER = "broker";
     private static final String YARN_MASTER = "yarn";
     private static final String SPARK_CONFIG_PREFIX = "spark.";
@@ -87,8 +86,6 @@ public class SparkResource extends Resource {
     private Map<String, String> sparkConfigs;
     @SerializedName(value = "workingDir")
     private String workingDir;
-    @SerializedName(value = "repository_dir")
-    private String repositoryDir;
     @SerializedName(value = "broker")
     private String broker;
     // broker username and password
@@ -99,22 +96,11 @@ public class SparkResource extends Resource {
         this(name, Maps.newHashMap(), null, null, Maps.newHashMap());
     }
 
-    private SparkResource(String name, Map<String, String> sparkConfigs, String workingDir, String repositoryDir, String broker,
-                          Map<String, String> brokerProperties) {
-        super(name, ResourceType.SPARK);
-        this.sparkConfigs = sparkConfigs;
-        this.workingDir = workingDir;
-        this.repositoryDir = repositoryDir;
-        this.broker = broker;
-        this.brokerProperties = brokerProperties;
-    }
-
     private SparkResource(String name, Map<String, String> sparkConfigs, String workingDir, String broker,
                           Map<String, String> brokerProperties) {
         super(name, ResourceType.SPARK);
         this.sparkConfigs = sparkConfigs;
         this.workingDir = workingDir;
-        this.repositoryDir = workingDir + "/repository";
         this.broker = broker;
         this.brokerProperties = brokerProperties;
     }
@@ -132,7 +118,7 @@ public class SparkResource extends Resource {
     }
 
     public String getRepositoryDir() {
-        return repositoryDir;
+        return workingDir + "/" + SparkRepository.REPOSITORY_DIR;
     }
 
     public String getBroker() {

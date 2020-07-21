@@ -510,10 +510,6 @@ public class Config extends ConfigBase {
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
     // Configurations for spark load
-    // The following configurations are not available.
-    public static String spark_dpp_resource_local_path = "/lib/spark-dpp.zip";
-    public static String spark_core_resource_local_path = "/spark-2x.zip";
-
     /**
      * Default spark load timeout
      */
