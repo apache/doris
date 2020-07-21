@@ -48,7 +48,7 @@
                 <artifactId>doris-fe</artifactId>
                 <version>3.4.0</version>
                 <scope>system</scope>
-                <systemPath>${doris.home}/fe/target/palo-fe.jar</systemPath>
+                <systemPath>${doris.home}/fe/fe-core/target/palo-fe.jar</systemPath>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
