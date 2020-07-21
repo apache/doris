@@ -23,8 +23,7 @@ extension/spark-doris-connector/target
 fe/log
 custom_env.sh
 ut_dir
-log
-meta
+log/
 fe_plugins/*/target
 fe_plugins/output
 fe/mocked
