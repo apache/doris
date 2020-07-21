@@ -158,6 +158,10 @@ under the License.
 
             布尔类型，为true表示json数据以数组对象开始且将数组对象中进行展平，默认值是false。
 
+        9. json_root
+
+        json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+
     5. data_source
 
         数据源的类型。当前支持：
@@ -398,6 +402,36 @@ under the License.
            1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
            2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
 
+    6. 用户指定根节点json_root
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false",
+            "format" = "json",
+            "jsonpaths" = "[\"$.category\",\"$.author\",\"$.price\",\"$.timestamp\"]",
+            "strip_outer_array" = "true",
+            "json_root" = "$.RECORDS"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2",
+            "kafka_offsets" = "0,0,0"
+        );
+   json数据格式:
+        {
+        "RECORDS":[
+            {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+            {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+            {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+            ]
+        }
 ## keyword
 
     CREATE,ROUTINE,LOAD

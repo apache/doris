@@ -95,6 +95,11 @@ public:
             rapidjson::Value* document,
             rapidjson::Document::AllocatorType& mem_allocator);
 
+    static rapidjson::Value* get_json_object_from_parsed_json(
+            const std::vector<JsonPath>& parsed_paths,
+            rapidjson::Value* document,
+            rapidjson::Document::AllocatorType& mem_allocator);
+
     static void json_path_prepare(
             doris_udf::FunctionContext*,
             doris_udf::FunctionContext::FunctionStateScope);

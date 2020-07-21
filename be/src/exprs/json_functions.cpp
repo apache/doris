@@ -299,6 +299,23 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
     return root;
 }
 
+
+rapidjson::Value* JsonFunctions::get_json_object_from_parsed_json(
+        const std::vector<JsonPath>& parsed_paths,
+        rapidjson::Value* document,
+        rapidjson::Document::AllocatorType& mem_allocator) {
+
+    if (!parsed_paths[0].is_valid) {
+        return nullptr;
+    }
+
+    rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
+    if (root == nullptr || root == document) { // not found
+        return nullptr;
+    }
+    return root;
+}
+
 void JsonFunctions::json_path_prepare(
         doris_udf::FunctionContext* context,
         doris_udf::FunctionContext::FunctionStateScope scope) {

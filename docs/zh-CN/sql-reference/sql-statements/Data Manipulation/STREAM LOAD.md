@@ -89,6 +89,8 @@ under the License.
            ]
            当strip_outer_array为true，最后导入到doris中会生成两行数据。
 
+        json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
         Status: 导入最后的状态。
@@ -171,6 +173,18 @@ under the License.
          说明：
            1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
            2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
+
+    12. 用户指定json根节点
+       json数据格式:
+            {
+            "RECORDS":[
+                {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+                {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+                {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+                ]
+            }
+        通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性  
+         curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 ## keyword
     STREAM,LOAD
