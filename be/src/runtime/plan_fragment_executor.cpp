@@ -129,8 +129,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         bytes_limit = _exec_env->process_mem_tracker()->limit();
     }
     // NOTE: this MemTracker only for olap
-    _mem_tracker.reset(
-            new MemTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker()));
+    _mem_tracker = MemTracker::CreateTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker());
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     LOG(INFO) << "Using query memory limit: "

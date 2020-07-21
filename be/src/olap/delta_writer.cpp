@@ -42,7 +42,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, std::shared_ptr<MemTracker> parent, 
           _tablet_schema(nullptr),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _mem_tracker(new MemTracker(-1, "DeltaWriter", parent)) {}
+          _mem_tracker(MemTracker::CreateTracker(-1, "DeltaWriter", parent)) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {

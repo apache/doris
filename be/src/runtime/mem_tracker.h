@@ -83,6 +83,19 @@ class TQueryOptions;
 /// This class is thread-safe.
 class MemTracker : public std::enable_shared_from_this<MemTracker> {
  public:
+  // Creates and adds the tracker to the tree so that it can be retrieved with
+  // FindTracker/FindOrCreateTracker.
+  static std::shared_ptr<MemTracker> CreateTracker(
+      int64_t byte_limit = -1,
+      const std::string& label = std::string(),
+      std::shared_ptr<MemTracker> parent = std::shared_ptr<MemTracker>(),
+      bool log_usage_if_zero = true);
+
+  static std::shared_ptr<MemTracker> CreateTracker(
+      RuntimeProfile* profile, int64_t byte_limit,
+      const std::string& label = std::string(),
+      const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>());
+
   /// 'byte_limit' < 0 means no limit
   /// 'label' is the label used in the usage string (LogUsage())
   /// If 'log_usage_if_zero' is false, this tracker (and its children) will not be
@@ -97,6 +110,7 @@ class MemTracker : public std::enable_shared_from_this<MemTracker> {
   MemTracker(RuntimeProfile* profile, int64_t byte_limit,
       const std::string& label = std::string(), const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>());
 
+  // TODO(yingchun): not used, remove it later
   /// C'tor for tracker that uses consumption_metric as the consumption value.
   /// Consume()/Release() can still be called. This is used for the root process tracker
   /// (if 'parent' is NULL). It is also to report on other categories of memory under the

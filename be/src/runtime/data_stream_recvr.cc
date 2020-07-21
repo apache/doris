@@ -366,10 +366,7 @@ DataStreamRecvr::DataStreamRecvr(
             _num_buffered_bytes(0),
             _profile(profile),
             _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    // TODO: Now the parent tracker may cause problem when we need spill to disk, so we
-    // replace parent_tracker with nullptr, fix future
-    _mem_tracker.reset(new MemTracker(_profile, -1, "DataStreamRecvr", nullptr));
-    // _mem_tracker.reset(new MemTracker(_profile.get(), -1, "DataStreamRecvr", parent_tracker));
+    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamRecvr", parent_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;

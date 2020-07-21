@@ -58,7 +58,7 @@ public:
             : _mgr(mgr),
               _state(state),
               _tracker(tracker),
-              _query_tracker(new MemTracker(-1, "BufferedBlockMgr2", _mgr->_mem_tracker->parent())),
+              _query_tracker(MemTracker::CreateTracker(-1, "BufferedBlockMgr2", _mgr->_mem_tracker->parent())),
               _num_reserved_buffers(num_reserved_buffers),
               _num_tmp_reserved_buffers(0),
               _num_pinned_buffers(0) {
@@ -1277,7 +1277,7 @@ void BufferedBlockMgr2::init(
     // Create a new mem_tracker and allocate buffers.
     // _mem_tracker.reset(new MemTracker(
     //             profile(), mem_limit, -1, "Block Manager", parent_tracker));
-    _mem_tracker.reset(new MemTracker(mem_limit, "Block Manager2", parent_tracker));
+    _mem_tracker = MemTracker::CreateTracker(mem_limit, "Block Manager2", parent_tracker);
 
     _initialized = true;
 }

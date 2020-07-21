@@ -31,7 +31,7 @@ std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker):
         _key(key), _state(kInitialized), _closed_senders(64) {
-    _mem_tracker.reset(new MemTracker(-1, "tablets channel", mem_tracker));
+    _mem_tracker = MemTracker::CreateTracker(-1, "tablets channel", mem_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_GAUGE_DORIS_METRIC(tablet_writer_count, [&]() {

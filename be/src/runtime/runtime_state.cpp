@@ -55,7 +55,7 @@ RuntimeState::RuntimeState(
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
-            _fragment_mem_tracker(NULL),
+            _fragment_mem_tracker(nullptr),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
             _root_node_id(-1),
@@ -81,7 +81,7 @@ RuntimeState::RuntimeState(
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
             _query_id(fragment_params.params.query_id),
-            _fragment_mem_tracker(NULL),
+            _fragment_mem_tracker(nullptr),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
             _root_node_id(-1),
@@ -226,10 +226,12 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
     mem_tracker_counter->set(bytes_limit);
 
-    _query_mem_tracker.reset(
-            new MemTracker(bytes_limit, std::string("RuntimeState: query ") + runtime_profile()->name(), _exec_env->process_mem_tracker()));
-    _instance_mem_tracker.reset(
-            new MemTracker(&_profile, -1, std::string("RuntimeState: instance ") + runtime_profile()->name(), _query_mem_tracker));
+    _query_mem_tracker = MemTracker::CreateTracker(
+            bytes_limit, std::string("RuntimeState: query ") + runtime_profile()->name(),
+            _exec_env->process_mem_tracker());
+    _instance_mem_tracker = MemTracker::CreateTracker(
+            &_profile, -1, std::string("RuntimeState: instance ") + runtime_profile()->name(),
+            _query_mem_tracker);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
