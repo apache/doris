@@ -86,33 +86,6 @@ public:
         return _append(buf);
     }
 
-    Status read_one_message2(uint8_t** data, size_t* length) {
-        std::unique_lock<std::mutex> l(_lock);
-        while (!_cancelled && !_finished && _buf_queue.empty()) {
-            _get_cond.wait(l);
-        }
-        // cancelled
-        if (_cancelled) {
-            return Status::InternalError("cancelled");
-        }
-        // finished
-        if (_buf_queue.empty()) {
-            DCHECK(_finished);
-            *data = nullptr;
-            *length = 0;
-            return Status::OK();
-        }
-        auto buf = _buf_queue.front();
-        *length = buf->remaining();
-        *data = new uint8_t[*length];
-        buf->get_bytes((char*)(*data) , *length);
-
-        _buf_queue.pop_front();
-        _buffered_bytes -= buf->limit;
-        _put_cond.notify_one();
-        return Status::OK();
-    }
-
     Status read_one_message(uint8_t** data, size_t* length) override {
         if (_total_length == -1) {
             return Status::InternalError("invalid call");
