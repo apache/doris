@@ -45,9 +45,9 @@ mvn org.apache.thrift.tools:maven-thrift-plugin:0.1.11:compile
 # 生成 proto java 代码
 org.codehaus.mojo:exec-maven-plugin:3.0.0:exec
 ```
-或者通过 图形界面运行运行maven 命令生成
+或者通过图形界面运行运行maven 命令生成
 ![](/images/gen_code.png)
-如果使用window 可能会有make 命令和sh 脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，编译一节
+如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
 ## 2.调试
 
