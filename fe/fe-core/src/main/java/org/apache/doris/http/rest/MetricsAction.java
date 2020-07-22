@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
 
 //fehost:port/metrics
 //fehost:port/metrics?type=core
@@ -41,7 +42,7 @@ public class MetricsAction {
     private static final String TYPE_PARAM = "type";
 
     @RequestMapping(path =  "/metrics")
-    public Object execute(HttpServletRequest request, HttpServletResponse response) {
+    public void execute(HttpServletRequest request, HttpServletResponse response) {
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
@@ -51,7 +52,12 @@ public class MetricsAction {
         } else {
             visitor = new PrometheusMetricVisitor("doris_fe");
         }
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(MetricRepo.getMetric(visitor));
-        return entity;
+        response.setContentType("text/plain");
+        try {
+            response.getWriter().write(MetricRepo.getMetric(visitor));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
     }
 }
