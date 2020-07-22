@@ -36,7 +36,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.thrift.*;
+import org.apache.doris.thrift.TBrokerScanNode;
+import org.apache.doris.thrift.TBrokerScanRangeParams;
+import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
