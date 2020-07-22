@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin;
 
+import avro.shaded.com.google.common.collect.Maps;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DigitalVersion;
@@ -83,6 +84,9 @@ public class PluginInfo implements Writable {
     @SerializedName("source")
     protected String source;
 
+    @SerializedName("properties")
+    protected Map<String, String> properties = Maps.newHashMap();
+
     public PluginInfo() { }
 
     // used for persisting uninstall operation
@@ -114,6 +118,9 @@ public class PluginInfo implements Writable {
 
     public static PluginInfo readFromProperties(final Path propertiesPath, final String source) throws IOException {
         final Path descriptor = propertiesPath.resolve(DEFAULT_PLUGIN_PROPERTIES);
+        if (!descriptor.toFile().exists()) {
+            throw new IOException(descriptor.getFileName() + " does not exists");
+        }
 
         final Map<String, String> propsMap;
         {
@@ -210,6 +217,14 @@ public class PluginInfo implements Writable {
 
     public String getSource() {
         return source;
+    }
+
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 
     @Override

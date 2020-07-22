@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin;
 
+import com.google.gson.Gson;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
@@ -114,7 +115,10 @@ public class PluginMgr implements Writable {
 
         try {
             PluginInfo info = pluginLoader.getPluginInfo();
-            
+            if (stmt.getProperties() != null) {
+                info.setProperties(stmt.getProperties());
+            }
+
             if (checkDynamicPluginNameExist(info.getName())) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
@@ -292,7 +296,7 @@ public class PluginMgr implements Writable {
                 }
 
                 r.add(loader.getStatus().toString());
-
+                r.add(pi != null ? new Gson().toJson(pi.getProperties()) : "UNKNOWN");
                 rows.add(r);
             }
         }
