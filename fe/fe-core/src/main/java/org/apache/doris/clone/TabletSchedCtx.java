@@ -799,11 +799,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet does not exist");
             }
             
-            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
             Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
                     infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicationNum,
-                    availableBackendsNum);
+                    aliveBeIdsInCluster);
             if (pair.first == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");
             }
