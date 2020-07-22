@@ -2111,6 +2111,11 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
+            // check agg model, add key-column operation use sc_directly to build index
+            if (new_tablet_schema.keys_type() == AGG_KEYS && new_tablet_schema.column(i).is_key()) {
+                *sc_directly = true;
+                return OLAP_SUCCESS;
+            }
             continue;
         } else {
             if (new_tablet_schema.column(i).type() !=
