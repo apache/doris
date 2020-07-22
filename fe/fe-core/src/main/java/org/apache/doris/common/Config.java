@@ -1149,5 +1149,17 @@ public class Config extends ConfigBase {
     @ConfField (mutable = true, masterOnly = true)
     public static long agent_task_resend_wait_time_ms = 5000;
 
+    /**
+     * min_clone_task_timeout_sec and max_clone_task_timeout_sec is to limit the
+     * min and max timeout of a clone task.
+     * Under normal circumstances, the timeout of a clone task is estimated by
+     * the amount of data and the minimum transmission speed(5MB/s).
+     * But in special cases, you may need to manually set these two configs
+     * to ensure that the clone task will not fail due to timeout.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long min_clone_task_timeout_sec = 3 * 60; // 3min
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
 }
 
