@@ -19,7 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.SparkResource;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -70,7 +69,7 @@ import java.util.Optional;
 public class SparkEtlJobHandler {
     private static final Logger LOG = LogManager.getLogger(SparkEtlJobHandler.class);
 
-    private static final String APP_RESOURCE_NAME = "spark-dpp.jar";
+    // private static final String APP_RESOURCE_NAME = "spark-dpp.jar";
     private static final String CONFIG_FILE_NAME = "jobconfig.json";
     // private static final String APP_RESOURCE_LOCAL_PATH = PaloFe.DORIS_HOME_DIR + "/lib/" + APP_RESOURCE_NAME;
     private static final String JOB_CONFIG_DIR = "configs";
@@ -92,10 +91,21 @@ public class SparkEtlJobHandler {
         // delete outputPath
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
 
+        // remote repository
+        SparkRepository remoteRepository = SparkRepository.getInstance();
+        remoteRepository.setRepositoryPath(resource.getRepositoryDir());
+        remoteRepository.setBrokerDesc(brokerDesc);
+        remoteRepository.initRepository();
+        SparkRepository.SparkArchive archive = remoteRepository.getCurrentArchive();
+        List<SparkRepository.SparkLibrary> libraries = archive.libraries;
+        Optional<SparkRepository.SparkLibrary> optionalLibrary = libraries.stream().
+                filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.DPP).findFirst();
+
         // upload app resource and jobconfig to hdfs
         String configsHdfsDir = etlJobConfig.outputPath + "/" + JOB_CONFIG_DIR + "/";
-        String appResourceHdfsPath = configsHdfsDir + APP_RESOURCE_NAME;
+        String appResourceHdfsPath = optionalLibrary.get().remotePath;
         String jobConfigHdfsPath = configsHdfsDir + CONFIG_FILE_NAME;
+        String jobArchiveHdfsPath = archive.remotePath;
         try {
             byte[] configData = etlJobConfig.configToJson().getBytes("UTF-8");
             BrokerUtil.writeFile(configData, jobConfigHdfsPath, brokerDesc);
@@ -110,7 +120,7 @@ public class SparkEtlJobHandler {
         // spark://xx  |  client
         launcher.setMaster(resource.getMaster())
                 .setDeployMode(resource.getDeployMode().name().toLowerCase())
-                //.setAppResource(appResourceHdfsPath)
+                .setAppResource(appResourceHdfsPath)
                 .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .addAppArgs(jobConfigHdfsPath);
@@ -118,17 +128,7 @@ public class SparkEtlJobHandler {
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {
             launcher.setConf(entry.getKey(), entry.getValue());
         }
-
-        SparkRepository remoteRepository = new SparkRepository(resource.getRepositoryDir(),
-                FeConstants.spark_dpp_version, brokerDesc);
-        remoteRepository.initRepository();
-        SparkRepository.SparkArchive archive = remoteRepository.getCurrentArchive();
-        String remoteArchivePath = archive.remotePath;
-        List<SparkRepository.SparkLibrary> libraries = archive.libraries;
-        Optional<SparkRepository.SparkLibrary> optionalLibrary = libraries.stream().
-                filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.DPP).findFirst();
-        launcher.setAppResource(optionalLibrary.get().remotePath);
-        launcher.setConf("spark.yarn.archive", remoteArchivePath + "*.zip");
+        launcher.setConf("spark.yarn.archive", jobArchiveHdfsPath + "*.zip");
 
         // start app
         SparkAppHandle handle = null;

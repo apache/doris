@@ -21,6 +21,7 @@ import org.apache.doris.PaloFe;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -50,7 +51,7 @@ import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /*
- * SparkRepository represents a remote repository for spark archives uploaded by spark
+ * SparkRepository represents the remote repository for spark archives uploaded by spark
  * The organization in repository is:
  *
  * * __spark_repository__/
@@ -87,38 +88,37 @@ public class SparkRepository {
 
     private ReentrantReadWriteLock rwLock;
 
-    public SparkRepository(String remoteRepositoryPath, String currentDppVersion, BrokerDesc brokerDesc) {
-        this.remoteRepositoryPath = remoteRepositoryPath;
-        this.brokerDesc = brokerDesc;
-        this.currentDppVersion = currentDppVersion;
-        this.rwLock = new ReentrantReadWriteLock();
-        localDppPath = PaloFe.DORIS_HOME_DIR + "/lib/spark-dpp.zip";
-        if (!Strings.isNullOrEmpty(Config.spark_resource_path)) {
-            localSpark2xPath = Config.spark_resource_path;
-        } else {
-            localSpark2xPath = Config.spark_home_default_dir + "/jars/spark-2x.zip";
-        }
+    public static SparkRepository getInstance() {
+        return SingletonHolder.INSTANCE;
     }
 
     public void initRepository() throws LoadException {
+        LOG.info("start to init remote repository");
         boolean needUpload = false;
         boolean needReplace = false;
         CHECK: {
+            if (Strings.isNullOrEmpty(remoteRepositoryPath)) {
+                break CHECK;
+            }
+
+            if (brokerDesc == null) {
+                break CHECK;
+            }
+
             if (!checkCurrentArchiveExists()) {
                 needUpload = true;
                 break CHECK;
             }
 
             List<SparkLibrary> libraries = Lists.newArrayList();
-            String remoteArchivePath = getRemoteArchivePath(currentDppVersion);
+            String remoteArchivePath = currentArchive.remotePath;
             getLibraries(remoteArchivePath, libraries);
             if (libraries.size() != 2) {
                 needUpload = true;
                 needReplace = true;
                 break CHECK;
             }
-            currentArchive = new SparkArchive(remoteArchivePath, currentDppVersion);
-            currentArchive.libraries = Lists.newArrayList(libraries);
+            currentArchive.libraries.addAll(libraries);
 
             for (SparkLibrary library : currentArchive.libraries) {
                 String localMd5sum = null;
@@ -144,54 +144,74 @@ public class SparkRepository {
         if (needUpload) {
             uploadArchive(needReplace);
         }
+        LOG.info("init remote repository success, current dppVersion={}, archivePath={}, libraries size={}",
+                currentDppVersion, currentArchive.remotePath, currentArchive.libraries.size());
     }
 
     public boolean checkCurrentArchiveExists() {
         boolean result = false;
         String remotePath = getRemoteArchivePath(currentDppVersion);
+        readLock();
         try {
             result = BrokerUtil.checkPathExist(remotePath, brokerDesc);
+            LOG.info("check archive exists in repository, {}", result);
         } catch (UserException e) {
             LOG.warn("Failed to check remote archive exist, path={}, version={}", remotePath, currentDppVersion);
+        } finally {
+            readUnlock();
         }
         return result;
     }
 
     public void uploadArchive(boolean isReplace) throws LoadException {
+        writeLock();
         try {
+            String remoteArchivePath = getRemoteArchivePath(currentDppVersion);
             if (isReplace) {
-                BrokerUtil.deletePath(getRemoteArchivePath(currentDppVersion), brokerDesc);
+                BrokerUtil.deletePath(remoteArchivePath, brokerDesc);
+                currentArchive.libraries.clear();
             }
             String srcFilePath = null;
             // upload dpp
             {
                 srcFilePath = localDppPath;
                 String md5sum = getMd5String(srcFilePath);
+                long size = getFileSize(srcFilePath);
                 String fileName = getFileName(PATH_DELIMITER, srcFilePath);
-                String destFilePath = getRemoteArchivePath(currentDppVersion) +
-                        assemblyFileName(PREFIX_LIB, md5sum, fileName, null);
+                String destFilePath = remoteArchivePath + PATH_DELIMITER +
+                        assemblyFileName(PREFIX_LIB, md5sum, fileName, "");
                 upload(srcFilePath, destFilePath);
+                currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.DPP, size));
             }
             // upload spark2x
             {
                 srcFilePath = localSpark2xPath;
                 String md5sum = getMd5String(srcFilePath);
+                long size = getFileSize(srcFilePath);
                 String fileName = getFileName(PATH_DELIMITER, srcFilePath);
-                String destFilePath = getRemoteArchivePath(currentDppVersion) +
-                        assemblyFileName(PREFIX_LIB, md5sum, fileName, null);
+                String destFilePath = remoteArchivePath + PATH_DELIMITER +
+                        assemblyFileName(PREFIX_LIB, md5sum, fileName, "");
                 upload(srcFilePath, destFilePath);
+                currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
             }
+            LOG.info("finished to upload archive to repository, currentDppVersion={}, path={}",
+                    currentDppVersion, remoteArchivePath);
         } catch (UserException e) {
             throw new LoadException(e.getMessage());
+        } finally {
+            writeUnlock();
         }
     }
 
     public void getLibraries(String remoteArchivePath, List<SparkLibrary> libraries) throws LoadException {
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+        readLock();
         try {
             BrokerUtil.parseFile(remoteArchivePath, brokerDesc, fileStatuses);
         } catch (UserException e) {
             throw new LoadException(e.getMessage());
+        } finally {
+            readUnlock();
         }
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
@@ -219,6 +239,7 @@ public class SparkRepository {
             }
             SparkLibrary remoteFile = new SparkLibrary(fileStatus.path, md5sum, libType, fileStatus.size);
             libraries.add(remoteFile);
+            LOG.info("get Libraries from remote archive, archive path={}, library={}", remoteArchivePath, remoteFile);
         }
     }
 
@@ -228,6 +249,7 @@ public class SparkRepository {
         try {
             md5sum = DigestUtils.md5Hex(new FileInputStream(file));
             Preconditions.checkNotNull(md5sum);
+            LOG.info("get md5sum from file {}, md5sum={}", filePath, md5sum);
             return md5sum;
         } catch (FileNotFoundException e) {
             throw new LoadException("file " + filePath + "dose not exist");
@@ -236,9 +258,19 @@ public class SparkRepository {
         }
     }
 
+    private long getFileSize(String filePath) throws LoadException {
+        File file = new File(filePath);
+        long size = file.length();
+        if (size <= 0) {
+            throw new LoadException("failed to get size from file " + filePath);
+        }
+        return size;
+    }
+
     public void upload(String srcFilePath, String destFilePath) throws LoadException {
         try {
             BrokerUtil.writeFile(srcFilePath, destFilePath , brokerDesc);
+            LOG.info("finished to upload file, localPath={}, remotePath={}", srcFilePath, destFilePath);
         } catch (UserException e) {
             throw new LoadException("failed to upload lib to repository, srcPath=" +srcFilePath +
                     " destPath=" + destFilePath + " message=" + e.getMessage());
@@ -249,8 +281,12 @@ public class SparkRepository {
         return currentArchive;
     }
 
-    public String getCurrentDppVersion() {
-        return currentDppVersion;
+    public void setBrokerDesc(BrokerDesc brokerDesc) {
+        this.brokerDesc = brokerDesc;
+    }
+
+    public void setRepositoryPath(String repositoryPath) {
+        this.remoteRepositoryPath = repositoryPath;
     }
 
     private static String getFileName(String delimiter, String path) {
@@ -273,10 +309,14 @@ public class SparkRepository {
         return prefix + fileName;
     }
 
+    // eg:
+    // __lib_979bfbcb9469888f1c5539e168d1925d_spark-2x.zip
     public static String assemblyFileName(String prefix, String md5sum, String fileName, String suffix) {
         return prefix + md5sum + FILE_NAME_SEPARATOR + fileName + suffix;
     }
 
+    // eg:
+    // .../__spark_repository__/__archive_1_0_0
     private String getRemoteArchivePath(String version) {
         return Joiner.on(PATH_DELIMITER).join(remoteRepositoryPath, joinPrefix(PREFIX_ARCHIVE, version));
     }
@@ -308,6 +348,7 @@ public class SparkRepository {
             throw new LoadException(e.getMessage());
         }
         boolean failed = true;
+        readLock();
         try {
             TBrokerListPathRequest request = new TBrokerListPathRequest(
                     TBrokerVersion.VERSION_ONE, remoteRepositoryPath, false, brokerDesc.getProperties());
@@ -334,6 +375,7 @@ public class SparkRepository {
             throw new LoadException("Broker list remote repository path failed. path=" + remoteRepositoryPath + ", broker=" +
                     BrokerUtil.printBroker(brokerDesc.getName(), address));
         } finally {
+            readUnlock();
             if (failed) {
                 if (failed) {
                     ClientPool.brokerPool.invalidateObject(address, client);
@@ -341,6 +383,22 @@ public class SparkRepository {
                     ClientPool.brokerPool.returnObject(address, client);
                 }
             }
+        }
+    }
+
+    private static class SingletonHolder {
+        private static final SparkRepository INSTANCE = new SparkRepository();
+    }
+
+    private SparkRepository() {
+        this.currentDppVersion = FeConstants.spark_dpp_version;
+        this.currentArchive = new SparkArchive(getRemoteArchivePath(currentDppVersion), currentDppVersion);
+        this.rwLock = new ReentrantReadWriteLock();
+        localDppPath = PaloFe.DORIS_HOME_DIR + "/lib/spark-dpp.zip";
+        if (!Strings.isNullOrEmpty(Config.spark_resource_path)) {
+            localSpark2xPath = Config.spark_resource_path;
+        } else {
+            localSpark2xPath = Config.spark_home_default_dir + "/jars/spark-2x.zip";
         }
     }
 
@@ -353,6 +411,7 @@ public class SparkRepository {
         public SparkArchive(String remotePath, String version) {
             this.remotePath = remotePath;
             this.version = version;
+            this.libraries = Lists.newArrayList();
         }
     }
 
