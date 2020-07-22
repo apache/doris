@@ -510,6 +510,10 @@ void PlanFragmentExecutor::cancel() {
     _runtime_state->exec_env()->result_mgr()->cancel(_runtime_state->fragment_instance_id());
 }
 
+void PlanFragmentExecutor::set_abort() {
+    update_status(Status::Aborted("Execution aborted before start"));
+}
+
 const RowDescriptor& PlanFragmentExecutor::row_desc() {
     return _plan->row_desc();
 }

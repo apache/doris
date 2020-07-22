@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include "olap/schema_change.h"
 
 #include <gtest/gtest.h>
 
@@ -27,7 +28,6 @@
 #include "olap/row_cursor.h"
 #include "olap/row_block.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
 
@@ -662,6 +662,221 @@ TEST_F(TestColumn, ConvertDoubleToVarchar) {
 TEST_F(TestColumn, ConvertDecimalToVarchar) {
     decimal12_t val(456, 789000000);
     test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000", OLAP_SUCCESS);
+}
+
+void CreateTabletSchema(TabletSchema& tablet_schema) {
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(KeysType::AGG_KEYS);
+    tablet_schema_pb.set_num_short_key_columns(2);
+    tablet_schema_pb.set_num_rows_per_row_block(1024);
+    tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    tablet_schema_pb.set_next_column_unique_id(4);
+
+    ColumnPB* column_1 = tablet_schema_pb.add_column();
+    column_1->set_unique_id(1);
+    column_1->set_name("k1");
+    column_1->set_type("INT");
+    column_1->set_is_key(true);
+    column_1->set_length(4);
+    column_1->set_index_length(4);
+    column_1->set_is_nullable(false);
+    column_1->set_is_bf_column(false);
+
+    ColumnPB* column_2 = tablet_schema_pb.add_column();
+    column_2->set_unique_id(2);
+    column_2->set_name("k2");
+    column_2->set_type("VARCHAR");
+    column_2->set_length(20);
+    column_2->set_index_length(20);
+    column_2->set_is_key(true);
+    column_2->set_is_nullable(false);
+    column_2->set_is_bf_column(false);
+
+    ColumnPB* column_3 = tablet_schema_pb.add_column();
+    column_3->set_unique_id(3);
+    column_3->set_name("k3");
+    column_3->set_type("INT");
+    column_3->set_is_key(true);
+    column_3->set_length(4);
+    column_3->set_index_length(4);
+    column_3->set_is_nullable(false);
+    column_3->set_is_bf_column(false);
+
+    ColumnPB* column_4 = tablet_schema_pb.add_column();
+    column_4->set_unique_id(4);
+    column_4->set_name("v1");
+    column_4->set_type("INT");
+    column_4->set_length(4);
+    column_4->set_is_key(false);
+    column_4->set_is_nullable(false);
+    column_4->set_is_bf_column(false);
+    column_4->set_aggregation("SUM");
+
+    tablet_schema.init_from_pb(tablet_schema_pb);
+}
+
+TEST_F(TestColumn, ConvertIntToBitmap) {
+    //Base Tablet
+    TabletSchema tablet_schema;
+    CreateTabletSchema(tablet_schema);
+    //Base row block
+    CreateColumnWriter(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+    write_row.allocate_memory_for_string_type(tablet_schema);
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    std::vector<std::string> val_string_array;
+    val_string_array.emplace_back("5");
+    val_string_array.emplace_back("4");
+    val_string_array.emplace_back("2");
+    val_string_array.emplace_back("3");
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    ColumnDataHeaderMessage header;
+    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+
+    //Materialized View tablet schema
+    TabletSchemaPB mv_tablet_schema_pb;
+    mv_tablet_schema_pb.set_keys_type(KeysType::AGG_KEYS);
+    mv_tablet_schema_pb.set_num_short_key_columns(2);
+    mv_tablet_schema_pb.set_num_rows_per_row_block(1024);
+    mv_tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    mv_tablet_schema_pb.set_next_column_unique_id(3);
+
+    ColumnPB* mv_column_1 = mv_tablet_schema_pb.add_column();
+    mv_column_1->set_unique_id(1);
+    mv_column_1->set_name("k1");
+    mv_column_1->set_type("INT");
+    mv_column_1->set_is_key(true);
+    mv_column_1->set_length(4);
+    mv_column_1->set_index_length(4);
+    mv_column_1->set_is_nullable(false);
+    mv_column_1->set_is_bf_column(false);
+
+    ColumnPB* mv_column_2 = mv_tablet_schema_pb.add_column();
+    mv_column_2->set_unique_id(2);
+    mv_column_2->set_name("v1");
+    mv_column_2->set_type("OBJECT");
+    mv_column_2->set_length(8);
+    mv_column_2->set_is_key(false);
+    mv_column_2->set_is_nullable(false);
+    mv_column_2->set_is_bf_column(false);
+    mv_column_2->set_aggregation("BITMAP_UNION");
+
+    TabletSchema mv_tablet_schema;
+    mv_tablet_schema.init_from_pb(mv_tablet_schema_pb);
+
+    RowBlockChanger row_block_changer(mv_tablet_schema);
+    ColumnMapping* column_mapping = row_block_changer.get_mutable_column_mapping(0);
+    column_mapping->ref_column = 0;
+    column_mapping = row_block_changer.get_mutable_column_mapping(1);
+    column_mapping->ref_column = 2;
+    column_mapping->materialized_function = "to_bitmap";
+
+
+    RowBlock mutable_block(&mv_tablet_schema);
+    mutable_block.init(block_info);
+    uint64_t filtered_rows = 0;
+    row_block_changer.change_row_block(&block, 0, &mutable_block, &filtered_rows);
+
+    RowCursor mv_row_cursor;
+    mv_row_cursor.init(mv_tablet_schema);
+    mutable_block.get_row(0, &mv_row_cursor);
+
+    auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
+    BitmapValue bitmapValue(dst_slice->data);
+    ASSERT_EQ(bitmapValue.cardinality(), 1);
+}
+
+TEST_F(TestColumn, ConvertCharToHLL) {
+    //Base Tablet
+    TabletSchema tablet_schema;
+    CreateTabletSchema(tablet_schema);
+
+    //Base row block
+    CreateColumnWriter(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+    write_row.allocate_memory_for_string_type(tablet_schema);
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    std::vector<std::string> val_string_array;
+    //std::string origin_val = "2019-11-25 19:07:00";
+    //val_string_array.emplace_back(origin_val);
+    val_string_array.emplace_back("1");
+    val_string_array.emplace_back("1");
+    val_string_array.emplace_back("2");
+    val_string_array.emplace_back("3");
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    ColumnDataHeaderMessage header;
+    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+
+    //Materialized View tablet schema
+    TabletSchemaPB mv_tablet_schema_pb;
+    mv_tablet_schema_pb.set_keys_type(KeysType::AGG_KEYS);
+    mv_tablet_schema_pb.set_num_short_key_columns(2);
+    mv_tablet_schema_pb.set_num_rows_per_row_block(1024);
+    mv_tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    mv_tablet_schema_pb.set_next_column_unique_id(3);
+
+    ColumnPB* mv_column_1 = mv_tablet_schema_pb.add_column();
+    mv_column_1->set_unique_id(1);
+    mv_column_1->set_name("k1");
+    mv_column_1->set_type("INT");
+    mv_column_1->set_is_key(true);
+    mv_column_1->set_length(4);
+    mv_column_1->set_index_length(4);
+    mv_column_1->set_is_nullable(false);
+    mv_column_1->set_is_bf_column(false);
+
+    ColumnPB* mv_column_2 = mv_tablet_schema_pb.add_column();
+    mv_column_2->set_unique_id(2);
+    mv_column_2->set_name("v1");
+    mv_column_2->set_type("HLL");
+    mv_column_2->set_length(4);
+    mv_column_2->set_is_key(false);
+    mv_column_2->set_is_nullable(false);
+    mv_column_2->set_is_bf_column(false);
+    mv_column_2->set_aggregation("HLL_UNION");
+
+    TabletSchema mv_tablet_schema;
+    mv_tablet_schema.init_from_pb(mv_tablet_schema_pb);
+
+    RowBlockChanger row_block_changer(mv_tablet_schema);
+    ColumnMapping* column_mapping = row_block_changer.get_mutable_column_mapping(0);
+    column_mapping->ref_column = 0;
+    column_mapping = row_block_changer.get_mutable_column_mapping(1);
+    column_mapping->ref_column = 1;
+    column_mapping->materialized_function = "hll_hash";
+
+    RowBlock mutable_block(&mv_tablet_schema);
+    mutable_block.init(block_info);
+    uint64_t filtered_rows = 0;
+    row_block_changer.change_row_block(&block, 0, &mutable_block, &filtered_rows);
+
+    RowCursor mv_row_cursor;
+    mv_row_cursor.init(mv_tablet_schema);
+    mutable_block.get_row(0, &mv_row_cursor);
+
+    auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
+    HyperLogLog hll(*dst_slice);
+    ASSERT_EQ(hll.estimate_cardinality(), 1);
 }
 }
 

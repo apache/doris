@@ -497,6 +497,7 @@ void TabletMeta::delete_rs_meta_by_version(const Version& version,
 
 void TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
                                  const vector<RowsetMetaSharedPtr>& to_delete) {
+    // Remove to_delete rowsets from _rs_metas                                 
     for (auto rs_to_del : to_delete) {
         auto it = _rs_metas.begin();
         while (it != _rs_metas.end()) {
@@ -512,6 +513,9 @@ void TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
             }
         }
     }
+    // put to_delete rowsets in _stale_rs_metas.
+    _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
+    // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
 }
 
@@ -542,6 +546,26 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 
     _inc_rs_metas.push_back(rs_meta);
     return OLAP_SUCCESS;
+}
+
+void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
+    auto it = _stale_rs_metas.begin();
+    while (it != _stale_rs_metas.end()) {
+        if ((*it)->version() == version) {
+            it = _stale_rs_metas.erase(it);
+        } else {
+            it++;
+        }
+    }
+}
+
+RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
+    for (auto it : _stale_rs_metas) {
+        if (it->version() == version) {
+            return it;
+        }
+    }
+    return nullptr;
 }
 
 void TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
