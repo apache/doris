@@ -427,25 +427,34 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, c
 Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
     do {
         bool valid = false;
-        if (_next_line >= _total_lines) {//parse json and generic document
+        if (_next_line >= _total_lines) { // parse json and generic document
             Status st = _parse_json_doc(eof);
             if (st.is_data_quality_error()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st); // terminate if encounter other errors
-            if (*eof) {// read all data, then return
+            if (*eof) { // read all data, then return
                 return Status::OK();
             }
             if (_json_doc.IsArray() ) {
                 _total_lines = _json_doc.Size();
+                if (_total_lines == 0) {
+                    // may be passing an empty json, such as "[]"
+                    std::stringstream str_error;
+                    str_error << "Empty json line";
+                    _state->append_error_msg_to_file(_print_json_value(_json_doc), str_error.str());
+                    _counter->num_rows_filtered++;
+                    continue;
+                }
             } else {
                 _total_lines = 1; // only one row
             }
+
             _next_line = 0;
         }
 
         if (_json_doc.IsArray()) { // handle case 1
-            rapidjson::Value& objectValue = _json_doc[_next_line];// json object
+            rapidjson::Value& objectValue = _json_doc[_next_line]; // json object
             _set_tuple_value(objectValue, tuple, slot_descs, tuple_pool, &valid);
         } else { // handle case 2
             _set_tuple_value(_json_doc, tuple, slot_descs, tuple_pool, &valid);

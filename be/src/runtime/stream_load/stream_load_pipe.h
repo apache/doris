@@ -90,10 +90,14 @@ public:
     // just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
     // Otherwise, this should be a stream load task that needs to read the specified amount of data.
     Status read_one_message(uint8_t** data, size_t* length) override {
-        if (_total_length == 0 || _total_length < -1) {
+        if (_total_length < -1) {
             std::stringstream ss;
             ss << "invalid, _total_length is: " << _total_length;
             return Status::InternalError(ss.str());
+        } else if (_total_length == 0) {
+            // no data
+            *length = 0;
+            return Status::OK();
         }
 
         if (_total_length == -1) {
