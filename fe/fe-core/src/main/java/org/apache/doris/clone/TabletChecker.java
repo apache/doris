@@ -206,7 +206,7 @@ public class TabletChecker extends MasterDaemon {
 
             db.readLock();
             try {
-                int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
+                List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
                 for (Table table : db.getTables()) {
                     if (!table.needSchedule()) {
                         continue;
@@ -239,7 +239,7 @@ public class TabletChecker extends MasterDaemon {
                                         partition.getVisibleVersion(),
                                         partition.getVisibleVersionHash(),
                                         olapTbl.getPartitionInfo().getReplicationNum(partition.getId()),
-                                        availableBackendsNum);
+                                        aliveBeIdsInCluster);
 
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                                     // Only set last status check time when status is healthy.

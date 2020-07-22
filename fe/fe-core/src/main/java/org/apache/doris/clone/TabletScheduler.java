@@ -495,13 +495,13 @@ public class TabletScheduler extends MasterDaemon {
                 statusPair = Pair.create(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
-                int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
+                List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
                 statusPair = tablet.getHealthStatusWithPriority(
                         infoService, tabletCtx.getCluster(),
                         partition.getVisibleVersion(),
                         partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicationNum(partition.getId()),
-                        availableBackendsNum);
+                        aliveBeIdsInCluster);
             }
 
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {

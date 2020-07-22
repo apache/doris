@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * This class represents the olap tablet related metadata.
@@ -407,7 +408,7 @@ public class Tablet extends MetaObject implements Writable {
     public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
             long visibleVersion, long visibleVersionHash, int replicationNum,
-            int availableBackendsNum) {
+            List<Long> aliveBeIdsInCluster) {
 
         int alive = 0;
         int aliveAndVersionComplete = 0;
@@ -453,15 +454,16 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 1. alive replicas are not enough
-        if (alive < replicationNum && replicas.size() >= availableBackendsNum
-                && availableBackendsNum >= replicationNum && replicationNum > 1) {
+        int aliveBackendsNum = aliveBeIdsInCluster.size();
+        if (alive < replicationNum && replicas.size() >= aliveBackendsNum
+                && aliveBackendsNum >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
             // so there can be available backend for us to create a new replica.
             // And if there is only one replica, we will not handle it(maybe need human interference)
             // condition explain:
             // 1. alive < replicationNum: replica is missing or bad
-            // 2. replicas.size() >= availableBackendsNum: the existing replicas occupies all available backends
-            // 3. availableBackendsNum >= replicationNum: make sure after deleting, there will be at least one backend for new replica.
+            // 2. replicas.size() >= aliveBackendsNum: the existing replicas occupies all available backends
+            // 3. aliveBackendsNum >= replicationNum: make sure after deleting, there will be at least one backend for new replica.
             // 4. replicationNum > 1: if replication num is set to 1, do not delete any replica, for safety reason
             return Pair.create(TabletStatus.FORCE_REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         } else if (alive < (replicationNum / 2) + 1) {
@@ -484,10 +486,23 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 3. replica is under relocating
-        if (stable < (replicationNum / 2) + 1) {
-            return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.NORMAL);
-        } else if (stable < replicationNum) {
-            return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.LOW);
+        if (stable < replicationNum) {
+            List<Long> replicaBeIds = replicas.stream()
+                    .map(Replica::getBackendId).collect(Collectors.toList());
+            List<Long> availableBeIds = aliveBeIdsInCluster.stream()
+                    .filter(systemInfoService::checkBackendAvailable)
+                    .collect(Collectors.toList());
+            if (replicaBeIds.containsAll(availableBeIds)
+                    && availableBeIds.size() >= replicationNum
+                    && replicationNum > 1) { // No BE can be choose to create a new replica
+                return Pair.create(TabletStatus.FORCE_REDUNDANT,
+                        stable < (replicationNum / 2) + 1 ? TabletSchedCtx.Priority.NORMAL : TabletSchedCtx.Priority.LOW);
+            }
+            if (stable < (replicationNum / 2) + 1) {
+                return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.NORMAL);
+            } else if (stable < replicationNum) {
+                return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.LOW);
+            }
         }
 
         // 4. healthy replicas in cluster are not enough
