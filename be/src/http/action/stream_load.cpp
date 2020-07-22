@@ -403,7 +403,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     }
     if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
-        if (request.merge_type == TMergeType::APPEND) {
+        if (request.merge_type == TMergeType::MERGE) {
             request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
         } else {
             return Status::InvalidArgument("not support delete when merge type is not merge.");
