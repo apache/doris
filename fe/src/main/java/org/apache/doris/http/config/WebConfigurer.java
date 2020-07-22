@@ -31,7 +31,7 @@ public class WebConfigurer implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new AuthInterceptor())
                 .addPathPatterns("/rest/v1/**")
-                .excludePathPatterns("/","/api/**","/rest/v1/login","/static/**");
+                .excludePathPatterns("/","/api/**","/rest/v1/login","/static/**","/metrics");
     }
 
     @Override
@@ -42,7 +42,6 @@ public class WebConfigurer implements WebMvcConfigurer {
                 .allowedOrigins("*")
                 .allowedHeaders("*")
                 .maxAge(3600);
-
     }
 }
 

@@ -59,7 +59,7 @@ public class MigrationAction extends RestBaseController{
     private static final String DB_PARAM = "db";
     private static final String TABLE_PARAM = "tbl";
 
-    @RequestMapping(path = "/metrics",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/_migration",method = RequestMethod.GET)
     protected Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         executeCheckPassword(request,response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
