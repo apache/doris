@@ -303,11 +303,14 @@ namespace config {
     CONF_Int64(load_data_reserve_hours, "4");
     // log error log will be removed after this time
     CONF_mInt64(load_error_log_reserve_hours, "48");
-    // Deprecated, use streaming_load_max_mb instead
-    // CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
+    // The maximum amount of data that can be processed by a stream load
     CONF_mInt64(streaming_load_max_mb, "10240");
+    // Some data formats, such as JSON, cannot be streamed.
+    // Therefore, it is necessary to limit the maximum number of
+    // such data when using stream load to prevent excessive memory consumption.
+    CONF_mInt64(streaming_load_max_batch_size_mb, "100");
     // the alive time of a TabletsChannel.
     // If the channel does not receive any data till this time,
     // the channel will be removed.
