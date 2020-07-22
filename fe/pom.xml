@@ -30,8 +30,8 @@ under the License.
 
     <modules>
         <module>fe-common</module>
-        <module>fe-core</module>
         <module>spark-dpp</module>
+        <module>fe-core</module>
     </modules>
 
     <name>doris-fe</name>

@@ -616,7 +616,6 @@ under the License.
                     <consoleOutput>true</consoleOutput>
                     <failsOnError>true</failsOnError>
                     <linkXRef>false</linkXRef>
-                    <excludes>**/jmockit/**/*</excludes>
                 </configuration>
                 <executions>
                     <execution>
