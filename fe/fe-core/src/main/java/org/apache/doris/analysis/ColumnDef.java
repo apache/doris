@@ -239,6 +239,9 @@ public class ColumnDef {
                 break;
             case BITMAP:
                 break;
+            case BOOLEAN:
+                BoolLiteral boolLiteral = new BoolLiteral(defaultValue);
+                break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);
         }

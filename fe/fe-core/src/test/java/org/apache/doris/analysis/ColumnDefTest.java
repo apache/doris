@@ -31,12 +31,15 @@ public class ColumnDefTest {
     private TypeDef intCol;
     private TypeDef stringCol;
     private TypeDef floatCol;
+    private TypeDef booleanCol;
 
     @Before
     public void setUp() {
         intCol = new TypeDef(ScalarType.createType(PrimitiveType.INT));
         stringCol = new TypeDef(ScalarType.createChar(10));
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
+        booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
+
     }
 
     @Test
@@ -95,5 +98,24 @@ public class ColumnDefTest {
         ColumnDef column = new ColumnDef("col", stringCol, false, AggregateType.SUM, true, DefaultValue.NOT_SET, "");
         column.analyze(true);
     }
+
+    @Test
+    public void testBooleanDefaultValue() throws AnalysisException{
+        ColumnDef column1 = new ColumnDef("col", booleanCol, true, null, true, new DefaultValue(true, "1"), "");
+        column1.analyze(true);
+        Assert.assertEquals("1", column1.getDefaultValue());
+
+        ColumnDef column2 = new ColumnDef("col", booleanCol, true, null, true, new DefaultValue(true, "true"), "");
+        column2.analyze(true);
+        Assert.assertEquals("true", column2.getDefaultValue());
+
+        ColumnDef column3 = new ColumnDef("col", booleanCol, true, null, true, new DefaultValue(true, "10"), "");
+        try {
+            column3.analyze(true);
+        } catch (AnalysisException e) {
+            Assert.assertEquals("errCode = 2, detailMessage = Invalid BOOLEAN literal: 10", e.getMessage());
+        }
+    }
+
 
 }
