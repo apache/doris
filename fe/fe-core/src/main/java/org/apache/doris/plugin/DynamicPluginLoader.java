@@ -40,20 +40,25 @@ import java.util.Set;
 public class DynamicPluginLoader extends PluginLoader {
     private final static Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
 
+    public final static String MD5SUM_KEY = "md5sum";
+
     // the final dir which contains all plugin files.
     // eg:
     // Config.plugin_dir/plugin_name/
     protected Path installPath;
 
+    protected String expectedMd5sum;
     // for processing install stmt
-    DynamicPluginLoader(String pluginDir, String source) {
+    DynamicPluginLoader(String pluginDir, String source, String expectedMd5sum) {
         super(pluginDir, source);
+        this.expectedMd5sum = expectedMd5sum;
     }
 
     // for test and replay
     DynamicPluginLoader(String pluginPath, PluginInfo info) {
         super(pluginPath, info);
         this.installPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
+        this.expectedMd5sum = pluginInfo.getProperties().get(MD5SUM_KEY);
     }
 
     @Override
@@ -76,7 +81,7 @@ public class DynamicPluginLoader extends PluginLoader {
         try {
             if (installPath == null) {
                 // download plugin and extract
-                PluginZip zip = new PluginZip(source);
+                PluginZip zip = new PluginZip(source, expectedMd5sum);
                 // generation a tmp dir to extract the zip
                 tmpTarget = Files.createTempDirectory(pluginDir, ".install_");
                 // for now, installPath point to the temp dir which contains
@@ -246,8 +251,8 @@ public class DynamicPluginLoader extends PluginLoader {
      */
     public void movePlugin() throws UserException, IOException {
         if (installPath == null || !Files.exists(installPath)) {
-            throw new PluginException("Install plugin " + pluginInfo.getName() + " failed, because install path isn't "
-                    + "exists.");
+            throw new PluginException("Install plugin " + pluginInfo.getName() + " failed, because install path doesn't "
+                    + "exist.");
         }
 
         Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());

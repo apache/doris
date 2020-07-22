@@ -60,9 +60,12 @@ class PluginZip {
 
     private List<Path> cleanPathList;
 
-    public PluginZip(String source) {
+    private String expectedChecksum;
+
+    public PluginZip(String source, String expectedMd5sum) {
         this.source = source;
         cleanPathList = Lists.newLinkedList();
+        this.expectedChecksum = expectedMd5sum;
     }
 
     /*
@@ -121,12 +124,13 @@ class PluginZip {
         }
 
         // .md5 check
-        String expectedChecksum;
-        try (InputStream in = getInputStreamFromUrl(source + ".md5")) {
-            BufferedReader br = new BufferedReader(new InputStreamReader(in));
-            expectedChecksum = br.readLine();
-        } catch (IOException e) {
-            throw new UserException(e.getMessage() + ". you should provide a md5 URI to check plugin file");
+        if (Strings.isNullOrEmpty(expectedChecksum)) {
+            try (InputStream in = getInputStreamFromUrl(source + ".md5")) {
+                BufferedReader br = new BufferedReader(new InputStreamReader(in));
+                expectedChecksum = br.readLine();
+            } catch (IOException e) {
+                throw new UserException(e.getMessage() + ". you should set md5sum in plugin properties or provide a md5 URI to check plugin file");
+            }
         }
 
         DigestUtils.md5Hex(Files.readAllBytes(zip));

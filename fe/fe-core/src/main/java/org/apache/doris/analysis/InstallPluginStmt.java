@@ -22,7 +22,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.plugin.DynamicPluginLoader;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
@@ -45,6 +47,10 @@ public class InstallPluginStmt extends DdlStmt {
         return properties;
     }
 
+    public String getMd5sum() {
+        return properties == null ? null : properties.get(DynamicPluginLoader.MD5SUM_KEY);
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -62,7 +68,14 @@ public class InstallPluginStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "INSTALL PLUGIN FROM " + pluginPath;
+        StringBuilder sb = new StringBuilder();
+        sb.append("INSTALL PLUGIN FROM ").append("\"" + pluginPath + "\"");
+        if (properties != null && !properties.isEmpty()) {
+            sb.append("\nPROPERTIES (");
+            sb.append(new PrintableMap<String, String>(properties, " = ", true, true, true));
+            sb.append(")");
+        }
+        return sb.toString();
     }
 
     @Override
