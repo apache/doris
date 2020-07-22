@@ -50,6 +50,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import static org.apache.doris.load.loadv2.LoadTask.MergeType.APPEND;
+import static org.apache.doris.load.loadv2.LoadTask.MergeType.MERGE;
 // used to describe data info which is needed to import.
 //
 //      data_desc:
@@ -122,6 +123,7 @@ public class DataDescription {
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
+
     private LoadTask.MergeType mergeType = APPEND;
     private Expr deleteCondition;
 
@@ -199,6 +201,14 @@ public class DataDescription {
 
     public Expr getWhereExpr(){
         return whereExpr;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
     }
 
     public List<String> getFilePaths() {
@@ -673,6 +683,7 @@ public class DataDescription {
         if (isLoadFromTable()) {
             sb.append("DATA FROM TABLE ").append(srcTableName);
         } else {
+            sb.append(mergeType.toString());
             sb.append("DATA INFILE (");
             Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
                 @Override
@@ -708,6 +719,12 @@ public class DataDescription {
                     return expr.toSql();
                 }
             })).append(")");
+        }
+        if (whereExpr != null) {
+            sb.append(" WHERE ").append(deleteCondition.toSql());
+        }
+        if (deleteCondition != null && mergeType == MERGE) {
+            sb.append(" DELETE ON ").append(deleteCondition.toSql());
         }
         return sb.toString();
     }
