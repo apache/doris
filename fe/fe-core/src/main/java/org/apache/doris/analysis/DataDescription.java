@@ -681,10 +681,11 @@ public class DataDescription {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (isLoadFromTable()) {
-            sb.append("DATA FROM TABLE ").append(srcTableName);
+            sb.append(mergeType.toString());
+            sb.append(" DATA FROM TABLE ").append(srcTableName);
         } else {
             sb.append(mergeType.toString());
-            sb.append("DATA INFILE (");
+            sb.append(" DATA INFILE (");
             Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
                 @Override
                 public String apply(String s) {
