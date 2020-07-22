@@ -71,6 +71,18 @@ Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
                   _partition_infos.end(),
                   compare_part_use_range);
     }
+    if (broker_scan_node.__isset.delete_conjuncts) {
+        RETURN_IF_ERROR(Expr::create_expr_trees(
+                _pool, broker_scan_node.delete_conjuncts, &_delete_expr_ctxs));
+    }
+    if (broker_scan_node.__isset.merge_type) {
+        _merge_type = broker_scan_node.merge_type;
+    } else {
+        _merge_type = TMergeType::APPEND;
+    }
+    if (_merge_type != TMergeType::MERGE && _delete_expr_ctxs.size() > 0) {
+        return Status::InvalidArgument("cannot support delete condition in APPEND or DELETE load.");
+    } 
     return Status::OK();
 }
 
@@ -105,6 +117,12 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
         }
     }
 
+    // prepare delete condition
+    if (_delete_expr_ctxs.size() > 0) {
+        RETURN_IF_ERROR(Expr::prepare(
+                _delete_expr_ctxs, state, row_desc(), expr_mem_tracker()));
+    }
+
     // Profile
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
 
@@ -123,6 +141,11 @@ Status BrokerScanNode::open(RuntimeState* state) {
         for (auto iter : _partition_infos) {
             RETURN_IF_ERROR(iter->open(state));
         }
+    }
+
+    // Open delete conditions
+    if (_delete_expr_ctxs.size() > 0) {
+        RETURN_IF_ERROR(Expr::open(_delete_expr_ctxs, state));
     }
 
     RETURN_IF_ERROR(start_scanners());
@@ -235,12 +258,17 @@ Status BrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    // Open partition
+    // Close partition
     if (_partition_expr_ctxs.size() > 0) {
         Expr::close(_partition_expr_ctxs, state);
         for (auto iter : _partition_infos) {
             iter->close(state);
         }
+    }
+    
+    // Close delete condition
+    if (_delete_expr_ctxs.size() > 0) {
+        Expr::close(_delete_expr_ctxs, state);
     }
 
     // Close 
