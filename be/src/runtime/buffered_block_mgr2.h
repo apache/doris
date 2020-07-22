@@ -376,7 +376,6 @@ public:
     // only for error reporting.
     Status mem_limit_too_low_error(Client* client, int node_id);
 
-    // TODO: Remove these two. Not clear what the sorter really needs.
     // TODO: Those are dirty, dangerous reads to two lists whose all other accesses are
     // protected by the _lock. Using those two functions is looking for trouble.
     int available_allocated_buffers() const {

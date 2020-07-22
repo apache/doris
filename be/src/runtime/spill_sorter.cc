@@ -1133,7 +1133,7 @@ Status SpillSorter::input_done() {
         int min_buffers_for_merge = _sorted_runs.size() * blocks_per_run;
         // Check if the final run needs to be unpinned.
         bool unpinned_final = false;
-        if (_block_mgr->num_free_buffers() < min_buffers_for_merge - blocks_per_run) {
+        if (_block_mgr->available_buffers(_block_mgr_client) < min_buffers_for_merge - blocks_per_run) {
             // Number of available buffers is less than the size of the final run and
             // the buffers needed to read the remainder of the runs in memory.
             // Unpin the final run.
@@ -1152,7 +1152,7 @@ Status SpillSorter::input_done() {
         // TODO: Attempt to allocate more memory before doing intermediate merges. This may
         // be possible if other operators have relinquished memory after the sort has built
         // its runs.
-        if (min_buffers_for_merge > _block_mgr->available_allocated_buffers()) {
+        if (min_buffers_for_merge > _block_mgr->available_buffers(_block_mgr_client)) {
             DCHECK(unpinned_final);
             RETURN_IF_ERROR(merge_intermediate_runs());
         }
@@ -1242,7 +1242,7 @@ uint64_t SpillSorter::estimate_merge_mem(
 Status SpillSorter::merge_intermediate_runs() {
     int blocks_per_run = _has_var_len_slots ? 2 : 1;
     int max_runs_per_final_merge =
-            _block_mgr->available_allocated_buffers() / blocks_per_run;
+            _block_mgr->available_buffers(_block_mgr_client) / blocks_per_run;
 
     // During an intermediate merge, blocks from the output sorted run will have to be pinned.
     int max_runs_per_intermediate_merge = max_runs_per_final_merge - 1;

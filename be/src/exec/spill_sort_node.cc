@@ -160,9 +160,9 @@ Status SpillSortNode::sort_input(RuntimeState* state) {
     RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker());
     bool eos = false;
     do {
-        batch.reset();
         RETURN_IF_ERROR(child(0)->get_next(state, &batch, &eos));
         RETURN_IF_ERROR(_sorter->add_batch(&batch));
+        batch.reset();
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("Spill sort, while sorting input."));
     } while (!eos);
