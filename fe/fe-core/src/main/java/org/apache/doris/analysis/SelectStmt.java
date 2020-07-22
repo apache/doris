@@ -830,10 +830,118 @@ public class SelectStmt extends QueryStmt {
 
         // can not get AST only with equal join, MayBe cross join can help
         fromClause_.clear();
+        List<Pair<Expr, Expr>> misMatchJoinConditions = Lists.newArrayList();
+        List<TupleId> tupleIds = Lists.newArrayList();
+
         for (Pair<TableRef, Long> candidate : candidates) {
-            fromClause_.add(candidate.first);
+            TableRef tableRef = candidate.first;
+            fromClause_.add(tableRef);
+            tupleIds.add(tableRef.desc.getId());
+            applyInnerJoinConditionReorganizeRule(tableRef, tupleIds, misMatchJoinConditions);
+            Preconditions.checkState(misMatchJoinConditions.isEmpty());
         }
     }
+
+    /**
+     *  After adjusting the order of tables, it is necessary to reselect the join condition of each table,
+     *  otherwise some columns will not be recognized by the current table space
+     * @param tableRef:
+     * @param tupleIds: TableSpaces visible up to now
+     * @param misMatchJoinConditions: join conditions no matching yet, the first is fatherExpr, the second is sonExpr need to replace
+     */
+    void applyInnerJoinConditionReorganizeRule(TableRef tableRef, List<TupleId> tupleIds,
+                                               List<Pair<Expr, Expr>> misMatchJoinConditions) {
+        List<Pair<Expr, Expr>> tempMisMatchConjuncts = Lists.newArrayList();
+
+        // Extract all join conditions from joinOnClause to misMatchJoinConditions,
+        // which cannot be bound by existing tableSpaces(tupleIds)
+        findUnboundedJoinConditions(tableRef.getOnClause(), tupleIds, misMatchJoinConditions);
+
+        for (Pair<Expr, Expr> exprPair : misMatchJoinConditions) {
+            Expr father = exprPair.first;
+            Expr expr = exprPair.second
+
+            if (!expr.isBoundByTupleIds(tupleIds)) {
+                tempMisMatchConjuncts.add(new Pair<Expr, Expr>(null, expr));
+
+                // Father is null mean Not AND CompoundPredicate
+                // Just move the on clause  to another tableRef.
+                if (father == null){
+                    if (tableRef.getOnClause() == expr) {
+                        // remove the on clause from this tableRef
+                        // waiting for being visible in the future
+                        tableRef.setOnClause(null);
+                    }
+                } else if (father.getChild(0) == expr) {
+                    // We just replace the unresolved predicates with TrueBoolLiteral expr,
+                    // so that the tree structure of joinOnClasue can not be changed.
+                    // TrueBoolLiteral will be removed in later analyze.
+                    father.setChild(0, new BoolLiteral(true));
+                } else if (father.getChild(1) == expr) {
+                    father.setChild(1, new BoolLiteral(true));
+                }
+            } else {
+                // In current table space, OnClause is visible.
+                if (tableRef.getOnClause() == null) {
+                    tableRef.setOnClause(expr);
+                } else {
+                    tableRef.setOnClause(new CompoundPredicate(
+                            CompoundPredicate.Operator.AND,
+                            expr,
+                            tableRef.getOnClause()));
+                    // no need to reAnalysis
+                    tableRef.getOnClause().analysisDone();
+                }
+            }
+        }
+        misMatchJoinConditions.clear();
+        misMatchJoinConditions.addAll(tempMisMatchConjuncts);
+    }
+
+
+    boolean ifExprIsCompoundAndPredicate(Expr expr) {
+        return ((expr instanceof CompoundPredicate)
+                && ((CompoundPredicate)expr).getOp() == CompoundPredicate.Operator.AND);
+    }
+
+
+    /**
+     * Extract all join conditions from joinOnClause, which cannot be bound by existing tableSpaces
+     * @param expr: joinOnClause
+     * @param tupleIds: TableSpaces visible up to now
+     * @param(output) misMatchConjuncts:
+     */
+    void findUnboundedJoinConditions(Expr expr, List<TupleId> tupleIds, List<Pair<Expr, Expr>> unboundedJoinConditions) {
+        if (expr == null) {
+            return;
+        }
+        if (ifExprIsCompoundAndPredicate(expr)) {
+            CompoundPredicate compoundPredicate = (CompoundPredicate)expr;
+            Expr left = compoundPredicate.getChild(0);
+            Expr right = compoundPredicate.getChild(1);
+            if (ifExprIsCompoundAndPredicate(left)) {
+                findUnboundedJoinConditions(left, tupleIds, unboundedJoinConditions);
+            } else {
+                if (!left.isBoundByTupleIds(tupleIds)) {
+                    unboundedJoinConditions.add(new Pair<Expr, Expr>(expr, left));
+                }
+            }
+            if (ifExprIsCompoundAndPredicate(right)) {
+                findUnboundedJoinConditions(right, tupleIds, unboundedJoinConditions);
+            } else {
+                if (!right.isBoundByTupleIds(tupleIds)) {
+                    unboundedJoinConditions.add(new Pair<Expr, Expr>(expr, right));
+                }
+            }
+        } else {
+            if (!expr.isBoundByTupleIds(tupleIds)) {
+                unboundedJoinConditions.add(new Pair<Expr, Expr>(null, expr));
+            }
+        }
+        return;
+    }
+
+
 
     // reorder select table
     protected boolean reorderTable(Analyzer analyzer, TableRef firstRef)
