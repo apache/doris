@@ -142,8 +142,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
-        analyzeSelectClause();
         analyzeFromClause();
+        analyzeSelectClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
                     + selectStmt.getWhereClause().toSql());
