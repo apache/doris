@@ -722,7 +722,7 @@ public class DataDescription {
             })).append(")");
         }
         if (whereExpr != null) {
-            sb.append(" WHERE ").append(deleteCondition.toSql());
+            sb.append(" WHERE ").append(whereExpr.toSql());
         }
         if (deleteCondition != null && mergeType == MERGE) {
             sb.append(" DELETE ON ").append(deleteCondition.toSql());
