@@ -17,13 +17,13 @@
 
 package org.apache.doris.plugin;
 
-import com.google.gson.Gson;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
 import org.apache.doris.qe.AuditLogBuilder;
@@ -296,7 +296,7 @@ public class PluginMgr implements Writable {
                 }
 
                 r.add(loader.getStatus().toString());
-                r.add(pi != null ? new Gson().toJson(pi.getProperties()) : "UNKNOWN");
+                r.add(pi != null ? "{" + new PrintableMap<>(pi.getProperties(), "=", true, false, true).toString() + "}" : "UNKNOWN");
                 rows.add(r);
             }
         }

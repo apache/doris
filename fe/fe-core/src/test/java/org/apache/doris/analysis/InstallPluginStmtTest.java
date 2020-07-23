@@ -23,6 +23,9 @@ import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,27 +34,21 @@ import java.util.Map;
 
 public class InstallPluginStmtTest {
 
-    @Mocked
     private Analyzer analyzer;
-    private Catalog catalog;
+    @Mocked
+    private PaloAuth auth;
 
     @Before
     public void setUp() {
-        catalog = AccessTestUtil.fetchAdminCatalog();
-        FakeCatalog.setCatalog(catalog);
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
 
         new Expectations() {
             {
-                analyzer.getCatalog();
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
-                result = catalog;
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
+                result = true;
             }
         };
-
     }
 
     @Test
@@ -59,7 +56,8 @@ public class InstallPluginStmtTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("md5sum", "7529db41471ec72e165f96fe9fb92742");
         InstallPluginStmt stmt = new InstallPluginStmt("http://test/test.zip", properties);
-      //  stmt.analyze(analyzer);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("7529db41471ec72e165f96fe9fb92742", stmt.getMd5sum());
         Assert.assertEquals("INSTALL PLUGIN FROM \"http://test/test.zip\"\n" +
                 "PROPERTIES (\"md5sum\"  =  \"7529db41471ec72e165f96fe9fb92742\")", stmt.toString());
     }

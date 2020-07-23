@@ -119,7 +119,7 @@ public class PluginInfo implements Writable {
     public static PluginInfo readFromProperties(final Path propertiesPath, final String source) throws IOException {
         final Path descriptor = propertiesPath.resolve(DEFAULT_PLUGIN_PROPERTIES);
         if (!descriptor.toFile().exists()) {
-            throw new IOException(descriptor.getFileName() + " does not exists");
+            throw new IOException(descriptor.getFileName() + " does not exist");
         }
 
         final Map<String, String> propsMap;
