@@ -47,7 +47,7 @@ public class PropertyAnalyzerTest {
         List<Column> columns = Lists.newArrayList();
         columns.add(new Column("k1", PrimitiveType.INT));
         columns.add(new Column("k2", PrimitiveType.TINYINT));
-        columns.add(new Column("v1", 
+        columns.add(new Column("v1",
                         ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("v2", 
                         ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
@@ -66,7 +66,8 @@ public class PropertyAnalyzerTest {
         List<Column> columns = Lists.newArrayList();
         columns.add(new Column("k1", PrimitiveType.INT));
         columns.add(new Column("k2", PrimitiveType.TINYINT));
-        columns.add(new Column("v1", 
+        columns.add(new Column("k3", PrimitiveType.BOOLEAN));
+        columns.add(new Column("v1",
                         ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("v2", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
         columns.get(0).setIsKey(true);
@@ -82,8 +83,8 @@ public class PropertyAnalyzerTest {
             Assert.fail();
         }
 
-        // k3 not exist
-        properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k3");
+        // k4 not exist
+        properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k4");
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
         } catch (AnalysisException e) {
@@ -96,6 +97,14 @@ public class PropertyAnalyzerTest {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains("TINYINT is not supported"));
+        }
+
+        // bool not supported
+        properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k3");
+        try {
+            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("BOOLEAN is not supported"));
         }
 
         // not replace value

@@ -1027,10 +1027,10 @@ public class ReportHandler extends Daemon {
                 return;
             }
 
-            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     db.getClusterName(), visibleVersion, visibleVersionHash,
-                    replicationNum, availableBackendsNum);
+                    replicationNum, aliveBeIdsInCluster);
             
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING) {
                 long lastFailedVersion = -1L;

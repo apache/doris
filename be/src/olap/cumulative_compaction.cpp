@@ -44,6 +44,8 @@ OLAPStatus CumulativeCompaction::compact() {
     // 1.calculate cumulative point 
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
+    LOG(INFO) << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point() 
+        << ", tablet=" << _tablet->full_name() ;
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
@@ -59,7 +61,9 @@ OLAPStatus CumulativeCompaction::compact() {
 
     // 5. set cumulative point
     _tablet->set_cumulative_layer_point(_input_rowsets.back()->end_version() + 1);
-    
+    LOG(INFO) << "after cumulative compaction, current cumulative point is " 
+        << _tablet->cumulative_layer_point()  << ", tablet=" << _tablet->full_name() ;
+
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total.increment(_input_rowsets_size);
