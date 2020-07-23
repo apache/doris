@@ -18,20 +18,17 @@
 #include "http/default_path_handlers.h"
 
 #include <gperftools/malloc_extension.h>
-#include <sys/stat.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/bind.hpp>
-#include <fstream>
 #include <sstream>
 
 #include "common/configbase.h"
-#include "common/logging.h"
 #include "http/web_page_handler.h"
 #include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
-#include "util/logging.h"
 #include "util/pretty_printer.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -109,6 +106,7 @@ void add_default_path_handlers(WebPageHandler* web_page_handler, MemTracker* pro
     web_page_handler->register_page("/varz", "Configs", config_handler, true /* is_on_nav_bar */);
     web_page_handler->register_page("/memz", "Memory",
         boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2), true /* is_on_nav_bar */);
+    register_thread_display_page(web_page_handler);
 }
 
 } // namespace doris

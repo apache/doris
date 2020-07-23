@@ -70,7 +70,8 @@ set(UTIL_FILES
   null_load_error_hub.cpp
   time.cpp
   os_info.cpp
-# coding_util.cpp
+  os_util.cpp
+  # coding_util.cpp
   cidr.cpp
   core_local.cpp
   uid_util.cpp
