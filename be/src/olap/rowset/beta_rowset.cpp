@@ -67,6 +67,12 @@ OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus BetaRowset::create_reader(MemTracker* parent_tracker, std::shared_ptr<RowsetReader>* result) {
+    // NOTE: We use std::static_pointer_cast for performance
+    result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this()), parent_tracker));
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus BetaRowset::split_range(const RowCursor& start_key,
                                    const RowCursor& end_key,
                                    uint64_t request_block_row_count,
