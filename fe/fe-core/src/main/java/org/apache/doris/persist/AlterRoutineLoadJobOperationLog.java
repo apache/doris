@@ -17,7 +17,7 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.analysis.DataSourceProperties;
+import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -36,10 +36,10 @@ public class AlterRoutineLoadJobOperationLog implements Writable {
     @SerializedName(value = "jobProperties")
     private Map<String, String> jobProperties;
     @SerializedName(value = "dataSourceProperties")
-    private DataSourceProperties dataSourceProperties;
+    private RoutineLoadDataSourceProperties dataSourceProperties;
 
-    public AlterRoutineLoadJobOperationLog(long jobId, String type, Map<String, String> jobProperties,
-            DataSourceProperties dataSourceProperties) {
+    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
+            RoutineLoadDataSourceProperties dataSourceProperties) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
@@ -53,7 +53,7 @@ public class AlterRoutineLoadJobOperationLog implements Writable {
         return jobProperties;
     }
 
-    public DataSourceProperties getDataSourceProperties() {
+    public RoutineLoadDataSourceProperties getDataSourceProperties() {
         return dataSourceProperties;
     }
 

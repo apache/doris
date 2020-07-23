@@ -19,7 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.DataSourceProperties;
+import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -504,7 +504,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException {
         Map<String, String> jobProperties = stmt.getAnalyzedJobProperties();
-        DataSourceProperties dataSourceProperties = stmt.getDataSourceProperties();
+        RoutineLoadDataSourceProperties dataSourceProperties = stmt.getDataSourceProperties();
 
         writeLock();
         try {
@@ -522,20 +522,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void modifyPropertiesInternal(Map<String, String> jobProperties, DataSourceProperties dataSourceProperties)
+    private void modifyPropertiesInternal(Map<String, String> jobProperties,
+            RoutineLoadDataSourceProperties dataSourceProperties)
             throws DdlException {
 
         List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
         Map<String, String> customKafkaProperties = Maps.newHashMap();
 
-        if (dataSourceProperties != null) {
+        if (dataSourceProperties.hasAnalyzedProperties()) {
             kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
             customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
         }
 
         // modify partition offset first
         if (!kafkaPartitionOffsets.isEmpty()) {
-            // So we can only modify the partition that is being consumed
+            // we can only modify the partition that is being consumed
             ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
         }
         
@@ -547,18 +548,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             this.customProperties.putAll(customKafkaProperties);
             convertCustomProperties(true);
         }
+        
+        LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
+                this.id, jobProperties, dataSourceProperties);
     }
 
     @Override
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
-            modifyPropertiesInternal(log.getJobProperties(), log.getKafkaPartitioinOffset(), log.getCustomProperties());
+            modifyPropertiesInternal(log.getJobProperties(), log.getDataSourceProperties());
         } catch (DdlException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);
         }
-        LOG.info("replay modify the properties of kafka routine load job: {}, kafkaPartitionOffsets: {},"
-                + " jobProperties: {}, customProperties: {}", this.id, log.getKafkaPartitioinOffset(),
-                log.getJobProperties(), log.getCustomProperties());
     }
 }

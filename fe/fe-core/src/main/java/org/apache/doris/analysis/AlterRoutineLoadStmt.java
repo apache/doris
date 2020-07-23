@@ -56,13 +56,14 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private final LabelName labelName;
     private final Map<String, String> jobProperties;
-    private final DataSourceProperties dataSourceProperties;
+    private final RoutineLoadDataSourceProperties dataSourceProperties;
 
-    // save analyzed job properties
+    // save analyzed job properties.
+    // analyzed data source properties are saved in dataSourceProperties.
     private Map<String, String> analyzedJobProperties = Maps.newHashMap();
 
     public AlterRoutineLoadStmt(LabelName labelName, Map<String, String> jobProperties,
-            DataSourceProperties dataSourceProperties) {
+            RoutineLoadDataSourceProperties dataSourceProperties) {
         this.labelName = labelName;
         this.jobProperties = jobProperties != null ? jobProperties : Maps.newHashMap();
         this.dataSourceProperties = dataSourceProperties;
@@ -81,10 +82,10 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     }
 
     public boolean hasDataSourceProperty() {
-        return dataSourceProperties != null;
+        return dataSourceProperties.hasAnalyzedProperties();
     }
 
-    public DataSourceProperties getDataSourceProperties() {
+    public RoutineLoadDataSourceProperties getDataSourceProperties() {
         return dataSourceProperties;
     }
 
@@ -178,10 +179,6 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     }
 
     private void checkDataSourceProperties() throws AnalysisException {
-        if (dataSourceProperties == null) {
-            return;
-        }
-
         dataSourceProperties.analyze();
     }
 }

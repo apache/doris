@@ -576,13 +576,11 @@ public class RoutineLoadManager implements Writable {
     
     /**
      * Enter of altering a routine load job
-     * 
-     * @param stmt
-     * @throws MetaNotFoundException
      */
     public void alterRoutineLoadJob(AlterRoutineLoadStmt stmt) throws UserException {
         RoutineLoadJob job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
-        if (stmt.hasDataSourceProperty() && stmt.getDataSourceProperties().getType() != job.dataSourceType) {
+        if (stmt.hasDataSourceProperty()
+                && stmt.getDataSourceProperties().getType().equalsIgnoreCase(job.dataSourceType.name())) {
             throw new DdlException("The spciefied job type is not: " + stmt.getDataSourceProperties().getType());
         }
         job.modifyProperties(stmt);
