@@ -149,7 +149,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Start FE
 
-	`sh bin/start_fe.sh --daemon`
+	`bash bin/start_fe.sh --daemon`
 
 	The FE process starts and enters the background execution. Logs are stored in the fe/log/directory by default. If startup fails, you can view error messages by looking at fe/log/fe.log or fe/log/fe.out.
 
@@ -181,7 +181,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Start BE
 
-	`sh bin/start_be.sh --daemon`
+	`bash bin/start_be.sh --daemon`
 
 	The BE process will start and go into the background for execution. Logs are stored in be/log/directory by default. If startup fails, you can view error messages by looking at be/log/be.log or be/log/be.out.
 
@@ -201,7 +201,7 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 * Start Broker
 
-	`sh bin /start'u broker.sh --daemon ` start Broker
+	`bash bin /start'u broker.sh --daemon ` start Broker
 
 * Add Broker
 
@@ -217,7 +217,7 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 	Connect any booted FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
 
-**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor] (http://supervisord.org/). For daemon startup, in 0.9.0 and previous versions, you need to modify the start_xx.sh scripts to remove the last & symbol**. Starting with version 0.10.0, call `sh start_xx.sh` directly to start. Also refer to [here] (https://www.cnblogs.com/lenmom/p/9973401.html)
+**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor] (http://supervisord.org/). For daemon startup, in 0.9.0 and previous versions, you need to modify the start_xx.sh scripts to remove the last & symbol**. Starting with version 0.10.0, call `bash start_xx.sh` directly to start. Also refer to [here] (https://www.cnblogs.com/lenmom/p/9973401.html)
 
 ## Expansion and contraction
 
