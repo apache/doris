@@ -73,16 +73,16 @@ public class Replica implements Writable {
     private long backendId;
     // the version could be queried
     @SerializedName(value = "version")
-    private long version;
+    private volatile long version;
     @SerializedName(value = "versionHash")
     private long versionHash;
     private int schemaHash = -1;
     @SerializedName(value = "dataSize")
-    private long dataSize = 0;
+    private volatile long dataSize = 0;
     @SerializedName(value = "rowCount")
-    private long rowCount = 0;
+    private volatile long rowCount = 0;
     @SerializedName(value = "state")
-    private ReplicaState state;
+    private volatile ReplicaState state;
 
     // the last load failed version
     @SerializedName(value = "lastFailedVersion")
@@ -318,12 +318,23 @@ public class Replica implements Writable {
             long lastFailedVersion, long lastFailedVersionHash, 
             long lastSuccessVersion, long lastSuccessVersionHash, 
             long newDataSize, long newRowCount) {
-        LOG.debug("before update: {}", this.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("before update: {}", this.toString());
+        }
 
         if (newVersion < this.version) {
-            // yiguolei: could not find any reason why new version less than this.version should run???
-            LOG.warn("replica {} on backend {}'s new version {} is lower than meta version {}",
-                    id, backendId, newVersion, this.version);
+            // This case means that replica meta version has been updated by ReportHandler before
+            // For example, the publish version daemon has already sent some publish verison tasks to one be to publish version 2, 3, 4, 5, 6,
+            // and the be finish all publish version tasks, the be's replica version is 6 now, but publish version daemon need to wait
+            // for other be to finish most of publish version tasks to update replica version in fe.
+            // At the moment, the replica version in fe is 4, when ReportHandler sync tablet, it find reported replica version in be is 6 and then
+            // set version to 6 for replica in fe. And then publish version daemon try to finish txn, and use visible version(5)
+            // to update replica. Finally, it find the newer version(5) is lower than replica version(6) in fe.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
+                        + "not to continue to update replica", id, backendId, newVersion, this.version);
+            }
+            return;
         }
 
         this.version = newVersion;
@@ -383,7 +394,9 @@ public class Replica implements Writable {
             }
         }
 
-        LOG.debug("after update {}", this.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after update {}", this.toString());
+        }
     }
     
     public synchronized void updateLastFailedVersion(long lastFailedVersion, long lastFailedVersionHash) {

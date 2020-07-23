@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
@@ -39,9 +40,10 @@ public abstract class AgentTask {
     // some of are not.
     // so whether the task is finished depends on caller's logic, not the value of this member.
     protected boolean isFinished = false;
+    protected long createTime;
 
     public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-                     long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature) {
+                     long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature, long createTime) {
         this.backendId = backendId;
         this.signature = signature;
         this.taskType = taskType;
@@ -55,11 +57,17 @@ public abstract class AgentTask {
         this.resourceInfo = resourceInfo;
 
         this.failedTimes = 0;
+        this.createTime = createTime;
     }
     
     public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
             long dbId, long tableId, long partitionId, long indexId, long tabletId) {
-        this(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, tabletId);
+        this(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, tabletId, -1);
+    }
+
+    public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
+                     long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature) {
+        this(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature, -1);
     }
 
     public long getSignature() {
@@ -120,6 +128,10 @@ public abstract class AgentTask {
 
     public boolean isFinished() {
         return isFinished;
+    }
+
+    public boolean shouldResend(long currentTimeMillis) {
+        return createTime == -1 || currentTimeMillis - createTime > Config.agent_task_resend_wait_time_ms;
     }
 
     @Override
