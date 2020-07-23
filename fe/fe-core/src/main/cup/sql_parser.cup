@@ -734,10 +734,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
     :}
-    | KW_ALTER KW_ROUTINE KW_LOAD job_label:jobLabel opt_properties:properties
+    | KW_ALTER KW_ROUTINE KW_LOAD job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
-        RESULT = new AlterRoutineLoadStmt(jobLabel, properties, datasourceProperties);
+        RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
     :}
     ;
 
