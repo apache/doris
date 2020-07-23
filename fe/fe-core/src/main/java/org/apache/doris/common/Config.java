@@ -1117,5 +1117,13 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String thrift_server_type = ThriftServer.THREAD_POOL;
+
+    /**
+     * This config will decide whether to resend agent task when create_time for agent_task is set,
+     * only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task
+     */
+    @ConfField (mutable = true, masterOnly = true)
+    public static long agent_task_resend_wait_time_ms = 5000;
+
 }
 

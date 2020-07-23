@@ -76,6 +76,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;
         }
+        long createPublishVersionTaskTime = System.currentTimeMillis();
         // every backend-transaction identified a single task
         AgentBatchTask batchTask = new AgentBatchTask();
         // traverse all ready transactions and dispatch the publish version task to all backends
@@ -113,7 +114,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                 PublishVersionTask task = new PublishVersionTask(backendId,
                         transactionState.getTransactionId(),
                         transactionState.getDbId(),
-                        partitionVersionInfos);
+                        partitionVersionInfos,
+                        createPublishVersionTaskTime);
                 // add to AgentTaskQueue for handling finish report.
                 // not check return value, because the add will success
                 AgentTaskQueue.addTask(task);
