@@ -27,8 +27,8 @@
 
 namespace doris {
 
-BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
-    : _rowset(std::move(rowset)), _stats(&_owned_stats) {
+BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset, MemTracker* parent_tracker)
+        : _rowset(std::move(rowset)), _stats(&_owned_stats), _parent_tracker(parent_tracker) {
     _rowset->aquire();
 }
 
@@ -99,7 +99,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _input_block.reset(new RowBlockV2(schema, 1024));
 
     // init output block and row
-    _output_block.reset(new RowBlock(read_context->tablet_schema));
+    _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
     RowBlockInfo output_block_info;
     output_block_info.row_num = 1024;
     output_block_info.null_supported = true;

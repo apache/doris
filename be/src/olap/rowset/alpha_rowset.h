@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_H
 
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/segment_group.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/data_dir.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/tuple.h"
 
-#include <vector>
 #include <memory>
+#include <vector>
 
 namespace doris {
 
@@ -42,8 +42,10 @@ public:
 
     OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
 
-    OLAPStatus split_range(const RowCursor& start_key,
-                           const RowCursor& end_key,
+    OLAPStatus create_reader(MemTracker* parent_tracker,
+                             std::shared_ptr<RowsetReader>* result) override;
+
+    OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
                            uint64_t request_block_row_count,
                            std::vector<OlapTuple>* ranges) override;
 
@@ -54,13 +56,13 @@ public:
     OLAPStatus copy_files_to(const std::string& dir) override;
 
     OLAPStatus convert_from_old_files(const std::string& snapshot_path,
-                                 std::vector<std::string>* success_files);
+                                      std::vector<std::string>* success_files);
 
-    OLAPStatus convert_to_old_files(const std::string& snapshot_path, 
-                                 std::vector<std::string>* success_files);
+    OLAPStatus convert_to_old_files(const std::string& snapshot_path,
+                                    std::vector<std::string>* success_files);
 
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
-    
+
     bool check_path(const std::string& path) override;
 
     // when convert from old be, should set row num, index size, data size
@@ -70,16 +72,15 @@ public:
 protected:
     friend class RowsetFactory;
 
-    AlphaRowset(const TabletSchema* schema,
-                std::string rowset_path,
+    AlphaRowset(const TabletSchema* schema, std::string rowset_path,
                 RowsetMetaSharedPtr rowset_meta);
-    
+
     // init segment groups
     OLAPStatus init() override;
 
     OLAPStatus do_load(bool use_cache) override;
 
-    void do_close() override { }
+    void do_close() override {}
 
     // add custom logic when rowset is published
     void make_visible_extra(Version version, VersionHash version_hash) override;

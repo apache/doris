@@ -27,12 +27,13 @@ namespace doris {
 
 Semaphore Compaction::_concurrency_sem;
 
-Compaction::Compaction(TabletSharedPtr tablet)
-    : _tablet(tablet),
-      _input_rowsets_size(0),
-      _input_row_num(0),
-      _state(CompactionState::INITED)
-{ }
+Compaction::Compaction(TabletSharedPtr tablet, const std::string& label, MemTracker* parent_tracker)
+        : _mem_tracker(-1, label, parent_tracker, true),
+          _readers_tracker(-1, "readers tracker", &_mem_tracker, true),
+          _tablet(tablet),
+          _input_rowsets_size(0),
+          _input_row_num(0),
+          _state(CompactionState::INITED) {}
 
 Compaction::~Compaction() {}
 
@@ -74,6 +75,7 @@ OLAPStatus Compaction::do_compaction_impl() {
     TRACE("prepare finished");
 
     // 2. write merged rows to output rowset
+    // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
     auto res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers, _output_rs_writer.get(), &stats);
     if (res != OLAP_SUCCESS) {
@@ -143,6 +145,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.version = _output_version;
     context.version_hash = _output_version_hash;
     context.segments_overlap = NONOVERLAPPING;
+    // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
     return OLAP_SUCCESS;
 }
@@ -150,7 +153,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
 OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
+        RETURN_NOT_OK(rowset->create_reader(&_readers_tracker, &rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;
