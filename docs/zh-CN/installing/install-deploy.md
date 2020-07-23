@@ -145,7 +145,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 启动FE
 
-    `sh bin/start_fe.sh --daemon`
+    `bash bin/start_fe.sh --daemon`
 
     FE进程启动进入后台执行。日志默认存放在 fe/log/ 目录下。如启动失败，可以通过查看 fe/log/fe.log 或者 fe/log/fe.out 查看错误信息。
 
@@ -177,7 +177,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 启动 BE
 
-    `sh bin/start_be.sh --daemon`
+    `bash bin/start_be.sh --daemon`
 
     BE 进程将启动并进入后台执行。日志默认存放在 be/log/ 目录下。如启动失败，可以通过查看 be/log/be.log 或者 be/log/be.out 查看错误信息。
 
@@ -197,7 +197,7 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
  * 启动 Broker
 
-    `sh bin/start_broker.sh --daemon` 启动 Broker。
+    `bash bin/start_broker.sh --daemon` 启动 Broker。
 
 * 添加 Broker
 
@@ -213,7 +213,7 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
     使用 mysql-client 连接任一已启动的 FE，执行以下命令查看 Broker 状态：`SHOW PROC "/brokers";`
 
-**注：在生产环境中，所有实例都应使用守护进程启动，以保证进程退出后，会被自动拉起，如 [Supervisor](http://supervisord.org/)。如需使用守护进程启动，在 0.9.0 及之前版本中，需要修改各个 start_xx.sh 脚本，去掉最后的 & 符号**。从 0.10.0 版本开始，直接调用 `sh start_xx.sh` 启动即可。也可参考 [这里](https://www.cnblogs.com/lenmom/p/9973401.html)
+**注：在生产环境中，所有实例都应使用守护进程启动，以保证进程退出后，会被自动拉起，如 [Supervisor](http://supervisord.org/)。如需使用守护进程启动，在 0.9.0 及之前版本中，需要修改各个 start_xx.sh 脚本，去掉最后的 & 符号**。从 0.10.0 版本开始，直接调用 `bash start_xx.sh` 启动即可。也可参考 [这里](https://www.cnblogs.com/lenmom/p/9973401.html)
 
 ## 扩容缩容
 
