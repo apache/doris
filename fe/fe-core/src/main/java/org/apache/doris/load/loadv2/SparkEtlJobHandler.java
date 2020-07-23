@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -69,9 +70,7 @@ import java.util.Optional;
 public class SparkEtlJobHandler {
     private static final Logger LOG = LogManager.getLogger(SparkEtlJobHandler.class);
 
-    // private static final String APP_RESOURCE_NAME = "spark-dpp.jar";
     private static final String CONFIG_FILE_NAME = "jobconfig.json";
-    // private static final String APP_RESOURCE_LOCAL_PATH = PaloFe.DORIS_HOME_DIR + "/lib/" + APP_RESOURCE_NAME;
     private static final String JOB_CONFIG_DIR = "configs";
     private static final String ETL_JOB_NAME = "doris__%s";
     // 5min
@@ -92,20 +91,40 @@ public class SparkEtlJobHandler {
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
 
         // remote repository
-        SparkRepository remoteRepository = SparkRepository.getInstance();
-        remoteRepository.setRepositoryPath(resource.getRepositoryDir());
-        remoteRepository.setBrokerDesc(brokerDesc);
-        remoteRepository.initRepository();
-        SparkRepository.SparkArchive archive = remoteRepository.getCurrentArchive();
+        SparkRepository.SparkArchive archive = getRemoteArchive(resource.getRepositoryDir(), brokerDesc);
         List<SparkRepository.SparkLibrary> libraries = archive.libraries;
-        Optional<SparkRepository.SparkLibrary> optionalLibrary = libraries.stream().
+        Optional<SparkRepository.SparkLibrary> dppLibrary = libraries.stream().
                 filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.DPP).findFirst();
+        Optional<SparkRepository.SparkLibrary> spark2xLibrary = libraries.stream().
+                filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.SPARK2X).findFirst();
+        if (!dppLibrary.isPresent() || !spark2xLibrary.isPresent()) {
+            throw new LoadException("failed to get library info from repository");
+        }
 
-        // upload app resource and jobconfig to hdfs
+        // spark home
+        String spark_home = Config.spark_home_default_dir;
+        // etl config path
         String configsHdfsDir = etlJobConfig.outputPath + "/" + JOB_CONFIG_DIR + "/";
-        String appResourceHdfsPath = optionalLibrary.get().remotePath;
+        // etl config json path
         String jobConfigHdfsPath = configsHdfsDir + CONFIG_FILE_NAME;
-        String jobArchiveHdfsPath = archive.remotePath;
+        // spark submit app resource path
+        String appResourceHdfsPath = dppLibrary.get().remotePath;
+        // spark yarn archive path
+        String jobArchiveHdfsPath = spark2xLibrary.get().remotePath;
+        // spark yarn stage dir
+        String jobStageHdfsPath = resource.getWorkingDir();
+        LOG.info("configsHdfsDir={}, appResourceHdfsPath={}, jobConfigHdfsPath={}, jobArchiveHdfsPath={}",
+                configsHdfsDir, appResourceHdfsPath, jobConfigHdfsPath, jobArchiveHdfsPath);
+
+        // update archive and stage configs here
+        Map<String, String> sparkConfigs = resource.getSparkConfigs();
+        if (Strings.isNullOrEmpty(sparkConfigs.get("spark.yarn.archive"))) {
+            sparkConfigs.put("spark.yarn.archive", jobArchiveHdfsPath);
+        }
+        if (Strings.isNullOrEmpty(sparkConfigs.get("spark.yarn.stage.dir"))) {
+            sparkConfigs.put("spark.yarn.stage.dir", jobStageHdfsPath);
+        }
+
         try {
             byte[] configData = etlJobConfig.configToJson().getBytes("UTF-8");
             BrokerUtil.writeFile(configData, jobConfigHdfsPath, brokerDesc);
@@ -123,12 +142,13 @@ public class SparkEtlJobHandler {
                 .setAppResource(appResourceHdfsPath)
                 .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
+                .setSparkHome(spark_home)
                 .addAppArgs(jobConfigHdfsPath);
+
         // spark configs
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {
             launcher.setConf(entry.getKey(), entry.getValue());
         }
-        launcher.setConf("spark.yarn.archive", jobArchiveHdfsPath + "*.zip");
 
         // start app
         SparkAppHandle handle = null;
@@ -263,6 +283,19 @@ public class SparkEtlJobHandler {
                 handle.stop();
             }
         }
+    }
+
+    public SparkRepository.SparkArchive getRemoteArchive(String repositoryPath, BrokerDesc brokerDesc) throws LoadException {
+        // prepare remote repository
+        SparkRepository.SparkArchive archive = null;
+        SparkRepository remoteRepository = new SparkRepository(repositoryPath, brokerDesc);
+        boolean isPrepare = remoteRepository.prepare();
+        if (isPrepare) {
+            archive = remoteRepository.getCurrentArchive();
+            LOG.info("successful get archive from repository, path={}, verion={}, libraries size={}",
+                    archive.remotePath, archive.version, archive.libraries.size());
+        }
+        return archive;
     }
 
     public Map<String, Long> getEtlFilePaths(String outputPath, BrokerDesc brokerDesc) throws Exception {
