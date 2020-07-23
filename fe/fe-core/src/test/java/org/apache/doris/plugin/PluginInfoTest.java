@@ -18,6 +18,7 @@
 package org.apache.doris.plugin;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -76,6 +77,7 @@ public class PluginInfoTest {
         info.className = "hello.jar";
         info.soName = "hello.so";
         info.source = "test";
+        info.properties.put("md5sum", "cf0c536b8f2a0a0690b44d783d019e90");
 
         DataOutputBuffer dob = new DataOutputBuffer();
         DataOutputStream dos = new DataOutputStream(dob);
@@ -83,7 +85,8 @@ public class PluginInfoTest {
 
         DataInputStream dis = new DataInputStream(new ByteArrayInputStream(dob.getData()));
         PluginInfo pi = PluginInfo.read(dis);
-
+        assertFalse(pi.properties.isEmpty());
+        assertEquals("cf0c536b8f2a0a0690b44d783d019e90", pi.properties.get("md5sum"));
         assertEquals(info, pi);
     }
 }

@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class DynamicPluginLoader extends PluginLoader {
@@ -168,8 +169,11 @@ public class DynamicPluginLoader extends PluginLoader {
             plugin.init(pluginInfo, pluginContext);
         } else {
             // re-install
-            this.pluginInfo = null;
-            this.installPath = null;
+            Map<String, String> properties = pluginInfo.getProperties();
+            installPath = null;
+            pluginInfo = null;
+            pluginInfo = getPluginInfo();
+            pluginInfo.setProperties(properties);
             install();
         }
     }
