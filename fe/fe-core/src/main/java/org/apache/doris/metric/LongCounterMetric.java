@@ -25,6 +25,8 @@ public class LongCounterMetric extends CounterMetric<Long> {
         super(name, unit, description);
     }
 
+    // LongAdder is used for purposes such as collecting statistics, not for fine-grained synchronization control.
+    // Under high contention, expected throughput of LongAdder is significantly higher than AtomicLong
     private LongAdder value = new LongAdder();
 
     @Override
