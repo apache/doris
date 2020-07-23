@@ -541,7 +541,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         
         if (!jobProperties.isEmpty()) {
-            this.jobProperties.putAll(jobProperties);
+            Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
+            modifyCommonJobProperties(copiedJobProperties);
+            this.jobProperties.putAll(copiedJobProperties);
         }
 
         if (!customKafkaProperties.isEmpty()) {

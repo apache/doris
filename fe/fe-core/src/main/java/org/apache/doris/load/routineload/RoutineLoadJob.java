@@ -1416,4 +1416,32 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     abstract public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException;
 
     abstract public void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
+
+    // for ALTER ROUTINE LOAD
+    protected void modifyCommonJobProperties(Map<String, String> jobProperties) {
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
+            this.desireTaskConcurrentNum = Integer.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
+            this.maxErrorNum = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
+            this.maxBatchIntervalS = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)) {
+            this.maxBatchRows = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)) {
+            this.maxBatchSizeBytes = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY));
+        }
+    }
 }

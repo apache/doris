@@ -39,7 +39,7 @@ public class RoutineLoadDataSourceProperties {
     @SerializedName(value = "type")
     private String type = "KAFKA";
     // origin properties, no need to persist
-    private Map<String, String> properties;
+    private Map<String, String> properties = Maps.newHashMap();
     @SerializedName(value = "kafkaPartitionOffsets")
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
     @SerializedName(value = "customKafkaProperties")
