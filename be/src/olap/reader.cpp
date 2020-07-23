@@ -405,6 +405,7 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
 OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
+    int64_t merged_count = 0;
     do {
         if (UNLIKELY(_next_key == nullptr)) {
             *eof = true;
@@ -431,14 +432,14 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
                 break;
             }
+            ++merged_count;
         }
         if (!cur_delete_flag) {
-            return OLAP_SUCCESS;
+            break;
         }
-
         _stats.rows_del_filtered++;
     } while (cur_delete_flag);
-
+    _merged_rows += merged_count;
     return OLAP_SUCCESS;
 }
 
