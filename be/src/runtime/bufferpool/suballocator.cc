@@ -92,7 +92,7 @@ uint64_t Suballocator::ComputeAllocateBufferSize(int64_t bytes) const {
     bytes = max(bytes, MIN_ALLOCATION_BYTES);
     const int target_list_idx = ComputeListIndex(bytes);
     for (int i = target_list_idx; i < NUM_FREE_LISTS; ++i) {
-        if (CheckFreeListHead(i)) return 0;
+        if (CheckFreeListHeadNotNull(i)) return 0;
     }
     return max(min_buffer_len_, BitUtil::RoundUpToPowerOfTwo(bytes));
 }
@@ -230,7 +230,7 @@ unique_ptr<Suballocation> Suballocator::PopFreeListHead(int list_idx) {
   return result;
 }
 
-bool Suballocator::CheckFreeListHead(int list_idx) const {
+bool Suballocator::CheckFreeListHeadNotNull(int list_idx) const {
     return free_lists_[list_idx] != nullptr;
 }
 

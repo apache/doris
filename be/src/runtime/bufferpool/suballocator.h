@@ -129,9 +129,8 @@ class Suballocator {
   // if list is empty.
   std::unique_ptr<Suballocation> PopFreeListHead(int list_idx);
 
-  // Get the allocation at the head of the free list at index 'list_idx'. Return nullptr
-  // if list is empty.
-  bool CheckFreeListHead(int list_idx) const;
+  // Check list_idx of Free List whether is nullptr
+  bool CheckFreeListHeadNotNull(int list_idx) const;
 
   /// Coalesce two free buddies, 'b1' and 'b2'. Frees 'b1' and 'b2' and marks the parent
   /// not in use.
