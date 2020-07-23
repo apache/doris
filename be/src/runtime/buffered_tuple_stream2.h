@@ -257,6 +257,11 @@ public:
     bool has_tuple_footprint() const {
         return _fixed_tuple_row_size > 0 || !_string_slots.empty() || _nullable_tuple;
     }
+    /// Returns true if the row consumes any memory. If false, the stream only needs to
+    /// store the count of rows.
+    bool row_consumes_memory() const {
+        return _fixed_tuple_row_size > 0 || _nullable_tuple;
+    }
 
     std::string debug_string() const;
 
