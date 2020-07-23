@@ -580,7 +580,7 @@ public class RoutineLoadManager implements Writable {
     public void alterRoutineLoadJob(AlterRoutineLoadStmt stmt) throws UserException {
         RoutineLoadJob job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
         if (stmt.hasDataSourceProperty()
-                && stmt.getDataSourceProperties().getType().equalsIgnoreCase(job.dataSourceType.name())) {
+                && !stmt.getDataSourceProperties().getType().equalsIgnoreCase(job.dataSourceType.name())) {
             throw new DdlException("The spciefied job type is not: " + stmt.getDataSourceProperties().getType());
         }
         job.modifyProperties(stmt);

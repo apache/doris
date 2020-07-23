@@ -1244,6 +1244,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
         jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
         jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
+        jobProperties.put("desireTaskConcurrentNum", String.valueOf(desireTaskConcurrentNum));
+        jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
     }
