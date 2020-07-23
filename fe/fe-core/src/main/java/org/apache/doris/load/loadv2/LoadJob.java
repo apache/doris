@@ -887,6 +887,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             finishTimestamp = txnState.getFinishTime();
             state = JobState.CANCELLED;
             Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+            if (this instanceof SparkLoadJob && !Catalog.getCurrentCatalog().isCheckpointThread()) {
+                Catalog.getCurrentCatalog().getLoadJobScheduler().removeRunningTable(getId(), ((SparkLoadJob)this).getTableWithBitmapColumn());
+            }
         } finally {
             writeUnlock();
         }

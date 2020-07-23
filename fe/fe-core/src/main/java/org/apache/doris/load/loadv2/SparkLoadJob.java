@@ -38,7 +38,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -77,7 +76,6 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
@@ -102,6 +100,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import static org.apache.doris.common.FeMetaVersion.VERSION_87;
 
 /**
  * There are 4 steps in SparkLoadJob:
@@ -734,6 +734,11 @@ public class SparkLoadJob extends BulkLoadJob {
             Text.writeString(out, entry.getValue().first);
             out.writeLong(entry.getValue().second);
         }
+
+        out.writeInt(this.tableWithBitmapColumn.size());
+        for (Long tableId : this.tableWithBitmapColumn) {
+            out.writeLong(tableId);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -748,6 +753,16 @@ public class SparkLoadJob extends BulkLoadJob {
             Pair<String, Long> fileInfo = Pair.create(Text.readString(in), in.readLong());
             tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
         }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= VERSION_87) {
+            int tableWithBitmapColumnsSize = in.readInt();
+            for (int i = 0; i < tableWithBitmapColumnsSize; i++) {
+                this.tableWithBitmapColumn.add(in.readLong());
+            }
+            if (this.state == JobState.ETL && tableWithBitmapColumnsSize != 0) {
+                Catalog.getCurrentCatalog().getLoadJobScheduler().addRunningTable(getId(), getTableWithBitmapColumn());
+            }
+        }
     }
 
     /**
@@ -758,26 +773,6 @@ public class SparkLoadJob extends BulkLoadJob {
                 id, state, transactionId, etlStartTimestamp, appId, etlOutputPath,
                 loadStartTimestamp, tabletMetaToFileInfo);
         Catalog.getCurrentCatalog().getEditLog().logUpdateLoadJob(info);
-    }
-
-    // because current SparkLoadJob didn't persist job's tableId, so we need to get job's tableid from transaction mgr
-    private void fillJobTableIdSetWhenReplay() {
-        try {
-            DatabaseTransactionMgr databaseTransactionMgr =
-                    Catalog.getCurrentCatalog().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
-            TransactionState transactionState = databaseTransactionMgr.getTransactionState(this.transactionId);
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
-            if (this.tableWithBitmapColumn.size() == 0) {
-                for (Long tableId : transactionState.getTableIdList()) {
-                    Table table = db.getTable(tableId);
-                    if (isTableContainsBitmap(table)) {
-                        tableWithBitmapColumn.add(tableId);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("fill spark load job table id set failed when replay", e);
-        }
     }
 
     @Override
@@ -792,13 +787,20 @@ public class SparkLoadJob extends BulkLoadJob {
         switch (state) {
             case ETL:
                 // acquire dict lock when job relays
-                fillJobTableIdSetWhenReplay();
-                Catalog.getCurrentCatalog().getLoadJobScheduler().addRunningTable(getId(), getTableWithBitmapColumn());
+                if (!Catalog.isCheckpointThread()) {
+                    Catalog.getCurrentCatalog().getLoadJobScheduler().addRunningTable(getId(), getTableWithBitmapColumn());
+                }
                 break;
             case LOADING:
+                if (!Catalog.isCheckpointThread()) {
+                    Catalog.getCurrentCatalog().getLoadJobScheduler().removeRunningTable(getId(), getTableWithBitmapColumn());
+                }
                 unprotectedPrepareLoadingInfos();
                 break;
             default:
+                if (!Catalog.isCheckpointThread()) {
+                    Catalog.getCurrentCatalog().getLoadJobScheduler().removeRunningTable(getId(), getTableWithBitmapColumn());
+                }
                 LOG.warn("replay update load job state info failed. error: wrong state. job id: {}, state: {}",
                          id, state);
                 break;
@@ -951,28 +953,7 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     public Set<Long> getTableWithBitmapColumn() {
-        if (tableWithBitmapColumn.size() != 0) {
-            return tableWithBitmapColumn;
-        }
-
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        for (Long tableId : fileGroupAggInfo.getAllTableIds()) {
-            Table tab = db.getTable(tableId);
-            if (isTableContainsBitmap(tab)) {
-                tableWithBitmapColumn.add(tableId);
-            }
-        }
         return tableWithBitmapColumn;
-    }
-
-    private boolean isTableContainsBitmap(Table table) {
-        List<Column> columns = table.getBaseSchema();
-        for (Column column : columns) {
-            if (PrimitiveType.BITMAP.equals(column.getDataType())) {
-                return true;
-            }
-        }
-        return false;
     }
 
 }

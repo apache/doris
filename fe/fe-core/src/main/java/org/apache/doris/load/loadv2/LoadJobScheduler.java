@@ -53,7 +53,7 @@ public class LoadJobScheduler extends MasterDaemon {
 
     // Used to implement a job granularity lock for update global dict table serially
     // The runningBitmapTables keeps the doris table id of the spark load job which in state pending or etl
-    private Map<Long, Set<Long>> runningBitmapTableMap = new HashMap<>();
+    private Map<Long, Set<Long>> runningTabletWithBitmapColumnsMap = new HashMap<>();
 
     public LoadJobScheduler() {
         super("Load job scheduler", Config.load_checker_interval_second * 1000);
@@ -135,16 +135,17 @@ public class LoadJobScheduler extends MasterDaemon {
 
     // add lock cases as below:
     // 1 LoadJobScheduler.submit success
-    // 2 SparkLoadJob in etl then replay
+    // 2 SparkLoadJob in etl then replay when fe restart(exclude checkpoint.replay)
+    // 3 load SparkLoadJob in ETL from image
     public boolean addRunningTable(Long jobId, Set<Long> tableIds) {
         // skip spark load job which needn't build global dict
         if (tableIds.size() == 0) {
             return true;
         }
 
-        synchronized (runningBitmapTableMap) {
+        synchronized (runningTabletWithBitmapColumnsMap) {
             Set<Long> runningTableIdSet = new HashSet<>();
-            for (Set<Long> set : runningBitmapTableMap.values()) {
+            for (Set<Long> set : runningTabletWithBitmapColumnsMap.values()) {
                 runningTableIdSet.addAll(set);
             }
 
@@ -154,10 +155,10 @@ public class LoadJobScheduler extends MasterDaemon {
                     return false;
                 }
             }
-            if (runningBitmapTableMap.containsKey(jobId)) {
+            if (runningTabletWithBitmapColumnsMap.containsKey(jobId)) {
                 LOG.warn("unexpected case: runningBitmapTableMap contains job id {}, should add only once", jobId);
             }
-            runningBitmapTableMap.put(jobId, tableIds);
+            runningTabletWithBitmapColumnsMap.put(jobId, tableIds);
             return true;
         }
     }
@@ -173,8 +174,8 @@ public class LoadJobScheduler extends MasterDaemon {
         if (tableIds.size() == 0) {
             return;
         }
-        synchronized (runningBitmapTableMap) {
-            runningBitmapTableMap.remove(jobId);
+        synchronized (runningTabletWithBitmapColumnsMap) {
+            runningTabletWithBitmapColumnsMap.remove(jobId);
         }
     }
 

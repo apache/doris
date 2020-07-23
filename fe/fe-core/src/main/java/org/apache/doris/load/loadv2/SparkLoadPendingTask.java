@@ -547,5 +547,4 @@ public class SparkLoadPendingTask extends LoadTask {
             throw new LoadException("Bitmap global dict should load data from hive table");
         }
     }
-
 }

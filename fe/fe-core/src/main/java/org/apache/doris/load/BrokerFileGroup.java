@@ -32,6 +32,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -82,6 +83,7 @@ public class BrokerFileGroup implements Writable {
     // load from table
     private long srcTableId = -1;
     private boolean isLoadFromTable = false;
+    private boolean isContainsBitmapColumns = false;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -193,10 +195,19 @@ public class BrokerFileGroup implements Writable {
                 if (!isIncluded) {
                     throw new DdlException("Column " + column.getName() + " is not in Source table");
                 }
+                // TODO(wb): deal more case,such as user's source column type is integer,so no need to build dict.
+                // then maybe we can skip here
+                if (!isContainsBitmapColumns && PrimitiveType.BITMAP.equals(column.getDataType())) {
+                    isContainsBitmapColumns = true;
+                }
             }
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
         }
+    }
+
+    public boolean isContainsBitmapColumns() {
+        return isContainsBitmapColumns;
     }
 
     public long getTableId() {

@@ -141,6 +141,9 @@ public abstract class BulkLoadJob extends LoadJob {
             for (DataDescription dataDescription : dataDescriptions) {
                 BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
                 fileGroup.parse(db, dataDescription);
+                if (this instanceof SparkLoadJob && fileGroup.isContainsBitmapColumns()) {
+                    ((SparkLoadJob)this).getTableWithBitmapColumn().add(fileGroup.getTableId());
+                }
                 fileGroupAggInfo.addFileGroup(fileGroup);
             }
         } finally {
