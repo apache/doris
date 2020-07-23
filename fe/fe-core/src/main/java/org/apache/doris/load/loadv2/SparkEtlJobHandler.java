@@ -113,8 +113,6 @@ public class SparkEtlJobHandler {
         String jobArchiveHdfsPath = spark2xLibrary.get().remotePath;
         // spark yarn stage dir
         String jobStageHdfsPath = resource.getWorkingDir();
-        LOG.info("configsHdfsDir={}, appResourceHdfsPath={}, jobConfigHdfsPath={}, jobArchiveHdfsPath={}",
-                configsHdfsDir, appResourceHdfsPath, jobConfigHdfsPath, jobArchiveHdfsPath);
 
         // update archive and stage configs here
         Map<String, String> sparkConfigs = resource.getSparkConfigs();

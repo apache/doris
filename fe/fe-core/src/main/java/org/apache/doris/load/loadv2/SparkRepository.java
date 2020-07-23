@@ -225,16 +225,12 @@ public class SparkRepository {
             readUnlock();
         }
 
-        LOG.info("get file statuses, size={} ", fileStatuses.size());
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            LOG.info("get file status " + fileStatus.path);
             String fileName = getFileName(PATH_DELIMITER, fileStatus.path);
-            LOG.info("get file name " + fileName);
             if (!fileName.startsWith(PREFIX_LIB)) {
                 continue;
             }
             String[] lib_arg = unWrap(PREFIX_LIB, SUFFIX, fileName).split(FILE_NAME_SEPARATOR);
-            LOG.info("get lib arg, length={}, arg[0]={}, arg[1]={}", lib_arg.length, lib_arg[0], lib_arg[1]);
             if (lib_arg.length != 2) {
                 continue;
             }
