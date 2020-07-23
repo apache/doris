@@ -342,3 +342,5 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `prefer_join_method`
 
     When choosing the join method(broadcast join or shuffle join), if the broadcast join cost and shuffle join cost are equal, which join method should we prefer.
+
+    Currently, the optional values for this variable are "broadcast" or "shuffle".
