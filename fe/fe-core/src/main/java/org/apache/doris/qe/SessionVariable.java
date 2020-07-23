@@ -74,6 +74,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
+    public static final String PREFER_BROADCAST_JOIN = "prefer_broadcast_join";
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
@@ -208,6 +209,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
     private boolean disableColocateJoin = false;
+
+    @VariableMgr.VarAttr(name = PREFER_BROADCAST_JOIN)
+    private boolean preferBroadcastJoin = true;
 
     /*
      * the parallel exec instance num for one Fragment in one BE
@@ -396,6 +400,10 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isDisableColocateJoin() {
         return disableColocateJoin;
     }
+
+    public boolean isPreferBroadcastJoin() {return preferBroadcastJoin; }
+
+    public void setPreferBroadcastJoin(boolean preferBroadcastJoin) {this.preferBroadcastJoin = preferBroadcastJoin; }
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
