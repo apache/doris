@@ -32,42 +32,37 @@ namespace doris {
 
 static const uint32_t MIN_FILTER_BLOCK_NUM = 10;
 
-SegmentReader::SegmentReader(
-        const std::string file,
-        SegmentGroup* segment_group,
-        uint32_t segment_id,
-        const std::vector<uint32_t>& used_columns,
-        const std::set<uint32_t>& load_bf_columns,
-        const Conditions* conditions,
-        const DeleteHandler* delete_handler,
-        const DelCondSatisfied delete_status,
-        Cache* lru_cache,
-        RuntimeState* runtime_state,
-        OlapReaderStatistics* stats) :
-        _file_name(file),
-        _segment_group(segment_group),
-        _segment_id(segment_id),
-        _used_columns(used_columns),
-        _load_bf_columns(load_bf_columns),
-        _conditions(conditions),
-        _delete_handler(delete_handler),
-        _delete_status(delete_status),
-        _eof(false),
-        _end_block(-1),
-        // 确保第一次调用_move_to_next_row，会执行seek_to_block
-        _block_count(0),
-        _num_rows_in_block(0),
-        _null_supported(false),
-        _mmap_buffer(NULL),
-        _include_blocks(NULL),
-        _is_using_mmap(false),
-        _is_data_loaded(false),
-        _buffer_size(0),
-        _shared_buffer(NULL),
-        _lru_cache(lru_cache),
-        _runtime_state(runtime_state),
-        _stats(stats) {
-    _tracker.reset(new MemTracker(-1));
+SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group,
+                             uint32_t segment_id, const std::vector<uint32_t>& used_columns,
+                             const std::set<uint32_t>& load_bf_columns,
+                             const Conditions* conditions, const DeleteHandler* delete_handler,
+                             const DelCondSatisfied delete_status, Cache* lru_cache,
+                             RuntimeState* runtime_state, OlapReaderStatistics* stats,
+                             MemTracker* parent_tracker)
+        : _file_name(file),
+          _segment_group(segment_group),
+          _segment_id(segment_id),
+          _used_columns(used_columns),
+          _load_bf_columns(load_bf_columns),
+          _conditions(conditions),
+          _delete_handler(delete_handler),
+          _delete_status(delete_status),
+          _eof(false),
+          _end_block(-1),
+          // 确保第一次调用_move_to_next_row，会执行seek_to_block
+          _block_count(0),
+          _num_rows_in_block(0),
+          _null_supported(false),
+          _mmap_buffer(NULL),
+          _include_blocks(NULL),
+          _is_using_mmap(false),
+          _is_data_loaded(false),
+          _buffer_size(0),
+          _shared_buffer(NULL),
+          _lru_cache(lru_cache),
+          _runtime_state(runtime_state),
+          _stats(stats) {
+    _tracker.reset(new MemTracker(-1, "SegmentReader", parent_tracker, true));
     _mem_pool.reset(new MemPool(_tracker.get()));
 }
 

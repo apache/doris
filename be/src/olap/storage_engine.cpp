@@ -18,6 +18,7 @@
 #include "olap/storage_engine.h"
 
 #include <signal.h>
+#include <sys/syscall.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -103,24 +104,30 @@ Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_
 
 StorageEngine::StorageEngine(const EngineOptions& options)
         : _options(options),
-        _available_storage_medium_type_count(0),
-        _effective_cluster_id(-1),
-        _is_all_cluster_id_exist(true),
-        _index_stream_lru_cache(NULL),
-        _file_cache(nullptr),
-        _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
-        _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
-        _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
-        _memtable_flush_executor(nullptr),
-        _block_manager(nullptr),
-        _default_rowset_type(ALPHA_ROWSET),
-        _heartbeat_flags(nullptr) {
+          _available_storage_medium_type_count(0),
+          _effective_cluster_id(-1),
+          _is_all_cluster_id_exist(true),
+          _index_stream_lru_cache(NULL),
+          _file_cache(nullptr),
+          _compaction_mem_tracker(-1, "compaction mem tracker(unlimited)"),
+          _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
+          _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
+          _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
+          _memtable_flush_executor(nullptr),
+          _block_manager(nullptr),
+          _default_rowset_type(ALPHA_ROWSET),
+          _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
     REGISTER_GAUGE_DORIS_METRIC(unused_rowsets_count, [this]() {
         MutexLock lock(&_gc_mutex);
         return _unused_rowsets.size();
+    });
+    REGISTER_GAUGE_DORIS_METRIC(compaction_mem_current_consumption, [this]() {
+        return _compaction_mem_tracker.consumption();
+        // We can get each compaction's detail usage
+        LOG(INFO) << _compaction_mem_tracker.LogUsage(2);
     });
 }
 
@@ -530,7 +537,9 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
     DorisMetrics::instance()->cumulative_compaction_request_total.increment(1);
-    CumulativeCompaction cumulative_compaction(best_tablet);
+
+    std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
+    CumulativeCompaction cumulative_compaction(best_tablet, tracker_label, &_compaction_mem_tracker);
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
@@ -564,7 +573,9 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
     DorisMetrics::instance()->base_compaction_request_total.increment(1);
-    BaseCompaction base_compaction(best_tablet);
+
+    std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
+    BaseCompaction base_compaction(best_tablet, tracker_label, &_compaction_mem_tracker);
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
         best_tablet->set_last_base_compaction_failure_time(UnixMillis());
