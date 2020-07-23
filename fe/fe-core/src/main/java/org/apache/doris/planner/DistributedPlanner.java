@@ -286,7 +286,8 @@ public class DistributedPlanner {
      * Therefore, we add a SessionVariable to help users choose a better join implementation.
      */
     private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost)  {
-        if (ConnectContext.get().getSessionVariable().isPreferBroadcastJoin()) {
+        String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
+        if (joinMethod.equals("broadcast")) {
             return broadcastCost <= partitionCost;
         } else {
             return broadcastCost < partitionCost;

@@ -244,6 +244,12 @@ public class VariableMgr {
             }
         }
 
+        if (setVar.getVariable().toLowerCase().equals("prefer_join_method")) {
+            if (!value.toLowerCase().equals("broadcast") && !value.toLowerCase().equals("shuffle")) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, "prefer_join_method", value);
+            }
+        }
+
         if (setVar.getType() == SetType.GLOBAL) {
             wlock.lock();
             try {

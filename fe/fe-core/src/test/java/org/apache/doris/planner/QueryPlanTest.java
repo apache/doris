@@ -917,12 +917,12 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         
-        connectContext.getSessionVariable().setPreferBroadcastJoin(false);
+        connectContext.getSessionVariable().setPreferJoinMethod("shuffle");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
 
     
-        connectContext.getSessionVariable().setPreferBroadcastJoin(true);
+        connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
     }
