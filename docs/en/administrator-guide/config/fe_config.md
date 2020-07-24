@@ -210,6 +210,12 @@ But at the same time, it will cause the submission of failed or failed execution
 
 ### `consistency_check_start_time`
 
+### `db_used_data_quota_update_interval_secs`
+
+For better data load performance, in the check of whether the amount of data used by the database before data load exceeds the quota, we do not calculate the amount of data already used by the database in real time, but obtain the periodically updated value of the daemon thread.
+
+This configuration is used to set the time interval for updating the value of the amount of data used by the database.
+
 ### `default_rowset_type`
 
 ### `default_storage_medium`
