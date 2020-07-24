@@ -272,7 +272,6 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
 
-        // when this is no ref_column (add new column), fill default value
         if (schema_mapping[i].ref_column == -1 || schema_mapping[i].ref_column >= zone_map_fields.size()) {
             // ref_column == -1 means this is a new column.
             // for new column, use default value to fill into column_statistics
