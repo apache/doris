@@ -567,7 +567,7 @@ under the License.
                             <executable>make</executable>
                             <arguments>
                                 <argument>-C</argument>
-                                <argument>${doris.home}/gensrc/</argument>
+                                <argument>${doris.home}/gensrc/script</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
                         </configuration>

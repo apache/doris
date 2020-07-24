@@ -35,15 +35,8 @@ JDK1.8+  , Intellj IDEA
 3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：
 ```
-cd fe/fe-core
-# 生成 jflex 词法文件 
-mvn de.jflex:maven-jflex-plugin:1.4.3:generate
-# 生成 cup 语法文件
-mvn net.sourceforge.czt.dev:cup-maven-plugin:1.6-cdh:generate
-# 生成 thrift java 代码
-mvn org.apache.thrift.tools:maven-thrift-plugin:0.1.11:compile
-# 生成 proto java 代码
-org.codehaus.mojo:exec-maven-plugin:3.0.0:exec
+cd fe
+mvn  generate-sources
 ```
 或者通过图形界面运行运行maven 命令生成
 ![](/images/gen_code.png)
