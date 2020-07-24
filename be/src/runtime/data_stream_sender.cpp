@@ -384,7 +384,7 @@ Status DataStreamSender::init(const TDataSink& tsink) {
 Status DataStreamSender::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     _state = state;
-    std::string instances = "";
+    std::string instances;
     for (const auto& channel : _channels) {
         if (instances == "") {
             instances = channel->get_fragment_instance_id_str();
