@@ -884,6 +884,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_load_job = false;
+
+    /*
+     * One master daemon thread will update database used data quota for db txn manager every db_used_data_quota_update_interval_secs
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int db_used_data_quota_update_interval_secs = 300;
     
     /**
      * Load using hadoop cluster will be deprecated in future.
@@ -1117,5 +1123,13 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String thrift_server_type = ThriftServer.THREAD_POOL;
+
+    /**
+     * This config will decide whether to resend agent task when create_time for agent_task is set,
+     * only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task
+     */
+    @ConfField (mutable = true, masterOnly = true)
+    public static long agent_task_resend_wait_time_ms = 5000;
+
 }
 

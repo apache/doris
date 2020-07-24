@@ -42,7 +42,7 @@ public class Log4jConfig extends XmlConfiguration {
             "  <Appenders>\n" + 
             "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n" + 
             "      <PatternLayout charset=\"UTF-8\">\n" + 
-            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>\n" + 
+            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n" +
             "      </PatternLayout>\n" + 
             "      <Policies>\n" + 
             "        <TimeBasedTriggeringPolicy/>\n" + 
@@ -57,7 +57,7 @@ public class Log4jConfig extends XmlConfiguration {
             "    </RollingFile>\n" + 
             "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i\">\n" + 
             "      <PatternLayout charset=\"UTF-8\">\n" + 
-            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>\n" + 
+            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n" +
             "      </PatternLayout>\n" + 
             "      <Policies>\n" + 
             "        <TimeBasedTriggeringPolicy/>\n" + 

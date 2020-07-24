@@ -110,6 +110,14 @@ FE 的配置项有两种方式进行配置：
 
 ## 配置项列表
 
+### `agent_task_resend_wait_time_ms`
+
+当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。 
+  
+该配置目前主要用来解决`PUBLISH_VERSION`代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
+
+但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。  
+    
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
@@ -199,6 +207,12 @@ FE 的配置项有两种方式进行配置：
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `db_used_data_quota_update_interval_secs`
+
+为了更好的数据导入性能，在数据导入之前的数据库已使用的数据量是否超出配额的检查中，我们并不实时计算数据库已经使用的数据量，而是获取后台线程周期性更新的值。
+
+该配置用于设置更新数据库使用的数据量的值的时间间隔。
 
 ### `default_rowset_type`
 

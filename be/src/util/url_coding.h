@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
 #define DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
 
+#include <boost/cstdint.hpp>
 #include <string>
 #include <vector>
-#include <boost/cstdint.hpp>
 
 namespace doris {
 
@@ -55,6 +55,9 @@ int64_t base64_decode(const char *data, size_t length, char *decoded_data);
 // inspects each character in turn, and copies them all to *out; use
 // judiciously.
 void escape_for_html(const std::string& in, std::stringstream* out);
+
+// Same as above, but returns a string.
+std::string escape_for_html_to_string(const std::string& in);
 }
 
 #endif

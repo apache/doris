@@ -131,6 +131,9 @@ public class DatabaseTransactionMgr {
 
     private List<ClearTransactionTask> clearTransactionTasks = Lists.newArrayList();
 
+    // not realtime usedQuota value to make a fast check for database data quota
+    private volatile long usedQuotaDataBytes = -1;
+
     protected void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -246,6 +249,7 @@ public class DatabaseTransactionMgr {
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
                                  TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+        checkDatabaseDataQuota();
         writeLock();
         try {
             Preconditions.checkNotNull(coordinator);
@@ -309,6 +313,30 @@ public class DatabaseTransactionMgr {
         }
     }
 
+
+    private void checkDatabaseDataQuota() throws AnalysisException {
+        Database db = catalog.getDb(dbId);
+        if (db == null) {
+            throw new AnalysisException("Database[" + dbId + "] does not exist");
+        }
+
+        if (usedQuotaDataBytes == -1) {
+            usedQuotaDataBytes = db.getUsedDataQuotaWithLock();
+        }
+
+        long dataQuotaBytes = db.getDataQuota();
+        if (usedQuotaDataBytes >= dataQuotaBytes) {
+            Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
+            String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
+                    + quotaUnitPair.second;
+            throw new AnalysisException("Database[" + db.getFullName()
+                    + "] data size exceeds quota[" + readableQuota + "]");
+        }
+    }
+
+    public void updateDatabaseUsedQuotaData(long usedQuotaDataBytes) {
+        this.usedQuotaDataBytes = usedQuotaDataBytes;
+    }
 
     /**
      * commit transaction process as follows：
@@ -721,9 +749,8 @@ public class DatabaseTransactionMgr {
                                                 + " and its version not equal to partition commit version or commit version - 1"
                                                 + " if its not a upgrate stage, its a fatal error. ", transactionState, replica);
                                     }
-                                } else if (replica.getVersion() == partitionCommitInfo.getVersion()
-                                        && replica.getVersionHash() == partitionCommitInfo.getVersionHash()) {
-                                    // the replica's version and version hash is equal to current transaction partition's version and version hash
+                                } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
+                                    // the replica's version is larger than or equal to current transaction partition's version
                                     // the replica is normal, then remove it from error replica ids
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;

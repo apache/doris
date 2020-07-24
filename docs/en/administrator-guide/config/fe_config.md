@@ -110,6 +110,16 @@ There are two ways to configure FE configuration items:
 
 ## Configurations
 
+### `agent_task_resend_wait_time_ms`
+
+This configuration will decide whether to resend agent task when create_time for agent_task is set, only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task.     
+
+This configuration is currently mainly used to solve the problem of repeated sending of `PUBLISH_VERSION` agent tasks. The current default value of this configuration is 5000, which is an experimental value.
+ 
+Because there is a certain time delay between submitting agent tasks to AgentTaskQueue and submitting to be, Increasing the value of this configuration can effectively solve the problem of repeated sending of agent tasks,
+
+But at the same time, it will cause the submission of failed or failed execution of the agent task to be executed again for an extended period of time.
+
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
@@ -199,6 +209,12 @@ There are two ways to configure FE configuration items:
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `db_used_data_quota_update_interval_secs`
+
+For better data load performance, in the check of whether the amount of data used by the database before data load exceeds the quota, we do not calculate the amount of data already used by the database in real time, but obtain the periodically updated value of the daemon thread.
+
+This configuration is used to set the time interval for updating the value of the amount of data used by the database.
 
 ### `default_rowset_type`
 
