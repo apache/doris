@@ -224,6 +224,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -294,6 +295,7 @@ public class Catalog {
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
     private DeleteHandler deleteHandler;
+    private UpdateDbUsedDataQuotaDaemon updateDbUsedDataQuotaDaemon;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -478,6 +480,7 @@ public class Catalog {
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
         this.deleteHandler = new DeleteHandler();
+        this.updateDbUsedDataQuotaDaemon = new UpdateDbUsedDataQuotaDaemon();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -1294,6 +1297,8 @@ public class Catalog {
         routineLoadTaskScheduler.start();
         // start dynamic partition task
         dynamicPartitionScheduler.start();
+        // start daemon thread to update db used data quota for db txn manager periodly
+        updateDbUsedDataQuotaDaemon.start();
     }
 
     // start threads that should running on all FE

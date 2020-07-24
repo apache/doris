@@ -87,9 +87,9 @@ public class Database extends MetaObject implements Writable {
     // user define function
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
 
-    private long dataQuotaBytes;
+    private volatile long dataQuotaBytes;
 
-    private long replicaQuotaSize;
+    private volatile long replicaQuotaSize;
 
     public enum DbState {
         NORMAL, LINK, MOVE
@@ -203,7 +203,7 @@ public class Database extends MetaObject implements Writable {
         return replicaQuotaSize;
     }
 
-    public long getDataQuotaLeftWithLock() {
+    public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
         readLock();
         try {
@@ -215,9 +215,7 @@ public class Database extends MetaObject implements Writable {
                 OlapTable olapTable = (OlapTable) table;
                 usedDataQuota = usedDataQuota + olapTable.getDataSize();
             }
-
-            long leftDataQuota = dataQuotaBytes - usedDataQuota;
-            return Math.max(leftDataQuota, 0L);
+            return usedDataQuota;
         } finally {
             readUnlock();
         }
@@ -248,16 +246,17 @@ public class Database extends MetaObject implements Writable {
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                 + quotaUnitPair.second;
-        long leftQuota = getDataQuotaLeftWithLock();
+        long usedDataQuota = getUsedDataQuotaWithLock();
+        long leftDataQuota = Math.max(dataQuotaBytes - usedDataQuota, 0);
 
-        Pair<Double, String> leftQuotaUnitPair = DebugUtil.getByteUint(leftQuota);
+        Pair<Double, String> leftQuotaUnitPair = DebugUtil.getByteUint(leftDataQuota);
         String readableLeftQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftQuotaUnitPair.first) + " "
                 + leftQuotaUnitPair.second;
 
         LOG.info("database[{}] data quota: left bytes: {} / total: {}",
                  fullQualifiedName, readableLeftQuota, readableQuota);
 
-        if (leftQuota <= 0L) {
+        if (leftDataQuota <= 0L) {
             throw new DdlException("Database[" + fullQualifiedName
                     + "] data size exceeds quota[" + readableQuota + "]");
         }

@@ -884,6 +884,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_load_job = false;
+
+    /*
+     * One master daemon thread will update database used data quota for db txn manager every db_used_data_quota_update_interval_secs
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int db_used_data_quota_update_interval_secs = 300;
     
     /**
      * Load using hadoop cluster will be deprecated in future.
