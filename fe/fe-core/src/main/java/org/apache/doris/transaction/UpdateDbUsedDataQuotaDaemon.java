@@ -44,13 +44,12 @@ public class UpdateDbUsedDataQuotaDaemon extends MasterDaemon {
         List<Long> dbIdList = catalog.getDbIds();
         GlobalTransactionMgr globalTransactionMgr = catalog.getGlobalTransactionMgr();
         for (Long dbId : dbIdList) {
-            if (dbId == 0) {
-                // skip information_schema db
-                continue;
-            }
             Database db = catalog.getDb(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] doese not exist, skip to update database used data quota");
+                continue;
+            }
+            if (db.isInfoSchemaDb()) {
                 continue;
             }
             try {
