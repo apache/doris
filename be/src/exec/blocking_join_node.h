@@ -88,7 +88,7 @@ protected:
     // This should be the same size as the left child tuple row.
     int _result_tuple_row_size;
 
-    /// Row assembled from all lhs and rhs tuples used for evaluating the non-equi-join
+    /// Row assembled from all lhs and rhs tuples used for evaluating the 
     /// conjuncts for semi joins. Semi joins only return the lhs or rhs output tuples,
     /// so this tuple is temporarily assembled for evaluating the conjuncts.
     TupleRow* _semi_join_staging_row;

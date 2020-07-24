@@ -36,7 +36,7 @@ BlockingJoinNode::BlockingJoinNode(const std::string& node_name,
       _node_name(node_name),
       _join_op(join_op),
       _current_left_child_row(nullptr),
-      _semi_join_staging_row(nullptr){
+      _semi_join_staging_row(nullptr) {
 }
 
 Status BlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -88,8 +88,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
 }
 
 Status BlockingJoinNode::close(RuntimeState* state) {
-    // TODO(zhaochun): avoid double close
-    // if (is_closed()) return Status::OK();
+    if (is_closed()) return Status::OK();
     _left_batch.reset();
     _build_batch.reset();
     if (_semi_join_staging_row != nullptr) delete[] _semi_join_staging_row;
