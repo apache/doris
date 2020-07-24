@@ -123,26 +123,22 @@ private:
             std::vector<T> tasks;
             T task;
             int32_t task_counter = 0;
+            
+            // _batch_size must >= 2;
+            _work_queue.blocking_get(&task);
+            tasks.push_back(task);
+            ++task_counter;
+
             while (task_counter < _batch_size) {
-                bool has_task = false;
-                if (task_counter == 0) {
-                    // the first task should blocking, or the tasks queue is empty
-                    has_task = _work_queue.blocking_get(&task);
-                } else {
-                    // the 2rd, 3rd... task shoudl non blocking get
-                    has_task = _work_queue.non_blocking_get(&task);
-                    if (!has_task) {
-                        break;
-                    }
+                bool has_task = _work_queue.non_blocking_get(&task);
+                if (!has_task) {
+                    break;
                 }
-                if (has_task) {
-                    tasks.push_back(task);
-                    ++task_counter;
-                }
+                tasks.push_back(task);
+                ++task_counter;
             }
-            if (!tasks.empty()) {
-                _work_func(tasks);
-            }
+
+            _work_func(tasks);
             if (_work_queue.get_size() == 0) {
                 _empty_cv.notify_all();
             }
