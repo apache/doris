@@ -53,6 +53,13 @@ bool base64_decode(const std::string& in, std::string* out);
 // inspects each character in turn, and copies them all to *out; use
 // judiciously.
 void escape_for_html(const std::string& in, std::stringstream* out);
+int64_t base64_decode(
+        const char *data,
+        size_t length,
+        char *decoded_data);
+size_t base64_encode(const unsigned char *data,
+                     size_t length,
+                     unsigned char *encoded_data);
 
 }
 

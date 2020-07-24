@@ -21,7 +21,7 @@
 #include <memory>
 #include <gtest/gtest.h>
 
-#include "exprs/base64.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -64,7 +64,7 @@ TEST_F(AesUtilTest, aes_test_by_case) {
     std::string source_2 = "doris test";
 
     std::unique_ptr<char[]> encrypt_1(new char[case_1.length()]);
-    int length_1 = base64_decode2(case_1.c_str(), case_1.length(), encrypt_1.get());
+    int length_1 = base64_decode(case_1.c_str(), case_1.length(), encrypt_1.get());
     std::unique_ptr<char[]> decrypted_1(new char[case_1.length()]);
     int ret_code = AesUtil::decrypt(AES_128_ECB, (unsigned char *)encrypt_1.get(), length_1,
             (unsigned char *)_aes_key.c_str(), _aes_key.length(), NULL, true, (unsigned char *)decrypted_1.get());
@@ -73,7 +73,7 @@ TEST_F(AesUtilTest, aes_test_by_case) {
     ASSERT_EQ(source_1, decrypted_content_1);
 
     std::unique_ptr<char[]> encrypt_2(new char[case_2.length()]);
-    int length_2 = base64_decode2(case_2.c_str(), case_2.length(), encrypt_2.get());
+    int length_2 = base64_decode(case_2.c_str(), case_2.length(), encrypt_2.get());
     std::unique_ptr<char[]> decrypted_2(new char[case_2.length()]);
     ret_code = AesUtil::decrypt(AES_128_ECB, (unsigned char *)encrypt_2.get(), length_2,
             (unsigned char *)_aes_key.c_str(), _aes_key.length(), NULL, true, (unsigned char *)decrypted_2.get());

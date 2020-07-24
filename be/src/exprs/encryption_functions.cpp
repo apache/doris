@@ -23,7 +23,7 @@
 #include "exprs/expr.h"
 #include "util/debug_util.h"
 #include "runtime/tuple_row.h"
-#include "exprs/base64.h"
+#include "util/url_coding.h"
 #include <boost/smart_ptr.hpp>
 #include "runtime/string_value.h"
 
@@ -77,7 +77,7 @@ StringVal EncryptionFunctions::from_base64(FunctionContext* ctx, const StringVal
     boost::scoped_array<char> p;
     p.reset(new char[cipher_len]);
 
-    int ret_code = base64_decode2((const char *)src.ptr, src.len, p.get());
+    int ret_code = base64_decode((const char *)src.ptr, src.len, p.get());
     if (ret_code < 0) {
         return StringVal::null();
     }
@@ -89,11 +89,11 @@ StringVal EncryptionFunctions::to_base64(FunctionContext* ctx, const StringVal &
         return StringVal::null();
     }
 
-    int cipher_len = src.len * 4 / 3 + 1;
+    int cipher_len = (size_t) (4.0 * ceil((double) src.len / 3.0));
     boost::scoped_array<char> p;
     p.reset(new char[cipher_len]);
 
-    int ret_code = base64_encode2((unsigned char *)src.ptr, src.len, (unsigned char *)p.get());
+    int ret_code = base64_encode((unsigned char *)src.ptr, src.len, (unsigned char *)p.get());
     if (ret_code < 0) {
         return StringVal::null();
     }
