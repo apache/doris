@@ -257,6 +257,13 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
     CHECK(zonemap_col_num <= schema_mapping.size()) << zonemap_col_num << " vs. " << schema_mapping.size();
 
     for (size_t i = 0; i < zonemap_col_num; ++i) {
+        
+        // in duplicated table update from 0.11 to 0.12, zone map index may be missed
+        if (_schema->keys_type() == DUP_KEYS && 
+            schema_mapping[i].ref_column != -1 &&
+            schema_mapping[i].ref_column >= zone_map_fields.size()) {
+            continue;
+        }
         const TabletColumn& column = _schema->column(i);
 
         WrapperField* first = WrapperField::create(column);
@@ -265,8 +272,8 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
 
-        // add column also can add zone map index
-        if (schema_mapping[i].ref_column == -1 || i >= zone_map_fields.size()) {
+        // when this is no ref_column (add new column), fill default value
+        if (schema_mapping[i].ref_column == -1 || schema_mapping[i].ref_column >= zone_map_fields.size()) {
             // ref_column == -1 means this is a new column.
             // for new column, use default value to fill into column_statistics
             if (schema_mapping[i].default_value != nullptr) {
