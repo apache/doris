@@ -31,7 +31,7 @@ public class UpdateDbUsedDataQuotaDaemon extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(UpdateDbUsedDataQuotaDaemon.class);
 
     public UpdateDbUsedDataQuotaDaemon() {
-        super("UPDATE_DB_USED_QUOTA", Config.db_used_data_quota_update_interval_secs);
+        super("UpdateDbUsedDataQuota", Config.db_used_data_quota_update_interval_secs * 1000);
     }
 
     @Override
@@ -44,6 +44,10 @@ public class UpdateDbUsedDataQuotaDaemon extends MasterDaemon {
         List<Long> dbIdList = catalog.getDbIds();
         GlobalTransactionMgr globalTransactionMgr = catalog.getGlobalTransactionMgr();
         for (Long dbId : dbIdList) {
+            if (dbId == 0) {
+                // skip information_schema db
+                continue;
+            }
             Database db = catalog.getDb(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] doese not exist, skip to update database used data quota");
@@ -56,7 +60,7 @@ public class UpdateDbUsedDataQuotaDaemon extends MasterDaemon {
                     LOG.debug("Update database[{}] used data quota bytes : {}.", db.getFullName(), usedDataQuotaBytes);
                 }
             } catch (AnalysisException e) {
-                LOG.warn("Update database[" + dbId + "] used data quota failed", e);
+                LOG.warn("Update database[" + db.getFullName() + "] used data quota failed", e);
             }
         }
     }
