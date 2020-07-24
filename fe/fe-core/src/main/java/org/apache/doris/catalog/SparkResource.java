@@ -17,7 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -117,10 +119,6 @@ public class SparkResource extends Resource {
         return workingDir;
     }
 
-    public String getRepositoryDir() {
-        return workingDir + "/" + SparkRepository.REPOSITORY_DIR;
-    }
-
     public String getBroker() {
         return broker;
     }
@@ -146,6 +144,12 @@ public class SparkResource extends Resource {
 
     public SparkResource getCopiedResource() {
         return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
+    }
+
+    public SparkRepository getRemoteRepository() {
+        String remoteRepositoryPath = workingDir + "/" + Config.cluster_id + "/" + SparkRepository.REPOSITORY_DIR;
+        BrokerDesc brokerDesc = new BrokerDesc(broker, brokerProperties);
+        return new SparkRepository(remoteRepositoryPath, brokerDesc);
     }
 
     public boolean isYarnMaster() {

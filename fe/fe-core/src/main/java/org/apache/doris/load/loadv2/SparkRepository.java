@@ -20,7 +20,6 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.PaloFe;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -39,7 +38,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /*
  * SparkRepository represents the remote repository for spark archives uploaded by spark
@@ -68,9 +66,11 @@ public class SparkRepository {
     private static final String PATH_DELIMITER = "/";
     private static final String FILE_NAME_SEPARATOR = "_";
 
+    private static final String DPP_RESOURCE = "/spark-dpp/spark-dpp.jar";
+    private static final String SPARK_RESOURCE = "/jars/spark-2x.zip";
+
     private String remoteRepositoryPath;
     private BrokerDesc brokerDesc;
-
     private String localDppPath;
     private String localSpark2xPath;
 
@@ -79,22 +79,20 @@ public class SparkRepository {
     // Archive that current dpp version pointed to
     private SparkArchive currentArchive;
 
-    private ReentrantReadWriteLock rwLock;
     private boolean isInit;
 
     public SparkRepository(String remoteRepositoryPath, BrokerDesc brokerDesc) {
         this.remoteRepositoryPath = remoteRepositoryPath;
         this.brokerDesc = brokerDesc;
-        this.currentDppVersion = FeConstants.spark_dpp_version;
-        currentArchive = new SparkArchive(getRemoteArchivePath(currentDppVersion), currentDppVersion);
-        this.rwLock = new ReentrantReadWriteLock();
-        this.isInit = false;
-        this.localDppPath = PaloFe.DORIS_HOME_DIR + "/spark-dpp/spark-dpp.jar";
+        this.currentDppVersion = Config.spark_dpp_version;
+        this.currentArchive = new SparkArchive(getRemoteArchivePath(currentDppVersion), currentDppVersion);
+        this.localDppPath = PaloFe.DORIS_HOME_DIR + DPP_RESOURCE;
         if (!Strings.isNullOrEmpty(Config.spark_resource_path)) {
             this.localSpark2xPath = Config.spark_resource_path;
         } else {
-            this.localSpark2xPath = Config.spark_home_default_dir + "/jars/spark-2x.zip";
+            this.localSpark2xPath = Config.spark_home_default_dir + SPARK_RESOURCE;
         }
+        this.isInit = false;
     }
 
     public boolean prepare() throws LoadException {
@@ -157,24 +155,20 @@ public class SparkRepository {
                 currentDppVersion, currentArchive.remotePath, currentArchive.libraries.size());
     }
 
-    public boolean checkCurrentArchiveExists() {
+    private boolean checkCurrentArchiveExists() {
         boolean result = false;
         Preconditions.checkNotNull(remoteRepositoryPath);
         String remotePath = getRemoteArchivePath(currentDppVersion);
-        readLock();
         try {
             result = BrokerUtil.checkPathExist(remotePath, brokerDesc);
             LOG.info("check archive exists in repository, {}", result);
         } catch (UserException e) {
             LOG.warn("Failed to check remote archive exist, path={}, version={}", remotePath, currentDppVersion);
-        } finally {
-            readUnlock();
         }
         return result;
     }
 
     private void uploadArchive(boolean isReplace) throws LoadException {
-        writeLock();
         try {
             String remoteArchivePath = getRemoteArchivePath(currentDppVersion);
             if (isReplace) {
@@ -208,21 +202,15 @@ public class SparkRepository {
                     currentDppVersion, remoteArchivePath);
         } catch (UserException e) {
             throw new LoadException(e.getMessage());
-        } finally {
-            writeUnlock();
         }
     }
 
     private void getLibraries(String remoteArchivePath, List<SparkLibrary> libraries) throws LoadException {
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-        readLock();
         try {
-            LOG.info("input remote archive path, path={}", remoteArchivePath);
             BrokerUtil.parseFile(remoteArchivePath + "/*", brokerDesc, fileStatuses);
         } catch (UserException e) {
             throw new LoadException(e.getMessage());
-        } finally {
-            readUnlock();
         }
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
@@ -315,22 +303,6 @@ public class SparkRepository {
     // .../__spark_repository__/__archive_1_0_0
     private String getRemoteArchivePath(String version) {
         return Joiner.on(PATH_DELIMITER).join(remoteRepositoryPath, joinPrefix(PREFIX_ARCHIVE, version));
-    }
-
-    public void readLock() {
-        this.rwLock.readLock().lock();
-    }
-
-    public void readUnlock() {
-        this.rwLock.readLock().unlock();
-    }
-
-    public void writeLock() {
-        this.rwLock.writeLock().lock();
-    }
-
-    public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
     }
 
     // Represents a remote directory contains the uploaded libraries

@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
@@ -58,6 +59,7 @@ import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * SparkEtlJobHandler is responsible for
@@ -77,6 +79,9 @@ public class SparkEtlJobHandler {
     private static final int GET_APPID_MAX_RETRY_TIMES = 300;
     private static final int GET_APPID_SLEEP_MS = 1000;
 
+    // cluster_id -> lock
+    private static final ConcurrentMap<Integer, Object> DPP_LOCK_MAP = Maps.newConcurrentMap();
+
     class SparkAppListener implements Listener {
         @Override
         public void stateChanged(SparkAppHandle sparkAppHandle) {}
@@ -90,19 +95,26 @@ public class SparkEtlJobHandler {
         // delete outputPath
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
 
-        // remote repository
-        SparkRepository.SparkArchive archive = getRemoteArchive(resource.getRepositoryDir(), brokerDesc);
+        // prepare dpp archive
+        int clusterId = Catalog.getCurrentCatalog().getClusterId();
+        DPP_LOCK_MAP.putIfAbsent(clusterId, new Object());
+        Preconditions.checkState(DPP_LOCK_MAP.containsKey(clusterId));
+        SparkRepository.SparkArchive archive = null;
+        synchronized (DPP_LOCK_MAP.get(clusterId)) {
+             archive = prepareDppArchive(resource);
+        }
+        Preconditions.checkNotNull(archive);
         List<SparkRepository.SparkLibrary> libraries = archive.libraries;
         Optional<SparkRepository.SparkLibrary> dppLibrary = libraries.stream().
                 filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.DPP).findFirst();
         Optional<SparkRepository.SparkLibrary> spark2xLibrary = libraries.stream().
                 filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.SPARK2X).findFirst();
         if (!dppLibrary.isPresent() || !spark2xLibrary.isPresent()) {
-            throw new LoadException("failed to get library info from repository");
+            throw new LoadException("failed to get library from remote archive");
         }
 
         // spark home
-        String spark_home = Config.spark_home_default_dir;
+        String sparkHome = Config.spark_home_default_dir;
         // etl config path
         String configsHdfsDir = etlJobConfig.outputPath + "/" + JOB_CONFIG_DIR + "/";
         // etl config json path
@@ -140,7 +152,7 @@ public class SparkEtlJobHandler {
                 .setAppResource(appResourceHdfsPath)
                 .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
-                .setSparkHome(spark_home)
+                .setSparkHome(sparkHome)
                 .addAppArgs(jobConfigHdfsPath);
 
         // spark configs
@@ -283,15 +295,13 @@ public class SparkEtlJobHandler {
         }
     }
 
-    public SparkRepository.SparkArchive getRemoteArchive(String repositoryPath, BrokerDesc brokerDesc) throws LoadException {
-        // prepare remote repository
+    private SparkRepository.SparkArchive prepareDppArchive(SparkResource resource) throws LoadException {
+        // remote archive
         SparkRepository.SparkArchive archive = null;
-        SparkRepository remoteRepository = new SparkRepository(repositoryPath, brokerDesc);
-        boolean isPrepare = remoteRepository.prepare();
+        SparkRepository repository = resource.getRemoteRepository();
+        boolean isPrepare = repository.prepare();
         if (isPrepare) {
-            archive = remoteRepository.getCurrentArchive();
-            LOG.info("successful get archive from repository, path={}, verion={}, libraries size={}",
-                    archive.remotePath, archive.version, archive.libraries.size());
+            archive = repository.getCurrentArchive();
         }
         return archive;
     }
