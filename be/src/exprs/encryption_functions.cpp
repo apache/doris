@@ -69,7 +69,7 @@ StringVal EncryptionFunctions::aes_decrypt(FunctionContext* ctx,
 }
 
 StringVal EncryptionFunctions::from_base64(FunctionContext* ctx, const StringVal &src) {
-    if (src.len == 0) {
+    if (src.len == 0 || src.is_null) {
         return StringVal::null();
     }
 
@@ -85,7 +85,7 @@ StringVal EncryptionFunctions::from_base64(FunctionContext* ctx, const StringVal
 }
 
 StringVal EncryptionFunctions::to_base64(FunctionContext* ctx, const StringVal &src) {
-    if (src.len == 0) {
+    if (src.len == 0 || src.is_null) {
         return StringVal::null();
     }
 
