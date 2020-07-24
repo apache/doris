@@ -473,6 +473,12 @@ nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
 
+precedence nonassoc COMMA;
+precedence nonassoc KW_DELETE;
+precedence nonassoc LBRACKET;
+precedence nonassoc STRING_LITERAL;
+precedence nonassoc KW_COLUMNS;
+precedence nonassoc KW_WITH;
 precedence left KW_FULL, KW_MERGE;
 precedence left DOT;
 precedence left SET_VAR;
