@@ -386,7 +386,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _state = state;
     std::string instances;
     for (const auto& channel : _channels) {
-        if (instances == "") {
+        if (instances.empty()) {
             instances = channel->get_fragment_instance_id_str();
         } else {
             instances += ", ";
