@@ -18,9 +18,14 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
@@ -180,28 +185,35 @@ public class PublishVersionDaemon extends MasterDaemon {
                             continue;
                         }
 
-                        // get all tablets of these error partitions, and mark their replicas as error.
-                        // current we don't have partition to tablet map in FE, so here we use an inefficient way.
-                        // TODO(cmy): this is inefficient, but just keep it simple. will change it later.
-                        List<Long> tabletIds = tabletInvertedIndex.getTabletIdsByBackendId(unfinishedTask.getBackendId());
-                        List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
-                        for (int i = 0; i < tabletIds.size(); i++) {
-                            long tabletId = tabletIds.get(i);
-                            TabletMeta tabletMeta = tabletMetaList.get(i);
-                            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                        Database db = Catalog.getCurrentCatalog().getDb(transactionState.getDbId());
+                        if (db == null) {
+                            LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
+                            continue;
+                        }
+
+                        for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
+                            long tableId = transactionState.getTableIdList().get(i);
+                            Table table = db.getTable(tableId);
+                            if (table == null || table.getType() != Table.TableType.OLAP) {
+                                LOG.warn("Table [{}] in databse [{}] has been dropped.", tableId, db.getFullName());
                                 continue;
                             }
-                            long partitionId = tabletMeta.getPartitionId();
-                            if (errorPartitionIds.contains(partitionId)) {
-                                Replica replica = tabletInvertedIndex.getReplica(tabletId,
-                                                                                 unfinishedTask.getBackendId());
-                                if (replica != null) {
-                                    publishErrorReplicaIds.add(replica.getId());
-                                } else {
-                                    LOG.info("could not find related replica with tabletid={}, backendid={}", 
-                                            tabletId, unfinishedTask.getBackendId());
+                            OlapTable olapTable = (OlapTable) table;
+                            for (Long errorPartitionId : errorPartitionIds) {
+                                Partition partition = olapTable.getPartition(errorPartitionId);
+                                if (partition != null) {
+                                    List<MaterializedIndex> materializedIndexList = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                                    for (MaterializedIndex materializedIndex : materializedIndexList) {
+                                        for (Tablet tablet : materializedIndex.getTablets()) {
+                                            Replica replica = tablet.getReplicaByBackendId(unfinishedTask.getBackendId());
+                                            if (replica != null) {
+                                                publishErrorReplicaIds.add(replica.getId());
+                                            }
+                                        }
+                                    }
                                 }
                             }
+
                         }
                     }
 
