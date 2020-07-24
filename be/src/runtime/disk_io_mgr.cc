@@ -783,7 +783,7 @@ bool DiskIoMgr::get_next_request_range(DiskQueue* disk_queue, RequestRange** ran
     *range = NULL;
 
     // This loops returns either with work to do or when the disk IoMgr shuts down.
-    while (true) {
+    while (!_shut_down) {
         *request_context = NULL;
         RequestContext::PerDiskState* request_disk_state = NULL;
         {
@@ -989,7 +989,7 @@ void DiskIoMgr::work_loop(DiskQueue* disk_queue) {
     //      re-enqueues the request.
     //   3. Perform the read or write as specified.
     // Cancellation checking needs to happen in both steps 1 and 3.
-    while (true) {
+    while (!_shut_down) {
         RequestContext* worker_context = NULL;;
         RequestRange* range = NULL;
 

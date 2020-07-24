@@ -207,33 +207,33 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size,
 }
 
 void ExecEnv::_destory() {
-    delete _brpc_stub_cache;
-    delete _load_stream_mgr;
-    delete _load_channel_mgr;
-    delete _broker_mgr;
-    delete _bfd_parser;
-    delete _tmp_file_mgr;
-    delete _disk_io_mgr;
-    delete _load_path_mgr;
-    delete _etl_job_mgr;
-    delete _master_info;
-    delete _fragment_mgr;
-    delete _cgroups_mgr;
-    delete _etl_thread_pool;
-    delete _thread_pool;
-    delete _thread_mgr;
-    delete _pool_mem_trackers;
-    delete _broker_client_cache;
-    delete _extdatasource_client_cache;
-    delete _frontend_client_cache;
-    delete _backend_client_cache;
-    delete _result_mgr;
-    delete _result_queue_mgr;
-    delete _stream_mgr;
-    delete _stream_load_executor;
-    delete _routine_load_task_executor;
-    delete _external_scan_context_mgr;
-    delete _heartbeat_flags;
+    SAFE_DELETE(_brpc_stub_cache);
+    SAFE_DELETE(_load_stream_mgr);
+    SAFE_DELETE(_load_channel_mgr);
+    SAFE_DELETE(_broker_mgr);
+    SAFE_DELETE(_bfd_parser);
+    SAFE_DELETE(_tmp_file_mgr);
+    SAFE_DELETE(_disk_io_mgr);
+    SAFE_DELETE(_load_path_mgr);
+    SAFE_DELETE(_etl_job_mgr);
+    SAFE_DELETE(_master_info);
+    SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_cgroups_mgr);
+    SAFE_DELETE(_etl_thread_pool);
+    SAFE_DELETE(_thread_pool);
+    SAFE_DELETE(_thread_mgr);
+    SAFE_DELETE(_pool_mem_trackers);
+    SAFE_DELETE(_broker_client_cache);
+    SAFE_DELETE(_extdatasource_client_cache);
+    SAFE_DELETE(_frontend_client_cache);
+    SAFE_DELETE(_backend_client_cache);
+    SAFE_DELETE(_result_mgr);
+    SAFE_DELETE(_result_queue_mgr);
+    SAFE_DELETE(_stream_mgr);
+    SAFE_DELETE(_stream_load_executor);
+    SAFE_DELETE(_routine_load_task_executor);
+    SAFE_DELETE(_external_scan_context_mgr);
+    SAFE_DELETE(_heartbeat_flags);
 }
 
 void ExecEnv::destroy(ExecEnv* env) {

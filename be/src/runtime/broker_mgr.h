@@ -23,7 +23,10 @@
 #include <unordered_set>
 
 #include "gen_cpp/Types_types.h"
+#include "gutil/ref_counted.h"
 #include "util/hash_util.hpp"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -43,8 +46,9 @@ private:
     std::string _client_id;
     std::mutex _mutex;
     std::unordered_set<TNetworkAddress> _broker_set;
-    bool _thread_stop;
-    std::thread _ping_thread;
+
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _ping_thread;
 };
 
 }
