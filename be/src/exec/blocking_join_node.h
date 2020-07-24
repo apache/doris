@@ -57,11 +57,14 @@ public:
     // BlockingJoinNode::close().
     virtual Status close(RuntimeState* state);
 
-private:
+protected:
     const std::string _node_name;
     TJoinOp::type _join_op;
     bool _eos;  // if true, nothing left to return in get_next()
     boost::scoped_ptr<MemPool> _build_pool;  // holds everything referenced from build side
+
+    /// Store in node to avoid reallocating. Cleared after build completes.
+    boost::scoped_ptr<RowBatch> _build_batch;
 
     // _left_batch must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
@@ -70,6 +73,7 @@ private:
     int _left_batch_pos;  // current scan pos in _left_batch
     bool _left_side_eos;  // if true, left child has no more rows to process
     TupleRow* _current_left_child_row;
+    bool _matched_probe;  // if true, the current probe row is matched
 
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row
     std::vector<int> _build_tuple_idx;
@@ -84,10 +88,19 @@ private:
     // This should be the same size as the left child tuple row.
     int _result_tuple_row_size;
 
+    /// Row assembled from all lhs and rhs tuples used for evaluating the non-equi-join
+    /// conjuncts for semi joins. Semi joins only return the lhs or rhs output tuples,
+    /// so this tuple is temporarily assembled for evaluating the conjuncts.
+    TupleRow* _semi_join_staging_row;
+
     RuntimeProfile::Counter* _build_timer;   // time to prepare build side
     RuntimeProfile::Counter* _left_child_timer;   // time to process left child batch
     RuntimeProfile::Counter* _build_row_counter;   // num build rows
     RuntimeProfile::Counter* _left_child_row_counter;   // num left child rows
+
+    /// Stopwatch that measures the build child's Open/GetNext time that overlaps
+    /// with the probe child Open().
+    MonotonicStopWatch built_probe_overlap_stop_watch_;
 
     // Init the build-side state for a new left child row (e.g. hash table iterator or list
     // iterator) given the first row. Used in open() to prepare for get_next().
