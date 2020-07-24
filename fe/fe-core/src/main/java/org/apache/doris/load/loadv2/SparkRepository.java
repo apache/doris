@@ -243,13 +243,13 @@ public class SparkRepository {
         }
     }
 
-    private String getMd5String(String filePath) throws LoadException {
+    public String getMd5String(String filePath) throws LoadException {
         File file = new File(filePath);
         String md5sum = null;
         try {
             md5sum = DigestUtils.md5Hex(new FileInputStream(file));
             Preconditions.checkNotNull(md5sum);
-            LOG.info("get md5sum from file {}, md5sum={}", filePath, md5sum);
+            LOG.debug("get md5sum from file {}, md5sum={}", filePath, md5sum);
             return md5sum;
         } catch (FileNotFoundException e) {
             throw new LoadException("file " + filePath + "dose not exist");
@@ -258,7 +258,7 @@ public class SparkRepository {
         }
     }
 
-    private long getFileSize(String filePath) throws LoadException {
+    public long getFileSize(String filePath) throws LoadException {
         File file = new File(filePath);
         long size = file.length();
         if (size <= 0) {

@@ -148,7 +148,7 @@ public class SparkResource extends Resource {
 
     public SparkRepository getRemoteRepository() {
         String remoteRepositoryPath = workingDir + "/" + Config.cluster_id + "/" + SparkRepository.REPOSITORY_DIR;
-        BrokerDesc brokerDesc = new BrokerDesc(broker, brokerProperties);
+        BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
         return new SparkRepository(remoteRepositoryPath, brokerDesc);
     }
 
