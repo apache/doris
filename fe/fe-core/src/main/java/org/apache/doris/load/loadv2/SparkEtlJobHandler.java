@@ -18,7 +18,6 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
@@ -59,7 +58,6 @@ import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * SparkEtlJobHandler is responsible for
@@ -79,9 +77,6 @@ public class SparkEtlJobHandler {
     private static final int GET_APPID_MAX_RETRY_TIMES = 300;
     private static final int GET_APPID_SLEEP_MS = 1000;
 
-    // cluster_id -> lock
-    private static final ConcurrentMap<Integer, Object> DPP_LOCK_MAP = Maps.newConcurrentMap();
-
     class SparkAppListener implements Listener {
         @Override
         public void stateChanged(SparkAppHandle sparkAppHandle) {}
@@ -96,13 +91,7 @@ public class SparkEtlJobHandler {
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
 
         // prepare dpp archive
-        int clusterId = Catalog.getCurrentCatalog().getClusterId();
-        DPP_LOCK_MAP.putIfAbsent(clusterId, new Object());
-        Preconditions.checkState(DPP_LOCK_MAP.containsKey(clusterId));
-        SparkRepository.SparkArchive archive = null;
-        synchronized (DPP_LOCK_MAP.get(clusterId)) {
-             archive = prepareDppArchive(resource);
-        }
+        SparkRepository.SparkArchive archive = resource.prepareArchive();
         Preconditions.checkNotNull(archive);
         List<SparkRepository.SparkLibrary> libraries = archive.libraries;
         Optional<SparkRepository.SparkLibrary> dppLibrary = libraries.stream().
@@ -293,17 +282,6 @@ public class SparkEtlJobHandler {
                 handle.stop();
             }
         }
-    }
-
-    private SparkRepository.SparkArchive prepareDppArchive(SparkResource resource) throws LoadException {
-        // remote archive
-        SparkRepository.SparkArchive archive = null;
-        SparkRepository repository = resource.getRemoteRepository();
-        boolean isPrepare = repository.prepare();
-        if (isPrepare) {
-            archive = repository.getCurrentArchive();
-        }
-        return archive;
     }
 
     public Map<String, Long> getEtlFilePaths(String outputPath, BrokerDesc brokerDesc) throws Exception {

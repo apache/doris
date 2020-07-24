@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
@@ -147,9 +147,25 @@ public class SparkResource extends Resource {
     }
 
     public SparkRepository getRemoteRepository() {
-        String remoteRepositoryPath = workingDir + "/" + Config.cluster_id + "/" + SparkRepository.REPOSITORY_DIR;
+        String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
+                + "/" + SparkRepository.REPOSITORY_DIR;
         BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
         return new SparkRepository(remoteRepositoryPath, brokerDesc);
+    }
+
+    // Each SparkResource has and only has one SparkRepository.
+    // This method get the remote archive which matches the dpp version from remote repository
+    public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {
+        SparkRepository.SparkArchive archive = null;
+        String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
+                + "/" + SparkRepository.REPOSITORY_DIR + name;
+        BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
+        SparkRepository repository = new SparkRepository(remoteRepositoryPath, brokerDesc);
+        boolean isPrepare = repository.prepare();
+        if (isPrepare) {
+            archive = repository.getCurrentArchive();
+        }
+        return archive;
     }
 
     public boolean isYarnMaster() {

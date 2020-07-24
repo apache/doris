@@ -89,7 +89,7 @@ public class SparkRepositoryTest {
             SparkRepository.SparkArchive archive = repository.getCurrentArchive();
             Assert.assertEquals(archive.libraries.size(), 2);
 
-            // check remote libraries are equal to local libraries
+            // check if the remote libraries are equal to local libraries
             List<SparkRepository.SparkLibrary> libraries = archive.libraries;
             for (SparkRepository.SparkLibrary library : libraries) {
                 switch (library.libType) {
@@ -144,7 +144,7 @@ public class SparkRepositoryTest {
             SparkRepository.SparkArchive archive = repository.getCurrentArchive();
             Assert.assertEquals(archive.libraries.size(), 2);
 
-            // check remote libraries are equal to local libraries
+            // check if the remote libraries are equal to local libraries
             List<SparkRepository.SparkLibrary> libraries = archive.libraries;
             for (SparkRepository.SparkLibrary library : libraries) {
                 switch (library.libType) {
@@ -211,7 +211,7 @@ public class SparkRepositoryTest {
             SparkRepository.SparkArchive archive = repository.getCurrentArchive();
             Assert.assertEquals(archive.libraries.size(), 2);
 
-            // check remote libraries are equal to local libraries
+            // check if the remote libraries are equal to local libraries
             List<SparkRepository.SparkLibrary> libraries = archive.libraries;
             for (SparkRepository.SparkLibrary library : libraries) {
                 switch (library.libType) {
