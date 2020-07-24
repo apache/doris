@@ -41,11 +41,13 @@ bool url_decode(const std::string& in, std::string* out);
 
 void base64url_encode(const std::string& in, std::string *out);
 void base64_encode(const std::string& in, std::string *out);
+size_t base64_encode(const unsigned char *data, size_t length, unsigned char *encoded_data);
 
 // Utility method to decode base64 encoded strings.  Also not extremely
 // performant.
 // Returns true unless the string could not be correctly decoded.
 bool base64_decode(const std::string& in, std::string* out);
+int64_t base64_decode(const char *data, size_t length, char *decoded_data);
 
 // Replaces &, < and > with &amp;, &lt; and &gt; respectively. This is
 // not the full set of required encodings, but one that should be
@@ -53,14 +55,6 @@ bool base64_decode(const std::string& in, std::string* out);
 // inspects each character in turn, and copies them all to *out; use
 // judiciously.
 void escape_for_html(const std::string& in, std::stringstream* out);
-int64_t base64_decode(
-        const char *data,
-        size_t length,
-        char *decoded_data);
-size_t base64_encode(const unsigned char *data,
-                     size_t length,
-                     unsigned char *encoded_data);
-
 }
 
 #endif
