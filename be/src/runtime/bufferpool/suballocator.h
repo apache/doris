@@ -71,7 +71,8 @@ class Suballocator {
       BufferPool* pool, BufferPool::ClientHandle* client, int64_t min_buffer_len);
 
   ~Suballocator();
-
+  /// Compute how many mem will be allocated from BufferPool. We will use it to try
+  /// consume mem in BufferedBlockMgr.
   uint64_t ComputeAllocateBufferSize(int64_t bytes) const;
   /// Allocate bytes from BufferPool. The allocation is nullptr if unsuccessful because
   /// the client's reservation was insufficient. If an unexpected error is encountered,
@@ -87,7 +88,7 @@ class Suballocator {
   Status Allocate(int64_t bytes, std::unique_ptr<Suballocation>* result);
 
   /// Free the allocation. Does nothing if allocation is nullptr (e.g. was the result of a
-  /// failed Allocate() call).
+  /// failed Allocate() call). Return how many really release in BufferPool, release mem in BufferedBlockMgr.
   uint64_t Free(std::unique_ptr<Suballocation> allocation);
 
   /// Upper bounds on the max allocation size and the number of different
