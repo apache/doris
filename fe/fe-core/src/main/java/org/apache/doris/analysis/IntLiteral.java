@@ -303,11 +303,7 @@ public class IntLiteral extends LiteralExpr {
                 }
                 return this;
             } else {
-                //return new LargeIntLiteral(Long.toString(value));
-                /* LargeIntLiteral does not analyze in contructor, fixed by lide */
-                Expr literalExpr = new LargeIntLiteral(Long.toString(value));
-                literalExpr.analyze(null);
-                return literalExpr;
+                return new LargeIntLiteral(Long.toString(value));
             }
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(new Double(value), targetType);

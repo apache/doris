@@ -53,12 +53,14 @@ public class LargeIntLiteral extends LiteralExpr {
 
     public LargeIntLiteral() {
         super();
+        analysisDone();
     }
 
     public LargeIntLiteral(boolean isMax) throws AnalysisException {
         super();
         type = Type.LARGEINT;
         value = isMax ? LARGE_INT_MAX : LARGE_INT_MIN;
+        analysisDone();
     }
 
     public LargeIntLiteral(String value) throws AnalysisException {
@@ -77,6 +79,7 @@ public class LargeIntLiteral extends LiteralExpr {
         }
         this.value = bigInt;
         type = Type.LARGEINT;
+        analysisDone();
     }
 
     protected LargeIntLiteral(LargeIntLiteral other) {
