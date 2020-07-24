@@ -220,7 +220,6 @@ public class PublishVersionDaemon extends MasterDaemon {
                             db.readUnlock();
                         }
                     }
-
                     shouldFinishTxn = true;
                 }
                 // transaction's publish is not timeout, waiting next round.
