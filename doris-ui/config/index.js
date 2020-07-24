@@ -34,7 +34,7 @@ module.exports = {
         },
 
         host: 'localhost', 
-        port: 9999, 
+        port: 80, 
         autoOpenBrowser: true,
         errorOverlay: true,
         notifyOnErrors: true,
