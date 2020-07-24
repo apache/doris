@@ -214,7 +214,6 @@ public class PublishVersionDaemon extends MasterDaemon {
                                         }
                                     }
                                 }
-
                             }
                         } finally {
                             db.readUnlock();
