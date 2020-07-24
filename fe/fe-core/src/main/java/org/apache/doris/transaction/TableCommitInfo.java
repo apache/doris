@@ -17,13 +17,14 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Maps;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
-
-import org.apache.doris.common.io.Writable;
-import com.google.common.collect.Maps;
 
 public class TableCommitInfo implements Writable {
     
@@ -60,8 +61,7 @@ public class TableCommitInfo implements Writable {
         if (hasPartitionInfo) {
             int elementNum = in.readInt();
             for (int i = 0; i < elementNum; ++i) {
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo();
-                partitionCommitInfo.readFields(in);
+                PartitionCommitInfo partitionCommitInfo = PartitionCommitInfo.read(in);
                 idToPartitionCommitInfo.put(partitionCommitInfo.getPartitionId(), partitionCommitInfo);
             }
         }

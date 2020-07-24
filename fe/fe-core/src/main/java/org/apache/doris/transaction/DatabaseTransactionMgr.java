@@ -788,8 +788,8 @@ public class DatabaseTransactionMgr {
                 OlapTable table = (OlapTable) db.getTable(tableId);
                 Partition partition = table.getPartition(partitionId);
                 PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
-                        partition.getNextVersion(),
-                        partition.getNextVersionHash());
+                        partition.getNextVersion(), partition.getNextVersionHash(),
+                        System.currentTimeMillis() /* use as partition visible time */);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
