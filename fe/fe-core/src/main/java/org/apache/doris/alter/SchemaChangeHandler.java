@@ -1392,18 +1392,18 @@ public class SchemaChangeHandler extends AlterHandler {
                     sendClearAlterTask(db, olapTable);
                     return;
                 } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
-                    if (!DynamicPartitionUtil.checkDynamicPartitionTableRegistered(db.getId(), olapTable.getId())) {
-			try {
-			    DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
-                         } catch (DdlException e) {
-			    // This table is not a dynamic partition table and didn't supply all dynamic partition properties
-			    throw new DdlException("Table " + db.getFullName() + "." +
-				olapTable.getName() + " is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
-				"to see how to change a normal table to a dynamic partition table.");
-			}
-		    }
-		    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
-		    return;
+                    if (!olapTable.dynamicPartitionExists()) {
+                        try {
+                            DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
+                        } catch (DdlException e) {
+                            // This table is not a dynamic partition table and didn't supply all dynamic partition properties
+                            throw new DdlException("Table " + db.getFullName() + "." +
+                                    olapTable.getName() + " is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
+                                    "to see how to change a normal table to a dynamic partition table.");
+                        }
+                    }
+                    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
+                    return;
                 } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
                     Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
                     Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);

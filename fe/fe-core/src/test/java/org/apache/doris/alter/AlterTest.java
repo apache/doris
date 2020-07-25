@@ -66,18 +66,18 @@ public class AlterTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
-        createTable("CREATE TABLE test.tbl1\n" + 
-                "(\n" + 
-                "    k1 date,\n" + 
-                "    k2 int,\n" + 
-                "    v1 int sum\n" + 
-                ")\n" + 
-                "PARTITION BY RANGE(k1)\n" + 
-                "(\n" + 
-                "    PARTITION p1 values less than('2020-02-01'),\n" + 
-                "    PARTITION p2 values less than('2020-03-01')\n" + 
-                ")\n" + 
-                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + 
+        createTable("CREATE TABLE test.tbl1\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    k2 int,\n" +
+                "    v1 int sum\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "    PARTITION p1 values less than('2020-02-01'),\n" +
+                "    PARTITION p2 values less than('2020-03-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
                 "PROPERTIES('replication_num' = '1');");
 
         createTable("CREATE TABLE test.tbl2\n" +
@@ -151,6 +151,15 @@ public class AlterTest {
         }
     }
 
+    private static void alterTableWithExceptionMsg(String sql, String msg) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        try {
+            Catalog.getCurrentCatalog().alterTable(alterTableStmt);
+        } catch (Exception e) {
+            Assert.assertEquals(msg, e.getMessage());
+        }
+    }
+
     @Test
     public void testConflictAlterOperations() throws Exception {
         String stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
@@ -169,7 +178,7 @@ public class AlterTest {
         stmt = "alter table test.tbl1 add column k3 int, add column k4 int";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(false);
-        
+
         stmt = "alter table test.tbl1 add rollup r1 (k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
@@ -177,22 +186,22 @@ public class AlterTest {
         stmt = "alter table test.tbl1 add rollup r2 (k1), r3 (k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
-        
+
         // enable dynamic partition
         // not adding the `start` property so that it won't drop the origin partition p1, p2 and p3
-        stmt = "alter table test.tbl1 set (\n" + 
-                "'dynamic_partition.enable' = 'true',\n" + 
+        stmt = "alter table test.tbl1 set (\n" +
+                "'dynamic_partition.enable' = 'true',\n" +
                 "'dynamic_partition.time_unit' = 'DAY',\n" +
-                "'dynamic_partition.end' = '3',\n" + 
-                "'dynamic_partition.prefix' = 'p',\n" + 
-                "'dynamic_partition.buckets' = '3'\n" + 
+                "'dynamic_partition.end' = '3',\n" +
+                "'dynamic_partition.prefix' = 'p',\n" +
+                "'dynamic_partition.buckets' = '3'\n" +
                 " );";
         alterTable(stmt, false);
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable)db.getTable("tbl1");
+        OlapTable tbl = (OlapTable) db.getTable("tbl1");
         Assert.assertTrue(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals(4, tbl.getIndexIdToSchema().size());
-        
+
         // add partition when dynamic partition is enable
         stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01') distributed by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
         alterTable(stmt, true);
@@ -206,7 +215,7 @@ public class AlterTest {
         stmt = "alter table test.tbl1 set ('dynamic_partition.enable' = 'false')";
         alterTable(stmt, false);
         Assert.assertFalse(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
-        
+
         // add partition when dynamic partition is disable
         stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01') distributed by hash(k2) buckets 4";
         alterTable(stmt, false);
@@ -335,5 +344,88 @@ public class AlterTest {
             System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
+    }
+
+    @Test
+    public void testSetDynamicPropertiesInNormalTable() throws Exception {
+        String tableName = "no_dynamic_table";
+        String createOlapTblStmt = "CREATE TABLE test.`" + tableName + "` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        String alterStmt = "alter table test." + tableName + " set (\"dynamic_partition.enable\" = \"true\");";
+        String errorMsg = "errCode = 2, detailMessage = Table default_cluster:test.no_dynamic_table is not a dynamic partition table. " +
+                "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.";
+        alterTableWithExceptionMsg(alterStmt, errorMsg);
+        // test set dynamic properties in a no dynamic partition table
+        String stmt = "alter table test." + tableName + " set (\n" +
+                "'dynamic_partition.enable' = 'true',\n" +
+                "'dynamic_partition.time_unit' = 'DAY',\n" +
+                "'dynamic_partition.start' = '-3',\n" +
+                "'dynamic_partition.end' = '3',\n" +
+                "'dynamic_partition.prefix' = 'p',\n" +
+                "'dynamic_partition.buckets' = '3'\n" +
+                " );";
+        alterTable(stmt, false);
+    }
+
+    @Test
+    public void testSetDynamicPropertiesInDynamicPartitionTable() throws Exception {
+        String tableName = "dynamic_table";
+        String createOlapTblStmt = "CREATE TABLE test.`" + tableName + "` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+
+        createTable(createOlapTblStmt);
+        String alterStmt1 = "alter table test." + tableName + " set (\"dynamic_partition.enable\" = \"false\");";
+        alterTable(alterStmt1, false);
+        String alterStmt2 = "alter table test." + tableName + " set (\"dynamic_partition.time_unit\" = \"week\");";
+        alterTable(alterStmt2, false);
+        String alterStmt3 = "alter table test." + tableName + " set (\"dynamic_partition.start\" = \"-10\");";
+        alterTable(alterStmt3, false);
+        String alterStmt4 = "alter table test." + tableName + " set (\"dynamic_partition.end\" = \"10\");";
+        alterTable(alterStmt4, false);
+        String alterStmt5 = "alter table test." + tableName + " set (\"dynamic_partition.prefix\" = \"pp\");";
+        alterTable(alterStmt5, false);
+        String alterStmt6 = "alter table test." + tableName + " set (\"dynamic_partition.buckets\" = \"5\");";
+        alterTable(alterStmt6, false);
     }
 }

@@ -330,10 +330,6 @@ public class DynamicPartitionUtil {
         return rangePartitionInfo.getPartitionColumns().size() == 1 && tableProperty.getDynamicPartitionProperty().getEnable();
     }
 
-    public static boolean checkDynamicPartitionTableRegistered(Long dbId, Long tableId) {
-        return Catalog.getCurrentCatalog().getDynamicPartitionScheduler().checkDynamicPartitionTableRegistered(dbId, tableId);
-    }
-
     /**
      * properties should be checked before call this method
      */
