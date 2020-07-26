@@ -54,8 +54,8 @@ public class TimeUtils {
     private static final TimeZone TIME_ZONE;
 
     // set CST to +08:00 instead of America/Chicago
-    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of(
-            "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE, "UTC", DEFAULT_TIME_ZONE);
+    public static final String CST_TIMEZONE = "CST";
+    public static final ImmutableMap<String, String> TIMEZONE_ALIAS_MAP = ImmutableMap.of(CST_TIMEZONE, DEFAULT_TIME_ZONE);
 
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
@@ -124,12 +124,12 @@ public class TimeUtils {
         } else {
             timezone = VariableMgr.getGlobalSessionVariable().getTimeZone();
         }
-        return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
+        return TimeZone.getTimeZone(ZoneId.of(timezone, TIMEZONE_ALIAS_MAP));
     }
 
     // return the time zone of current system
     public static TimeZone getSystemTimeZone() {
-        return TimeZone.getTimeZone(ZoneId.of(ZoneId.systemDefault().getId(), timeZoneAliasMap));
+        return TimeZone.getTimeZone(ZoneId.of(ZoneId.systemDefault().getId(), TIMEZONE_ALIAS_MAP));
     }
 
     // get time zone of given zone name, or return system time zone if name is null.
@@ -137,7 +137,7 @@ public class TimeUtils {
         if (timeZone == null) {
             return getSystemTimeZone();
         }
-        return TimeZone.getTimeZone(ZoneId.of(timeZone, timeZoneAliasMap));
+        return TimeZone.getTimeZone(ZoneId.of(timeZone, TIMEZONE_ALIAS_MAP));
     }
     
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
@@ -207,7 +207,7 @@ public class TimeUtils {
         return format(date, type.getPrimitiveType());
     }
 
-    /*
+    /**
      * only used for ETL
      */
     public static long dateTransform(long time, PrimitiveType type) {
@@ -256,7 +256,7 @@ public class TimeUtils {
             Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
             // it supports offset and region timezone type, "CST" use here is compatibility purposes.
             boolean match = matcher.matches();
-            if (!value.contains("/") && !value.equals("CST") && !value.equals("UTC") && !match) {
+            if (!value.contains("/") && !value.equals(CST_TIMEZONE) && !checkTimeZoneAvailable(value) && !match) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
             }
             if (match) {
@@ -273,11 +273,15 @@ public class TimeUtils {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
                 }
             }
-            ZoneId.of(value, timeZoneAliasMap);
+            ZoneId.of(value, TIMEZONE_ALIAS_MAP);
             return value;
         } catch (DateTimeException ex) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
         }
         throw new DdlException("Parse time zone " + value + " error");
+    }
+
+    private static boolean checkTimeZoneAvailable(String value) {
+        return ZoneId.getAvailableZoneIds().contains(value);
     }
 }
