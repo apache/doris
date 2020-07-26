@@ -57,7 +57,6 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * SparkEtlJobHandler is responsible for
@@ -92,15 +91,8 @@ public class SparkEtlJobHandler {
 
         // prepare dpp archive
         SparkRepository.SparkArchive archive = resource.prepareArchive();
-        Preconditions.checkNotNull(archive);
-        List<SparkRepository.SparkLibrary> libraries = archive.libraries;
-        Optional<SparkRepository.SparkLibrary> dppLibrary = libraries.stream().
-                filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.DPP).findFirst();
-        Optional<SparkRepository.SparkLibrary> spark2xLibrary = libraries.stream().
-                filter(library -> library.libType == SparkRepository.SparkLibrary.LibType.SPARK2X).findFirst();
-        if (!dppLibrary.isPresent() || !spark2xLibrary.isPresent()) {
-            throw new LoadException("failed to get library from remote archive");
-        }
+        SparkRepository.SparkLibrary dppLibrary = archive.getDppLibrary();
+        SparkRepository.SparkLibrary spark2xLibrary = archive.getSpark2xLibrary();
 
         // spark home
         String sparkHome = Config.spark_home_default_dir;
@@ -109,9 +101,9 @@ public class SparkEtlJobHandler {
         // etl config json path
         String jobConfigHdfsPath = configsHdfsDir + CONFIG_FILE_NAME;
         // spark submit app resource path
-        String appResourceHdfsPath = dppLibrary.get().remotePath;
+        String appResourceHdfsPath = dppLibrary.remotePath;
         // spark yarn archive path
-        String jobArchiveHdfsPath = spark2xLibrary.get().remotePath;
+        String jobArchiveHdfsPath = spark2xLibrary.remotePath;
         // spark yarn stage dir
         String jobStageHdfsPath = resource.getWorkingDir();
 

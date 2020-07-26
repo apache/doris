@@ -352,8 +352,7 @@ public class BrokerUtil {
     }
 
     public static boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = new Pair<TPaloBrokerService.Client, TNetworkAddress>(null, null);
-        pair = getBrokerAddressAndClient(brokerDesc);
+        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBrokerAddressAndClient(brokerDesc);
         TPaloBrokerService.Client client = pair.first;
         TNetworkAddress address = pair.second;
         boolean failed = true;

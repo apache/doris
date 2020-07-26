@@ -38,6 +38,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 /*
  * SparkRepository represents the remote repository for spark archives uploaded by spark
@@ -79,8 +80,6 @@ public class SparkRepository {
     // Archive that current dpp version pointed to
     private SparkArchive currentArchive;
 
-    private boolean isInit;
-
     public SparkRepository(String remoteRepositoryPath, BrokerDesc brokerDesc) {
         this.remoteRepositoryPath = remoteRepositoryPath;
         this.brokerDesc = brokerDesc;
@@ -92,14 +91,10 @@ public class SparkRepository {
         } else {
             this.localSpark2xPath = Config.spark_home_default_dir + SPARK_RESOURCE;
         }
-        this.isInit = false;
     }
 
-    public boolean prepare() throws LoadException {
-        if (!isInit) {
-            initRepository();
-        }
-        return isInit;
+    public void prepare() throws LoadException {
+        initRepository();
     }
 
     private void initRepository() throws LoadException {
@@ -150,7 +145,6 @@ public class SparkRepository {
         if (needUpload) {
             uploadArchive(needReplace);
         }
-        isInit = true;
         LOG.info("init spark repository success, current dppVersion={}, archive path={}, libraries size={}",
                 currentDppVersion, currentArchive.remotePath, currentArchive.libraries.size());
     }
@@ -319,6 +313,26 @@ public class SparkRepository {
             this.remotePath = remotePath;
             this.version = version;
             this.libraries = Lists.newArrayList();
+        }
+
+        public SparkLibrary getDppLibrary() {
+            SparkLibrary result = null;
+            Optional<SparkLibrary> library = libraries.stream().
+                    filter(lib -> lib.libType == SparkLibrary.LibType.DPP).findFirst();
+            if (library.isPresent()) {
+                result = library.get();
+            }
+            return result;
+        }
+
+        public SparkLibrary getSpark2xLibrary() {
+            SparkLibrary result = null;
+            Optional<SparkLibrary> library = libraries.stream().
+                    filter(lib -> lib.libType == SparkLibrary.LibType.SPARK2X).findFirst();
+            if (library.isPresent()) {
+                result = library.get();
+            }
+            return result;
         }
     }
 

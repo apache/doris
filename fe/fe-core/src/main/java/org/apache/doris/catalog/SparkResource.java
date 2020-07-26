@@ -146,24 +146,22 @@ public class SparkResource extends Resource {
         return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
     }
 
-    public SparkRepository getRemoteRepository() {
-        String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
-                + "/" + SparkRepository.REPOSITORY_DIR;
-        BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
-        return new SparkRepository(remoteRepositoryPath, brokerDesc);
-    }
-
     // Each SparkResource has and only has one SparkRepository.
     // This method get the remote archive which matches the dpp version from remote repository
     public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {
-        SparkRepository.SparkArchive archive = null;
         String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
                 + "/" + SparkRepository.REPOSITORY_DIR + name;
         BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
         SparkRepository repository = new SparkRepository(remoteRepositoryPath, brokerDesc);
-        boolean isPrepare = repository.prepare();
-        if (isPrepare) {
-            archive = repository.getCurrentArchive();
+        // This checks and uploads the remote archive.
+        repository.prepare();
+        SparkRepository.SparkArchive archive = repository.getCurrentArchive();
+        // Normally, an archive should contain a DPP library and a SPARK library
+        Preconditions.checkState(archive.libraries.size() == 2);
+        SparkRepository.SparkLibrary dppLibrary = archive.getDppLibrary();
+        SparkRepository.SparkLibrary spark2xLibrary = archive.getSpark2xLibrary();
+        if (dppLibrary == null || spark2xLibrary == null) {
+            throw new LoadException("failed to get libraries from remote archive");
         }
         return archive;
     }

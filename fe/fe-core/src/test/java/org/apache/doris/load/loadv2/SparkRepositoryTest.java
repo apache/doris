@@ -82,8 +82,7 @@ public class SparkRepositoryTest {
             };
 
             // prepare repository
-            boolean isPrepare = repository.prepare();
-            Assert.assertTrue(isPrepare);
+            repository.prepare();
 
             // get archive
             SparkRepository.SparkArchive archive = repository.getCurrentArchive();
@@ -137,8 +136,7 @@ public class SparkRepositoryTest {
             };
 
             // prepare repository
-            boolean isPrepare = repository.prepare();
-            Assert.assertTrue(isPrepare);
+            repository.prepare();
 
             // get archive
             SparkRepository.SparkArchive archive = repository.getCurrentArchive();
@@ -204,8 +202,7 @@ public class SparkRepositoryTest {
             };
 
             // prepare repository
-            boolean isPrepare = repository.prepare();
-            Assert.assertTrue(isPrepare);
+            repository.prepare();
 
             // get archive
             SparkRepository.SparkArchive archive = repository.getCurrentArchive();
