@@ -815,8 +815,8 @@ public class DatabaseTransactionMgr {
                 OlapTable table = (OlapTable) db.getTable(tableId);
                 Partition partition = table.getPartition(partitionId);
                 PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
-                        partition.getNextVersion(),
-                        partition.getNextVersionHash());
+                        partition.getNextVersion(), partition.getNextVersionHash(),
+                        System.currentTimeMillis() /* use as partition visible time */);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
@@ -1285,8 +1285,9 @@ public class DatabaseTransactionMgr {
                     }
                 } // end for indices
                 long version = partitionCommitInfo.getVersion();
+                long versionTime = partitionCommitInfo.getVersionTime();
                 long versionHash = partitionCommitInfo.getVersionHash();
-                partition.updateVisibleVersionAndVersionHash(version, versionHash);
+                partition.updateVisibleVersionAndVersionHash(version, versionTime, versionHash);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}] and version hash to [{}]",
                             transactionState, partition.getId(), version, versionHash);
