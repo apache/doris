@@ -185,6 +185,8 @@ public final class FeMetaVersion {
     public static final int VERSION_86 = 86;
     // spark resource, resource privilege, broker file group for hive table
     public static final int VERSION_87 = 87;
+    // add partition visibleVersionTime
+    public static final int VERSION_88 = 88;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_87;
+    public static final int VERSION_CURRENT = VERSION_88;
 }
