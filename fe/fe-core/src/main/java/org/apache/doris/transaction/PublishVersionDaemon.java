@@ -190,33 +190,35 @@ public class PublishVersionDaemon extends MasterDaemon {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
                             continue;
                         }
-
-                        for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
-                            long tableId = transactionState.getTableIdList().get(i);
-                            Table table = db.getTable(tableId);
-                            if (table == null || table.getType() != Table.TableType.OLAP) {
-                                LOG.warn("Table [{}] in databse [{}] has been dropped.", tableId, db.getFullName());
-                                continue;
-                            }
-                            OlapTable olapTable = (OlapTable) table;
-                            for (Long errorPartitionId : errorPartitionIds) {
-                                Partition partition = olapTable.getPartition(errorPartitionId);
-                                if (partition != null) {
-                                    List<MaterializedIndex> materializedIndexList = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
-                                    for (MaterializedIndex materializedIndex : materializedIndexList) {
-                                        for (Tablet tablet : materializedIndex.getTablets()) {
-                                            Replica replica = tablet.getReplicaByBackendId(unfinishedTask.getBackendId());
-                                            if (replica != null) {
-                                                publishErrorReplicaIds.add(replica.getId());
+                        db.readLock();
+                        try {
+                            for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
+                                long tableId = transactionState.getTableIdList().get(i);
+                                Table table = db.getTable(tableId);
+                                if (table == null || table.getType() != Table.TableType.OLAP) {
+                                    LOG.warn("Table [{}] in databse [{}] has been dropped.", tableId, db.getFullName());
+                                    continue;
+                                }
+                                OlapTable olapTable = (OlapTable) table;
+                                for (Long errorPartitionId : errorPartitionIds) {
+                                    Partition partition = olapTable.getPartition(errorPartitionId);
+                                    if (partition != null) {
+                                        List<MaterializedIndex> materializedIndexList = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                                        for (MaterializedIndex materializedIndex : materializedIndexList) {
+                                            for (Tablet tablet : materializedIndex.getTablets()) {
+                                                Replica replica = tablet.getReplicaByBackendId(unfinishedTask.getBackendId());
+                                                if (replica != null) {
+                                                    publishErrorReplicaIds.add(replica.getId());
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-
+                        } finally {
+                            db.readUnlock();
                         }
                     }
-
                     shouldFinishTxn = true;
                 }
                 // transaction's publish is not timeout, waiting next round.
