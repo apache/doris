@@ -162,6 +162,7 @@ public class TimeUtilsTest {
     public void testTimezone() throws AnalysisException {
         try {
             Assert.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
+            Assert.assertEquals("UTC", TimeUtils.checkTimeZoneValidAndStandardize("UTC"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
             Assert.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));

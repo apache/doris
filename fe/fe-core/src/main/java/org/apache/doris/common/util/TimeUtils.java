@@ -55,7 +55,7 @@ public class TimeUtils {
 
     // set CST to +08:00 instead of America/Chicago
     public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of(
-            "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE);
+            "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE, "UTC", DEFAULT_TIME_ZONE);
 
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
@@ -256,7 +256,7 @@ public class TimeUtils {
             Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
             // it supports offset and region timezone type, "CST" use here is compatibility purposes.
             boolean match = matcher.matches();
-            if (!value.contains("/") && !value.equals("CST") && !match) {
+            if (!value.contains("/") && !value.equals("CST") && !value.equals("UTC") && !match) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
             }
             if (match) {
