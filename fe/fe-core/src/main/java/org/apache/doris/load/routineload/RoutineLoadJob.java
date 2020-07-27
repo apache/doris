@@ -574,7 +574,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.receivedBytes += receivedBytes;
         this.totalTaskExcutionTimeMs += taskExecutionTime;
 
-        if (MetricRepo.isInit.get() && !isReplay) {
+        if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);

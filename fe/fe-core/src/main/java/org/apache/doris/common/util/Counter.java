@@ -19,32 +19,29 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.thrift.TUnit;
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-
 // Counter means indicators field. The counter's name is key, the counter itself is value.  
 public class Counter {
-    private AtomicLong value;
-    private AtomicInteger type;
+    private volatile long value;
+    private volatile int type;
 
     public long getValue() {
-        return value.get();
+        return value;
     }
 
     public void setValue(long newValue) {
-        value.set(newValue);
+        value = newValue;
     }
 
     public TUnit getType() {
-        return TUnit.findByValue(type.get());
+        return TUnit.findByValue(type);
     }
 
     public void setType(TUnit type) {
-        this.type.set(type.getValue());
+        this.type = type.getValue() ;
     }
 
     public Counter(TUnit type, long value) {
-        this.value = new AtomicLong(value);
-        this.type = new AtomicInteger(type.getValue());
+        this.value = value;
+        this.type = type.getValue();
     }
 }

@@ -30,7 +30,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * This class represents the olap replica related metadata.
@@ -97,7 +96,7 @@ public class Replica implements Writable {
     @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
 
-	private AtomicLong versionCount = new AtomicLong(-1);
+	private volatile long versionCount = -1;
 
     private long pathHash = -1;
 
@@ -441,11 +440,11 @@ public class Replica implements Writable {
     }
 
     public long getVersionCount() {
-		return versionCount.get();
+		return versionCount;
 	}
 
     public void setVersionCount(long versionCount) {
-		this.versionCount.set(versionCount);
+		this.versionCount = versionCount;
 	}
     
     @Override
