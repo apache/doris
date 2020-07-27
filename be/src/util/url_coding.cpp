@@ -184,7 +184,7 @@ size_t base64_encode(const unsigned char* data, size_t length, unsigned char* en
     return output_length;
 }
 
-static inline int64_t base64_decode(const char* data, size_t length, char* decoded_data) {
+int64_t base64_decode(const char* data, size_t length, char* decoded_data) {
     const char* current = data;
     int ch = 0;
     int i = 0;
