@@ -17,11 +17,18 @@
 
 package org.apache.doris.load.loadv2;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
@@ -36,14 +43,9 @@ import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.Mocked;
-import mockit.MockUp;
+
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
@@ -70,6 +72,9 @@ public class SparkEtlJobHandlerTest {
     private String appId;
     private String etlOutputPath;
     private String trackingUrl;
+    private String dppVersion;
+    private String remoteArchivePath;
+    private SparkRepository.SparkArchive archive;
 
     @Before
     public void setUp() {
@@ -81,6 +86,13 @@ public class SparkEtlJobHandlerTest {
         appId = "application_15888888888_0088";
         etlOutputPath = "hdfs://127.0.0.1:10000/tmp/doris/100/label/101";
         trackingUrl = "http://127.0.0.1:8080/proxy/application_1586619723848_0088/";
+        dppVersion = Config.spark_dpp_version;
+        remoteArchivePath = etlOutputPath + "/__repository__/__archive_" + dppVersion;
+        archive = new SparkRepository.SparkArchive(remoteArchivePath, dppVersion);
+        archive.libraries.add(new SparkRepository
+                .SparkLibrary("", "", SparkRepository.SparkLibrary.LibType.DPP, 0L));
+        archive.libraries.add(new SparkRepository
+                .SparkLibrary("", "", SparkRepository.SparkLibrary.LibType.SPARK2X, 0L));
     }
 
     @Test
@@ -99,6 +111,13 @@ public class SparkEtlJobHandlerTest {
 
         EtlJobConfig etlJobConfig = new EtlJobConfig(Maps.newHashMap(), etlOutputPath, label, null);
         SparkResource resource = new SparkResource(resourceName);
+        new Expectations(resource) {
+            {
+                resource.prepareArchive();
+                result = archive;
+            }
+        };
+
         Map<String, String> sparkConfigs = resource.getSparkConfigs();
         sparkConfigs.put("spark.master", "yarn");
         sparkConfigs.put("spark.submit.deployMode", "cluster");
@@ -129,6 +148,13 @@ public class SparkEtlJobHandlerTest {
 
         EtlJobConfig etlJobConfig = new EtlJobConfig(Maps.newHashMap(), etlOutputPath, label, null);
         SparkResource resource = new SparkResource(resourceName);
+        new Expectations(resource) {
+            {
+                resource.prepareArchive();
+                result = archive;
+            }
+        };
+
         Map<String, String> sparkConfigs = resource.getSparkConfigs();
         sparkConfigs.put("spark.master", "yarn");
         sparkConfigs.put("spark.submit.deployMode", "cluster");
