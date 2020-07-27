@@ -17,9 +17,9 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.PaloFe;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -30,6 +30,12 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.load.loadv2.etl.SparkEtlJob;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
@@ -47,13 +53,6 @@ import org.apache.spark.launcher.SparkAppHandle.Listener;
 import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
 
-import com.google.common.base.Strings;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
-
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -70,9 +69,7 @@ import java.util.Map;
 public class SparkEtlJobHandler {
     private static final Logger LOG = LogManager.getLogger(SparkEtlJobHandler.class);
 
-    private static final String APP_RESOURCE_NAME = "palo-fe.jar";
     private static final String CONFIG_FILE_NAME = "jobconfig.json";
-    private static final String APP_RESOURCE_LOCAL_PATH = PaloFe.DORIS_HOME_DIR + "/lib/" + APP_RESOURCE_NAME;
     private static final String JOB_CONFIG_DIR = "configs";
     private static final String ETL_JOB_NAME = "doris__%s";
     // 5min
@@ -92,12 +89,34 @@ public class SparkEtlJobHandler {
         // delete outputPath
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
 
-        // upload app resource and jobconfig to hdfs
+        // prepare dpp archive
+        SparkRepository.SparkArchive archive = resource.prepareArchive();
+        SparkRepository.SparkLibrary dppLibrary = archive.getDppLibrary();
+        SparkRepository.SparkLibrary spark2xLibrary = archive.getSpark2xLibrary();
+
+        // spark home
+        String sparkHome = Config.spark_home_default_dir;
+        // etl config path
         String configsHdfsDir = etlJobConfig.outputPath + "/" + JOB_CONFIG_DIR + "/";
-        String appResourceHdfsPath = configsHdfsDir + APP_RESOURCE_NAME;
+        // etl config json path
         String jobConfigHdfsPath = configsHdfsDir + CONFIG_FILE_NAME;
+        // spark submit app resource path
+        String appResourceHdfsPath = dppLibrary.remotePath;
+        // spark yarn archive path
+        String jobArchiveHdfsPath = spark2xLibrary.remotePath;
+        // spark yarn stage dir
+        String jobStageHdfsPath = resource.getWorkingDir();
+
+        // update archive and stage configs here
+        Map<String, String> sparkConfigs = resource.getSparkConfigs();
+        if (Strings.isNullOrEmpty(sparkConfigs.get("spark.yarn.archive"))) {
+            sparkConfigs.put("spark.yarn.archive", jobArchiveHdfsPath);
+        }
+        if (Strings.isNullOrEmpty(sparkConfigs.get("spark.yarn.stage.dir"))) {
+            sparkConfigs.put("spark.yarn.stage.dir", jobStageHdfsPath);
+        }
+
         try {
-            BrokerUtil.writeFile(APP_RESOURCE_LOCAL_PATH, appResourceHdfsPath, brokerDesc);
             byte[] configData = etlJobConfig.configToJson().getBytes("UTF-8");
             BrokerUtil.writeFile(configData, jobConfigHdfsPath, brokerDesc);
         } catch (UserException | UnsupportedEncodingException e) {
@@ -114,7 +133,9 @@ public class SparkEtlJobHandler {
                 .setAppResource(appResourceHdfsPath)
                 .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
+                .setSparkHome(sparkHome)
                 .addAppArgs(jobConfigHdfsPath);
+
         // spark configs
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {
             launcher.setConf(entry.getKey(), entry.getValue());

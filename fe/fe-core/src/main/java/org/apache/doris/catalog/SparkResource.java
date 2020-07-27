@@ -17,11 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
-
+import org.apache.doris.load.loadv2.SparkRepository;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -142,6 +144,26 @@ public class SparkResource extends Resource {
 
     public SparkResource getCopiedResource() {
         return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
+    }
+
+    // Each SparkResource has and only has one SparkRepository.
+    // This method get the remote archive which matches the dpp version from remote repository
+    public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {
+        String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
+                + "/" + SparkRepository.REPOSITORY_DIR + name;
+        BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
+        SparkRepository repository = new SparkRepository(remoteRepositoryPath, brokerDesc);
+        // This checks and uploads the remote archive.
+        repository.prepare();
+        SparkRepository.SparkArchive archive = repository.getCurrentArchive();
+        // Normally, an archive should contain a DPP library and a SPARK library
+        Preconditions.checkState(archive.libraries.size() == 2);
+        SparkRepository.SparkLibrary dppLibrary = archive.getDppLibrary();
+        SparkRepository.SparkLibrary spark2xLibrary = archive.getSpark2xLibrary();
+        if (dppLibrary == null || spark2xLibrary == null) {
+            throw new LoadException("failed to get libraries from remote archive");
+        }
+        return archive;
     }
 
     public boolean isYarnMaster() {
