@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPReadRequest;
 import org.apache.doris.thrift.TBrokerPWriteRequest;
 import org.apache.doris.thrift.TBrokerReadResponse;
+import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
@@ -369,6 +370,30 @@ public class BrokerUtil {
         } catch (TException e) {
             LOG.warn("Broker check path exist failed, path={}, address={}, exception={}", remotePath, address, e);
             throw new UserException("Broker check path exist exception. path=" + remotePath + ",broker=" + address);
+        } finally {
+            returnClient(client, address, failed);
+        }
+    }
+
+    public static void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBrokerAddressAndClient(brokerDesc);
+        TPaloBrokerService.Client client = pair.first;
+        TNetworkAddress address = pair.second;
+        boolean failed = true;
+        try {
+            TBrokerRenamePathRequest req = new TBrokerRenamePathRequest(TBrokerVersion.VERSION_ONE, origFilePath,
+                    destFilePath, brokerDesc.getProperties());
+            TBrokerOperationStatus rep = client.renamePath(req);
+            if (rep.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                throw new UserException("failed to rename " + origFilePath + " to " + destFilePath +
+                        ", msg: " + rep.getMessage() + ", broker: " + address);
+            }
+            failed = false;
+        } catch (TException e) {
+            LOG.warn("Broker rename file failed, origin path={}, dest path={}, address={}, exception={}",
+                    origFilePath, destFilePath, address, e);
+            throw new UserException("Broker rename file exception. origin path=" + origFilePath +
+                    ", dest path=" + destFilePath + ", broker=" + address);
         } finally {
             returnClient(client, address, failed);
         }

@@ -172,24 +172,34 @@ public class SparkRepository {
             String srcFilePath = null;
             // upload dpp
             {
+                // 1. upload dpp
                 srcFilePath = localDppPath;
+                String fileName = getFileName(PATH_DELIMITER, srcFilePath);
+                String origFilePath = remoteArchivePath + PATH_DELIMITER +
+                        assemblyFileName(PREFIX_LIB, "", fileName, "");
+                upload(srcFilePath, origFilePath);
+                // 2. rename dpp
                 String md5sum = getMd5String(srcFilePath);
                 long size = getFileSize(srcFilePath);
-                String fileName = getFileName(PATH_DELIMITER, srcFilePath);
                 String destFilePath = remoteArchivePath + PATH_DELIMITER +
                         assemblyFileName(PREFIX_LIB, md5sum, fileName, "");
-                upload(srcFilePath, destFilePath);
+                rename(origFilePath, destFilePath);
                 currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.DPP, size));
             }
             // upload spark2x
             {
+                // 1. upload spark2x
                 srcFilePath = localSpark2xPath;
+                String fileName = getFileName(PATH_DELIMITER, srcFilePath);
+                String origFilePath = remoteArchivePath + PATH_DELIMITER +
+                        assemblyFileName(PREFIX_LIB, "", fileName, "");
+                upload(srcFilePath, origFilePath);
+                // 2. rename spark2x
                 String md5sum = getMd5String(srcFilePath);
                 long size = getFileSize(srcFilePath);
-                String fileName = getFileName(PATH_DELIMITER, srcFilePath);
                 String destFilePath = remoteArchivePath + PATH_DELIMITER +
                         assemblyFileName(PREFIX_LIB, md5sum, fileName, "");
-                upload(srcFilePath, destFilePath);
+                rename(origFilePath, destFilePath);
                 currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
             }
             LOG.info("finished to upload archive to repository, currentDppVersion={}, path={}",
@@ -217,6 +227,9 @@ public class SparkRepository {
                 continue;
             }
             String md5sum = lib_arg[0];
+            if (Strings.isNullOrEmpty(md5sum)) {
+                continue;
+            }
             String type = lib_arg[1];
             SparkLibrary.LibType libType = null;
             switch (type) {
@@ -268,6 +281,16 @@ public class SparkRepository {
         } catch (UserException e) {
             throw new LoadException("failed to upload lib to repository, srcPath=" +srcFilePath +
                     " destPath=" + destFilePath + " message=" + e.getMessage());
+        }
+    }
+
+    private void rename(String origFilePath, String destFilePath) throws LoadException {
+        try {
+            BrokerUtil.rename(origFilePath, destFilePath, brokerDesc);
+            LOG.info("finished to rename file, originPath={}, destPath={}", origFilePath, destFilePath);
+        } catch (UserException e) {
+            throw new LoadException("failed to rename file from " + origFilePath + " to " + destFilePath +
+                    ", message=" + e.getMessage());
         }
     }
 

@@ -53,6 +53,7 @@ import org.apache.spark.launcher.SparkAppHandle.Listener;
 import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -134,7 +135,9 @@ public class SparkEtlJobHandler {
                 .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .setSparkHome(sparkHome)
-                .addAppArgs(jobConfigHdfsPath);
+                .addAppArgs(jobConfigHdfsPath)
+                .redirectError()
+                .redirectOutput(new File(Config.spark_home_default_dir + "/launcher.log"));
 
         // spark configs
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {
