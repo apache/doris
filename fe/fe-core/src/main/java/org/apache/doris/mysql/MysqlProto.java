@@ -143,7 +143,7 @@ public class MysqlProto {
         ByteBuffer handshakeResponse = channel.fetchOnePacket();
         if (handshakeResponse == null) {
             // receive response failed.
-            throw new IOException("failed to fetch packet from channel");
+            return false;
         }
         MysqlAuthPacket authPacket = new MysqlAuthPacket();
         if (!authPacket.readFrom(handshakeResponse)) {
