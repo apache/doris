@@ -108,7 +108,7 @@ public class Checkpoint extends MasterDaemon {
 
             catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();
-            if (MetricRepo.isInit.get()) {
+            if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE.increase(1L);
             }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
@@ -197,7 +197,7 @@ public class Checkpoint extends MasterDaemon {
                 deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
             }
             editLog.deleteJournals(deleteVersion + 1);
-            if (MetricRepo.isInit.get()) {
+            if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_PUSH.increase(1L);
             }
             LOG.info("journals <= {} are deleted. image version {}, other nodes min version {}", 

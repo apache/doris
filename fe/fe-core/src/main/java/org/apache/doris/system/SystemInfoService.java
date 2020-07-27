@@ -58,7 +58,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class SystemInfoService {
@@ -66,8 +65,8 @@ public class SystemInfoService {
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
-    private volatile AtomicReference<ImmutableMap<Long, Backend>> idToBackendRef;
-    private volatile AtomicReference<ImmutableMap<Long, AtomicLong>> idToReportVersionRef;
+    private volatile ImmutableMap<Long, Backend> idToBackendRef;
+    private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef;
 
     // last backend id used by round robin for sequential choosing backends for
     // tablet creation
@@ -79,7 +78,7 @@ public class SystemInfoService {
     private long lastBackendIdForCreation = -1;
     private long lastBackendIdForOther = -1;
 
-    private AtomicReference<ImmutableMap<Long, DiskInfo>> pathHashToDishInfoRef;
+    private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef;
 
     // sort host backends list by num of backends, descending
     private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>> (){
@@ -94,13 +93,12 @@ public class SystemInfoService {
     };
 
     public SystemInfoService() {
-        idToBackendRef = new AtomicReference<ImmutableMap<Long, Backend>>(ImmutableMap.<Long, Backend> of());
-        idToReportVersionRef = new AtomicReference<ImmutableMap<Long, AtomicLong>>(
-                ImmutableMap.<Long, AtomicLong> of());
+        idToBackendRef = ImmutableMap.<Long, Backend> of();
+        idToReportVersionRef = ImmutableMap.<Long, AtomicLong> of();
 
         lastBackendIdForCreationMap = new ConcurrentHashMap<String, Long>();
         lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
-        pathHashToDishInfoRef = new AtomicReference<ImmutableMap<Long, DiskInfo>>(ImmutableMap.<Long, DiskInfo>of());
+        pathHashToDishInfoRef = ImmutableMap.<Long, DiskInfo>of();
     }
 
     // for deploy manager
@@ -130,10 +128,10 @@ public class SystemInfoService {
 
     // for test
     public void addBackend(Backend backend) {
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(backend.getId(), backend);
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
-        idToBackendRef.set(newIdToBackend);
+        idToBackendRef = newIdToBackend;
     }
 
     private void setBackendOwner(Backend backend, String clusterName) {
@@ -148,16 +146,16 @@ public class SystemInfoService {
     private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster) throws DdlException {
         Backend newBackend = new Backend(Catalog.getCurrentCatalog().getNextId(), host, heartbeatPort);
         // update idToBackend
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(newBackend.getId(), newBackend);
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
-        idToBackendRef.set(newIdToBackend);
+        idToBackendRef = newIdToBackend;
 
         // set new backend's report version as 0L
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef.get());
+        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
         copiedReportVerions.put(newBackend.getId(), new AtomicLong(0L));
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
-        idToReportVersionRef.set(newIdToReportVersion);
+        idToReportVersionRef = newIdToReportVersion;
 
         if (!Strings.isNullOrEmpty(destCluster)) {
          // add backend to destCluster
@@ -209,16 +207,16 @@ public class SystemInfoService {
         Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
 
         // update idToBackend
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.remove(droppedBackend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
-        idToBackendRef.set(newIdToBackend);
+        idToBackendRef = newIdToBackend;
 
         // update idToReportVersion
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef.get());
+        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
         copiedReportVerions.remove(droppedBackend.getId());
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
-        idToReportVersionRef.set(newIdToReportVersion);
+        idToReportVersionRef = newIdToReportVersion;
 
         // update cluster
         final Cluster cluster = Catalog.getCurrentCatalog().getCluster(droppedBackend.getOwnerClusterName());
@@ -238,17 +236,17 @@ public class SystemInfoService {
     // only for test
     public void dropAllBackend() {
         // update idToBackend
-        idToBackendRef.set(ImmutableMap.<Long, Backend> of());
+        idToBackendRef = ImmutableMap.<Long, Backend> of();
         // update idToReportVersion
-        idToReportVersionRef.set(ImmutableMap.<Long, AtomicLong> of());
+        idToReportVersionRef = ImmutableMap.<Long, AtomicLong> of();
     }
 
     public Backend getBackend(long backendId) {
-        return idToBackendRef.get().get(backendId);
+        return idToBackendRef.get(backendId);
     }
 
     public boolean checkBackendAvailable(long backendId) {
-        Backend backend = idToBackendRef.get().get(backendId);
+        Backend backend = idToBackendRef.get(backendId);
         if (backend == null || !backend.isAvailable()) {
             return false;
         }
@@ -256,7 +254,7 @@ public class SystemInfoService {
     }
 
     public boolean checkBackendAlive(long backendId) {
-        Backend backend = idToBackendRef.get().get(backendId);
+        Backend backend = idToBackendRef.get(backendId);
         if (backend == null || !backend.isAlive()) {
             return false;
         }
@@ -264,7 +262,7 @@ public class SystemInfoService {
     }
 
     public Backend getBackendWithHeartbeatPort(String host, int heartPort) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(host) && backend.getHeartbeatPort() == heartPort) {
                 return backend;
@@ -274,7 +272,7 @@ public class SystemInfoService {
     }
 
     public Backend getBackendWithBePort(String host, int bePort) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(host) && backend.getBePort() == bePort) {
                 return backend;
@@ -284,7 +282,7 @@ public class SystemInfoService {
     }
 
     public Backend getBackendWithHttpPort(String host, int httpPort) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(host) && backend.getHttpPort() == httpPort) {
                 return backend;
@@ -294,7 +292,7 @@ public class SystemInfoService {
     }
 
     public List<Long> getBackendIds(boolean needAlive) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
         if (!needAlive) {
             return backendIds;
@@ -311,7 +309,7 @@ public class SystemInfoService {
     }
 
     public List<Long> getDecommissionedBackendIds() {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
 
         Iterator<Long> iter = backendIds.iterator();
@@ -395,7 +393,7 @@ public class SystemInfoService {
      * @throws DdlException
      */
     public void releaseBackends(String clusterName, boolean isReplay) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         final List<Long> backendIds = getClusterBackendIds(clusterName);
         final Iterator<Long> iterator = backendIds.iterator();
 
@@ -428,7 +426,7 @@ public class SystemInfoService {
         LOG.info("calculate decommission backend in cluster: {}. decommission num: {}", clusterName, shrinkNum);
 
         final List<Long> decomBackendIds = Lists.newArrayList();
-        ImmutableMap<Long, Backend> idToBackends = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackends = idToBackendRef;
         final List<Long> clusterBackends = getClusterBackendIds(clusterName);
         // host -> backends of this cluster
         final Map<String, List<Backend>> hostBackendsMapInCluster = Maps.newHashMap();
@@ -488,7 +486,7 @@ public class SystemInfoService {
         LOG.debug("calculate expansion backend in cluster: {}, new instance num: {}", clusterName, expansionNum);
 
         final List<Long> chosenBackendIds = Lists.newArrayList();
-        ImmutableMap<Long, Backend> idToBackends = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackends = idToBackendRef;
         // host -> backends
         final Map<String, List<Backend>> hostBackendsMap = getHostBackendsMap(true /* need alive*/,
                                                                               true /* need free */,
@@ -598,7 +596,7 @@ public class SystemInfoService {
      * @return
      */
     public List<Backend> getClusterBackends(String name) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         final List<Backend> ret = Lists.newArrayList();
 
         if (Strings.isNullOrEmpty(name)) {
@@ -620,7 +618,7 @@ public class SystemInfoService {
      * @return
      */
     public List<Backend> getClusterBackends(String name, boolean needAlive) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         final List<Backend> ret = new ArrayList<Backend>();
 
         if (Strings.isNullOrEmpty(name)) {
@@ -656,7 +654,7 @@ public class SystemInfoService {
             return null;
         }
 
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         final List<Long> beIds = Lists.newArrayList();
 
         for (Backend backend : idToBackend.values()) {
@@ -674,7 +672,7 @@ public class SystemInfoService {
      * @return
      */
     public List<Long> getClusterBackendIds(String clusterName, boolean needAlive) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         final List<Long> ret = new ArrayList<Long>();
 
         if (Strings.isNullOrEmpty(clusterName)) {
@@ -706,7 +704,7 @@ public class SystemInfoService {
      */
     private Map<String, List<Backend>> getHostBackendsMap(boolean needAlive, boolean needFree,
                                                           boolean canBeDecommission) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         final Map<String, List<Backend>> classMap = Maps.newHashMap();
 
         // to select backend where state is free
@@ -867,16 +865,16 @@ public class SystemInfoService {
     }
 
     public ImmutableMap<Long, Backend> getIdToBackend() {
-        return idToBackendRef.get();
+        return idToBackendRef;
     }
 
     public ImmutableMap<Long, Backend> getBackendsInCluster(String cluster) {
         if (Strings.isNullOrEmpty(cluster)) {
-            return idToBackendRef.get();
+            return idToBackendRef;
         }
 
         Map<Long, Backend> retMaps = Maps.newHashMap();
-        for (Backend backend : idToBackendRef.get().values().asList()) {
+        for (Backend backend : idToBackendRef.values().asList()) {
             if (cluster.equals(backend.getOwnerClusterName())) {
                 retMaps.put(backend.getId(), backend);
             }
@@ -886,7 +884,7 @@ public class SystemInfoService {
 
     public long getBackendReportVersion(long backendId) {
         AtomicLong atomicLong = null;
-        if ((atomicLong = idToReportVersionRef.get().get(backendId)) == null) {
+        if ((atomicLong = idToReportVersionRef.get(backendId)) == null) {
             return -1L;
         } else {
             return atomicLong.get();
@@ -895,14 +893,13 @@ public class SystemInfoService {
 
     public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId) {
         AtomicLong atomicLong = null;
-        if ((atomicLong = idToReportVersionRef.get().get(backendId)) != null) {
+        if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
             Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db != null) {
                 db.readLock();
                 try {
                     atomicLong.set(newReportVersion);
                     LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);
-                    return;
                 } finally {
                     db.readUnlock();
                 }
@@ -915,7 +912,7 @@ public class SystemInfoService {
     }
 
     public long saveBackends(DataOutputStream dos, long checksum) throws IOException {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         int backendCount = idToBackend.size();
         checksum ^= backendCount;
         dos.writeInt(backendCount);
@@ -994,16 +991,16 @@ public class SystemInfoService {
             newBackend.setOwnerClusterName(DEFAULT_CLUSTER);
             newBackend.setBackendState(BackendState.using);
         }
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(newBackend.getId(), newBackend);
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
-        idToBackendRef.set(newIdToBackend);
+        idToBackendRef = newIdToBackend;
 
         // set new backend's report version as 0L
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef.get());
+        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
         copiedReportVerions.put(newBackend.getId(), new AtomicLong(0L));
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
-        idToReportVersionRef.set(newIdToReportVersion);
+        idToReportVersionRef = newIdToReportVersion;
 
         // to add be to DEFAULT_CLUSTER
         if (newBackend.getBackendState() == BackendState.using) {
@@ -1021,16 +1018,16 @@ public class SystemInfoService {
     public void replayDropBackend(Backend backend) {
         LOG.debug("replayDropBackend: {}", backend);
         // update idToBackend
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.remove(backend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
-        idToBackendRef.set(newIdToBackend);
+        idToBackendRef = newIdToBackend;
 
         // update idToReportVersion
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef.get());
+        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
         copiedReportVerions.remove(backend.getId());
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
-        idToReportVersionRef.set(newIdToReportVersion);
+        idToReportVersionRef = newIdToReportVersion;
 
         // update cluster
         final Cluster cluster = Catalog.getCurrentCatalog().getCluster(backend.getOwnerClusterName());
@@ -1093,7 +1090,7 @@ public class SystemInfoService {
      * If not found, return -1
      */
     public long getBackendIdByHost(String host) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         List<Backend> selectedBackends = Lists.newArrayList();
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(host)) {
@@ -1110,7 +1107,7 @@ public class SystemInfoService {
     }
 
     public Set<String> getClusterNames() {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         Set<String> clusterNames = Sets.newHashSet();
         for (Backend backend : idToBackend.values()) {
             if (!Strings.isNullOrEmpty(backend.getOwnerClusterName())) {
@@ -1129,7 +1126,7 @@ public class SystemInfoService {
      */
     public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
         LOG.debug("pathBeMap: {}", bePathsMap);
-        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef.get();
+        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef;
         for (Long beId : bePathsMap.keySet()) {
             for (Long pathHash : bePathsMap.get(beId)) {
                 DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
@@ -1145,7 +1142,7 @@ public class SystemInfoService {
     // update the path info when disk report
     // there is only one thread can update path info, so no need to worry about concurrency control
     public void updatePathInfo(List<DiskInfo> addedDisks, List<DiskInfo> removedDisks) {
-        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDishInfoRef.get());
+        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDishInfoRef);
         for (DiskInfo diskInfo : addedDisks) {
             copiedPathInfos.put(diskInfo.getPathHash(), diskInfo);
         }
@@ -1153,7 +1150,7 @@ public class SystemInfoService {
             copiedPathInfos.remove(diskInfo.getPathHash());
         }
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
-        pathHashToDishInfoRef.set(newPathInfos);
+        pathHashToDishInfoRef = newPathInfos;
         LOG.debug("update path infos: {}", newPathInfos);
     }
 }

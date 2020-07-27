@@ -83,6 +83,7 @@ public class ConnectScheduler {
         if (context == null) {
             return false;
         }
+
         context.setConnectionId(nextConnectionId.getAndAdd(1));
         // no necessary for nio.
         if(context instanceof NConnectContext){
