@@ -509,11 +509,29 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
+    // Configurations for spark load
+    /**
+     * Default spark dpp version
+     */
+    @ConfField
+    public static String spark_dpp_version = "1_0_0";
     /**
      * Default spark load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int spark_load_default_timeout_second = 86400; // 1 day
+
+    /**
+     * Default spark home dir
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String spark_home_default_dir = PaloFe.DORIS_HOME_DIR + "/lib/spark2x";
+
+    /**
+     * Default spark dependencies path
+     */
+    @ConfField
+    public static String spark_resource_path = "";
 
     /**
      * Default number of waiting jobs for routine load and version 2 of load
