@@ -582,10 +582,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
     }
     
-    /*
-     * release all resources before finishing this task
-     */
     public void releaseResource(TabletScheduler tabletScheduler) {
+        releaseResource(tabletScheduler, false);
+    }
+
+    /*
+     * release all resources before finishing this task.
+     * if reserveTablet is true, the tablet object in this ctx will not be set to null after calling reset().
+     */
+    public void releaseResource(TabletScheduler tabletScheduler, boolean reserveTablet) {
         if (srcReplica != null) {
             Preconditions.checkState(srcPathHash != -1);
             PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
@@ -632,17 +637,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
 
-        reset();
+        reset(reserveTablet);
     }
     
     // reset to save memory after state is done
-    private void reset() {
+    private void reset(boolean reserveTablet) {
         /*
          * If state is PENDING, these fields will be reset when being rescheduled.
          * if state is FINISHED/CANCELLED/TIMEOUT, leave these fields for show.
          */
         if (state == State.PENDING) {
-            this.tablet = null;
+            if (!reserveTablet) {
+                this.tablet = null;
+            }
             this.srcReplica = null;
             this.srcPathHash = -1;
             this.destBackendId = -1;
