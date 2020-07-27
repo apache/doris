@@ -1407,6 +1407,10 @@ public class SelectStmt extends QueryStmt {
             if (groupingExprs != null) {
                 rewriter.rewriteList(groupingExprs, analyzer);
             }
+            List<Expr> oriGroupingExprs = groupByClause.getOriGroupingExprs();
+            if (oriGroupingExprs != null) {
+                rewriter.rewriteList(oriGroupingExprs, analyzer);
+            }
         }
         if (orderByElements != null) {
             for (OrderByElement orderByElem : orderByElements) {
