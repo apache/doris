@@ -128,6 +128,11 @@ public:
         return &_pb_batch;
     }
 
+    std::string get_fragment_instance_id_str() {
+        UniqueId uid(_fragment_instance_id);
+        return uid.to_string();
+    }
+
 private:
     inline Status _wait_last_brpc() {
         auto cntl = &_closure->cntl;
@@ -379,8 +384,17 @@ Status DataStreamSender::init(const TDataSink& tsink) {
 Status DataStreamSender::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     _state = state;
+    std::string instances;
+    for (const auto& channel : _channels) {
+        if (instances.empty()) {
+            instances = channel->get_fragment_instance_id_str();
+        } else {
+            instances += ", ";
+            instances += channel->get_fragment_instance_id_str();
+        }
+    }
     std::stringstream title;
-    title << "DataStreamSender (dst_id=" << _dest_node_id << ")";
+    title << "DataStreamSender (dst_id=" << _dest_node_id << ", dst_fragments=[" << instances << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker.reset(
