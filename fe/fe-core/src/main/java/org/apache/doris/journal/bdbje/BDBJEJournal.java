@@ -147,7 +147,7 @@ public class BDBJEJournal implements Journal {
             e.printStackTrace();
         }
         DatabaseEntry theData = new DatabaseEntry(buffer.getData());
-        if (MetricRepo.isInit.get()) {
+        if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
         LOG.debug("opCode = {}, journal size = {}", op, theData.getSize()); 

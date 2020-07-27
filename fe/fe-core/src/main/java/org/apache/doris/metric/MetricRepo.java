@@ -45,7 +45,6 @@ import java.util.Map;
 import java.util.SortedMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
@@ -53,7 +52,7 @@ public final class MetricRepo {
     private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
     private static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
     
-    public static AtomicBoolean isInit = new AtomicBoolean(false);
+    public static volatile boolean isInit = false;
     public static final SystemMetrics SYSTEM_METRICS = new SystemMetrics();
 
     public static final String TABLET_NUM = "tablet_num";
@@ -90,7 +89,7 @@ public final class MetricRepo {
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
     public static synchronized void init() {
-        if (isInit.get()) {
+        if (isInit) {
             return;
         }
 
@@ -248,7 +247,7 @@ public final class MetricRepo {
         initSystemMetrics();
 
         updateMetrics();
-        isInit.set(true);
+        isInit = true;
 
         if (Config.enable_metric_calculator) {
             metricTimer.scheduleAtFixedRate(metricCalculator, 0, 15 * 1000L, TimeUnit.MILLISECONDS);
@@ -351,7 +350,7 @@ public final class MetricRepo {
     }
 
     public static synchronized String getMetric(MetricVisitor visitor) {
-        if (!isInit.get()) {
+        if (!isInit) {
             return "";
         }
 

@@ -351,11 +351,11 @@ public class TransactionState implements Writable {
         // after status changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
             this.latch.countDown();
-            if (MetricRepo.isInit.get()) {
+            if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             }
         } else if (transactionStatus == TransactionStatus.ABORTED) {
-            if (MetricRepo.isInit.get()) {
+            if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TXN_FAILED.increase(1L);
             }
         }
