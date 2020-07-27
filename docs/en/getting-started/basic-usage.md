@@ -268,17 +268,17 @@ The local file `table1_data` takes `,` as the separation between data, and the s
 Example 2: With "table2_20170707" as Label, import table2 tables using the local file table2_data.
 
 ```
-curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:," -T table1_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
+curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table2_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
 ```
 
-The local file `table2_data'is separated by `t'. The details are as follows:
+The local file `table2_data'is separated by `|'. The details are as follows:
 
 ```
-2017-07-03  1   1   jim   2
-2017-07-05  2   1   grace 2
-2017-07-12  3   2   tom   2
-2017-07-15  4   3   bush  3
-2017-07-12  5   3   helen 3
+2017-07-03|1|1|jim|2
+2017-07-05|2|1|grace|2
+2017-07-12|3|2|tom|2
+2017-07-15|4|3|bush|3
+2017-07-12|5|3|helen|3
 ```
 
 > Notes:
