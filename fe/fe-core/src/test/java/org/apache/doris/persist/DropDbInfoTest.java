@@ -33,7 +33,7 @@ public class DropDbInfoTest {
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_88);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_89);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
