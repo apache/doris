@@ -186,11 +186,11 @@ cd ${DORIS_HOME}
 # Assesmble FE modules
 FE_MODULES=
 if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
-    if [ ${BUILD_FE} -eq 1 ]; then
-        FE_MODULES="fe-common,spark-dpp,fe-core"
-    fi
     if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
         FE_MODULES="fe-common,spark-dpp"
+    fi
+    if [ ${BUILD_FE} -eq 1 ]; then
+        FE_MODULES="fe-common,spark-dpp,fe-core"
     fi
 fi
 
@@ -211,7 +211,7 @@ mkdir -p ${DORIS_OUTPUT}
 
 # Copy Frontend and Backend
 if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
-    if [ ${BUILD_FE} -eq 1]; then
+    if [ ${BUILD_FE} -eq 1 ]; then
         install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
                    ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/ \
                    ${DORIS_OUTPUT}/fe/spark-dpp/

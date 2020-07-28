@@ -72,6 +72,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.apache.spark.util.SerializableConfiguration;
 import scala.Tuple2;
 import scala.collection.JavaConverters;
 import scala.collection.Seq;
@@ -103,6 +104,11 @@ public final class SparkDpp implements java.io.Serializable {
     private Map<String, Integer> bucketKeyMap = new HashMap<>();
     // accumulator to collect invalid rows
     private StringAccumulator invalidRows = new StringAccumulator();
+    // save the hadoop configuration from spark session.
+    // because hadoop configuration is not serializable,
+    // we need to wrap it so that we can use it in executor.
+    private SerializableConfiguration serializableHadoopConf;
+
 
     public SparkDpp(SparkSession spark, EtlJobConfig etlJobConfig) {
         this.spark = spark;
@@ -116,6 +122,7 @@ public final class SparkDpp implements java.io.Serializable {
         fileNumberAcc = spark.sparkContext().longAccumulator("fileNumberAcc");
         fileSizeAcc = spark.sparkContext().longAccumulator("fileSizeAcc");
         spark.sparkContext().register(invalidRows, "InvalidRowsAccumulator");
+        this.serializableHadoopConf = new SerializableConfiguration(spark.sparkContext().hadoopConfiguration());
     }
 
     private Dataset<Row> processRDDAggAndRepartition(Dataset<Row> dataframe, EtlJobConfig.EtlIndex currentIndexMeta) throws SparkDppException {
@@ -194,7 +201,7 @@ public final class SparkDpp implements java.io.Serializable {
             @Override
             public void call(Iterator<Row> t) throws Exception {
                 // write the data to dst file
-                Configuration conf = new Configuration();
+                Configuration conf = new Configuration(serializableHadoopConf.value());
                 FileSystem fs = FileSystem.get(URI.create(etlJobConfig.outputPath), conf);
                 String lastBucketKey = null;
                 ParquetWriter<InternalRow> parquetWriter = null;
@@ -720,9 +727,8 @@ public final class SparkDpp implements java.io.Serializable {
         for (String filePath : filePaths) {
             fileNumberAcc.add(1);
             try {
-                Configuration conf = new Configuration();
                 URI uri = new URI(filePath);
-                FileSystem fs = FileSystem.get(uri, conf);
+                FileSystem fs = FileSystem.get(uri, serializableHadoopConf.value());
                 FileStatus fileStatus = fs.getFileStatus(new Path(filePath));
                 fileSizeAcc.add(fileStatus.getLen());
             } catch (Exception e) {
@@ -875,9 +881,8 @@ public final class SparkDpp implements java.io.Serializable {
         DppResult dppResult = process();
         String outputPath = etlJobConfig.getOutputPath();
         String resultFilePath = outputPath + "/" + DPP_RESULT_FILE;
-        Configuration conf = new Configuration();
         URI uri = new URI(outputPath);
-        FileSystem fs = FileSystem.get(uri, conf);
+        FileSystem fs = FileSystem.get(uri, serializableHadoopConf.value());
         Path filePath = new Path(resultFilePath);
         FSDataOutputStream outputStream = fs.create(filePath);
         Gson gson = new Gson();
@@ -886,3 +891,4 @@ public final class SparkDpp implements java.io.Serializable {
         outputStream.close();
     }
 }
+
