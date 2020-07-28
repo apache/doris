@@ -185,6 +185,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("follower", new Integer(SqlParserSymbols.KW_FOLLOWER));
         keywordMap.put("following", new Integer(SqlParserSymbols.KW_FOLLOWING));
         keywordMap.put("for", new Integer(SqlParserSymbols.KW_FOR));
+        keywordMap.put("force", new Integer(SqlParserSymbols.KW_FORCE));
         keywordMap.put("format", new Integer(SqlParserSymbols.KW_FORMAT));
         keywordMap.put("free", new Integer(SqlParserSymbols.KW_FREE));
         keywordMap.put("from", new Integer(SqlParserSymbols.KW_FROM));

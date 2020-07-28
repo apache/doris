@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 import org.junit.Assert;
@@ -28,7 +29,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
-public class DropInfoTest {
+public class DropDbInfoTest {
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
@@ -36,38 +37,36 @@ public class DropInfoTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./dropInfo");
+        File file = new File("./dropDbInfo");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
-        DropInfo info1 = new DropInfo();
+
+        DropDbInfo info1 = new DropDbInfo();
         info1.write(dos);
-        
-        DropInfo info2 = new DropInfo(1, 2, -1, true);
+
+        DropDbInfo info2 = new DropDbInfo("test_db", true);
         info2.write(dos);
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
-        DropInfo rInfo1 = DropInfo.read(dis);
+
+        DropDbInfo rInfo1 = DropDbInfo.read(dis);
         Assert.assertTrue(rInfo1.equals(info1));
-        
-        DropInfo rInfo2 = DropInfo.read(dis);
+
+        DropDbInfo rInfo2 = DropDbInfo.read(dis);
         Assert.assertTrue(rInfo2.equals(info2));
-        
-        Assert.assertEquals(1, rInfo2.getDbId());
-        Assert.assertEquals(2, rInfo2.getTableId());
+
+        Assert.assertEquals("test_db", rInfo2.getDbName());
         Assert.assertTrue(rInfo2.isForceDrop());
-        
+
         Assert.assertTrue(rInfo2.equals(rInfo2));
         Assert.assertFalse(rInfo2.equals(this));
-        Assert.assertFalse(info2.equals(new DropInfo(0, 2, -1L, true)));
-        Assert.assertFalse(info2.equals(new DropInfo(1, 0, -1L, true)));
-        Assert.assertFalse(info2.equals(new DropInfo(1, 2, -1L, false)));
-        Assert.assertTrue(info2.equals(new DropInfo(1, 2, -1L, true)));
+        Assert.assertFalse(info2.equals(new DropDbInfo("test_db1", true)));
+        Assert.assertFalse(info2.equals(new DropDbInfo("test_db", false)));
+        Assert.assertTrue(info2.equals(new DropDbInfo("test_db", true)));
 
         // 3. delete files
         dis.close();

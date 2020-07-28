@@ -48,7 +48,6 @@ public class AlterTableStmt extends DdlStmt {
         return ops;
     }
 
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);

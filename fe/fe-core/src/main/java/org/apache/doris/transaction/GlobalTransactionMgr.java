@@ -217,14 +217,32 @@ public class GlobalTransactionMgr implements Writable {
      * get all txns which is ready to publish
      * a ready-to-publish txn's partition's visible version should be ONE less than txn's commit version.
      */
-    public List<TransactionState> getReadyToPublishTransactions() throws UserException {
+    public List<TransactionState> getReadyToPublishTransactions() {
         List<TransactionState> transactionStateList = Lists.newArrayList();
         for (DatabaseTransactionMgr dbTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
             transactionStateList.addAll(dbTransactionMgr.getCommittedTxnList());
         }
         return transactionStateList;
     }
-    
+
+    public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId) {
+        DatabaseTransactionMgr dbTransactionMgr = dbIdToDatabaseTransactionMgrs.get(dbId);
+        if (tableId == null && partitionId == null) {
+            return !dbTransactionMgr.getCommittedTxnList().isEmpty();
+        }
+
+        for (TransactionState transactionState : dbTransactionMgr.getCommittedTxnList()) {
+            if (transactionState.getTableIdList().contains(tableId)) {
+                if (partitionId == null) {
+                    return true;
+                } else if (transactionState.getTableCommitInfo(tableId).getPartitionCommitInfo(partitionId) != null){
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /**
      * if the table is deleted between commit and publish version, then should ignore the partition
      *

@@ -38,15 +38,18 @@ public class DropPartitionInfo implements Writable {
     private String partitionName;
     @SerializedName(value = "isTempPartition")
     private boolean isTempPartition = false;
+    @SerializedName(value = "forceDrop")
+    private boolean forceDrop = false;
     
     private DropPartitionInfo() {
     }
 
-    public DropPartitionInfo(Long dbId, Long tableId, String partitionName, boolean isTempPartition) {
+    public DropPartitionInfo(Long dbId, Long tableId, String partitionName, boolean isTempPartition, boolean forceDrop) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
+        this.forceDrop = forceDrop;
     }
     
     public Long getDbId() {
@@ -63,6 +66,10 @@ public class DropPartitionInfo implements Writable {
 
     public boolean isTempPartition() {
         return isTempPartition;
+    }
+
+    public boolean isForceDrop() {
+        return forceDrop;
     }
 
     private void readFields(DataInput in) throws IOException {
@@ -101,6 +108,8 @@ public class DropPartitionInfo implements Writable {
         
         return (dbId.equals(info.dbId))
                 && (tableId.equals(info.tableId))
-                && (partitionName.equals(info.partitionName));
+                && (partitionName.equals(info.partitionName))
+                && (isTempPartition == info.isTempPartition)
+                && (forceDrop == info.forceDrop);
     }
 }
