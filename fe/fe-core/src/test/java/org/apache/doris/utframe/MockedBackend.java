@@ -18,11 +18,14 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.common.ThriftServer;
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.BeThriftService;
 
+import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
+import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
 import com.baidu.jprotobuf.pbrpc.transport.RpcServer;
 
 import org.apache.thrift.TProcessor;
@@ -55,6 +58,11 @@ public class MockedBackend {
     // the fe address: fe host and fe rpc port.
     // This must be set explicitly after creating mocked Backend
     private TNetworkAddress feAddress;
+
+    static {
+        int javaRuntimeVersion = JdkUtils.getJavaVersionAsInteger(System.getProperty("java.version"));
+        JDKCompilerHelper.setCompiler(new JdkCompiler(JdkCompiler.class.getClassLoader(), String.valueOf(javaRuntimeVersion)));
+    }
 
     public MockedBackend(String host, int heartbeatPort, int thriftPort, int brpcPort, int httpPort,
             HeartbeatService.Iface hbService,
