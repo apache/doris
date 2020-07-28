@@ -119,7 +119,10 @@ public class SparkRepositoryTest {
                     throws UserException { return false; }
             @Mock
             void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return;}
+                    throws UserException { return; }
+            @Mock
+            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc)
+                    throws UserException { return; }
         };
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
@@ -179,7 +182,10 @@ public class SparkRepositoryTest {
                     throws UserException { return; }
             @Mock
             void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return;}
+                    throws UserException { return; }
+            @Mock
+            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc)
+                    throws UserException { return; }
         };
 
         // new md5dum of local library
