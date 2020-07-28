@@ -287,7 +287,7 @@ public class DistributedPlanner {
      */
     private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost)  {
         String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
-        if (joinMethod.equals("broadcast")) {
+        if (joinMethod.equalsIgnoreCase("broadcast")) {
             return broadcastCost <= partitionCost;
         } else {
             return broadcastCost < partitionCost;
