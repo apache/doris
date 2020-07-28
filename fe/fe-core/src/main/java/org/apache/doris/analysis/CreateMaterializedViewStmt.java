@@ -338,7 +338,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
-    public MVColumnItem buildMVColumnItem(FunctionCallExpr functionCallExpr) throws AnalysisException {
+    private MVColumnItem buildMVColumnItem(FunctionCallExpr functionCallExpr) throws AnalysisException {
         String functionName = functionCallExpr.getFnName().getFunction();
         List<SlotRef> slots = new ArrayList<>();
         functionCallExpr.collect(SlotRef.class, slots);
