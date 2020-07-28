@@ -62,7 +62,7 @@ public class AlterTableStmtTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException, UserException {
+    public void testNormal() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         ops.add(new DropColumnClause("col2", "", null));
@@ -89,7 +89,7 @@ public class AlterTableStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoTable() throws AnalysisException, UserException {
+    public void testNoTable() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         AlterTableStmt stmt = new AlterTableStmt(null, ops);
@@ -99,7 +99,7 @@ public class AlterTableStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoClause() throws AnalysisException, UserException {
+    public void testNoClause() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);

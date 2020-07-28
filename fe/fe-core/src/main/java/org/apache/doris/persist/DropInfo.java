@@ -17,6 +17,8 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;
@@ -28,14 +30,16 @@ public class DropInfo implements Writable {
     private long tableId;
     
     private long indexId;
+    private boolean forceDrop = false;
 
     public DropInfo() {
     }
     
-    public DropInfo(long dbId, long tableId, long indexId) {
+    public DropInfo(long dbId, long tableId, long indexId, boolean forceDrop) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexId = indexId;
+        this.forceDrop = forceDrop;
     }
     
     public long getDbId() {
@@ -49,11 +53,16 @@ public class DropInfo implements Writable {
     public long getIndexId() {
         return this.indexId;
     }
+
+    public boolean isForceDrop() {
+        return forceDrop;
+    }
     
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
         out.writeLong(tableId);
+        out.writeBoolean(forceDrop);
         if (indexId == -1L) {
             out.writeBoolean(false);
         } else {
@@ -65,7 +74,9 @@ public class DropInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
-
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_89) {
+            forceDrop = in.readBoolean();
+        }
         boolean hasIndexId = in.readBoolean();
         if (hasIndexId) {
             indexId = in.readLong();
@@ -73,7 +84,7 @@ public class DropInfo implements Writable {
             indexId = -1L;
         }
     }
-    
+
     public static DropInfo read(DataInput in) throws IOException {
         DropInfo dropInfo = new DropInfo();
         dropInfo.readFields(in);
@@ -91,6 +102,7 @@ public class DropInfo implements Writable {
         
         DropInfo info = (DropInfo) obj;
         
-        return dbId == info.dbId && tableId == info.tableId;
+        return (dbId == info.dbId) && (tableId == info.tableId) && (indexId == info.indexId)
+                && (forceDrop == info.forceDrop);
     }
 }
