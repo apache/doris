@@ -17,10 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
@@ -33,11 +39,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * Materialized view is performed to materialize the results of query.
