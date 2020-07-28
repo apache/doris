@@ -589,11 +589,7 @@ public class OlapTable extends Table {
         nameToPartition.put(partition.getName(), partition);
     }
 
-    public Partition dropPartition(long dbId, String partitionName) {
-        return dropPartition(dbId, partitionName, false);
-    }
-
-    public Partition dropPartition(long dbId, String partitionName, boolean isRestore) {
+    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
             idToPartition.remove(partition.getId());
@@ -602,7 +598,7 @@ public class OlapTable extends Table {
             Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             
-            if (!isRestore) {
+            if (!isForceDrop) {
                 // recycle partition
                 Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
                                           rangePartitionInfo.getRange(partition.getId()),

@@ -187,6 +187,9 @@ public final class FeMetaVersion {
     public static final int VERSION_87 = 87;
     // add partition visibleVersionTime
     public static final int VERSION_88 = 88;
+    // force drop db, force drop table, force drop partition
+    // make force drop operation do not recycle meta
+    public static final int VERSION_89 = 89;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_88;
+    public static final int VERSION_CURRENT = VERSION_89;
 }

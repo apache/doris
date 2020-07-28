@@ -237,7 +237,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 RangeUtils.checkRangeIntersect(reservePartitionKeyRange, checkDropPartitionKey);
                 if (checkDropPartitionKey.upperEndpoint().compareTo(reservePartitionKeyRange.lowerEndpoint()) <= 0) {
                     String dropPartitionName = olapTable.getPartition(checkDropPartitionId).getName();
-                    dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false));
+                    dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, true));
                 }
             } catch (DdlException e) {
                 break;

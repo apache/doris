@@ -56,6 +56,7 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
+import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
@@ -149,8 +150,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_DB: {
-                data = new Text();
-                ((Text) data).readFields(in);
+                data = DropDbInfo.read(in);
                 isRead = true;
                 break;
             }
