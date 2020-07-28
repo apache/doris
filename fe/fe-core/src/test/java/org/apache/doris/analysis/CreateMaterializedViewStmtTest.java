@@ -1043,10 +1043,18 @@ public class CreateMaterializedViewStmtTest {
         SlotRef slotRef3 = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params3 = Lists.newArrayList();
         params3.add(slotRef3);
-        FunctionCallExpr functionCallExpr3 = new FunctionCallExpr("min", params2);
-        slotRef2.setType(Type.VARCHAR);
+        FunctionCallExpr functionCallExpr3 = new FunctionCallExpr("min", params3);
+        slotRef3.setType(Type.VARCHAR);
         MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
         Assert.assertEquals(Type.VARCHAR, mvColumnItem3.getType());
+
+        SlotRef slotRef4 = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params4 = Lists.newArrayList();
+        params4.add(slotRef4);
+        FunctionCallExpr functionCallExpr4 = new FunctionCallExpr("sum", params4);
+        slotRef4.setType(Type.DOUBLE);
+        MVColumnItem mvColumnItem4 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr4);
+        Assert.assertEquals(Type.DOUBLE, mvColumnItem4.getType());
 
 
     }

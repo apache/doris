@@ -355,7 +355,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             case "sum":
                 mvColumnName = baseColumnName;
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
-                type = baseColumnRef.getType().getPrimitiveType() == PrimitiveType.LARGEINT ? Type.LARGEINT : Type.BIGINT;
+                PrimitiveType baseColumnType = baseColumnRef.getType().getPrimitiveType();
+                if (baseColumnType == PrimitiveType.TINYINT || baseColumnType == PrimitiveType.SMALLINT
+                        || baseColumnType == PrimitiveType.INT) {
+                    type = Type.BIGINT;
+                } else {
+                    type = Type.fromPrimitiveType(baseColumnRef.getType().getPrimitiveType());
+                }
                 break;
             case "min":
             case "max":
