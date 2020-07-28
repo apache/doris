@@ -17,12 +17,12 @@
 
 package org.apache.doris.plugin;
 
-import avro.shaded.com.google.common.collect.Maps;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 

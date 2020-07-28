@@ -55,7 +55,7 @@ under the License.
 
         INSTALL PLUGIN FROM "http://mywebsite.com/plugin.zip";
         
-    4  下载并安装一个插件,同时设置了zip文件的md5sum的值：   
+    4. 下载并安装一个插件,同时设置了zip文件的md5sum的值：   
         
         INSTALL PLUGIN FROM "http://mywebsite.com/plugin.zip" PROPERTIES("md5sum" = "73877f6029216f4314d712086a146570");
         
