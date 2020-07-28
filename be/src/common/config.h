@@ -268,6 +268,13 @@ namespace config {
     CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
     CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
+    // config the cumulative compaction policy
+    // Valid configs: ordinary, universal
+    // ordinary policy, the original version of cumulative compaction, cumulative version compaction once.
+    // universal policy, a optimization version of cumulative compaction, targeting the use cases requiring 
+    // lower write amplification, trading off read amplification and space amplification.
+    CONF_String(cumulative_compaction_policy, "original");
+
     // cumulative compaction policy: max delta file's size unit:B
     CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");

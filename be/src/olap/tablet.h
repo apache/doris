@@ -36,6 +36,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "olap/base_tablet.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "util/once.h"
 
 namespace doris {
@@ -43,6 +44,7 @@ namespace doris {
 class DataDir;
 class Tablet;
 class TabletMeta;
+class CumulativeCompactionPolicy;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
@@ -51,7 +53,8 @@ public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                    DataDir* data_dir = nullptr);
 
-    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
+    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
+           std::string cumulative_compaction_type = config::cumulative_compaction_policy);
 
     OLAPStatus init();
     inline bool init_succeeded();
@@ -73,6 +76,7 @@ public:
     inline size_t num_rows();
     inline int version_count() const;
     inline Version max_version() const;
+    inline std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy();
 
     // propreties encapsulated in TabletSchema
     inline KeysType keys_type() const;
@@ -207,8 +211,8 @@ public:
 
     TabletInfo get_tablet_info() const;
 
-    void pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
-                                                         std::vector<RowsetSharedPtr>* candidate_rowsets);
+    void pick_candicate_rowsets_to_cumulative_compaction(
+            int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
     void calculate_cumulative_point();
@@ -295,8 +299,16 @@ private:
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
+
+    // cumulative compaction policy
+    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    std::string _cumulative_compaction_type;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
+
+inline std::shared_ptr<CumulativeCompactionPolicy> Tablet::cumulative_compaction_policy() {
+    return _cumulative_compaction_policy;
+}
 
 inline bool Tablet::init_succeeded() {
     return _init_once.has_called() && _init_once.stored_result() == OLAP_SUCCESS;

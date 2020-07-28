@@ -27,7 +27,7 @@ CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::st
         : Compaction(tablet, label, parent_tracker),
           _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes) {}
 
-CumulativeCompaction::~CumulativeCompaction() { }
+CumulativeCompaction::~CumulativeCompaction() {}
 
 OLAPStatus CumulativeCompaction::compact() {
     if (!_tablet->init_succeeded()) {
@@ -41,7 +41,7 @@ OLAPStatus CumulativeCompaction::compact() {
     }
     TRACE("got cumulative compaction lock");
 
-    // 1.calculate cumulative point 
+    // 1.calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
     LOG(INFO) << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point() 
@@ -60,7 +60,7 @@ OLAPStatus CumulativeCompaction::compact() {
     _state = CompactionState::SUCCESS;
 
     // 5. set cumulative point
-    _tablet->set_cumulative_layer_point(_input_rowsets.back()->end_version() + 1);
+    _tablet->cumulative_compaction_policy()->update_cumulative_point(_input_rowsets, _output_rowset);
     LOG(INFO) << "after cumulative compaction, current cumulative point is " 
         << _tablet->cumulative_layer_point()  << ", tablet=" << _tablet->full_name() ;
 
@@ -74,14 +74,14 @@ OLAPStatus CumulativeCompaction::compact() {
 
 OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
+
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(
-        config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
+            config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
-    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     RETURN_NOT_OK(check_version_continuity(candidate_rowsets));
 
     std::vector<RowsetSharedPtr> transient_rowsets;
@@ -89,31 +89,9 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     // the last delete version we meet when traversing candidate_rowsets
     Version last_delete_version { -1, -1 };
 
-    for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
-        RowsetSharedPtr rowset = candidate_rowsets[i];
-        if (_tablet->version_for_delete_predicate(rowset->version())) {
-            last_delete_version = rowset->version();
-            if (!transient_rowsets.empty()) {
-                // we meet a delete version, and there were other versions before.
-                // we should compact those version before handling them over to base compaction
-                _input_rowsets = transient_rowsets;
-                break;
-            }
-
-            // we meet a delete version, and no other versions before, skip it and continue
-            transient_rowsets.clear();
-            compaction_score = 0;
-            continue;
-        }
-
-        if (compaction_score >= config::max_cumulative_compaction_num_singleton_deltas) {
-            // got enough segments
-            break;
-        }
-
-        compaction_score += rowset->rowset_meta()->get_compaction_score();
-        transient_rowsets.push_back(rowset); 
-    }
+    _tablet->cumulative_compaction_policy()->pick_input_rowsets(
+            candidate_rowsets, config::max_cumulative_compaction_num_singleton_deltas,
+            &transient_rowsets, &last_delete_version, &compaction_score);
 
     // if we have a sufficient number of segments,
     // or have other versions before encountering the delete version, we should process the compaction.

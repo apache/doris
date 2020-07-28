@@ -19,8 +19,8 @@
 #define DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
 
 #include <string>
-
 #include "olap/compaction.h"
+#include "olap/cumulative_compaction_policy.h"
 
 namespace doris {
 
@@ -45,7 +45,7 @@ protected:
 
 private:
     int64_t _cumulative_rowset_size_threshold;
-
+    
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };
 
