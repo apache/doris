@@ -266,7 +266,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 
 插件可以通过以下三种方式部署。
 
-* 将 `.zip` 文件放在 Http 或 Https 服务器上。如：`http://xxx.xxx.com/data/my_plugin.zip`, Doris 会下载这个文件。同时需要放置一个和 `.zip` 文件同名的 md5 文件。如 `http://xxx.xxxxxx.com/data/my_plugin.zip.md5`。其中内容为 .zip 文件的 MD5 值。
+* 将 `.zip` 文件放在 Http 或 Https 服务器上。如：`http://xxx.xxx.com/data/my_plugin.zip`, Doris 会下载这个文件。同时需要在properties中设置md5sum的值，或者放置一个和 `.zip` 文件同名的 md5 文件，如 `http://xxx.xxxxxx.com/data/my_plugin.zip.md5`。其中内容为 .zip 文件的 MD5 值。
 * 本地 `.zip` 文件。 如：`/home/work/data/plugin.zip`。如果该插件仅用于 FE，则需部署在所有 FE 节点相同的目录下。否则，需要在所有 FE 和 BE 节点部署。
 * 本地目录。如：`/home/work/data/plugin/`。相当于 `.zip` 文件解压后的目录。如果该插件仅用于 FE，则需部署在所有 FE 节点相同的目录下。否则，需要在所有 FE 和 BE 节点部署。
 
@@ -280,7 +280,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 mysql> install plugin from "/home/users/doris/auditloader.zip";
 Query OK, 0 rows affected (0.09 sec)
 
-mysql> mysql> show plugins\G
+mysql> show plugins\G
 *************************** 1. row ***************************
        Name: auditloader
        Type: AUDIT
@@ -291,6 +291,7 @@ JavaVersion: 1.8.31
      SoName: NULL
     Sources: /home/users/doris/auditloader.zip
      Status: INSTALLED
+ Properties: {}
 *************************** 2. row ***************************
        Name: AuditLogBuilder
        Type: AUDIT
@@ -301,6 +302,7 @@ JavaVersion: 1.8.31
      SoName: NULL
     Sources: Builtin
      Status: INSTALLED
+ Properties: {}   
 2 rows in set (0.00 sec)
 
 mysql> uninstall plugin auditloader;
