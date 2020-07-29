@@ -147,7 +147,7 @@ public class MysqlChannel {
             readLen = readAll(headerByteBuffer);
             if (readLen != PACKET_HEADER_LEN) {
                 // remote has close this channel
-                LOG.info("Receive packet header failed, remote may close the channel.");
+                LOG.debug("Receive packet header failed, remote may close the channel.");
                 return null;
             }
             if (packetId() != sequenceId) {
