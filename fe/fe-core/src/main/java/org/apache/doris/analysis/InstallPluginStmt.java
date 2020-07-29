@@ -18,28 +18,41 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.plugin.DynamicPluginLoader;
 import org.apache.doris.qe.ConnectContext;
+
+import java.util.Map;
 
 public class InstallPluginStmt extends DdlStmt {
 
     private String pluginPath;
+    private Map<String, String> properties;
 
-    public InstallPluginStmt(String pluginPath) {
+    public InstallPluginStmt(String pluginPath, Map<String, String> properties) {
         this.pluginPath = pluginPath;
+        this.properties = properties;
     }
 
     public String getPluginPath() {
         return pluginPath;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public String getMd5sum() {
+        return properties == null ? null : properties.get(DynamicPluginLoader.MD5SUM_KEY);
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         if (!Config.plugin_enable) {
@@ -55,7 +68,14 @@ public class InstallPluginStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "INSTALL PLUGIN FROM " + pluginPath;
+        StringBuilder sb = new StringBuilder();
+        sb.append("INSTALL PLUGIN FROM ").append("\"" + pluginPath + "\"");
+        if (properties != null && !properties.isEmpty()) {
+            sb.append("\nPROPERTIES (");
+            sb.append(new PrintableMap<String, String>(properties, " = ", true, true, true));
+            sb.append(")");
+        }
+        return sb.toString();
     }
 
     @Override

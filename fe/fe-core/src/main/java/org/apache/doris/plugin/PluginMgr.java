@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
 import org.apache.doris.qe.AuditLogBuilder;
@@ -109,12 +110,15 @@ public class PluginMgr implements Writable {
     // install a plugin from user's command.
     // install should be successfully, or nothing should be left if failed to install.
     public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
-        PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, stmt.getPluginPath());
+        PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, stmt.getPluginPath(), stmt.getMd5sum());
         pluginLoader.setStatus(PluginStatus.INSTALLING);
 
         try {
             PluginInfo info = pluginLoader.getPluginInfo();
-            
+            if (stmt.getProperties() != null) {
+                info.setProperties(stmt.getProperties());
+            }
+
             if (checkDynamicPluginNameExist(info.getName())) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
@@ -292,7 +296,7 @@ public class PluginMgr implements Writable {
                 }
 
                 r.add(loader.getStatus().toString());
-
+                r.add(pi != null ? "{" + new PrintableMap<>(pi.getProperties(), "=", true, false, true).toString() + "}" : "UNKNOWN");
                 rows.add(r);
             }
         }
