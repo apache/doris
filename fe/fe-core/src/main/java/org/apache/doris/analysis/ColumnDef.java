@@ -211,7 +211,6 @@ public class ColumnDef {
                 break;
             case LARGEINT:
                 LargeIntLiteral largeIntLiteral = new LargeIntLiteral(defaultValue);
-                largeIntLiteral.analyze(null);
                 break;
             case FLOAT:
                 FloatLiteral floatLiteral = new FloatLiteral(defaultValue);
