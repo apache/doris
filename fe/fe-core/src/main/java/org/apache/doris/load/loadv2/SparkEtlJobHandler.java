@@ -53,6 +53,7 @@ import org.apache.spark.launcher.SparkAppHandle.Listener;
 import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -78,10 +79,14 @@ public class SparkEtlJobHandler {
 
     class SparkAppListener implements Listener {
         @Override
-        public void stateChanged(SparkAppHandle sparkAppHandle) {}
+        public void stateChanged(SparkAppHandle sparkAppHandle) {
+            LOG.info("get spark state changed: {}, app id: {}", sparkAppHandle.getState(), sparkAppHandle.getAppId());
+        }
 
         @Override
-        public void infoChanged(SparkAppHandle sparkAppHandle) {}
+        public void infoChanged(SparkAppHandle sparkAppHandle) {
+            LOG.info("get spark info changed: {}, app id: {}", sparkAppHandle.getState(), sparkAppHandle.getAppId());
+        }
     }
 
     public void submitEtlJob(long loadJobId, String loadLabel, EtlJobConfig etlJobConfig, SparkResource resource,
@@ -134,7 +139,9 @@ public class SparkEtlJobHandler {
                 .setMainClass(SparkEtlJob.class.getCanonicalName())
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .setSparkHome(sparkHome)
-                .addAppArgs(jobConfigHdfsPath);
+                .addAppArgs(jobConfigHdfsPath)
+                .redirectError()
+                .redirectOutput(new File(Config.sys_log_dir + "/spark-submitter.log"));
 
         // spark configs
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {

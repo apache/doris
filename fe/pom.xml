@@ -29,6 +29,8 @@ under the License.
     <packaging>pom</packaging>
 
     <modules>
+        <module>fe-common</module>
+        <module>spark-dpp</module>
         <module>fe-core</module>
     </modules>
 
@@ -108,6 +110,18 @@ under the License.
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.apache</groupId>
+                <artifactId>fe-common</artifactId>
+                <version>1.0.0</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache</groupId>
+                <artifactId>spark-dpp</artifactId>
+                <version>1.0.0</version>
+            </dependency>
+
             <!-- https://mvnrepository.com/artifact/cglib/cglib -->
             <dependency>
                 <groupId>cglib</groupId>
@@ -570,6 +584,62 @@ under the License.
             <dependency>
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-sql_2.12</artifactId>
+                <version>2.4.5</version>
+                <scope>provided</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-common</artifactId>
+                <version>2.6.5</version>
+                <scope>provided</scope>
+            </dependency>
+            
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-column</artifactId>
+                <version>1.10.1</version>
+                <scope>provided</scope>
+            </dependency>
+            
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-hadoop</artifactId>
+                <version>1.10.1</version>
+                <scope>provided</scope>
+            </dependency>
+            
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-common</artifactId>
+                <version>1.10.1</version>
+                <scope>provided</scope>
+            </dependency>
+            
+            <dependency>
+                <groupId>commons-collections</groupId>
+                <artifactId>commons-collections</artifactId>
+                <version>3.2.1</version>
+                <scope>compile</scope>
+            </dependency>
+            
+            <dependency>
+                <groupId>org.scala-lang</groupId>
+                <artifactId>scala-library</artifactId>
+                <version>2.12.10</version>
+                <scope>provided</scope>
+            </dependency>
+            
+            <dependency>
+                <groupId>com.esotericsoftware</groupId>
+                <artifactId>kryo-shaded</artifactId>
+                <version>4.0.2</version>
+                <scope>compile</scope>
+            </dependency>
+            
+            <dependency>
+                <groupId>org.apache.spark</groupId>
+                <artifactId>spark-catalyst_2.12</artifactId>
                 <version>2.4.5</version>
                 <scope>provided</scope>
             </dependency>

@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.load.loadv2.dpp;
+
+import org.apache.doris.load.loadv2.dpp.BitmapValue;
+import org.apache.doris.common.Codec;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -27,8 +30,6 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-import static org.apache.doris.common.util.Util.decodeVarint64;
-import static org.apache.doris.common.util.Util.encodeVarint64;
 import static org.junit.Assert.assertEquals;
 
 public class BitmapValueTest {
@@ -39,8 +40,8 @@ public class BitmapValueTest {
         for (long value : sourceValue) {
             ByteArrayOutputStream byteArrayOutput = new ByteArrayOutputStream();
             DataOutput output = new DataOutputStream(byteArrayOutput);
-            encodeVarint64(value, output);
-            assertEquals(value, decodeVarint64(new DataInputStream(new ByteArrayInputStream(byteArrayOutput.toByteArray()))));
+            Codec.encodeVarint64(value, output);
+            assertEquals(value, Codec.decodeVarint64(new DataInputStream(new ByteArrayInputStream(byteArrayOutput.toByteArray()))));
         }
     }
 

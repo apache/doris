@@ -75,9 +75,6 @@ fi
 
 echo "Build Frontend UT"
 
-rm ${DORIS_HOME}/fe/build/ -rf
-rm ${DORIS_HOME}/fe/output/ -rf
-
 echo "******************************"
 echo "    Runing DorisFe Unittest    "
 echo "******************************"
