@@ -32,10 +32,10 @@ under the License.
     语法：
         DELETE FROM table_name [PARTITION partition_name]
         WHERE 
-        column_name1 op value[ AND column_name2 op value ...];
+        column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
         
     说明：
-        1) op 的可选类型包括：=, >, <, >=, <=, !=
+        1) op 的可选类型包括：=, >, <, >=, <=, !=, in, not in
         2) 只能指定 key 列上的条件。
         2) 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
         3) 条件之间只能是“与”的关系。
