@@ -11,7 +11,7 @@ docs/.vuepress/dist
 docs/node_modules
 docs/build
 gensrc/build
-fe/target
+fe/fe-core/target
 thirdparty/src
 thirdparty/installed
 *.so.tmp

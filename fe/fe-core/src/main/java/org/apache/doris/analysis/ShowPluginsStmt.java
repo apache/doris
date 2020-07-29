@@ -35,6 +35,7 @@ public class ShowPluginsStmt extends ShowStmt {
                     .addColumn(new Column("SoName", ScalarType.createVarchar(64)))
                     .addColumn(new Column("Sources", ScalarType.createVarchar(200)))
                     .addColumn(new Column("Status", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Properties", ScalarType.createVarchar(250)))
                     .build();
 
     @Override

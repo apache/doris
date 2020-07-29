@@ -52,7 +52,7 @@ public class PluginZipTest {
 
     @Test
     public void testDownloadAndValidateZipNormal() {
-        PluginZip zip = new PluginZip("source/test.zip");
+        PluginZip zip = new PluginZip("source/test.zip", null);
         try {
             // normal
             new Expectations(zip) {
@@ -76,8 +76,30 @@ public class PluginZipTest {
     }
 
     @Test
+    public void testDownloadAndValidateZipNormalWithExpectedMd5sum() {
+        PluginZip zip = new PluginZip("source/test.zip", "7529db41471ec72e165f96fe9fb92742");
+        try {
+            // normal
+            new Expectations(zip) {
+                {
+                    zip.getInputStreamFromUrl("source/test.zip");
+                    result = PluginTestUtil.openTestFile("source/test.zip");
+                }
+            };
+
+            Path zipPath = zip.downloadRemoteZip(PluginTestUtil.getTestPath("target"));
+            assertTrue(Files.exists(zipPath));
+            assertTrue(Files.deleteIfExists(zipPath));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            assert false;
+        }
+    }
+
+    @Test
     public void testDownloadAndValidateZipMd5Error() {
-        PluginZip zip = new PluginZip("source/test.zip");
+        PluginZip zip = new PluginZip("source/test.zip", null);
         try {
             new Expectations(zip) {
                 {
@@ -99,7 +121,7 @@ public class PluginZipTest {
 
     @Test
     public void testDownloadAndValidateZipIOException() {
-        PluginZip util = new PluginZip("http://io-exception");
+        PluginZip util = new PluginZip("http://io-exception", null);
         try {
             Path zipPath = util.downloadRemoteZip(PluginTestUtil.getTestPath("target"));
         } catch (Exception e) {
@@ -113,7 +135,7 @@ public class PluginZipTest {
         try {
             Files.copy(PluginTestUtil.getTestPath("source/test.zip"), PluginTestUtil.getTestPath("source/test-a.zip"));
 
-            PluginZip util = new PluginZip(PluginTestUtil.getTestPathString("source/test-a.zip"));
+            PluginZip util = new PluginZip(PluginTestUtil.getTestPathString("source/test-a.zip"), null);
 
             Path actualPath = util.extract(PluginTestUtil.getTestPath("target"));
             assertTrue(Files.isDirectory(actualPath));
@@ -133,7 +155,7 @@ public class PluginZipTest {
     public void testDownload() {
         // normal
         try {
-            PluginZip util = new PluginZip(PluginTestUtil.getTestPathString("source/test.zip"));
+            PluginZip util = new PluginZip(PluginTestUtil.getTestPathString("source/test.zip"), null);
             Path p = util.downloadZip(PluginTestUtil.getTestPath("target"));
             assertTrue(Files.exists(p));
 
@@ -142,7 +164,7 @@ public class PluginZipTest {
         }
 
         try {
-            PluginZip util = new PluginZip("https://hello:12313/test.zip");
+            PluginZip util = new PluginZip("https://hello:12313/test.zip", null);
 
             new Expectations(util) {
                 {
@@ -161,7 +183,7 @@ public class PluginZipTest {
 
         // empty sources
         try {
-            PluginZip util = new PluginZip("   ");
+            PluginZip util = new PluginZip("   ", null);
 
             util.downloadZip(PluginTestUtil.getTestPath("target"));
         } catch (Exception e) {
