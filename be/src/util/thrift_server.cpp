@@ -36,8 +36,8 @@
 
 namespace doris {
 
-DEFINE_COUNTER_METRIC_3ARG(thrift_current_connections, MetricUnit::CONNECTIONS, "Number of currently active connections");
-DEFINE_GAUGE_METRIC_3ARG(thrift_connections_total, MetricUnit::CONNECTIONS, "Total connections made over the lifetime of this server");
+DEFINE_GAUGE_METRIC_3ARG(thrift_current_connections, MetricUnit::CONNECTIONS, "Number of currently active connections");
+DEFINE_COUNTER_METRIC_3ARG(thrift_connections_total, MetricUnit::CONNECTIONS, "Total connections made over the lifetime of this server");
 
 // Helper class that starts a server in a separate thread, and handles
 // the inter-thread communication to monitor whether it started
