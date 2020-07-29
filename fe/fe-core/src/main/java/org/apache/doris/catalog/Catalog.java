@@ -166,6 +166,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.DatabaseInfo;
+import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
@@ -2733,7 +2734,8 @@ public class Catalog {
             fullNameToDb.remove(db.getFullName());
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
-            editLog.logDropDb(dbName, stmt.isForceDrop());
+            DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop());
+            editLog.logDropDb(info);
         } finally {
             unlock();
         }
