@@ -530,6 +530,10 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
+        sql = "select count(distinct if(id = 1, id2, null)) from test.bitmap_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
         sql = "select count(distinct id2) from test.bitmap_table";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
