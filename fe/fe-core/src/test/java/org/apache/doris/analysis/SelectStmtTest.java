@@ -331,4 +331,10 @@ public class SelectStmtTest {
             System.out.println(e.getMessage());
         }
     }
+
+    @Test
+    public void testGroupByConstantExpression() throws Exception {
+        String sql = "SELECT k1 - 4*60*60 FROM baseall GROUP BY k1 - 4*60*60";
+        dorisAssert.query(sql).explainQuery();
+    }
 }
