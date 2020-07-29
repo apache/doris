@@ -31,7 +31,7 @@ under the License.
     该操作会同时删除和此 base index 相关的 rollup index 的数据。
     语法：
         DELETE FROM table_name [PARTITION partition_name]
-        WHERE 
+        WHERE
         column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
         
     说明：
