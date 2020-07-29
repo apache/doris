@@ -17,21 +17,6 @@
 
 package org.apache.doris.alter;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantLock;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelStmt;
@@ -54,6 +39,21 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.thrift.TTabletInfo;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 public abstract class AlterHandler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(AlterHandler.class);
