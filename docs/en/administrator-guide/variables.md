@@ -338,3 +338,9 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `rewrite_count_distinct_to_bitmap_hll`
 
     Whether to rewrite count distinct queries of bitmap and HLL types as bitmap_union_count and hll_union_agg.
+
+* `prefer_join_method`
+
+    When choosing the join method(broadcast join or shuffle join), if the broadcast join cost and shuffle join cost are equal, which join method should we prefer.
+
+    Currently, the optional values for this variable are "broadcast" or "shuffle".
