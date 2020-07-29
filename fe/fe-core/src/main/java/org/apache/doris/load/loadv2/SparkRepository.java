@@ -60,14 +60,14 @@ public class SparkRepository {
     public static final String REPOSITORY_DIR = "__spark_repository__";
     public static final String PREFIX_ARCHIVE = "__archive_";
     public static final String PREFIX_LIB = "__lib_";
-    public static final String SPARK_DPP = "spark-dpp";
+    public static final String SPARK_DPP_JAR = "spark-dpp-" + Config.spark_dpp_version + "-jar-with-dependencies.jar";
+    public static final String SPARK_DPP = "spark-dpp-" + Config.spark_dpp_version + "-jar-with-dependencies";
     public static final String SPARK_2X = "spark-2x";
-    public static final String SUFFIX = ".zip";
 
     private static final String PATH_DELIMITER = "/";
     private static final String FILE_NAME_SEPARATOR = "_";
 
-    private static final String DPP_RESOURCE = "/spark-dpp/spark-dpp.jar";
+    private static final String DPP_RESOURCE_DIR = "/spark-dpp/";
     private static final String SPARK_RESOURCE = "/jars/spark-2x.zip";
 
     private String remoteRepositoryPath;
@@ -85,7 +85,7 @@ public class SparkRepository {
         this.brokerDesc = brokerDesc;
         this.currentDppVersion = Config.spark_dpp_version;
         this.currentArchive = new SparkArchive(getRemoteArchivePath(currentDppVersion), currentDppVersion);
-        this.localDppPath = PaloFe.DORIS_HOME_DIR + DPP_RESOURCE;
+        this.localDppPath = PaloFe.DORIS_HOME_DIR + DPP_RESOURCE_DIR + SPARK_DPP_JAR;
         if (!Strings.isNullOrEmpty(Config.spark_resource_path)) {
             this.localSpark2xPath = Config.spark_resource_path;
         } else {
@@ -98,7 +98,7 @@ public class SparkRepository {
     }
 
     private void initRepository() throws LoadException {
-        LOG.info("start to init remote repository");
+        LOG.info("start to init remote repositoryi. local dpp: {}", this.localDppPath);
         boolean needUpload = false;
         boolean needReplace = false;
         CHECK: {
@@ -222,7 +222,11 @@ public class SparkRepository {
             if (!fileName.startsWith(PREFIX_LIB)) {
                 continue;
             }
-            String[] lib_arg = unWrap(PREFIX_LIB, SUFFIX, fileName).split(FILE_NAME_SEPARATOR);
+
+            // fileName should like:
+            //      __lib_md5sum_spark-dpp-1.0.0-jar-with-dependencies.jar
+            //      __lib_md5sum_spark-2x.zip
+            String[] lib_arg = unwrap(PREFIX_LIB, fileName).split(FILE_NAME_SEPARATOR);
             if (lib_arg.length != 2) {
                 continue;
             }
@@ -232,16 +236,12 @@ public class SparkRepository {
             }
             String type = lib_arg[1];
             SparkLibrary.LibType libType = null;
-            switch (type) {
-                case SPARK_DPP:
-                    libType = SparkLibrary.LibType.DPP;
-                    break;
-                case SPARK_2X:
-                    libType = SparkLibrary.LibType.SPARK2X;
-                    break;
-                default:
-                    Preconditions.checkState(false, "wrong library type: " + type);
-                    break;
+            if (type.equals(SPARK_DPP)) {
+                libType = SparkLibrary.LibType.DPP;
+            } else if (type.equals(SPARK_2X)) {
+                libType = SparkLibrary.LibType.SPARK2X;
+            } else {
+                throw new LoadException("Invalid library type: " + type);
             }
             SparkLibrary remoteFile = new SparkLibrary(fileStatus.path, md5sum, libType, fileStatus.size);
             libraries.add(remoteFile);
@@ -259,7 +259,7 @@ public class SparkRepository {
             LOG.debug("get md5sum from file {}, md5sum={}", filePath, md5sum);
             return md5sum;
         } catch (FileNotFoundException e) {
-            throw new LoadException("file " + filePath + "dose not exist");
+            throw new LoadException("file " + filePath + " does not exist");
         } catch (IOException e) {
             throw new LoadException("failed to get md5sum from file " + filePath);
         }
@@ -302,8 +302,11 @@ public class SparkRepository {
         return path.substring(path.lastIndexOf(delimiter) + 1);
     }
 
-    private static String unWrap(String prefix, String suffix, String fileName) {
-        return fileName.substring(prefix.length(), fileName.length() - suffix.length());
+    // input:   __lib_md5sum_spark-dpp-1.0.0-jar-with-dependencies.jar
+    // output:  md5sum_spark-dpp-1.0.0-jar-with-dependencies
+    private static String unwrap(String prefix, String fileName) {
+        int pos = fileName.lastIndexOf(".");
+        return fileName.substring(prefix.length(), pos);
     }
 
     private static String joinPrefix(String prefix, String fileName) {

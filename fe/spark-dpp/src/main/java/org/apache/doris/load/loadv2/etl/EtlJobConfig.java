@@ -17,10 +17,10 @@
 
 package org.apache.doris.load.loadv2.etl;
 
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.ExclusionStrategy;
+import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
@@ -217,7 +217,7 @@ public class EtlJobConfig implements Serializable {
 
     public String configToJson() {
         GsonBuilder gsonBuilder = new GsonBuilder();
-        gsonBuilder.addDeserializationExclusionStrategy(new GsonUtils.HiddenAnnotationExclusionStrategy());
+        gsonBuilder.addDeserializationExclusionStrategy(new HiddenAnnotationExclusionStrategy());
         Gson gson = gsonBuilder.create();
         return gson.toJson(this);
     }
@@ -597,6 +597,17 @@ public class EtlJobConfig implements Serializable {
                     ", args=" + args +
                     ", expr=" + expr +
                     '}';
+        }
+    }
+
+    public static class HiddenAnnotationExclusionStrategy implements ExclusionStrategy {
+        public boolean shouldSkipField(FieldAttributes f) {
+            return f.getAnnotation(SerializedName.class) == null;
+        }
+
+        @Override
+        public boolean shouldSkipClass(Class<?> clazz) {
+            return false;
         }
     }
 }

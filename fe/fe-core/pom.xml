@@ -30,7 +30,7 @@ under the License.
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>doris-fe-core</artifactId>
+    <artifactId>fe-core</artifactId>
     <version>3.4.0</version>
     <packaging>jar</packaging>
 
@@ -40,6 +40,11 @@ under the License.
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.apache</groupId>
+            <artifactId>spark-dpp</artifactId>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/cglib/cglib -->
         <dependency>
             <groupId>cglib</groupId>

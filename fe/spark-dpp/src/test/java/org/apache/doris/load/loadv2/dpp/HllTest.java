@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.load.loadv2.dpp;
+
+import org.apache.doris.load.loadv2.dpp.Hll;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -27,16 +29,14 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-import static org.apache.doris.load.loadv2.Hll.*;
-
 public class HllTest {
 
     @Test
     public void testFindFirstNonZeroBitPosition() {
-        Assert.assertTrue(getLongTailZeroNum(0) == 0);
-        Assert.assertTrue(getLongTailZeroNum(1) == 0);
-        Assert.assertTrue(getLongTailZeroNum(1l << 30) == 30);
-        Assert.assertTrue(getLongTailZeroNum(1l << 62) == 62);
+        Assert.assertTrue(Hll.getLongTailZeroNum(0) == 0);
+        Assert.assertTrue(Hll.getLongTailZeroNum(1) == 0);
+        Assert.assertTrue(Hll.getLongTailZeroNum(1l << 30) == 30);
+        Assert.assertTrue(Hll.getLongTailZeroNum(1l << 62) == 62);
     }
 
     @Test
@@ -44,7 +44,7 @@ public class HllTest {
         // test empty
         Hll emptyHll = new Hll();
 
-        Assert.assertTrue(emptyHll.getType() == HLL_DATA_EMPTY);
+        Assert.assertTrue(emptyHll.getType() == Hll.HLL_DATA_EMPTY);
         Assert.assertTrue(emptyHll.estimateCardinality() == 0);
 
         ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();
@@ -53,15 +53,15 @@ public class HllTest {
         DataInputStream emptyInputStream = new DataInputStream(new ByteArrayInputStream(emptyOutputStream.toByteArray()));
         Hll deserializedEmptyHll = new Hll();
         deserializedEmptyHll.deserialize(emptyInputStream);
-        Assert.assertTrue(deserializedEmptyHll.getType() == HLL_DATA_EMPTY);
+        Assert.assertTrue(deserializedEmptyHll.getType() == Hll.HLL_DATA_EMPTY);
 
         // test explicit
         Hll explicitHll = new Hll();
-        for (int i = 0; i < HLL_EXPLICLIT_INT64_NUM; i++) {
+        for (int i = 0; i < Hll.HLL_EXPLICLIT_INT64_NUM; i++) {
             explicitHll.updateWithHash(i);
         }
-        Assert.assertTrue(explicitHll.getType() == HLL_DATA_EXPLICIT);
-        Assert.assertTrue(explicitHll.estimateCardinality() == HLL_EXPLICLIT_INT64_NUM);
+        Assert.assertTrue(explicitHll.getType() == Hll.HLL_DATA_EXPLICIT);
+        Assert.assertTrue(explicitHll.estimateCardinality() == Hll.HLL_EXPLICLIT_INT64_NUM);
 
         ByteArrayOutputStream explicitOutputStream = new ByteArrayOutputStream();
         DataOutput explicitOutput = new DataOutputStream(explicitOutputStream);
@@ -69,17 +69,17 @@ public class HllTest {
         DataInputStream explicitInputStream = new DataInputStream(new ByteArrayInputStream(explicitOutputStream.toByteArray()));
         Hll deserializedExplicitHll = new Hll();
         deserializedExplicitHll.deserialize(explicitInputStream);
-        Assert.assertTrue(deserializedExplicitHll.getType() == HLL_DATA_EXPLICIT);
+        Assert.assertTrue(deserializedExplicitHll.getType() == Hll.HLL_DATA_EXPLICIT);
 
         // test sparse
         Hll sparseHll = new Hll();
-        for (int i = 0; i < HLL_SPARSE_THRESHOLD; i++) {
+        for (int i = 0; i < Hll.HLL_SPARSE_THRESHOLD; i++) {
             sparseHll.updateWithHash(i);
         }
-        Assert.assertTrue(sparseHll.getType() == HLL_DATA_FULL);
+        Assert.assertTrue(sparseHll.getType() == Hll.HLL_DATA_FULL);
         // 2% error rate
-        Assert.assertTrue(sparseHll.estimateCardinality() > HLL_SPARSE_THRESHOLD * (1 - 0.02) &&
-                sparseHll.estimateCardinality() < HLL_SPARSE_THRESHOLD * (1 + 0.02));
+        Assert.assertTrue(sparseHll.estimateCardinality() > Hll.HLL_SPARSE_THRESHOLD * (1 - 0.02) &&
+                sparseHll.estimateCardinality() < Hll.HLL_SPARSE_THRESHOLD * (1 + 0.02));
 
         ByteArrayOutputStream sparseOutputStream = new ByteArrayOutputStream();
         DataOutput sparseOutput = new DataOutputStream(sparseOutputStream);
@@ -87,7 +87,7 @@ public class HllTest {
         DataInputStream sparseInputStream = new DataInputStream(new ByteArrayInputStream(sparseOutputStream.toByteArray()));
         Hll deserializedSparseHll = new Hll();
         deserializedSparseHll.deserialize(sparseInputStream);
-        Assert.assertTrue(deserializedSparseHll.getType() == HLL_DATA_SPARSE);
+        Assert.assertTrue(deserializedSparseHll.getType() == Hll.HLL_DATA_SPARSE);
         Assert.assertTrue(sparseHll.estimateCardinality() == deserializedSparseHll.estimateCardinality());
 
 
@@ -96,7 +96,7 @@ public class HllTest {
         for (int i = 1; i <= Short.MAX_VALUE; i++) {
             fullHll.updateWithHash(i);
         }
-        Assert.assertTrue(fullHll.getType() == HLL_DATA_FULL);
+        Assert.assertTrue(fullHll.getType() == Hll.HLL_DATA_FULL);
         // the result 32748 is consistent with C++ 's implementation
         Assert.assertTrue(fullHll.estimateCardinality() == 32748);
         Assert.assertTrue(fullHll.estimateCardinality() > Short.MAX_VALUE * (1 - 0.02) &&
@@ -108,7 +108,7 @@ public class HllTest {
         DataInputStream fullHllInputStream = new DataInputStream(new ByteArrayInputStream(fullHllOutputStream.toByteArray()));
         Hll deserializedFullHll = new Hll();
         deserializedFullHll.deserialize(fullHllInputStream);
-        Assert.assertTrue(deserializedFullHll.getType() == HLL_DATA_FULL);
+        Assert.assertTrue(deserializedFullHll.getType() == Hll.HLL_DATA_FULL);
         Assert.assertTrue(deserializedFullHll.estimateCardinality() == fullHll.estimateCardinality());
 
     }
@@ -158,11 +158,11 @@ public class HllTest {
             long preValue = sparseHll.estimateCardinality();
             // check serialize
             byte[] serializedHll = serializeHll(sparseHll);
-            Assert.assertTrue(serializedHll.length < HLL_REGISTERS_COUNT + 1);
+            Assert.assertTrue(serializedHll.length < Hll.HLL_REGISTERS_COUNT + 1);
 
             sparseHll = deserializeHll(serializedHll);
             Assert.assertTrue(sparseHll.estimateCardinality() == preValue);
-            Assert.assertTrue(sparseHll.getType() == HLL_DATA_SPARSE);
+            Assert.assertTrue(sparseHll.getType() == Hll.HLL_DATA_SPARSE);
 
             Hll otherHll = new Hll();
             for (int i = 0; i < 1024; i++) {
@@ -190,7 +190,7 @@ public class HllTest {
             byte[] serializedHll = serializeHll(fullHll);
             fullHll = deserializeHll(serializedHll);
             Assert.assertTrue(fullHll.estimateCardinality() == preValue);
-            Assert.assertTrue(serializedHll.length == HLL_REGISTERS_COUNT + 1);
+            Assert.assertTrue(serializedHll.length == Hll.HLL_REGISTERS_COUNT + 1);
 
             // 2% error rate
             Assert.assertTrue(preValue > 62 * 1024 && preValue < 66 * 1024);

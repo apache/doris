@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.joda.time.DateTime;
 
@@ -26,7 +26,7 @@ import java.util.Date;
 
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
-    public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws UserException {
+    public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws SparkDppException {
         String columnType = etlColumn.columnType;
         if (columnType.equalsIgnoreCase("TINYINT")) {
             return new TinyIntParser();
@@ -52,7 +52,7 @@ public abstract class ColumnParser implements Serializable {
                 || columnType.equalsIgnoreCase("HLL")) {
             return new StringParser(etlColumn);
         } else {
-            throw new UserException("unsupported type:" + columnType);
+            throw new SparkDppException("unsupported type:" + columnType);
         }
     }
 

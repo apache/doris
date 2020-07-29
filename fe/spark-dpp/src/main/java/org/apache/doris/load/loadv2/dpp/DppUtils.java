@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
 import org.apache.spark.sql.types.DataType;
@@ -69,7 +69,7 @@ public class DppUtils {
         return null;
     }
 
-    public static Class getClassFromColumn(EtlJobConfig.EtlColumn column) throws UserException {
+    public static Class getClassFromColumn(EtlJobConfig.EtlColumn column) throws SparkDppException {
         switch (column.columnType) {
             case "BOOLEAN":
                 return Boolean.class;
@@ -83,7 +83,7 @@ public class DppUtils {
             case "BIGINT":
                 return Long.class;
             case "LARGEINT":
-                throw new UserException("LARGEINT is not supported now");
+                throw new SparkDppException("LARGEINT is not supported now");
             case "FLOAT":
                 return Float.class;
             case "DOUBLE":
@@ -213,14 +213,14 @@ public class DppUtils {
         return dstSchema;
     }
 
-    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
+    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws SparkDppException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
             System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            throw new UserException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
@@ -231,12 +231,12 @@ public class DppUtils {
             }
             if (str == null || !str.contains("=")) {
                 System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-                throw new UserException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
             }
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
                 System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-                throw new UserException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
             }
             int index = columnsFromPath.indexOf(pair[0]);
             if (index == -1) {
@@ -250,7 +250,7 @@ public class DppUtils {
         }
         if (size != columnsFromPath.size()) {
             System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            throw new UserException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
         }
         return Lists.newArrayList(columns);
     }
