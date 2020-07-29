@@ -527,7 +527,6 @@ public class DeleteHandler implements Writable {
                         LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                     }
                 } catch (AnalysisException e) {
-                    // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
                     throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
                 }
             }

@@ -137,12 +137,12 @@ public class DeleteStmt extends DdlStmt {
             for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                 Expr expr = inPredicate.getChild(i);
                 if (!(expr instanceof LiteralExpr)) {
-                    throw new AnalysisException("Right expr of binary predicate should be value");
+                    throw new AnalysisException("Child of in predicate should be value");
                 }
             }
             deleteConditions.add(inPredicate);
         } else {
-            throw new AnalysisException("Where clause should be compound or binary predicate or is_null predicate or in predicate");
+            throw new AnalysisException("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate");
         }
     }
 

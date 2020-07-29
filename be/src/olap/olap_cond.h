@@ -93,6 +93,7 @@ public:
     // valid when op is OP_IN or OP_NOT_IN
     typedef std::unordered_set<const WrapperField*, FieldHash, FieldEqual> FieldSet;
     FieldSet operand_set;
+    // valid when op is OP_IN or OP_NOT_IN, represents the minimum and maximum values of in elements
     WrapperField* min_value_field;
     WrapperField* max_value_field;
 };

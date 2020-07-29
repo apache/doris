@@ -150,11 +150,11 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
                                  tcond.column_name.c_str(), operand.c_str(), op);
                 return res;
             }
-            if (min_value_field == nullptr || f->cmp(min_value_field) > 0) {
+            if (min_value_field == nullptr || f->cmp(min_value_field) < 0) {
                 min_value_field = f.get();
             }
 
-            if (max_value_field == nullptr || f->cmp(max_value_field) < 0) {
+            if (max_value_field == nullptr || f->cmp(max_value_field) > 0) {
                 max_value_field = f.get();
             }
 
