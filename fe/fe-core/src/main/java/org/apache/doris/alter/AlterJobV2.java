@@ -141,6 +141,8 @@ public abstract class AlterJobV2 implements Writable {
         return finishedTimeMs;
     }
 
+    public void analyze() throws Exception {}
+
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()

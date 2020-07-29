@@ -17,8 +17,28 @@
 
 package org.apache.doris.alter;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.io.StringReader;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -43,10 +63,11 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -59,30 +80,12 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.StringReader;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.concurrent.TimeUnit;
-
 /**
  * Version 2 of RollupJob.
  * This is for replacing the old RollupJob
  * https://github.com/apache/incubator-doris/issues/1429
  */
-public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
+public class RollupJobV2 extends AlterJobV2 {
     private static final Logger LOG = LogManager.getLogger(RollupJobV2.class);
 
     // partition id -> (rollup tablet id -> base tablet id)
@@ -98,7 +101,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private long rollupIndexId;
     @SerializedName(value = "baseIndexName")
     private String baseIndexName;
-    @SerializedName(value =  "rollupIndexName")
+    @SerializedName(value = "rollupIndexName")
     private String rollupIndexName;
 
     @SerializedName(value = "rollupSchema")
@@ -127,9 +130,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
-            long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
-            List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
-            short rollupShortKeyColumnCount, OriginStatement origStmt) {
+                       long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
+                       List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
+                       short rollupShortKeyColumnCount, OriginStatement origStmt) {
         super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -150,6 +153,25 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         super(JobType.ROLLUP);
     }
 
+    @Override
+    public void analyze() throws Exception {
+        // analyze define stmt
+        if (origStmt == null) {
+            return;
+        }
+        // parse the define stmt to schema
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
+                                                        SqlModeHelper.MODE_DEFAULT));
+        CreateMaterializedViewStmt stmt;
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        connectContext.setDatabase(Catalog.getCurrentCatalog().getDb(dbId).getFullName());
+        Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
+        stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
+        stmt.analyze(analyzer);
+        setColumnsDefineExpr(stmt.getMVColumnItemList());
+    }
+
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
         Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
         tabletIdMap.put(rollupTabletId, baseTabletId);
@@ -167,7 +189,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * runPendingJob():
      * 1. Create all rollup replicas and wait them finished.
      * 2. After creating done, add this shadow rollup index to catalog, user can not see this
-     *    rollup, but internal load process will generate data for this rollup index.
+     * rollup, but internal load process will generate data for this rollup index.
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
@@ -248,7 +270,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);
             long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum,
-                    Config.max_create_table_timeout_second * 1000L);
+                                    Config.max_create_table_timeout_second * 1000L);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -307,7 +329,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType, origStmt);
+                         rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN, rollupKeysType, origStmt);
         tbl.rebuildFullSchema();
     }
 
@@ -399,7 +421,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @Override
     protected void runRunningJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
-        
+
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
@@ -464,7 +486,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                         LOG.warn("rollup tablet {} has few healthy replicas: {}, rollup job: {}",
-                                rollupTablet.getId(), replicas, jobId);
+                                 rollupTablet.getId(), replicas, jobId);
                         throw new AlterCancelException("rollup tablet " + rollupTablet.getId() + " has few healthy replicas");
                     }
                 } // end for tablets
@@ -586,7 +608,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
             TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
             TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                    rollupSchemaHash, medium);
+                                                         rollupSchemaHash, medium);
 
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
                 invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
@@ -645,7 +667,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 db.writeUnlock();
             }
         }
-        
+
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
 
@@ -712,7 +734,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         if (jobState == JobState.RUNNING) {
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(limit);
             for (AgentTask agentTask : tasks) {
-                AlterReplicaTask rollupTask = (AlterReplicaTask)agentTask;
+                AlterReplicaTask rollupTask = (AlterReplicaTask) agentTask;
                 List<String> info = Lists.newArrayList();
                 info.add(String.valueOf(rollupTask.getBackendId()));
                 info.add(String.valueOf(rollupTask.getBaseTabletId()));
@@ -731,11 +753,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.jobState = jobState;
     }
 
-    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) {
-        for (Entry<String, Expr> entry : columnNameToDefineExpr.entrySet()) {
+    private void setColumnsDefineExpr(List<MVColumnItem> mvColumnItemList) {
+        for (MVColumnItem mvColumnItem : mvColumnItemList) {
             for (Column column : rollupSchema) {
-                if (column.getName().equals(entry.getKey())) {
-                    column.setDefineExpr(entry.getValue());
+                if (column.getName().equals(mvColumnItem.getName())) {
+                    column.setDefineExpr(mvColumnItem.getDefineExpr());
                     break;
                 }
             }
@@ -796,25 +818,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         watershedTxnId = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_85) {
             storageFormat = TStorageFormat.valueOf(Text.readString(in));
-        }
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        // analyze define stmt
-        if (origStmt == null) {
-            return;
-        }
-        // parse the define stmt to schema
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                SqlModeHelper.MODE_DEFAULT));
-        CreateMaterializedViewStmt stmt;
-        try {
-            stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
-            setColumnsDefineExpr(columnNameToDefineExpr);
-        } catch (Exception e) {
-            throw new IOException("error happens when parsing create materialized view stmt: " + origStmt, e);
         }
     }
 }

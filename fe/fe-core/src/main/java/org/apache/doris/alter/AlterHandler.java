@@ -17,6 +17,21 @@
 
 package org.apache.doris.alter;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelStmt;
@@ -40,21 +55,6 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.thrift.TTabletInfo;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantLock;
-
 public abstract class AlterHandler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(AlterHandler.class);
 
@@ -63,27 +63,27 @@ public abstract class AlterHandler extends MasterDaemon {
     protected ConcurrentHashMap<Long, AlterJob> alterJobs = new ConcurrentHashMap<>();
     @Deprecated
     protected ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = new ConcurrentLinkedQueue<>();
-    
+
     // queue of alter job v2
     protected ConcurrentMap<Long, AlterJobV2> alterJobsV2 = Maps.newConcurrentMap();
 
     /**
      * lock to perform atomic operations.
      * eg.
-     *  When job is finished, it will be moved from alterJobs to finishedOrCancelledAlterJobs,
-     *  and this requires atomic operations. So the lock must be held to do this operations.
-     *  Operations like Get or Put do not need lock.
+     * When job is finished, it will be moved from alterJobs to finishedOrCancelledAlterJobs,
+     * and this requires atomic operations. So the lock must be held to do this operations.
+     * Operations like Get or Put do not need lock.
      */
     protected ReentrantLock lock = new ReentrantLock();
-    
+
     protected void lock() {
         lock.lock();
     }
-    
+
     protected void unlock() {
         lock.unlock();
     }
-    
+
     public AlterHandler(String name) {
         super(name, FeConstants.default_scheduler_interval_millisecond);
     }
@@ -129,7 +129,7 @@ public abstract class AlterHandler extends MasterDaemon {
             if ((curTime - historyJob.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second) {
                 iter.remove();
                 LOG.info("remove history {} job[{}]. finish at {}", historyJob.getType(),
-                        historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getFinishedTime()));
+                         historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getFinishedTime()));
             }
         }
     }
@@ -143,7 +143,7 @@ public abstract class AlterHandler extends MasterDaemon {
                 RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(alterJobV2.getJobId(), alterJobV2.getType());
                 Catalog.getCurrentCatalog().getEditLog().logRemoveExpiredAlterJobV2(log);
                 LOG.info("remove expired {} job {}. finish at {}", alterJobV2.getType(),
-                        alterJobV2.getJobId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
+                         alterJobV2.getJobId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
             }
         }
     }
@@ -167,7 +167,7 @@ public abstract class AlterHandler extends MasterDaemon {
     public AlterJob getAlterJob(long tableId) {
         return this.alterJobs.get(tableId);
     }
-    
+
     @Deprecated
     public boolean hasUnfinishedAlterJob(long tableId) {
         return this.alterJobs.containsKey(tableId);
@@ -229,7 +229,7 @@ public abstract class AlterHandler extends MasterDaemon {
     public ConcurrentLinkedQueue<AlterJob> unprotectedGetFinishedOrCancelledAlterJobs() {
         return this.finishedOrCancelledAlterJobs;
     }
-    
+
     @Deprecated
     public void addFinishedOrCancelledAlterJob(AlterJob alterJob) {
         alterJob.clear();
@@ -306,7 +306,7 @@ public abstract class AlterHandler extends MasterDaemon {
         lock();
         try {
             // remove job
-            AlterJob alterJobRemoved  = removeAlterJob(alterJob.getTableId());
+            AlterJob alterJobRemoved = removeAlterJob(alterJob.getTableId());
             // add to finishedOrCancelledAlterJobs
             if (alterJobRemoved != null) {
                 // add alterJob not alterJobRemoved, because the alterJob maybe a new object
@@ -324,7 +324,7 @@ public abstract class AlterHandler extends MasterDaemon {
         // add rollup job
         addAlterJob(alterJob);
     }
-    
+
     public void replayFinishing(AlterJob alterJob, Catalog catalog) {
         Database db = catalog.getDb(alterJob.getDbId());
         alterJob.replayFinishing(db);
@@ -360,6 +360,8 @@ public abstract class AlterHandler extends MasterDaemon {
         clearExpireFinishedOrCancelledAlterJobs();
         clearExpireFinishedOrCancelledAlterJobsV2();
     }
+
+    public void prepare() {}
 
     @Override
     public void start() {
@@ -440,9 +442,9 @@ public abstract class AlterHandler extends MasterDaemon {
             if (replica == null) {
                 throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
             }
-            
+
             LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
-                    task.getSignature(), replica, task.getVersion(), task.getVersionHash());
+                     task.getSignature(), replica, task.getVersion(), task.getVersionHash());
             boolean versionChanged = false;
             if (replica.getVersion() > task.getVersion()) {
                 // Case 2.2, do nothing
@@ -461,14 +463,14 @@ public abstract class AlterHandler extends MasterDaemon {
 
             if (versionChanged) {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
-                        task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                        replica.getId(), replica.getVersion(), replica.getVersionHash(), -1,
-                        replica.getDataSize(), replica.getRowCount(),
-                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
-                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                                                                            task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                                                                            replica.getId(), replica.getVersion(), replica.getVersionHash(), -1,
+                                                                            replica.getDataSize(), replica.getRowCount(),
+                                                                            replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                                                                            replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
-            
+
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
             db.writeUnlock();

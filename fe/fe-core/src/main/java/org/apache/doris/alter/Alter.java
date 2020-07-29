@@ -17,6 +17,17 @@
 
 package org.apache.doris.alter;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -57,16 +68,6 @@ import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TTabletType;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -79,6 +80,10 @@ public class Alter {
         schemaChangeHandler = new SchemaChangeHandler();
         materializedViewHandler = new MaterializedViewHandler();
         clusterHandler = new SystemHandler();
+    }
+
+    public void prepare() {
+        materializedViewHandler.prepare();
     }
 
     public void start() {
@@ -110,8 +115,8 @@ public class Alter {
             OlapTable olapTable = (OlapTable) table;
             olapTable.checkStableAndNormal(db.getClusterName());
 
-            ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db,
-                    olapTable);
+            ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db,
+                                                                                              olapTable);
         } finally {
             db.writeUnlock();
         }
@@ -141,10 +146,10 @@ public class Alter {
             OlapTable olapTable = (OlapTable) table;
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
-                        + "Do not allow doing DROP ops");
+                                               + "Do not allow doing DROP ops");
             }
             // drop materialized view
-            ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+            ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
 
         } finally {
             db.writeUnlock();
@@ -412,7 +417,7 @@ public class Alter {
                 PropertyAnalyzer.analyzeReplicationNum(properties, (short) -1);
         // 3. in memory
         boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+                                                                  PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         // 4. tablet type
         TTabletType tTabletType =
                 PropertyAnalyzer.analyzeTabletType(properties);
@@ -439,7 +444,7 @@ public class Alter {
                 partitionInfo.setTabletType(partition.getId(), tTabletType);
             }
             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                    newDataProperty, newReplicationNum, hasInMemory ? newInMemory : oldInMemory);
+                                                               newDataProperty, newReplicationNum, hasInMemory ? newInMemory : oldInMemory);
             modifyPartitionInfos.add(info);
         }
 
@@ -501,7 +506,7 @@ public class Alter {
 
         // 3. in memory
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
+                                                                 PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
 
         // 4. tablet type
         TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
@@ -522,21 +527,21 @@ public class Alter {
         if (newDataProperty != null) {
             partitionInfo.setDataProperty(partition.getId(), newDataProperty);
             LOG.debug("modify partition[{}-{}-{}] data property to {}", db.getId(), olapTable.getId(), partitionName,
-                    newDataProperty.toString());
+                      newDataProperty.toString());
         }
 
         // replication num
         if (newReplicationNum != (short) -1) {
             partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
             LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), olapTable.getId(), partitionName,
-                    newReplicationNum);
+                      newReplicationNum);
         }
 
         // in memory
         if (isInMemory != partitionInfo.getIsInMemory(partition.getId())) {
             partitionInfo.setIsInMemory(partition.getId(), isInMemory);
             LOG.debug("modify partition[{}-{}-{}] in memory to {}", db.getId(), olapTable.getId(), partitionName,
-                    isInMemory);
+                      isInMemory);
         }
 
         // tablet type
@@ -544,12 +549,12 @@ public class Alter {
         if (tabletType != partitionInfo.getTabletType(partition.getId())) {
             partitionInfo.setTabletType(partition.getId(), tabletType);
             LOG.debug("modify partition[{}-{}-{}] tablet type to {}", db.getId(), olapTable.getId(), partitionName,
-                    tabletType);
+                      tabletType);
         }
 
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                newDataProperty, newReplicationNum, isInMemory);
+                                                           newDataProperty, newReplicationNum, isInMemory);
         Catalog.getCurrentCatalog().getEditLog().logModifyPartition(info);
 
         LOG.info("finish modify partition[{}-{}-{}]", db.getId(), olapTable.getId(), partitionName);
