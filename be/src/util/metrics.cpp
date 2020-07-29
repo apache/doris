@@ -143,10 +143,10 @@ void MetricEntity::deregister_hook(const std::string& name) {
     _hooks.erase(name);
 }
 
-void MetricEntity::trigger_hook_unlocked() const {
+void MetricEntity::trigger_hook_unlocked(bool force) const {
     // When 'enable_metric_calculator' is true, hooks will be triggered by a background thread,
     // see 'calculate_metrics' in daemon.cpp for more details.
-    if (config::enable_metric_calculator) {
+    if (!force && config::enable_metric_calculator) {
         return;
     }
     for (const auto& hook : _hooks) {
@@ -180,11 +180,11 @@ std::shared_ptr<MetricEntity> MetricRegistry::get_entity(const std::string& name
     return entity->second;
 }
 
-void MetricRegistry::trigger_all_hooks() const {
+void MetricRegistry::trigger_all_hooks(bool force) const {
     std::lock_guard<SpinLock> l(_lock);
     for (const auto& entity : _entities) {
         std::lock_guard<SpinLock> l(entity.second->_lock);
-        entity.second->trigger_hook_unlocked();
+        entity.second->trigger_hook_unlocked(force);
     }
 }
 
@@ -195,7 +195,7 @@ std::string MetricRegistry::to_prometheus() const {
     std::lock_guard<SpinLock> l(_lock);
     for (const auto& entity : _entities) {
         std::lock_guard<SpinLock> l(entity.second->_lock);
-        entity.second->trigger_hook_unlocked();
+        entity.second->trigger_hook_unlocked(false);
         for (const auto& metric : entity.second->_metrics) {
             std::pair<MetricEntity*, Metric*> new_elem = std::make_pair(entity.second.get(), metric.second);
             auto found = entity_metrics_by_types.find(metric.first);
@@ -231,7 +231,7 @@ std::string MetricRegistry::to_json() const {
     std::lock_guard<SpinLock> l(_lock);
     for (const auto& entity : _entities) {
         std::lock_guard<SpinLock> l(entity.second->_lock);
-        entity.second->trigger_hook_unlocked();
+        entity.second->trigger_hook_unlocked(false);
         for (const auto& metric : entity.second->_metrics) {
             rj::Value metric_obj(rj::kObjectType);
             // tags
@@ -272,7 +272,7 @@ std::string MetricRegistry::to_core_string() const {
     std::lock_guard<SpinLock> l(_lock);
     for (const auto& entity : _entities) {
         std::lock_guard<SpinLock> l(entity.second->_lock);
-        entity.second->trigger_hook_unlocked();
+        entity.second->trigger_hook_unlocked(false);
         for (const auto &metric : entity.second->_metrics) {
             if (metric.first->is_core_metric) {
                 ss << metric.first->combine_name(_name) << " LONG " << metric.second->to_string() << "\n";

@@ -296,7 +296,7 @@ public:
     // Register a hook, this hook will called before get_metric is called
     void register_hook(const std::string& name, const std::function<void()>& hook);
     void deregister_hook(const std::string& name);
-    void trigger_hook_unlocked() const;
+    void trigger_hook_unlocked(bool force) const;
 
 private:
     friend class MetricRegistry;
@@ -320,7 +320,7 @@ public:
     void deregister_entity(const std::string& name);
     std::shared_ptr<MetricEntity> get_entity(const std::string& name);
 
-    void trigger_all_hooks() const;
+    void trigger_all_hooks(bool force) const;
 
     std::string to_prometheus() const;
     std::string to_json() const;

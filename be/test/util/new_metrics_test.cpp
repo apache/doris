@@ -251,16 +251,16 @@ TEST_F(MetricsTest, MetricEntityWithHook) {
     ASSERT_EQ("0", metric->to_string());
 
     // Hook
-    entity.trigger_hook_unlocked();
+    entity.trigger_hook_unlocked(true);
     ASSERT_EQ("6", metric->to_string());
 
-    entity.trigger_hook_unlocked();
+    entity.trigger_hook_unlocked(true);
     ASSERT_EQ("12", metric->to_string());
 
     // Deregister hook
     entity.deregister_hook("test_hook");
     // Hook but no effect
-    entity.trigger_hook_unlocked();
+    entity.trigger_hook_unlocked(true);
     ASSERT_EQ("12", metric->to_string());
 }
 

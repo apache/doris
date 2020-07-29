@@ -133,7 +133,7 @@ void* calculate_metrics(void* dummy) {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     while (true) {
-        DorisMetrics::instance()->metric_registry()->trigger_all_hooks();
+        DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
             last_ts = GetCurrentTimeMicros() / 1000;
