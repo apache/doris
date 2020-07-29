@@ -890,7 +890,7 @@ public class EditLog {
     }
 
     public void logDropDb(String dbName, boolean isForceDrop) {
-        logEdit(OperationType.OP_DROP_DB, new Text(dbName));
+        logEdit(OperationType.OP_DROP_DB, new DropDbInfo(dbName, isForceDrop));
     }
 
     public void logEraseDb(long dbId) {

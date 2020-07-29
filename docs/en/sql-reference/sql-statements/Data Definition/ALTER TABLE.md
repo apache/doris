@@ -61,7 +61,8 @@ under the License.
         note:
             1) Use a partitioned table to keep at least one partition.
             2) Execute DROP PARTITION For a period of time, the deleted partition can be recovered by the RECOVER statement. See the RECOVER statement for details.
-            
+            3) If DROP PARTITION FORCE is executed, the system will not check whether the partition has unfinished transactions, the partition will be deleted directly and cannot be recovered, generally this operation is not recommended
+ 
     3. Modify the partition properties
         grammar:
             MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
