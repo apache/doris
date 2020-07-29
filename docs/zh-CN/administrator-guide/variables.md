@@ -338,3 +338,8 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     是否将 bitmap 和 hll 类型的 count distinct 查询重写为 bitmap_union_count 和 hll_union_agg 。
 
+* `prefer_join_method`
+
+    在选择join的具体实现方式是broadcast join还是shuffle join时，如果broadcast join cost和shuffle join cost相等时，优先选择哪种join方式。
+
+    目前该变量的可选值为"broadcast" 或者 "shuffle"。

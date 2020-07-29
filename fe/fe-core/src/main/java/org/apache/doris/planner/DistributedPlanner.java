@@ -281,6 +281,20 @@ public class DistributedPlanner {
     }
 
     /**
+     * When broadcastCost and partitionCost are equal, there is no uniform standard for which join implementation is better.
+     * Some scenarios are suitable for broadcast join, and some scenarios are suitable for shuffle join.
+     * Therefore, we add a SessionVariable to help users choose a better join implementation.
+     */
+    private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost)  {
+        String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
+        if (joinMethod.equalsIgnoreCase("broadcast")) {
+            return broadcastCost <= partitionCost;
+        } else {
+            return broadcastCost < partitionCost;
+        }
+    }
+
+    /**
      * Creates either a broadcast join or a repartitioning join, depending on the expected cost. If any of the inputs to
      * the cost computation is unknown, it assumes the cost will be 0. Costs being equal, it'll favor partitioned over
      * broadcast joins. If perNodeMemLimit > 0 and the size of the hash table for a broadcast join is expected to exceed
@@ -351,7 +365,7 @@ public class DistributedPlanner {
                 && (perNodeMemLimit == 0 || Math.round(
                 (double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
                 && (node.getInnerRef().isBroadcastJoin() || (!node.getInnerRef().isPartitionJoin()
-                && broadcastCost < partitionCost))) {
+                && isBroadcastCostSmaller(broadcastCost, partitionCost)))) {
             doBroadcast = true;
         } else {
             doBroadcast = false;

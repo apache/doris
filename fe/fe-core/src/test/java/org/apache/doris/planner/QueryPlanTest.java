@@ -907,4 +907,23 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
     }
+
+    @Test
+    public void testPreferBroadcastJoin() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
+        
+        // default set PreferBroadcastJoin true
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        
+        connectContext.getSessionVariable().setPreferJoinMethod("shuffle");
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
+
+    
+        connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+    }
 }
