@@ -18,9 +18,7 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.common.UserException;
-import org.apache.doris.load.loadv2.BitmapValue;
-import org.apache.doris.load.loadv2.Hll;
+import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.function.Function2;
@@ -55,7 +53,7 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
     };
 
     // TODO(wb) support more datatype:decimal,date,datetime
-    public static SparkRDDAggregator buildAggregator(EtlJobConfig.EtlColumn column) throws UserException {
+    public static SparkRDDAggregator buildAggregator(EtlJobConfig.EtlColumn column) throws SparkDppException {
         String aggType = StringUtils.lowerCase(column.aggregationType);
         String columnType = StringUtils.lowerCase(column.columnType);
         switch (aggType) {
@@ -78,7 +76,7 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "largeint":
                         return new LargeIntMaxAggregator();
                     default:
-                        throw new UserException(String.format("unsupported max aggregator for column type:%s", columnType));
+                        throw new SparkDppException(String.format("unsupported max aggregator for column type:%s", columnType));
                 }
             case "min":
                 switch (columnType) {
@@ -95,7 +93,7 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "largeint":
                         return new LargeIntMinAggregator();
                     default:
-                        throw new UserException(String.format("unsupported min aggregator for column type:%s", columnType));
+                        throw new SparkDppException(String.format("unsupported min aggregator for column type:%s", columnType));
                 }
             case "sum":
                 switch (columnType) {
@@ -114,14 +112,14 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "largeint":
                         return new LargeIntSumAggregator();
                     default:
-                        throw new UserException(String.format("unsupported sum aggregator for column type:%s", columnType));
+                        throw new SparkDppException(String.format("unsupported sum aggregator for column type:%s", columnType));
                 }
             case "replace_if_not_null":
                 return new ReplaceIfNotNullAggregator();
             case "replace":
                 return new ReplaceAggregator();
             default:
-                throw new UserException(String.format("unsupported aggregate type %s", aggType));
+                throw new SparkDppException(String.format("unsupported aggregate type %s", aggType));
         }
     }
 

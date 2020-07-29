@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.load.loadv2.dpp;
+
+import org.apache.doris.common.Codec;
+import org.apache.doris.load.loadv2.dpp.BitmapValue;
 
 import org.roaringbitmap.BitmapDataProvider;
 import org.roaringbitmap.BitmapDataProviderSupplier;
@@ -43,10 +46,6 @@ import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-import static org.apache.doris.common.util.Util.decodeVarint64;
-import static org.apache.doris.common.util.Util.encodeVarint64;
-import static org.apache.doris.load.loadv2.BitmapValue.BITMAP32;
-import static org.apache.doris.load.loadv2.BitmapValue.BITMAP64;
 
 /**
  *
@@ -1316,13 +1315,13 @@ public class Roaring64Map {
             return;
         }
         if (is32BitsEnough()) {
-            out.write(BITMAP32);
+            out.write(BitmapValue.BITMAP32);
             highToBitmap.get(0).serialize(out);
             return;
         }
 
-        out.write(BITMAP64);
-        encodeVarint64(highToBitmap.size(), out);
+        out.write(BitmapValue.BITMAP64);
+        Codec.encodeVarint64(highToBitmap.size(), out);
 
         for (Map.Entry<Integer, BitmapDataProvider> entry : highToBitmap.entrySet()) {
             out.writeInt(entry.getKey().intValue());
@@ -1347,8 +1346,8 @@ public class Roaring64Map {
         highToBitmap = new TreeMap<>();
 
         long nbHighs = 1;
-        if (bitmapType == BITMAP64) {
-            nbHighs = decodeVarint64(in);
+        if (bitmapType == BitmapValue.BITMAP64) {
+            nbHighs = Codec.decodeVarint64(in);
         }
 
         for (int i = 0; i < nbHighs; i++) {
