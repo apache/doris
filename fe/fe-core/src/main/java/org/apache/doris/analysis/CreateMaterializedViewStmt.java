@@ -359,6 +359,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (baseColumnType == PrimitiveType.TINYINT || baseColumnType == PrimitiveType.SMALLINT
                         || baseColumnType == PrimitiveType.INT) {
                     type = Type.BIGINT;
+                } else if (baseColumnType == PrimitiveType.FLOAT) {
+                    type = Type.DOUBLE;
                 } else {
                     type = Type.fromPrimitiveType(baseColumnRef.getType().getPrimitiveType());
                 }
