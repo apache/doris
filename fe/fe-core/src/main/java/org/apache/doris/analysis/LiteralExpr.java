@@ -61,7 +61,6 @@ public abstract class LiteralExpr extends Expr {
                 break;
             case LARGEINT:
                 literalExpr = new LargeIntLiteral(value);
-                literalExpr.analyze(null);
                 break;
             case FLOAT:
             case DOUBLE:
