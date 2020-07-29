@@ -166,7 +166,7 @@ public class RollupJobV2 extends AlterJobV2 {
         ConnectContext connectContext = new ConnectContext();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         connectContext.setDatabase(Catalog.getCurrentCatalog().getDb(dbId).getFullName());
-        Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
+        Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
         stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
         stmt.analyze(analyzer);
         setColumnsDefineExpr(stmt.getMVColumnItemList());

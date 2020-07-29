@@ -1277,6 +1277,7 @@ public class Catalog {
         // Start txn cleaner
         txnCleaner.start();
         // Alter
+        getAlterInstance().prepare();
         getAlterInstance().start();
         // Consistency checker
         getConsistencyChecker().start();
