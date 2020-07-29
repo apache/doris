@@ -114,6 +114,10 @@ public class GroupByClause implements ParseNode {
         }
     }
 
+    public List<Expr> getOriGroupingExprs() {
+        return oriGroupingExprs;
+    }
+
     public ArrayList<Expr> getGroupingExprs() {
         if (!exprGenerated) {
             try {
