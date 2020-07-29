@@ -48,6 +48,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 return;
             }
             LOG.info("Connection established. remote={}", connection.getPeerAddress());
+            // connection has been established, so need to call context.cleanup()
+            // if exception happens.
             NConnectContext context = new NConnectContext(connection);
             context.setCatalog(Catalog.getCurrentCatalog());
             connectScheduler.submit(context);
@@ -59,7 +61,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     context.setConnectScheduler(connectScheduler);
                     // authenticate check failed.
                     if (!MysqlProto.negotiate(context)) {
-                        return;
+                        throw new AfterConnectedException("mysql negotiate failed");
                     }
                     if (connectScheduler.registerConnection(context)) {
                         MysqlProto.sendResponsePacket(context);
@@ -67,12 +69,17 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     } else {
                         context.getState().setError("Reach limit of connections");
                         MysqlProto.sendResponsePacket(context);
-                        return;
+                        throw new AfterConnectedException("Reach limit of connections");
                     }
                     context.setStartTime();
                     ConnectProcessor processor = new ConnectProcessor(context);
                     context.startAcceptQuery(processor);
+                } catch (AfterConnectedException e) {
+                    // do not need to print log for this kind of exception.
+                    // just clean up the context;
+                    context.cleanup();
                 } catch (Exception e) {
+                    // should be unexpected exception, so print warn log
                     LOG.warn("connect processor exception because ", e);
                     context.cleanup();
                 } finally {
@@ -81,6 +88,14 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             });
         } catch (IOException e) {
             LOG.warn("Connection accept failed.", e);
+        }
+    }
+
+    // this exception is only used for some expected exception after connection established.
+    // so that we can catch these kind of exceptions and close the channel without printing warning logs.
+    private static class AfterConnectedException extends Exception {
+        public AfterConnectedException(String msg) {
+            super(msg);
         }
     }
 }
