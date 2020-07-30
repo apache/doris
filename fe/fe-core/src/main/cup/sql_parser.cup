@@ -885,7 +885,7 @@ alter_table_clause ::=
     :}
     | KW_DROP opt_tmp:isTempPartition KW_PARTITION opt_force:force opt_if_exists:ifExists ident:partitionName
     {:
-        RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition, force ? !force : !isTempPartition);
+        RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition);
     :}
     | KW_MODIFY KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -1578,7 +1578,7 @@ drop_stmt ::=
     /* Database */
     KW_DROP KW_DATABASE opt_force:force opt_if_exists:ifExists ident:db
     {:
-        RESULT = new DropDbStmt(ifExists, db, !force);
+        RESULT = new DropDbStmt(ifExists, db, force);
     :}
     | KW_DROP KW_SCHEMA opt_force:force opt_if_exists:ifExists ident:db
     {:
@@ -1597,7 +1597,7 @@ drop_stmt ::=
     /* Table */
     | KW_DROP KW_TABLE opt_force:force opt_if_exists:ifExists table_name:name
     {:
-        RESULT = new DropTableStmt(ifExists, name, !force);
+        RESULT = new DropTableStmt(ifExists, name, force);
     :}
     /* User */
     | KW_DROP KW_USER user_identity:userId

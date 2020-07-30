@@ -166,6 +166,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.DatabaseInfo;
+import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
@@ -2678,7 +2679,7 @@ public class Catalog {
             Database db = this.fullNameToDb.get(dbName);
             db.writeLock();
             try {
-                if (stmt.isNeedCheckCommittedTxns()) {
+                if (!stmt.isForceDrop()) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
                                "The database [" + dbName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
@@ -2720,8 +2721,8 @@ public class Catalog {
 
                 // save table names for recycling
                 Set<String> tableNames = db.getTableNamesWithLock();
-                unprotectDropDb(db, !stmt.isNeedCheckCommittedTxns());
-                if (stmt.isNeedCheckCommittedTxns()) {
+                unprotectDropDb(db, stmt.isForceDrop());
+                if (!stmt.isForceDrop()) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
                 }
             } finally {
@@ -2733,12 +2734,13 @@ public class Catalog {
             fullNameToDb.remove(db.getFullName());
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
-            editLog.logDropDb(dbName, !stmt.isNeedCheckCommittedTxns());
+            DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop());
+            editLog.logDropDb(info);
         } finally {
             unlock();
         }
 
-        LOG.info("finish drop database[{}], is force : {}", dbName, !stmt.isNeedCheckCommittedTxns());
+        LOG.info("finish drop database[{}], is force : {}", dbName, stmt.isForceDrop());
     }
 
     public void unprotectDropDb(Database db, boolean isForeDrop) {
@@ -3333,7 +3335,7 @@ public class Catalog {
         if (isTempPartition) {
             olapTable.dropTempPartition(partitionName, true);
         } else {
-            if (clause.isNeedCheckCommittedTxns()) {
+            if (!clause.isForceDrop()) {
                 Partition partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
@@ -3343,14 +3345,14 @@ public class Catalog {
                     }
                 }
             }
-            olapTable.dropPartition(db.getId(), partitionName, !clause.isNeedCheckCommittedTxns());
+            olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
         }
 
         // log
-        DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition, !clause.isNeedCheckCommittedTxns());
+        DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition, clause.isForceDrop());
         editLog.logDropPartition(info);
 
-        LOG.info("succeed in droping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition, !clause.isNeedCheckCommittedTxns());
+        LOG.info("succeed in droping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition, clause.isForceDrop());
     }
 
     public void replayDropPartition(DropPartitionInfo info) {
@@ -4305,21 +4307,21 @@ public class Catalog {
                 }
             }
 
-            if (stmt.isNeedCheckCommittedTxns()) {
+            if (!stmt.isForceDrop()) {
                 if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
                             "The table [" + tableName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
                             " please use \"DROP table FORCE\".");
                 }
             }
-            unprotectDropTable(db, table.getId(), !stmt.isNeedCheckCommittedTxns());
-            DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, !stmt.isNeedCheckCommittedTxns());
+            unprotectDropTable(db, table.getId(), stmt.isForceDrop());
+            DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop());
             editLog.logDropTable(info);
         } finally {
             db.writeUnlock();
         }
 
-        LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, !stmt.isNeedCheckCommittedTxns());
+        LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
     }
 
     public boolean unprotectDropTable(Database db, long tableId, boolean isForceDrop) {
