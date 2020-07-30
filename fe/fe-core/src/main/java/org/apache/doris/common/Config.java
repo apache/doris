@@ -1161,5 +1161,35 @@ public class Config extends ConfigBase {
     public static long min_clone_task_timeout_sec = 3 * 60; // 3min
     @ConfField(mutable = true, masterOnly = true)
     public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
-}
+    
+     
+    /** 
+     * If set to true, fe will enable sql result cache
+     * This option is suitable for offline data update scenarios
+     *                              case1   case2   case3   case4
+     * enable_sql_cache             false   true    true    false
+     * enable_partition_cache       false   false   true    true
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean cache_enable_sql_mode = true;
 
+    /**
+     * If set to true, fe will get data from be cache,
+     * This option is suitable for real-time updating of partial partitions.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean cache_enable_partition_mode = true;
+
+    /**
+     *  Minimum interval between last version when caching results,
+     *  This parameter distinguishes between offline and real-time updates
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_last_version_interval_second = 900;
+
+    /**
+     * Set the maximum number of rows that can be cached
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_result_max_row_count = 3000;
+}
