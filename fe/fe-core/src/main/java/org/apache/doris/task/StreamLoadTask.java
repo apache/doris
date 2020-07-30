@@ -235,10 +235,6 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (mergeType == LoadTask.MergeType.MERGE) {
             columnExprDescs.add(new ImportColumnDesc(Load.BATCH_DELETE_VIRTUAL_COL, deleteCondition));
         }
-        if (!routineLoadJob.getJsonRoot().isEmpty()) {
-            jsonRoot = routineLoadJob.getJsonRoot();
-        }
-        stripOuterArray = routineLoadJob.isStripOuterArray();
     }
 
     // used for stream load

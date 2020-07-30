@@ -39,6 +39,7 @@ public interface LoadTaskInfo {
     public TFileType getFileType();
     public TFileFormatType getFormatType();
     public String getJsonPaths();
+    public String getJsonRoot();
     public boolean isStripOuterArray();
     public String getPath();
     public List<ImportColumnDesc> getColumnExprDescs();
