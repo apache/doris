@@ -397,10 +397,10 @@ void Tablet::delete_expired_stale_rowset() {
     }
 
     // do check consistent operation
-    auto path_id_iter = path_id_vec.rbegin();
+    auto path_id_iter = path_id_vec.begin();
 
     std::map<int64_t, PathVersionListSharedPtr> stale_version_path_map;
-    while (path_id_iter != path_id_vec.rend()) {
+    while (path_id_iter != path_id_vec.end()) {
 
         PathVersionListSharedPtr version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(*path_id_iter);
         const std::vector<TimestampedVersionSharedPtr>& to_delete_version = version_path->timestamped_versions();
