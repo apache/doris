@@ -466,9 +466,10 @@ void Tablet::delete_expired_stale_rowset() {
         << " current_meta_size="  <<  _tablet_meta->all_stale_rs_metas().size()
         << " old_meta_size=" << old_meta_size
         << " sweep endtime " << std::fixed << expired_stale_sweep_endtime;
-
+        
+#ifndef BE_TEST
     save_meta();
-    
+#endif
 }
 
 OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
