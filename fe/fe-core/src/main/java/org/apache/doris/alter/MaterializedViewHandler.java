@@ -110,7 +110,7 @@ public class MaterializedViewHandler extends AlterHandler {
                     alterJobV2.analyze();
                 } catch (Exception e) {
                     alterJobV2.cancel("Analyze failed:" + e.getMessage());
-                    LOG.warn("Failed to analyze rollup job []", alterJobV2.getJobId(), e);
+                    LOG.warn("Failed to analyze rollup job {}", alterJobV2.getJobId(), e);
                 }
             }
         }
