@@ -506,6 +506,19 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
+    // all mem limits that apply to this query
+    std::vector<std::shared_ptr<MemTracker>> _mem_trackers;
+
+    // Fragment memory limit.  Also contained in _mem_trackers
+    std::shared_ptr<MemTracker> _fragment_mem_tracker;
+
+    // MemTracker that is shared by all fragment instances running on this host.
+    // The query mem tracker must be released after the _instance_mem_tracker.
+    std::shared_ptr<MemTracker> _query_mem_tracker;
+
+    // Memory usage of this fragment instance
+    std::shared_ptr<MemTracker> _instance_mem_tracker;
+
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
@@ -548,19 +561,6 @@ private:
     // Thread resource management object for this fragment's execution.  The runtime
     // state is responsible for returning this pool to the thread mgr.
     ThreadResourceMgr::ResourcePool* _resource_pool;
-
-    // all mem limits that apply to this query
-    std::vector<std::shared_ptr<MemTracker>> _mem_trackers;
-
-    // Fragment memory limit.  Also contained in _mem_trackers
-    std::shared_ptr<MemTracker> _fragment_mem_tracker;
-
-    // MemTracker that is shared by all fragment instances running on this host.
-    // The query mem tracker must be released after the _instance_mem_tracker.
-    std::shared_ptr<MemTracker> _query_mem_tracker;
-
-    // Memory usage of this fragment instance
-    std::shared_ptr<MemTracker> _instance_mem_tracker;
 
     // if true, execution should stop with a CANCELLED status
     bool _is_cancelled;

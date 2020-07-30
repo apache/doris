@@ -56,7 +56,8 @@ class RowBlock {
     friend class RowBlockChanger;
     friend class VectorizedRowBatch;
 public:
-    RowBlock(const TabletSchema* schema, MemTracker* parent_tracker = nullptr);
+    RowBlock(const TabletSchema* schema,
+             const std::shared_ptr<MemTracker>& parent_tracker = std::shared_ptr<MemTracker>());
 
     // 注意回收内部buffer
     ~RowBlock();

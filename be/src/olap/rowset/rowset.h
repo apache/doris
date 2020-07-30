@@ -120,7 +120,7 @@ public:
     virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
     // Support adding parent tracker, but should be careful about destruction sequence.
-    virtual OLAPStatus create_reader(MemTracker* parent_tracker,
+    virtual OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
                                      std::shared_ptr<RowsetReader>* result) = 0;
 
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly

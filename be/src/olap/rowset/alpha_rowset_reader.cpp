@@ -22,7 +22,7 @@
 namespace doris {
 
 AlphaRowsetReader::AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset,
-                                     MemTracker* parent_tracker)
+                                     const std::shared_ptr<MemTracker>& parent_tracker)
         : _num_rows_per_row_block(num_rows_per_row_block),
           _rowset(std::move(rowset)),
           _parent_tracker(parent_tracker),

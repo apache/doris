@@ -53,7 +53,7 @@ public:
                   const std::set<uint32_t>& load_bf_columns, const Conditions* conditions,
                   const DeleteHandler* delete_handler, const DelCondSatisfied delete_status,
                   Cache* lru_cache, RuntimeState* runtime_state, OlapReaderStatistics* stats,
-                  MemTracker* parent_tracker = nullptr);
+                  const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
 
     ~SegmentReader();
 

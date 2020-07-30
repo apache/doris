@@ -51,11 +51,11 @@ RuntimeState::RuntimeState(
         const TUniqueId& fragment_instance_id,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env) :
+            _fragment_mem_tracker(nullptr),
             _profile("Fragment " + print_id(fragment_instance_id)),
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
-            _fragment_mem_tracker(nullptr),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
             _root_node_id(-1),
@@ -76,12 +76,12 @@ RuntimeState::RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env) :
+            _fragment_mem_tracker(nullptr),
             _profile("Fragment " + print_id(fragment_params.params.fragment_instance_id)),
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
             _query_id(fragment_params.params.query_id),
-            _fragment_mem_tracker(nullptr),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
             _root_node_id(-1),
@@ -153,18 +153,6 @@ RuntimeState::~RuntimeState() {
     if (_exec_env != nullptr && _exec_env->thread_mgr() != nullptr) {
         _exec_env->thread_mgr()->unregister_pool(_resource_pool);
     }
-
-#ifndef BE_TEST
-    // TODO: cleanup this comment
-    // _query_mem_tracker must be valid as long as _instance_mem_tracker is so
-    // delete _instance_mem_tracker first.
-    // LogUsage() walks the MemTracker tree top-down when the memory limit is exceeded.
-    // Break the link between the instance_mem_tracker and its parent (_query_mem_tracker)
-    // before the _instance_mem_tracker and its children are destroyed.
-
-    _instance_mem_tracker.reset();
-    _query_mem_tracker.reset();
-#endif
 }
 
 Status RuntimeState::init(
@@ -260,7 +248,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 }
 
 Status RuntimeState::init_instance_mem_tracker() {
-    _instance_mem_tracker.reset(new MemTracker(-1));
+    _instance_mem_tracker = MemTracker::CreateTracker(-1);
     return Status::OK();
 }
 
