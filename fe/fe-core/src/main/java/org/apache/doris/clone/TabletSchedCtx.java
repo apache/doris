@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
@@ -83,11 +84,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private static final long MAX_NOT_BEING_SCHEDULED_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
 
     /*
-     *  A clone task timeout is between MIN_CLONE_TASK_TIMEOUT_MS and MAX_CLONE_TASK_TIMEOUT_MS,
+     *  A clone task timeout is between Config.min_clone_task_timeout_sec and Config.max_clone_task_timeout_sec,
      *  estimated by tablet size / MIN_CLONE_SPEED_MB_PER_SECOND.
      */
-    private static final long MIN_CLONE_TASK_TIMEOUT_MS = 3 * 60 * 1000L; // 3 min
-    private static final long MAX_CLONE_TASK_TIMEOUT_MS = 2 * 60 * 60 * 1000L; // 2 hour
     private static final long MIN_CLONE_SPEED_MB_PER_SECOND = 5; // 5MB/sec
 
     /*
@@ -583,10 +582,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
     }
     
-    /*
-     * release all resources before finishing this task
-     */
     public void releaseResource(TabletScheduler tabletScheduler) {
+        releaseResource(tabletScheduler, false);
+    }
+
+    /*
+     * release all resources before finishing this task.
+     * if reserveTablet is true, the tablet object in this ctx will not be set to null after calling reset().
+     */
+    public void releaseResource(TabletScheduler tabletScheduler, boolean reserveTablet) {
         if (srcReplica != null) {
             Preconditions.checkState(srcPathHash != -1);
             PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
@@ -633,17 +637,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
 
-        reset();
+        reset(reserveTablet);
     }
     
     // reset to save memory after state is done
-    private void reset() {
+    private void reset(boolean reserveTablet) {
         /*
          * If state is PENDING, these fields will be reset when being rescheduled.
          * if state is FINISHED/CANCELLED/TIMEOUT, leave these fields for show.
          */
         if (state == State.PENDING) {
-            this.tablet = null;
+            if (!reserveTablet) {
+                this.tablet = null;
+            }
             this.srcReplica = null;
             this.srcPathHash = -1;
             this.destBackendId = -1;
@@ -725,8 +731,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private long getApproximateTimeoutMs() {
         long tabletSize = getTabletSize();
         long timeoutMs = tabletSize / 1024 / 1024 / MIN_CLONE_SPEED_MB_PER_SECOND * 1000;
-        timeoutMs = Math.max(timeoutMs, MIN_CLONE_TASK_TIMEOUT_MS);
-        timeoutMs = Math.min(timeoutMs, MAX_CLONE_TASK_TIMEOUT_MS);
+        timeoutMs = Math.max(timeoutMs, Config.min_clone_task_timeout_sec * 1000);
+        timeoutMs = Math.min(timeoutMs, Config.max_clone_task_timeout_sec * 1000);
         return timeoutMs;
     }
     

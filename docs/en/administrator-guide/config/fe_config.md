@@ -391,6 +391,15 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### `max_bytes_per_broker_scanner`
 
+### `max_clone_task_timeout_sec`
+
+Type: long
+Description: Used to control the maximum timeout of a clone task. The unit is second.
+Default value: 7200
+Dynamic modification: yes
+
+Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minimum timeout of a clone task. Under normal circumstances, the timeout of a clone task is estimated by the amount of data and the minimum transfer rate (5MB/s). In some special cases, these two configurations can be used to set the upper and lower bounds of the clone task timeout to ensure that the clone task can be completed successfully.
+
 ### `max_connection_scheduler_threads_num`
 
 ### `max_conn_per_user`
@@ -454,6 +463,15 @@ This configuration is specifically used to limit timeout setting for stream load
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
+
+### `min_clone_task_timeout_sec`
+
+Type: long
+Description: Used to control the minimum timeout of a clone task. The unit is second.
+Default value: 120
+Dynamic modification: yes
+
+See the description of `max_clone_task_timeout_sec`.
 
 ### `mini_load_default_timeout_second`
 

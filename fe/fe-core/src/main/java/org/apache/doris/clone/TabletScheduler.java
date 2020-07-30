@@ -642,12 +642,40 @@ public class TabletScheduler extends MasterDaemon {
     /*
      * There are enough alive replicas with complete version in this tablet, but some of backends may
      * under decommission.
-     * This process is same as replica missing
+     * First, we try to find a version incomplete replica on available BE.
+     * If failed to find, then try to find a new BE to clone the replicas.
+     * 
+     * Give examples of why:
+     * Tablet X has 3 replicas on A, B, C 3 BEs.
+     * C is decommission, so we choose the BE D to relocating the new replica,
+     * After relocating, Tablet X has 4 replicas: A, B, C(decommision), D(may be version incomplete)
+     * But D may be version incomplete because the clone task ran a long time, the new version
+     * has been published.
+     * At the next time of tablet checking, Tablet X's status is still REPLICA_RELOCATING,
+     * If we don't choose D as dest BE to do the new relocating, it will choose new backend E to
+     * store the new replicas. So back and forth, the number of replicas will increase forever.
      */
     private void handleReplicaRelocating(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
         stat.counterReplicaUnavailableErr.incrementAndGet();
-        handleReplicaMissing(tabletCtx, batchTask);
+        try {
+            handleReplicaVersionIncomplete(tabletCtx, batchTask);
+            LOG.info("succeed to find version incomplete replica from tablet relocating. tablet id: {}",
+                    tabletCtx.getTabletId());
+        } catch (SchedException e) {
+            if (e.getStatus() == Status.SCHEDULE_FAILED) {
+                LOG.info("failed to find version incomplete replica from tablet relocating. tablet id: {}, "
+                        + "try to find a new backend", tabletCtx.getTabletId());
+                // the dest or src slot may be taken after calling handleReplicaVersionIncomplete(),
+                // so we need to release these slots first.
+                // and reserve the tablet in TabletSchedCtx so that it can continue to be scheduled.
+                tabletCtx.releaseResource(this, true);
+                handleReplicaMissing(tabletCtx, batchTask);
+                LOG.info("succeed to find new backend for tablet relocating. tablet id: {}", tabletCtx.getTabletId());
+            } else {
+                throw e;
+            }
+        }
     }
 
     /**
