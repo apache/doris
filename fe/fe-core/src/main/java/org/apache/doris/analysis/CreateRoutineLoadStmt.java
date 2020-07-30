@@ -92,6 +92,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String FORMAT = "format";// the value is csv or json, default is csv
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String JSONPATHS = "jsonpaths";
+    public static final String JSONROOT = "json_root";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -113,6 +114,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(FORMAT)
             .add(JSONPATHS)
             .add(STRIP_OUTER_ARRAY)
+            .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
@@ -149,10 +151,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
      *   1) dataFormat = "json"
      *   2) jsonPaths = "$.XXX.xxx"
      */
-    private String format   = ""; //default is csv.
-    private String jsonPaths     = "";
+    private String format     = ""; //default is csv.
+    private String jsonPaths  = "";
+    private String jsonRoot   = ""; // MUST be a jsonpath string
     private boolean stripOuterArray = false;
-
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -238,6 +240,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getJsonPaths() {
         return jsonPaths;
+    }
+
+    public String getJsonRoot() {
+        return jsonRoot;
     }
 
     public String getKafkaBrokerList() {
@@ -364,6 +370,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             } else if (format.equalsIgnoreCase("json")) {
                 format = "json";
                 jsonPaths = jobProperties.get(JSONPATHS);
+                jsonRoot = jobProperties.get(JSONROOT);
                 stripOuterArray = Boolean.valueOf(jobProperties.get(STRIP_OUTER_ARRAY));
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
