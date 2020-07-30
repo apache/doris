@@ -71,7 +71,9 @@ class Suballocator {
       BufferPool* pool, BufferPool::ClientHandle* client, int64_t min_buffer_len);
 
   ~Suballocator();
-
+  /// Compute how many mem will be allocated from BufferPool. We will use it to try
+  /// consume mem in BufferedBlockMgr.
+  uint64_t ComputeAllocateBufferSize(int64_t bytes) const;
   /// Allocate bytes from BufferPool. The allocation is nullptr if unsuccessful because
   /// the client's reservation was insufficient. If an unexpected error is encountered,
   /// returns that status. The allocation size is rounded up to the next power-of-two.
@@ -86,8 +88,8 @@ class Suballocator {
   Status Allocate(int64_t bytes, std::unique_ptr<Suballocation>* result);
 
   /// Free the allocation. Does nothing if allocation is nullptr (e.g. was the result of a
-  /// failed Allocate() call).
-  void Free(std::unique_ptr<Suballocation> allocation);
+  /// failed Allocate() call). Return how many really release in BufferPool, release mem in BufferedBlockMgr.
+  uint64_t Free(std::unique_ptr<Suballocation> allocation);
 
   /// Upper bounds on the max allocation size and the number of different
   /// power-of-two allocation sizes. Used to bound the number of free lists.
@@ -127,6 +129,9 @@ class Suballocator {
   // Get the allocation at the head of the free list at index 'list_idx'. Return nullptr
   // if list is empty.
   std::unique_ptr<Suballocation> PopFreeListHead(int list_idx);
+
+  // Check list_idx of Free List whether is nullptr
+  bool CheckFreeListHeadNotNull(int list_idx) const;
 
   /// Coalesce two free buddies, 'b1' and 'b2'. Frees 'b1' and 'b2' and marks the parent
   /// not in use.
