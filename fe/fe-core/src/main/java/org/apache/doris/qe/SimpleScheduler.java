@@ -143,6 +143,10 @@ public class SimpleScheduler {
             lock.unlock();
         }
     }
+
+    public static boolean isAlive(Backend backend) {
+        return (backend != null && backend.isAlive() && !blacklistBackends.containsKey(backend.getId()));
+    }
     
     private static class UpdateBlacklistThread implements Runnable {
         private static final Logger LOG = LogManager.getLogger(UpdateBlacklistThread.class);
