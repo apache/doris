@@ -178,6 +178,9 @@ FROM data_source
     8. `strip_outer_array`
         Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false.
 
+    9. `json_root`
+        json_root is a valid JSONPATH string that specifies the root node of the JSON Document. The default value is "".
+
 5. data_source
 
     The type of data source. Current support:
@@ -461,6 +464,36 @@ FROM data_source
      1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
      2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
 
+6. User specifies the json_root node
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false",
+            "format" = "json",
+            "jsonpaths" = "[\"$.category\",\"$.author\",\"$.price\",\"$.timestamp\"]",
+            "strip_outer_array" = "true",
+            "json_root" = "$.RECORDS"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2",
+            "kafka_offsets" = "0,0,0"
+        );
+   For example json data:
+        {
+        "RECORDS":[
+            {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+            {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+            {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+            ]
+        }
 ## keyword
 
     CREATE, ROUTINE, LOAD

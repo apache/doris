@@ -371,11 +371,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             return Status::InvalidArgument("Invalid mem limit format");
         }
     }
-    if (!http_req->header(HTTP_EXEC_JSONPATHS).empty()) {
-        request.__set_jsonpaths(http_req->header(HTTP_EXEC_JSONPATHS));
+    if (!http_req->header(HTTP_JSONPATHS).empty()) {
+        request.__set_jsonpaths(http_req->header(HTTP_JSONPATHS));
     }
-    if (!http_req->header(HTTP_EXEC_STRIP_OUTER_ARRAY).empty()) {
-        if (boost::iequals(http_req->header(HTTP_EXEC_STRIP_OUTER_ARRAY), "true")) {
+    if (!http_req->header(HTTP_JSONROOT).empty()) {
+       request.__set_json_root(http_req->header(HTTP_JSONROOT));
+    }
+    if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
+        if (boost::iequals(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
             request.__set_strip_outer_array(true);
         } else {
             request.__set_strip_outer_array(false);

@@ -103,6 +103,9 @@ public class StreamLoadScanNode extends LoadScanNode {
             if (!streamLoadTask.getJsonPaths().isEmpty()) {
                 rangeDesc.setJsonpaths(streamLoadTask.getJsonPaths());
             }
+            if (!streamLoadTask.getJsonRoot().isEmpty()) {
+                rangeDesc.setJson_root(streamLoadTask.getJsonRoot());
+            }
             rangeDesc.setStrip_outer_array(streamLoadTask.isStripOuterArray());
         }
         rangeDesc.splittable = false;

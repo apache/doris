@@ -53,6 +53,7 @@ public class StreamLoadTask {
     private TFileFormatType formatType;
     private boolean stripOuterArray;
     private String jsonPaths;
+    private String jsonRoot;
 
     // optional
     private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
@@ -72,6 +73,7 @@ public class StreamLoadTask {
         this.fileType = fileType;
         this.formatType = formatType;
         this.jsonPaths = "";
+        this.jsonRoot = "";
         this.stripOuterArray = false;
     }
 
@@ -143,6 +145,14 @@ public class StreamLoadTask {
         this.jsonPaths = jsonPaths;
     }
 
+    public String getJsonRoot() {
+        return jsonRoot;
+    }
+
+    public void setJsonRoot(String jsonRoot) {
+        this.jsonRoot = jsonRoot;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
@@ -194,6 +204,9 @@ public class StreamLoadTask {
             if (request.getJsonpaths() != null) {
                 jsonPaths = request.getJsonpaths();
             }
+            if (request.getJson_root() != null) {
+                jsonRoot = request.getJson_root();
+            }
             stripOuterArray = request.isStrip_outer_array();
         }
     }
@@ -224,6 +237,9 @@ public class StreamLoadTask {
         timeout = (int) routineLoadJob.getMaxBatchIntervalS() * 2;
         if (!routineLoadJob.getJsonPaths().isEmpty()) {
             jsonPaths = routineLoadJob.getJsonPaths();
+        }
+        if (!routineLoadJob.getJsonRoot().isEmpty()) {
+            jsonRoot = routineLoadJob.getJsonRoot();
         }
         stripOuterArray = routineLoadJob.isStripOuterArray();
     }
