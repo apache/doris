@@ -111,7 +111,12 @@ public class PaloFe {
             // 3. HttpServer for HTTP Server
             QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-            HttpServer httpServer = new HttpServer(Config.http_port);
+            HttpServer httpServer = new HttpServer(
+                    Config.http_port,
+                    Config.http_max_line_length,
+                    Config.http_max_header_size,
+                    Config.http_max_chunk_size
+            );
             httpServer.setup();
 
             feServer.start();
