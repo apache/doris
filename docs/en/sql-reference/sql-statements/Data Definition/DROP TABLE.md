@@ -31,7 +31,8 @@ Grammar:
 DROP TABLE [IF EXISTS] [db_name.]table_name;
 
 Explain:
-After executing DROP TABLE for a period of time, the deleted table can be restored through the RECOVER statement. See RECOVER statement for details
+1) After executing DROP TABLE for a period of time, the deleted table can be restored through the RECOVER statement. See RECOVER statement for details
+2) If DROP TABLE FORCE is executed, the system will not check whether the table has unfinished transactions, the table will be deleted directly and cannot be recovered, generally this operation is not recommended
 
 ## example
 1. Delete a table

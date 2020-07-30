@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -32,20 +31,20 @@ public class DropTableStmt extends DdlStmt {
     private boolean ifExists;
     private final TableName tableName;
     private final boolean isView;
-    private boolean needCheckCommittedTxns;
+    private boolean forceDrop;
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean needCheckCommittedTxns) {
+    public DropTableStmt(boolean ifExists, TableName tableName, boolean forceDrop) {
         this.ifExists = ifExists;
         this.tableName = tableName;
         this.isView = false;
-        this.needCheckCommittedTxns = needCheckCommittedTxns;
+        this.forceDrop = forceDrop;
     }
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean isView, boolean needCheckCommittedTxns) {
+    public DropTableStmt(boolean ifExists, TableName tableName, boolean isView, boolean forceDrop) {
         this.ifExists = ifExists;
         this.tableName = tableName;
         this.isView = isView;
-        this.needCheckCommittedTxns = needCheckCommittedTxns;
+        this.forceDrop = forceDrop;
     }
 
     public boolean isSetIfExists() {
@@ -64,12 +63,12 @@ public class DropTableStmt extends DdlStmt {
         return isView;
     }
 
-    public boolean isNeedCheckCommittedTxns() {
-        return this.needCheckCommittedTxns;
+    public boolean isForceDrop() {
+        return this.forceDrop;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(analyzer.getDefaultDb());
         }

@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -33,12 +32,12 @@ import com.google.common.base.Strings;
 public class DropDbStmt extends DdlStmt {
     private boolean ifExists;
     private String dbName;
-    private boolean needCheckCommittedTxns;
+    private boolean forceDrop;
 
-    public DropDbStmt(boolean ifExists, String dbName, boolean needCheckCommittedTxns) {
+    public DropDbStmt(boolean ifExists, String dbName, boolean forceDrop) {
         this.ifExists = ifExists;
         this.dbName = dbName;
-        this.needCheckCommittedTxns = needCheckCommittedTxns;
+        this.forceDrop = forceDrop;
     }
 
     public boolean isSetIfExists() {
@@ -49,12 +48,12 @@ public class DropDbStmt extends DdlStmt {
         return this.dbName;
     }
 
-    public boolean isNeedCheckCommittedTxns() {
-        return this.needCheckCommittedTxns;
+    public boolean isForceDrop() {
+        return this.forceDrop;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
