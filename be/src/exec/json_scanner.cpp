@@ -73,8 +73,8 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         }
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
-            break;// break if true
+        if (fill_dest_tuple(tuple, tuple_pool)) {
+            break; // break if true
         }
     }
     if (_scanner_eof) {
@@ -452,13 +452,13 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
             if (*eof) { // read all data, then return
                 return Status::OK();
             }
-            if (_json_doc.IsArray()) {
-                _total_lines = _json_doc.Size();
+            if (_json_doc->IsArray()) {
+                _total_lines = _json_doc->Size();
                 if (_total_lines == 0) {
                     // may be passing an empty json, such as "[]"
                     std::stringstream str_error;
                     str_error << "Empty json line";
-                    _state->append_error_msg_to_file(_print_json_value(_json_doc), str_error.str());
+                    _state->append_error_msg_to_file(_print_json_value(*_json_doc), str_error.str());
                     _counter->num_rows_filtered++;
                     continue;
                 }

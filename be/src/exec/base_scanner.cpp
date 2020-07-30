@@ -134,7 +134,7 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
-bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool* mem_pool) {
+bool BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     int ctx_idx = 0;
     for (auto slot_desc : _dest_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
