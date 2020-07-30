@@ -61,7 +61,6 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -70,7 +69,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -184,6 +182,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private static final String PROPS_FORMAT = "format";
     private static final String PROPS_STRIP_OUTER_ARRAY = "strip_outer_array";
     private static final String PROPS_JSONPATHS = "jsonpaths";
+    private static final String PROPS_JSONROOT = "json_root";
 
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
@@ -285,12 +284,18 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_FORMAT, "csv");
             jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
             jobProperties.put(PROPS_JSONPATHS, "");
+            jobProperties.put(PROPS_JSONROOT, "");
         } else if (stmt.getFormat().equals("json")) {
             jobProperties.put(PROPS_FORMAT, "json");
             if (!Strings.isNullOrEmpty(stmt.getJsonPaths())) {
                 jobProperties.put(PROPS_JSONPATHS, stmt.getJsonPaths());
             } else {
                 jobProperties.put(PROPS_JSONPATHS, "");
+            }
+            if (!Strings.isNullOrEmpty(stmt.getJsonRoot())) {
+                jobProperties.put(PROPS_JSONROOT, stmt.getJsonRoot());
+            } else {
+                jobProperties.put(PROPS_JSONROOT, "");
             }
             if (stmt.isStripOuterArray()) {
                 jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "true");
@@ -466,6 +471,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public String getJsonPaths() {
         String value = jobProperties.get(PROPS_JSONPATHS);
+        if (value == null) {
+            return "";
+        }
+        return value;
+    }
+
+    public String getJsonRoot() {
+        String value = jobProperties.get(PROPS_JSONROOT);
         if (value == null) {
             return "";
         }
