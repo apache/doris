@@ -389,6 +389,15 @@ FE 的配置项有两种方式进行配置：
 
 ### `max_bytes_per_broker_scanner`
 
+### `max_clone_task_timeout_sec`
+
+类型：long
+说明：用于控制一个 clone 任务的最大超时时间。单位秒。
+默认值：7200
+动态修改：是
+
+可以配合 `mix_clone_task_timeout_sec` 来控制一个 clone 任务最大和最小的超时间。正常情况下，一个 clone 任务的超时间是通过数据量和最小传输速率（5MB/s）估算的。而在某些特殊情况下，可以通过这两个配置来认为设定 clone 任务超时时间的上下界，以保证 clone 任务可以顺利完成。
+
 ### `max_connection_scheduler_threads_num`
 
 ### `max_create_table_timeout_second`
@@ -450,6 +459,15 @@ current running txns on db xxx is xx, larger than limit xx
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
+
+### `min_clone_task_timeout_sec`
+
+类型：long
+说明：用于控制一个 clone 任务的最小超时时间。单位秒。
+默认值：120
+动态修改：是
+
+见 `max_clone_task_timeout_sec` 说明。
 
 ### `mini_load_default_timeout_second`
 
