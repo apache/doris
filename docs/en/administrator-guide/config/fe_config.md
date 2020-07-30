@@ -110,6 +110,16 @@ There are two ways to configure FE configuration items:
 
 ## Configurations
 
+### `agent_task_resend_wait_time_ms`
+
+This configuration will decide whether to resend agent task when create_time for agent_task is set, only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task.     
+
+This configuration is currently mainly used to solve the problem of repeated sending of `PUBLISH_VERSION` agent tasks. The current default value of this configuration is 5000, which is an experimental value.
+ 
+Because there is a certain time delay between submitting agent tasks to AgentTaskQueue and submitting to be, Increasing the value of this configuration can effectively solve the problem of repeated sending of agent tasks,
+
+But at the same time, it will cause the submission of failed or failed execution of the agent task to be executed again for an extended period of time.
+
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
@@ -199,6 +209,12 @@ There are two ways to configure FE configuration items:
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `db_used_data_quota_update_interval_secs`
+
+For better data load performance, in the check of whether the amount of data used by the database before data load exceeds the quota, we do not calculate the amount of data already used by the database in real time, but obtain the periodically updated value of the daemon thread.
+
+This configuration is used to set the time interval for updating the value of the amount of data used by the database.
 
 ### `default_rowset_type`
 
@@ -375,6 +391,15 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### `max_bytes_per_broker_scanner`
 
+### `max_clone_task_timeout_sec`
+
+Type: long
+Description: Used to control the maximum timeout of a clone task. The unit is second.
+Default value: 7200
+Dynamic modification: yes
+
+Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minimum timeout of a clone task. Under normal circumstances, the timeout of a clone task is estimated by the amount of data and the minimum transfer rate (5MB/s). In some special cases, these two configurations can be used to set the upper and lower bounds of the clone task timeout to ensure that the clone task can be completed successfully.
+
 ### `max_connection_scheduler_threads_num`
 
 ### `max_conn_per_user`
@@ -438,6 +463,15 @@ This configuration is specifically used to limit timeout setting for stream load
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
+
+### `min_clone_task_timeout_sec`
+
+Type: long
+Description: Used to control the minimum timeout of a clone task. The unit is second.
+Default value: 120
+Dynamic modification: yes
+
+See the description of `max_clone_task_timeout_sec`.
 
 ### `mini_load_default_timeout_second`
 
@@ -608,3 +642,21 @@ If this parameter is 'SIMPLE', then the 'TSimpleServer' model is used, which is 
 If the parameter is 'THREADED', then the 'TThreadedSelectorServer' model is used, which is a non-blocking I/O model, namely the master-slave Reactor model, which can timely respond to a large number of concurrent connection requests and performs well in most scenarios.
 
 If this parameter is `THREAD_POOL`, then the `TThreadPoolServer` model is used, the model for blocking I/O model, use the thread pool to handle user connections, the number of simultaneous connections are limited by the number of thread pool, if we can estimate the number of concurrent requests in advance, and tolerant enough thread resources cost, this model will have a better performance, the service model is used by default.
+
+### `cache_enable_sql_mode`
+
+If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, the result set will be cached, and the next same SQL will hit the cache.
+
+### `cache_enable_partition_mode`
+
+When this switch is turned on, the query result set will be cached according to the partition. If the interval between the query table partition time and the query time is less than cache_last_version_interval_second, the result set will be cached according to the partition.
+
+Part of the data will be obtained from the cache and some data from the disk when querying, and the data will be merged and returned to the client.
+
+### `cache_last_version_interval_second`
+
+The time interval of the latest partitioned version of the table refers to the time interval between the data update and the current version. It is generally set to 900 seconds, which distinguishes offline and real-time import.
+
+### `cache_result_max_row_count`
+
+In order to avoid occupying too much memory, the maximum number of rows that can be cached is 2000 by default. If this threshold is exceeded, the cache cannot be set.

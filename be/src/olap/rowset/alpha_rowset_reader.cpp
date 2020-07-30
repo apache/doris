@@ -21,14 +21,15 @@
 
 namespace doris {
 
-AlphaRowsetReader::AlphaRowsetReader(
-        int num_rows_per_row_block,
-        AlphaRowsetSharedPtr rowset)
-      : _num_rows_per_row_block(num_rows_per_row_block),
-        _rowset(std::move(rowset)),
-        _alpha_rowset_meta(std::static_pointer_cast<AlphaRowsetMeta>(_rowset->rowset_meta()).get()),
-        _segment_groups(_rowset->_segment_groups),
-        _key_range_size(0) {
+AlphaRowsetReader::AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset,
+                                     MemTracker* parent_tracker)
+        : _num_rows_per_row_block(num_rows_per_row_block),
+          _rowset(std::move(rowset)),
+          _parent_tracker(parent_tracker),
+          _alpha_rowset_meta(
+                  std::static_pointer_cast<AlphaRowsetMeta>(_rowset->rowset_meta()).get()),
+          _segment_groups(_rowset->_segment_groups),
+          _key_range_size(0) {
     _rowset->aquire();
 }
 
@@ -57,7 +58,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     // 2) we have several segment groups (_is_segments_overlapping && _merge_ctxs.size() > 1)
     if (_current_read_context->need_ordered_result && _is_segments_overlapping && _merge_ctxs.size() > 1) {
         _next_block = &AlphaRowsetReader::_merge_block;
-        _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema));
+        _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema, _parent_tracker));
         if (_read_block == nullptr) {
             LOG(WARNING) << "new row block failed in reader";
             return OLAP_ERR_MALLOC_ERROR;
@@ -332,7 +333,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
     const bool use_index_stream_cache = read_context->reader_type == READER_QUERY;
 
     for (auto& segment_group : _segment_groups) {
-        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
+        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get(), _parent_tracker));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "init column data failed";

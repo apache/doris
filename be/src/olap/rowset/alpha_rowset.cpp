@@ -52,8 +52,16 @@ OLAPStatus AlphaRowset::do_load(bool use_cache) {
 }
 
 OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    result->reset(new AlphaRowsetReader(
-        _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
+    result->reset(new AlphaRowsetReader(_schema->num_rows_per_row_block(),
+                                        std::static_pointer_cast<AlphaRowset>(shared_from_this())));
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowset::create_reader(MemTracker* parent_tracker,
+                                      std::shared_ptr<RowsetReader>* result) {
+    result->reset(new AlphaRowsetReader(_schema->num_rows_per_row_block(),
+                                        std::static_pointer_cast<AlphaRowset>(shared_from_this()),
+                                        parent_tracker));
     return OLAP_SUCCESS;
 }
 

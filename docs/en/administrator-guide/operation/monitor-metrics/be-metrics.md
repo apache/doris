@@ -75,3 +75,10 @@ Value of the `Tcp: OutSegs` field in `/proc/net/snmp`. Represents the number of 
 Use `(NEW_tcp_retrans_segs - OLD_tcp_retrans_segs) / (NEW_tcp_out_segs - OLD_tcp_out_segs)` can calculate the retrans rate of TCP packets.
 
 Usually used to troubleshoot network problems.
+
+### `doris_be_compaction_mem_current_consumption`
+
+The total MemPool consumption of all running `Compaction` threads. Use this value, we can easily identify whether 
+Compactions use too much memory, it may cause memory overhead or OOM.
+
+Usually used to troubleshoot memory problems.

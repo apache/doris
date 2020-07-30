@@ -90,7 +90,6 @@ public:
     JsonDataInternal(rapidjson::Value* v);
     ~JsonDataInternal() {}
     rapidjson::Value::ConstValueIterator get_next();
-    rapidjson::Value* get_value() { return _json_values; }
     bool is_null() const { return _json_values == nullptr; }
 
 private:
@@ -106,33 +105,31 @@ struct JsonPath;
 class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile, FileReader* file_reader,
-            std::string& jsonpath, bool strip_outer_array);
+            bool strip_outer_array);
     ~JsonReader();
 
-    Status init(); // must call before use
+    Status init(const std::string& jsonpath, const std::string& json_root); // must call before use
 
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
 
 private:
+    Status (JsonReader::*_handle_json_callback)(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
     Status _handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
-    Status _handle_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
     Status _handle_flat_array_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
     Status _handle_nested_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof);
 
     void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len);
-    void _assemble_jmap(const std::vector<SlotDescriptor*>& slot_descs);
     Status _parse_json_doc(bool* eof);
     void _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid);
-    Status _set_tuple_value_from_jmap(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid);
     void _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc, Tuple* tuple, MemPool* tuple_pool, bool* valid);
+    bool _write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs);
     std::string _print_json_value(const rapidjson::Value& value);
     std::string _print_jsonpath(const std::vector<JsonPath>& path);
 
     void _close();
+    Status _generate_json_paths(const std::string& jsonpath, std::vector<std::vector<JsonPath>>* vect);
 
 private:
-    // origin json path
-    std::string _jsonpath;
     int _next_line;
     int _total_lines;
     RuntimeState* _state;
@@ -143,10 +140,12 @@ private:
     bool _strip_outer_array;
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;
+
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
-    rapidjson::Document _json_doc;
-    //key: column name
-    std::unordered_map<std::string, JsonDataInternal> _jmap;
+    std::vector<JsonPath> _parsed_json_root;
+
+    rapidjson::Document _origin_json_doc; // origin json document object from parsed json string
+    rapidjson::Value *_json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
 };
 
 

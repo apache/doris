@@ -110,6 +110,14 @@ FE 的配置项有两种方式进行配置：
 
 ## 配置项列表
 
+### `agent_task_resend_wait_time_ms`
+
+当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。 
+  
+该配置目前主要用来解决`PUBLISH_VERSION`代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
+
+但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。  
+    
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
@@ -199,6 +207,12 @@ FE 的配置项有两种方式进行配置：
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `db_used_data_quota_update_interval_secs`
+
+为了更好的数据导入性能，在数据导入之前的数据库已使用的数据量是否超出配额的检查中，我们并不实时计算数据库已经使用的数据量，而是获取后台线程周期性更新的值。
+
+该配置用于设置更新数据库使用的数据量的值的时间间隔。
 
 ### `default_rowset_type`
 
@@ -375,6 +389,15 @@ FE 的配置项有两种方式进行配置：
 
 ### `max_bytes_per_broker_scanner`
 
+### `max_clone_task_timeout_sec`
+
+类型：long
+说明：用于控制一个 clone 任务的最大超时时间。单位秒。
+默认值：7200
+动态修改：是
+
+可以配合 `mix_clone_task_timeout_sec` 来控制一个 clone 任务最大和最小的超时间。正常情况下，一个 clone 任务的超时间是通过数据量和最小传输速率（5MB/s）估算的。而在某些特殊情况下，可以通过这两个配置来认为设定 clone 任务超时时间的上下界，以保证 clone 任务可以顺利完成。
+
 ### `max_connection_scheduler_threads_num`
 
 ### `max_create_table_timeout_second`
@@ -436,6 +459,15 @@ current running txns on db xxx is xx, larger than limit xx
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
+
+### `min_clone_task_timeout_sec`
+
+类型：long
+说明：用于控制一个 clone 任务的最小超时时间。单位秒。
+默认值：120
+动态修改：是
+
+见 `max_clone_task_timeout_sec` 说明。
 
 ### `mini_load_default_timeout_second`
 
@@ -606,3 +638,21 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 若该参数为`THREADED`, 则使用`TThreadedSelectorServer`模型，该模型为非阻塞式I/O模型，即主从Reactor模型，该模型能及时响应大量的并发连接请求，在多数场景下有较好的表现。
 
 若该参数为`THREAD_POOL`, 则使用`TThreadPoolServer`模型，该模型为阻塞式I/O模型，使用线程池处理用户连接，并发连接数受限于线程池的数量，如果能提前预估并发请求的数量，并且能容忍足够多的线程资源开销，该模型会有较好的性能表现，默认使用该服务模型。
+
+### `cache_enable_sql_mode`
+
+该开关打开会缓存SQL查询结果集，如果查询的所有表的所有分区中的最后更新时间离查询时的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count则缓存结果集，下个相同SQL会命中缓存。
+
+### `cache_enable_partition_mode`
+
+该开关打开会按照分区缓存查询结果集，如果查询的表的分区时间离查询时的间隔小于cache_last_version_interval_second，则会按照分区缓存结果集。
+
+查询时会从缓存中获取部分数据，从磁盘中获取部分数据，并把数据合并返回给客户端。
+
+### `cache_last_version_interval_second`
+
+表最新分区的版本的时间间隔，指数据更新离当前的时间间隔，一般设置为900秒，区分离线和实时导入。
+
+### `cache_result_max_row_count`
+
+为了避免过多占用内存，能够被缓存最大的行数，默认2000，超过这个阈值将不能缓存置。

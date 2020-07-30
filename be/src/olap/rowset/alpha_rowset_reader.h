@@ -52,7 +52,8 @@ struct AlphaMergeContextComparator {
 
 class AlphaRowsetReader : public RowsetReader {
 public:
-    AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset);
+    AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset,
+                      MemTracker* parent_tracker = nullptr);
 
     ~AlphaRowsetReader() override;
 
@@ -60,6 +61,8 @@ public:
     OLAPStatus init(RowsetReaderContext* read_context) override;
 
     // read next block data
+    // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
+    // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
 
     bool delete_flag() override;
@@ -101,6 +104,7 @@ private:
 private:
     int _num_rows_per_row_block;
     AlphaRowsetSharedPtr _rowset;
+    MemTracker* _parent_tracker;
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;
     const std::vector<std::shared_ptr<SegmentGroup>>& _segment_groups;

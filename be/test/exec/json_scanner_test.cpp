@@ -401,6 +401,8 @@ TEST_F(JsonSannerTest, normal_simple_arrayjson) {
         range.start_offset = 0;
         range.size = -1;
         range.format_type = TFileFormatType::FORMAT_JSON;
+        range.strip_outer_array = true;
+        range.__isset.strip_outer_array = true;
         range.splittable = true;
         range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
         range.file_type = TFileType::FILE_LOCAL;

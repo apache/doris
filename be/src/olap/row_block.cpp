@@ -37,11 +37,12 @@ using std::vector;
 
 namespace doris {
 
-RowBlock::RowBlock(const TabletSchema* schema)
-        : _capacity(0),
-          _schema(schema),
-          _tracker(new MemTracker(-1)),
-          _mem_pool(new MemPool(_tracker.get())) {}
+RowBlock::RowBlock(const TabletSchema* schema, const std::shared_ptr<MemTracker>& parent_tracker) :
+        _capacity(0),
+        _schema(schema) {
+    _tracker = MemTracker::CreateMemTracker(-1, "RowBlock", parent_tracker);
+    _mem_pool.reset(new MemPool(_tracker.get()));
+}
 
 RowBlock::~RowBlock() {
     delete[] _mem_buf;

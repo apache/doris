@@ -20,8 +20,8 @@
 
 #include <set>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 #include "util/metrics.h"
 #include "util/system_metrics.h"
@@ -46,11 +46,10 @@ private:
     std::unordered_map<std::string, std::unique_ptr<IntGauge>> metrics;
 };
 
-#define REGISTER_GAUGE_DORIS_METRIC(name, func) \
-  DorisMetrics::instance()->metrics()->register_metric(#name, &DorisMetrics::instance()->name); \
-  DorisMetrics::instance()->metrics()->register_hook(#name, [&]() { \
-      DorisMetrics::instance()->name.set_value(func());  \
-});
+#define REGISTER_GAUGE_DORIS_METRIC(name, func)                                                   \
+    DorisMetrics::instance()->metrics()->register_metric(#name, &DorisMetrics::instance()->name); \
+    DorisMetrics::instance()->metrics()->register_hook(                                           \
+            #name, [&]() { DorisMetrics::instance()->name.set_value(func()); });
 
 class DorisMetrics {
 public:
@@ -185,6 +184,7 @@ public:
     METRIC_DEFINE_UINT_GAUGE(stream_load_pipe_count, MetricUnit::NOUNIT);
     METRIC_DEFINE_UINT_GAUGE(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
     METRIC_DEFINE_UINT_GAUGE(tablet_writer_count, MetricUnit::NOUNIT);
+    METRIC_DEFINE_UINT_GAUGE(compaction_mem_current_consumption, MetricUnit::BYTES);
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
@@ -193,10 +193,10 @@ public:
 
     // not thread-safe, call before calling metrics
     void initialize(
-        const std::vector<std::string>& paths = std::vector<std::string>(),
-        bool init_system_metrics = false,
-        const std::set<std::string>& disk_devices = std::set<std::string>(),
-        const std::vector<std::string>& network_interfaces = std::vector<std::string>());
+            const std::vector<std::string>& paths = std::vector<std::string>(),
+            bool init_system_metrics = false,
+            const std::set<std::string>& disk_devices = std::set<std::string>(),
+            const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
     MetricRegistry* metrics() { return &_metrics; }
     SystemMetrics* system_metrics() { return &_system_metrics; }
@@ -217,6 +217,6 @@ private:
     SystemMetrics _system_metrics;
 };
 
-};
+}; // namespace doris
 
 #endif

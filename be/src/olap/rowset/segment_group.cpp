@@ -253,13 +253,17 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
     //    For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
     // 2. adding column to existed table, get_num_zone_map_columns() will larger than
     //    zone_map_fields.size()
-
     int zonemap_col_num = get_num_zone_map_columns();
     CHECK(zonemap_col_num <= schema_mapping.size()) << zonemap_col_num << " vs. " << schema_mapping.size();
-    // if upgrade from 0.11 the zone map not contain the value column, so zone_map_fields.size() is less
-    // than zonemap_col_num, this may be cause core dump at access zone_map_fields by index in the following code,
-    // so check the zone_map_fields.size() to set the actual zone map fields
-    for (size_t i = 0; i < zonemap_col_num && i < zone_map_fields.size(); ++i) {
+
+    for (size_t i = 0; i < zonemap_col_num; ++i) {
+        
+        // in duplicated table update from 0.11 to 0.12, zone map index may be missed
+        if (_schema->keys_type() == DUP_KEYS && 
+            schema_mapping[i].ref_column != -1 &&
+            schema_mapping[i].ref_column >= zone_map_fields.size()) {
+            continue;
+        }
         const TabletColumn& column = _schema->column(i);
 
         WrapperField* first = WrapperField::create(column);
@@ -268,11 +272,14 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
 
-        if (schema_mapping[i].ref_column == -1) {
+        // when this is no ref_column (add new column), fill default value
+        if (schema_mapping[i].ref_column == -1 || schema_mapping[i].ref_column >= zone_map_fields.size()) {
             // ref_column == -1 means this is a new column.
             // for new column, use default value to fill into column_statistics
-            first->copy(schema_mapping[i].default_value);
-            second->copy(schema_mapping[i].default_value);
+            if (schema_mapping[i].default_value != nullptr) {
+                first->copy(schema_mapping[i].default_value);
+                second->copy(schema_mapping[i].default_value);
+            }
         } else {
             // use src column's zone map value to fill
             first->copy(zone_map_fields[schema_mapping[i].ref_column].first);

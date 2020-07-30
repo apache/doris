@@ -25,8 +25,6 @@
 #include <openssl/evp.h>
 #include <openssl/err.h>
 
-#include "exprs/base64.h"
-
 namespace doris {
 
 static const int AES_MAX_KEY_LENGTH = 256;

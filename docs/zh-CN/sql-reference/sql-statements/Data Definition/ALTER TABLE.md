@@ -57,10 +57,11 @@ under the License.
 
     2. 删除分区
         语法：
-            DROP PARTITION [IF EXISTS] partition_name
+            DROP PARTITION [IF EXISTS] partition_name [FORCE]
         注意：
             1) 使用分区方式的表至少要保留一个分区。
-            2) 执行 DROP PARTITION 一段时间内，可以通过 RECOVER 语句恢复被删除的 partition。详见 RECOVER 语句
+            2) 执行 DROP PARTITION 一段时间内，可以通过 RECOVER 语句恢复被删除的分区。详见 RECOVER 语句
+            3) 如果执行 DROP PARTITION FORCE，则系统不会检查该分区是否存在未完成的事务，分区将直接被删除并且不能被恢复，一般不建议执行此操作
             
     3. 修改分区属性
         语法：

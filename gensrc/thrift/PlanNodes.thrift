@@ -129,6 +129,7 @@ struct TBrokerRangeDesc {
     //  it's usefull when format_type == FORMAT_JSON
     11: optional bool strip_outer_array;
     12: optional string jsonpaths;
+    13: optional string json_root;
 }
 
 struct TBrokerScanRangeParams {
