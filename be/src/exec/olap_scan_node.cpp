@@ -954,7 +954,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
 }
 
 void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str) {
-    if (Expr::type_without_cast(expr) != TExprNodeType::SLOT_REF) {
+    if (expr->node_type() != TExprNodeType::SLOT_REF) {
         return;
     }
 
