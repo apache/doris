@@ -24,10 +24,7 @@
 
 #include "exec/exec_node.h"
 #include "exec/partitioned_hash_table.h"
-#include "runtime/buffered_tuple_stream3.h"
-#include "runtime/bufferpool/suballocator.h"
-#include "runtime/descriptors.h"  // for TupleId
-#include "runtime/mem_pool.h"
+#include "runtime/buffered_tuple_stream2.h"
 #include "runtime/string_value.h"
 
 namespace doris {
@@ -191,9 +188,9 @@ class PartitionedAggregationNode : public ExecNode {
   /// requires a finalize step.
   const bool needs_finalize_;
 
-    /// True if this is first phase of a two-phase distributed aggregation for which we
-    /// are doing a streaming preaggregation.
-    bool is_streaming_preagg_;
+  /// True if this is first phase of a two-phase distributed aggregation for which we
+  /// are doing a streaming preaggregation.
+  bool is_streaming_preagg_;
 
   /// True if any of the evaluators require the serialize step.
   bool needs_serialize_;
@@ -392,7 +389,7 @@ class PartitionedAggregationNode : public ExecNode {
     /// not fail due to OOM. Preaggregations do not reserve any buffers: if does not
     /// have enough reservation for the initial buffer, the aggregated row stream is not
     /// created and an OK status is returned.
-    Status InitStreams();
+    Status InitStreams(bool use_small_buffer = true);
 
     /// Initializes the hash table. 'aggregated_row_stream' must be non-NULL.
     /// Sets 'got_memory' to true if the hash table was initialised or false on OOM.
@@ -447,18 +444,20 @@ class PartitionedAggregationNode : public ExecNode {
     /// For streaming preaggs, this may be NULL if sufficient memory is not available.
     /// In that case hash_tbl is also NULL and all rows for the partition will be passed
     /// through.
-    boost::scoped_ptr<BufferedTupleStream3> aggregated_row_stream;
+    boost::scoped_ptr<BufferedTupleStream2> aggregated_row_stream;
 
     /// Unaggregated rows that are spilled. Always NULL for streaming pre-aggregations.
     /// Always unpinned. Has a write buffer allocated when the partition is spilled and
     /// unaggregated rows are being processed.
-    boost::scoped_ptr<BufferedTupleStream3> unaggregated_row_stream;
+    boost::scoped_ptr<BufferedTupleStream2> unaggregated_row_stream;
   };
 
+  // Block manager client used by _input_stream. Not owned.
+  BufferedBlockMgr2::Client* client_;
   /// Stream used to store serialized spilled rows. Only used if needs_serialize_
   /// is set. This stream is never pinned and only used in Partition::Spill as a
   /// a temporary buffer.
-  boost::scoped_ptr<BufferedTupleStream3> serialize_stream_;
+  boost::scoped_ptr<BufferedTupleStream2> serialize_stream_;
 
   /// Accessor for 'hash_tbls_' that verifies consistency with the partitions.
   PartitionedHashTable* ALWAYS_INLINE GetHashTable(int partition_idx) {
@@ -493,7 +492,7 @@ class PartitionedAggregationNode : public ExecNode {
   /// FunctionContexts, so is stored outside the stream. If stream's small buffers get
   /// full, it will attempt to switch to IO-buffers.
   Tuple* ConstructIntermediateTuple(const std::vector<NewAggFnEvaluator*>& agg_fn_evals,
-      BufferedTupleStream3* stream, Status* status);
+      BufferedTupleStream2* stream, Status* status);
 
   /// Constructs intermediate tuple, allocating memory from pool instead of the stream.
   /// Returns NULL and sets status if there is not enough memory to allocate the tuple.
@@ -588,7 +587,7 @@ class PartitionedAggregationNode : public ExecNode {
 
   /// Reads all the rows from input_stream and process them by calling ProcessBatch().
   template<bool AGGREGATED_ROWS>
-  Status ProcessStream(BufferedTupleStream3* input_stream);
+  Status ProcessStream(BufferedTupleStream2* input_stream);
 
   /// Output 'singleton_output_tuple_' and transfer memory to 'row_batch'.
   void GetSingletonOutput(RowBatch* row_batch);
@@ -717,6 +716,18 @@ class PartitionedAggregationNode : public ExecNode {
       //_resource_profile.max_row_buffer_size * 2;
       return 0;
   }
+
+  /// We need two buffers per partition, one for the aggregated stream and one
+  /// for the unaggregated stream. We need an additional buffer to read the stream
+  /// we are currently repartitioning.
+  /// If we need to serialize, we need an additional buffer while spilling a partition
+  /// as the partitions aggregate stream needs to be serialized and rewritten.
+  /// We do not spill streaming preaggregations, so we do not need to reserve any buffers.
+  int MinRequiredBuffers() const {
+    if (is_streaming_preagg_) return 0;
+    return 2 * PARTITION_FANOUT + 1 + (needs_serialize_ ? 1 : 0);
+  }
+
 };
 
 }

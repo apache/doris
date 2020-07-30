@@ -184,11 +184,11 @@ void PartitionedHashTableCtx::Close(RuntimeState* state) {
 }
 
 void PartitionedHashTableCtx::FreeBuildLocalAllocations() {
-  //ExprContext::FreeLocalAllocations(build_expr_evals_);
+  ExprContext::free_local_allocations(build_expr_evals_);
 }
 
 void PartitionedHashTableCtx::FreeProbeLocalAllocations() {
-  //ExprContext::FreeLocalAllocations(probe_expr_evals_);
+  ExprContext::free_local_allocations(probe_expr_evals_);
 }
 
 void PartitionedHashTableCtx::FreeLocalAllocations() {
@@ -400,17 +400,19 @@ void PartitionedHashTableCtx::ExprValuesCache::ResetForRead() {
 constexpr double PartitionedHashTable::MAX_FILL_FACTOR;
 constexpr int64_t PartitionedHashTable::DATA_PAGE_SIZE;
 
-PartitionedHashTable* PartitionedHashTable::Create(Suballocator* allocator, bool stores_duplicates,
-    int num_build_tuples, BufferedTupleStream3* tuple_stream, int64_t max_num_buckets,
+PartitionedHashTable* PartitionedHashTable::Create(RuntimeState* state, BufferedBlockMgr2::Client* client, Suballocator* allocator, bool stores_duplicates,
+    int num_build_tuples, BufferedTupleStream2* tuple_stream, int64_t max_num_buckets,
     int64_t initial_num_buckets) {
-  return new PartitionedHashTable(config::enable_quadratic_probing, allocator, stores_duplicates,
+  return new PartitionedHashTable(config::enable_quadratic_probing, state, allocator, client, stores_duplicates,
       num_build_tuples, tuple_stream, max_num_buckets, initial_num_buckets);
 }
 
-PartitionedHashTable::PartitionedHashTable(bool quadratic_probing, Suballocator* allocator,
-    bool stores_duplicates, int num_build_tuples, BufferedTupleStream3* stream,
+PartitionedHashTable::PartitionedHashTable(bool quadratic_probing, RuntimeState* state, Suballocator* allocator,
+    BufferedBlockMgr2::Client* client, bool stores_duplicates, int num_build_tuples, BufferedTupleStream2* stream,
     int64_t max_num_buckets, int64_t num_buckets)
-  : allocator_(allocator),
+   :state_(state),
+    allocator_(allocator),
+    block_mgr_client_(client),
     tuple_stream_(stream),
     stores_tuples_(num_build_tuples == 1),
     stores_duplicates_(stores_duplicates),
@@ -435,11 +437,19 @@ PartitionedHashTable::PartitionedHashTable(bool quadratic_probing, Suballocator*
 
 Status PartitionedHashTable::Init(bool* got_memory) {
   int64_t buckets_byte_size = num_buckets_ * sizeof(Bucket);
+  auto allocate_bytes = allocator_->ComputeAllocateBufferSize(buckets_byte_size);
+  if (!state_->block_mgr2()->consume_memory(block_mgr_client_, allocate_bytes)) {
+      num_buckets_ = 0;
+      *got_memory = false;
+      return Status::OK();
+  }
+
   RETURN_IF_ERROR(allocator_->Allocate(buckets_byte_size, &bucket_allocation_));
   if (bucket_allocation_ == nullptr) {
-    num_buckets_ = 0;
-    *got_memory = false;
-    return Status::OK();
+      state_->block_mgr2()->release_memory(block_mgr_client_, allocate_bytes);
+      num_buckets_ = 0;
+      *got_memory = false;
+      return Status::OK();
   }
   buckets_ = reinterpret_cast<Bucket*>(bucket_allocation_->data());
   memset(buckets_, 0, buckets_byte_size);
@@ -454,9 +464,16 @@ void PartitionedHashTable::Close() {
   const int64_t HEAVILY_USED = 1024 * 1024;
   // TODO: These statistics should go to the runtime profile as well.
   if ((num_buckets_ > LARGE_HT) || (num_probes_ > HEAVILY_USED)) VLOG(2) << PrintStats();
-  for (auto& data_page : data_pages_) allocator_->Free(move(data_page));
+
+  int64_t free_bytes = 0;
+  for (auto& data_page : data_pages_) {
+      free_bytes += allocator_->Free(move(data_page));
+  }
   data_pages_.clear();
-  if (bucket_allocation_ != nullptr) allocator_->Free(move(bucket_allocation_));
+  if (bucket_allocation_ != nullptr) {
+      free_bytes += allocator_->Free(move(bucket_allocation_));
+  }
+  state_->block_mgr2()->release_memory(block_mgr_client_, free_bytes);
 }
 
 Status PartitionedHashTable::CheckAndResize(
@@ -493,10 +510,16 @@ Status PartitionedHashTable::ResizeBuckets(
   // of the old hash table.
   // int64_t old_size = num_buckets_ * sizeof(Bucket);
   int64_t new_size = num_buckets * sizeof(Bucket);
+  int64_t allocate_bytes = allocator_->ComputeAllocateBufferSize(new_size);
 
+  if (!state_->block_mgr2()->consume_memory(block_mgr_client_, allocate_bytes)) {
+      *got_memory = false;
+      return Status::OK();
+  }
   std::unique_ptr<Suballocation> new_allocation;
   RETURN_IF_ERROR(allocator_->Allocate(new_size, &new_allocation));
   if (new_allocation == NULL) {
+    state_->block_mgr2()->release_memory(block_mgr_client_, new_size);
     *got_memory = false;
     return Status::OK();
   }
@@ -520,7 +543,9 @@ Status PartitionedHashTable::ResizeBuckets(
   }
 
   num_buckets_ = num_buckets;
-  allocator_->Free(move(bucket_allocation_));
+  auto free_bytes = allocator_->Free(move(bucket_allocation_));
+  state_->block_mgr2()->release_memory(block_mgr_client_, free_bytes);
+
   bucket_allocation_ = std::move(new_allocation);
   buckets_ = reinterpret_cast<Bucket*>(bucket_allocation_->data());
   *got_memory = true;
@@ -528,9 +553,16 @@ Status PartitionedHashTable::ResizeBuckets(
 }
 
 bool PartitionedHashTable::GrowNodeArray(Status* status) {
+  auto allocate_bytes = allocator_->ComputeAllocateBufferSize(DATA_PAGE_SIZE);
+  if (!state_->block_mgr2()->consume_memory(block_mgr_client_, allocate_bytes)) {
+     return false;
+  }
   std::unique_ptr<Suballocation> allocation;
   *status = allocator_->Allocate(DATA_PAGE_SIZE, &allocation);
-  if (!status->ok() || allocation == nullptr) return false;
+  if (!status->ok() || allocation == nullptr) {
+      state_->block_mgr2()->release_memory(block_mgr_client_, allocate_bytes);
+      return false;
+  }
   next_node_ = reinterpret_cast<DuplicateNode*>(allocation->data());
   data_pages_.push_back(std::move(allocation));
   node_remaining_current_page_ = DATA_PAGE_SIZE / sizeof(DuplicateNode);
@@ -543,7 +575,8 @@ void PartitionedHashTable::DebugStringTuple(std::stringstream& ss, HtData& htdat
   if (stores_tuples_) {
     ss << "(" << htdata.tuple << ")";
   } else {
-    ss << "(" << htdata.flat_row << ")";
+      ss << "(" << htdata.idx.block() << "," << htdata.idx.idx()
+        << "," << htdata.idx.offset() << ")";
   }
   if (desc != NULL) {
     Tuple* row[num_build_tuples_];

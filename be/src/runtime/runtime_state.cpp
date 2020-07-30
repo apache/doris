@@ -259,7 +259,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 
     if (_instance_buffer_reservation != nullptr) {
         _instance_buffer_reservation->InitChildTracker(&_profile,
-            _buffer_reservation, _instance_mem_tracker.get(),
+            _buffer_reservation, nullptr,
             std::numeric_limits<int64_t>::max());
     } 
 
@@ -291,7 +291,7 @@ Status RuntimeState::init_buffer_poolstate() {
 
   _buffer_reservation = _obj_pool->add(new ReservationTracker);
   _buffer_reservation->InitChildTracker(
-      NULL, exec_env->buffer_reservation(), _query_mem_tracker.get(), max_reservation);
+      NULL, exec_env->buffer_reservation(), nullptr, max_reservation);
   
   return Status::OK();
 }

@@ -111,14 +111,14 @@ inline PartitionedHashTable::HtData* PartitionedHashTable::InsertInternal(
 }
 
 inline bool PartitionedHashTable::Insert(PartitionedHashTableCtx* ht_ctx,
-    BufferedTupleStream3::FlatRowPtr flat_row, TupleRow* row, Status* status) {
+    const BufferedTupleStream2::RowIdx& idx, TupleRow* row, Status* status) {
   HtData* htdata = InsertInternal(ht_ctx, status);
   // If successful insert, update the contents of the newly inserted entry with 'idx'.
   if (LIKELY(htdata != NULL)) {
     if (stores_tuples()) {
       htdata->tuple = row->get_tuple(0);
     } else {
-      htdata->flat_row = flat_row;
+      htdata->idx = idx;
     }
     return true;
   }
@@ -234,7 +234,7 @@ inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::InsertDuplicat
   if (!bucket->hasDuplicates) {
     // This is the first duplicate in this bucket. It means that we need to convert
     // the current entry in the bucket to a node and link it from the bucket.
-    next_node_->htdata.flat_row = bucket->bucketData.htdata.flat_row;
+    next_node_->htdata.idx = bucket->bucketData.htdata.idx;
     DCHECK(!bucket->matched);
     next_node_->matched = false;
     next_node_->next = NULL;
@@ -253,7 +253,7 @@ inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(HtData& htdata, T
     return reinterpret_cast<TupleRow*>(&htdata.tuple);
   } else {
     // TODO: GetTupleRow() has interpreted code that iterates over the row's descriptor.
-    tuple_stream_->GetTupleRow(htdata.flat_row, row);
+    tuple_stream_->get_tuple_row(htdata.idx, row);
     return row;
   }
 }

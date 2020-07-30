@@ -386,7 +386,7 @@ BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group
   // Set up a child profile with buffer pool info.
   RuntimeProfile* child_profile = profile->create_child("Buffer pool", true, true);
   reservation_.InitChildTracker(
-      child_profile, parent_reservation, mem_tracker, reservation_limit);
+      child_profile, parent_reservation, nullptr, reservation_limit);
   counters_.alloc_time = ADD_TIMER(child_profile, "AllocTime");
   counters_.cumulative_allocations =
       ADD_COUNTER(child_profile, "CumulativeAllocations", TUnit::UNIT);
