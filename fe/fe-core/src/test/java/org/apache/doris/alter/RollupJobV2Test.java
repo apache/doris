@@ -397,12 +397,6 @@ public class RollupJobV2Test {
         params.add(param1);
         Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
         columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));
-        new Expectations() {
-            {
-                stmt.parseDefineExprWithoutAnalyze();
-                result = columnNameToDefineExpr;
-            }
-        };
 
         // read objects from file
         MetaContext metaContext = new MetaContext();
@@ -417,9 +411,6 @@ public class RollupJobV2Test {
         Column resultColumn1 = resultColumns.get(0);
         Assert.assertEquals(mvColumnName,
                 resultColumn1.getName());
-        Assert.assertTrue(resultColumn1.getDefineExpr() instanceof FunctionCallExpr);
-        FunctionCallExpr resultFunctionCall = (FunctionCallExpr) resultColumn1.getDefineExpr();
-        Assert.assertEquals("to_bitmap", resultFunctionCall.getFnName().getFunction());
-
+        Assert.assertNull(resultColumn1.getDefineExpr());
     }
 }
