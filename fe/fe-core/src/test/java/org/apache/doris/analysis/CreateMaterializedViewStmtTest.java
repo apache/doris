@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -38,6 +34,10 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class CreateMaterializedViewStmtTest {
 
