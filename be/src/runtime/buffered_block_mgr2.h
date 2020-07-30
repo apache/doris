@@ -508,6 +508,9 @@ private:
     bool validate() const;
     std::string debug_internal() const;
 
+    // Add BE hostname and fragmentid for debug tuning
+    Status add_exec_msg(const std::string& msg) const;
+
     // Size of the largest/default block in bytes.
     const int64_t _max_block_size;
 
@@ -637,6 +640,9 @@ private:
     // d'tor will be called at which point the weak ptr will be removed from the map.
     typedef boost::unordered_map<TUniqueId, boost::weak_ptr<BufferedBlockMgr2> > BlockMgrsMap;
     static BlockMgrsMap _s_query_to_block_mgrs;
+
+    // Unowned.
+    RuntimeState* _state;
 
 }; // class BufferedBlockMgr2
 
