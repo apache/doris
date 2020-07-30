@@ -340,7 +340,7 @@ public class SelectStmtTest {
 
     @Test
     public void testMultrGroupByInCorrelationSubquery() throws Exception {
-        String sql = "SELECT * from baseall where v1 > (select min(k1) from tbl1 where baseall.k1 = tbl1.k4 and baseall.k2 = tbl1.k2)";
+        String sql = "SELECT * from baseall where k1 > (select min(k1) from tbl1 where baseall.k1 = tbl1.k4 and baseall.k2 = tbl1.k2)";
         dorisAssert.query(sql).explainQuery();
     }
 }
