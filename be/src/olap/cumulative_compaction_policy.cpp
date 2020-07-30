@@ -85,14 +85,16 @@ void UniversalCumulativeCompactionPolicy::calculate_cumulative_point(
             break;
         }
 
+        bool is_delete = _tablet->version_for_delete_predicate(rs->version());
+
         // break the loop if segments in this rowset is overlapping, or is a singleton.
-        if (rs->is_segments_overlapping() || rs->is_singleton_delta()) {
+        if (!is_delete && (rs->is_segments_overlapping() || rs->is_singleton_delta())) {
             *ret_cumulative_point = rs->version().first;
             break;
         }
 
         // check the rowset is whether less than promotion size
-        if (rs->version().first != 0 && rs->total_disk_size() < promotion_size) {
+        if (!is_delete && rs->version().first != 0 && rs->total_disk_size() < promotion_size) {
             *ret_cumulative_point = rs->version().first;
             break;
         }
