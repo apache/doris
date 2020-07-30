@@ -239,6 +239,9 @@ public:
         RowBatch* const _parent;
     };
 
+    int num_tuples_per_row() const {
+        return _num_tuples_per_row;
+    }
     int row_byte_size() {
         return _num_tuples_per_row * sizeof(Tuple*);
     }

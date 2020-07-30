@@ -299,6 +299,22 @@ RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable) :
     init_has_varlen_slots();
 }
 
+RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc,
+                             const RowDescriptor& rhs_row_desc) {
+    _tuple_desc_map.insert(_tuple_desc_map.end(), lhs_row_desc._tuple_desc_map.begin(),
+                           lhs_row_desc._tuple_desc_map.end());
+    _tuple_desc_map.insert(_tuple_desc_map.end(), rhs_row_desc._tuple_desc_map.begin(),
+                           rhs_row_desc._tuple_desc_map.end());
+    _tuple_idx_nullable_map.insert(_tuple_idx_nullable_map.end(),
+                                   lhs_row_desc._tuple_idx_nullable_map.begin(),
+                                   lhs_row_desc._tuple_idx_nullable_map.end());
+    _tuple_idx_nullable_map.insert(_tuple_idx_nullable_map.end(),
+                                   rhs_row_desc._tuple_idx_nullable_map.begin(),
+                                   rhs_row_desc._tuple_idx_nullable_map.end());
+    init_tuple_idx_map();
+    init_has_varlen_slots();
+}
+
 void RowDescriptor::init_tuple_idx_map() {
     // find max id
     TupleId max_id = 0;
