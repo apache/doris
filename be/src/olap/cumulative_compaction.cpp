@@ -60,9 +60,10 @@ OLAPStatus CumulativeCompaction::compact() {
     _state = CompactionState::SUCCESS;
 
     // 5. set cumulative point
-    _tablet->cumulative_compaction_policy()->update_cumulative_point(_input_rowsets, _output_rowset);
-    LOG(INFO) << "after cumulative compaction, current cumulative point is " 
-        << _tablet->cumulative_layer_point()  << ", tablet=" << _tablet->full_name() ;
+    _tablet->cumulative_compaction_policy()->update_cumulative_point(_input_rowsets, _output_rowset,
+                                                                     _last_delete_version);
+    LOG(INFO) << "after cumulative compaction, current cumulative point is "
+              << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(_input_rowsets.size());
@@ -84,30 +85,20 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 
     RETURN_NOT_OK(check_version_continuity(candidate_rowsets));
 
-    std::vector<RowsetSharedPtr> transient_rowsets;
     size_t compaction_score = 0;
-    // the last delete version we meet when traversing candidate_rowsets
-    Version last_delete_version { -1, -1 };
-
-    _tablet->cumulative_compaction_policy()->pick_input_rowsets(
+    int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(
             candidate_rowsets, config::max_cumulative_compaction_num_singleton_deltas,
-            &transient_rowsets, &last_delete_version, &compaction_score);
-
-    // if we have a sufficient number of segments,
-    // or have other versions before encountering the delete version, we should process the compaction.
-    if (compaction_score >= config::min_cumulative_compaction_num_singleton_deltas
-        || (last_delete_version.first != -1 && !transient_rowsets.empty())) {
-        _input_rowsets = transient_rowsets;
-    }
+            config::min_cumulative_compaction_num_singleton_deltas, &_input_rowsets,
+            &_last_delete_version, &compaction_score);
 
     // Cumulative compaction will process with at least 1 rowset.
     // So when there is no rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS:
     if (_input_rowsets.empty()) {
-        if (last_delete_version.first != -1) {
+        if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doen't matter.
-            _tablet->set_cumulative_layer_point(last_delete_version.first + 1);
+            _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
             return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
         }
 
@@ -127,8 +118,8 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
                 // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
                 // if at least one rowset is overlapping, we should compact them first.
-                CHECK(candidate_rowsets.size() == transient_rowsets.size())
-                    << "tablet: " << _tablet->full_name() << ", "<<  candidate_rowsets.size() << " vs. " << transient_rowsets.size();
+                CHECK(candidate_rowsets.size() == transient_size)
+                    << "tablet: " << _tablet->full_name() << ", "<<  candidate_rowsets.size() << " vs. " << transient_size;
                 for (auto& rs : candidate_rowsets) {
                     if (rs->rowset_meta()->is_segments_overlapping()) {
                         _input_rowsets = candidate_rowsets;

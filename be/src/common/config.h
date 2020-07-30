@@ -275,6 +275,20 @@ namespace config {
     // lower write amplification, trading off read amplification and space amplification.
     CONF_String(cumulative_compaction_policy, "original");
 
+    // In universal policy, output rowset of cumulative compaction total disk size exceed this config size, 
+    // this rowset will be given to base compaction, unit is m byte.
+    CONF_mInt64(cumulative_compaction_universal_promotion_size_mbytes, "1024");
+    // In universal policy, output rowset of cumulative compaction total disk size exceed this config ratio of
+    // base rowset's total disk size, this rowset will be given to base compaction. The value must be between 
+    // 0 and 1.
+    CONF_mDouble(cumulative_compaction_universal_promotion_ratio, "0.05");
+    // In universal policy, the smallest size of rowset promotion. When the rowset is less than this config, this 
+    // rowset will be not given to base compaction. The unit is m byte.
+    CONF_mInt64(cumulative_compaction_universal_promotion_min_size_mbytes, "64");
+    // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than 
+    // this size, universal policy also does cumulative compaction. The unit is m byte.
+    CONF_mInt64(cumulative_compaction_universal_compaction_lower_bound_size_mbytes, "64");
+
     // cumulative compaction policy: max delta file's size unit:B
     CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");

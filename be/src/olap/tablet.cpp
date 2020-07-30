@@ -423,7 +423,7 @@ void Tablet::delete_expired_stale_rowset() {
         // When there is no consistent versions, we must reconstruct the tracker.
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "The consistent version check fails, there are bugs. "
-                << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
+                         << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
 
             _timestamped_version_tracker.recover_versioned_tracker(stale_version_path_map);
 
@@ -456,25 +456,27 @@ void Tablet::delete_expired_stale_rowset() {
                 // delete rowset
                 StorageEngine::instance()->add_unused_rowset(it->second);
                 _stale_rs_version_map.erase(it);
-                LOG(INFO) << "delete stale rowset tablet=" << full_name() 
-                    <<" version[" << timestampedVersion->version().first << "," << timestampedVersion->version().second 
-                    << "] move to unused_rowset success " << std::fixed << expired_stale_sweep_endtime;
+                LOG(INFO) << "delete stale rowset tablet=" << full_name() << " version["
+                          << timestampedVersion->version().first << ","
+                          << timestampedVersion->version().second
+                          << "] move to unused_rowset success " << std::fixed
+                          << expired_stale_sweep_endtime;
             } else {
-                LOG(WARNING) << "delete stale rowset tablet=" << full_name() 
-                    <<" version[" << timestampedVersion->version().first << "," << timestampedVersion->version().second 
-                    << "] not find in stale rs version map";
+                LOG(WARNING) << "delete stale rowset tablet=" << full_name() << " version["
+                             << timestampedVersion->version().first << ","
+                             << timestampedVersion->version().second
+                             << "] not find in stale rs version map";
             }
             _delete_stale_rowset_by_version(timestampedVersion->version());
         }
         to_delete_iter++;
     }
-    LOG(INFO) << "delete stale rowset _stale_rs_version_map tablet="
-        << full_name() << " current_size=" << _stale_rs_version_map.size()
-        << " old_size=" << old_size
-        << " current_meta_size="  <<  _tablet_meta->all_stale_rs_metas().size()
-        << " old_meta_size=" << old_meta_size
-        << " sweep endtime " << std::fixed << expired_stale_sweep_endtime;
-        
+    LOG(INFO) << "delete stale rowset _stale_rs_version_map tablet=" << full_name()
+              << " current_size=" << _stale_rs_version_map.size() << " old_size=" << old_size
+              << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
+              << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
+              << expired_stale_sweep_endtime;
+
 #ifndef BE_TEST
     save_meta();
 #endif
@@ -1030,9 +1032,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
     for (int i = 0; i < rowsets.size(); ++i) {
         const Version& ver = rowsets[i]->version();
         rapidjson::Value value;
-        std::string version_str = strings::Substitute("[$0-$1] $2 $3 $4",
+        std::string version_str = strings::Substitute("[$0-$1] $2 $3 $4 $5",
             ver.first, ver.second, rowsets[i]->num_segments(), (delete_flags[i] ? "DELETE" : "DATA"),
-            SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()));
+            SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()), 
+            rowsets[i]->rowset_meta()->total_disk_size());
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
     }
