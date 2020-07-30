@@ -638,3 +638,21 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 若该参数为`THREADED`, 则使用`TThreadedSelectorServer`模型，该模型为非阻塞式I/O模型，即主从Reactor模型，该模型能及时响应大量的并发连接请求，在多数场景下有较好的表现。
 
 若该参数为`THREAD_POOL`, 则使用`TThreadPoolServer`模型，该模型为阻塞式I/O模型，使用线程池处理用户连接，并发连接数受限于线程池的数量，如果能提前预估并发请求的数量，并且能容忍足够多的线程资源开销，该模型会有较好的性能表现，默认使用该服务模型。
+
+### `cache_enable_sql_mode`
+
+该开关打开会缓存SQL查询结果集，如果查询的所有表的所有分区中的最后更新时间离查询时的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count则缓存结果集，下个相同SQL会命中缓存。
+
+### `cache_enable_partition_mode`
+
+该开关打开会按照分区缓存查询结果集，如果查询的表的分区时间离查询时的间隔小于cache_last_version_interval_second，则会按照分区缓存结果集。
+
+查询时会从缓存中获取部分数据，从磁盘中获取部分数据，并把数据合并返回给客户端。
+
+### `cache_last_version_interval_second`
+
+表最新分区的版本的时间间隔，指数据更新离当前的时间间隔，一般设置为900秒，区分离线和实时导入。
+
+### `cache_result_max_row_count`
+
+为了避免过多占用内存，能够被缓存最大的行数，默认2000，超过这个阈值将不能缓存置。

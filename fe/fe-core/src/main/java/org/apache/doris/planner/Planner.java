@@ -65,6 +65,8 @@ public class Planner {
         return fragments;
     }
 
+    public PlannerContext getPlannerContext() { return plannerContext;}
+
     public List<ScanNode> getScanNodes() {
         if (singleNodePlanner == null) {
             return Lists.newArrayList();
