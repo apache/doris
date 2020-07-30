@@ -543,7 +543,7 @@ Status JsonReader::_handle_nested_complex_json(Tuple* tuple, const std::vector<S
         if (*eof) {
             return Status::OK();// read over,then return
         }
-        break; //read a valid row
+        break; // read a valid row
     }
     _write_values_by_jsonpath(*_json_doc, tuple_pool, tuple, slot_descs);
     return Status::OK();
@@ -567,7 +567,7 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple, const std::vect
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st); // terminate if encounter other errors
-            if (*eof) {// read all data, then return
+            if (*eof) { // read all data, then return
                 return Status::OK();
             }
             _total_lines = _json_doc->Size();
