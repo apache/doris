@@ -162,8 +162,8 @@ enum PCacheStatus {
 
 message PCacheParam {
     required int64 partition_key = 1;
-    required int64 last_version = 2;
-    required int64 last_version_time = 3;
+    optional int64 last_version = 2;
+    optional int64 last_version_time = 3;
 };
 
 message PCacheValue {
@@ -192,9 +192,15 @@ message PFetchCacheResult {
     repeated PCacheValue value = 2;
 };
 
+enum PClearType {
+    CLEAR_ALL = 0;
+    PRUNE_CACHE = 1;
+    CLEAR_BEFORE_TIME = 2;
+    CLEAR_SQL_KEY = 3;
+};
+
 message PClearCacheRequest {
-    //0 clear all, 1 invoke prune,  2 clear before_time, 3 clear sql_key
-    required int32 clear_type = 1;
+    required PClearType clear_type = 1;
     optional int64 before_time = 2;
     optional PUniqueId sql_key = 3;
 };
