@@ -486,7 +486,7 @@ private:
     std::unique_ptr<ObjectPool> _pool;
 
     // Pool for allocated counters. These counters are shared with some other objects.
-    std::vector<std::shared_ptr<Counter>> _shared_counter_pool;
+    std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
 
     // True if we have to delete the _pool on destruction.
     bool _own_pool;

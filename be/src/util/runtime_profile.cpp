@@ -383,17 +383,24 @@ ADD_COUNTER_IMPL(AddHighWaterMarkCounter, HighWaterMarkCounter);
 //ADD_COUNTER_IMPL(AddConcurrentTimerCounter, ConcurrentTimerCounter);
 
 std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> RuntimeProfile::AddSharedHighWaterMarkCounter(
-    const std::string& name, TUnit::type unit, const std::string& parent_counter_name) {
+        const std::string& name, TUnit::type unit, const std::string& parent_counter_name) {
     DCHECK_EQ(_is_averaged_profile, false);
     boost::lock_guard<boost::mutex> l(_counter_map_lock);
-    DCHECK(_counter_map.find(name) == _counter_map.end());
+    if (_shared_counter_pool.find(name) != _shared_counter_pool.end()) {
+        return _shared_counter_pool[name];
+    }
     DCHECK(parent_counter_name == ROOT_COUNTER ||
-        _counter_map.find(parent_counter_name) != _counter_map.end());
+           _counter_map.find(parent_counter_name) != _counter_map.end());
     std::shared_ptr<HighWaterMarkCounter> counter = std::make_shared<HighWaterMarkCounter>(unit);
-    _shared_counter_pool.push_back(counter);
+    _shared_counter_pool[name] = counter;
+
+    DCHECK(_counter_map.find(name) == _counter_map.end())
+            << "already has a raw counter named " << name;
+
+    // it's OK to insert shared counter to _counter_map, cuz _counter_map is not the owner of counters
     _counter_map[name] = counter.get();
     std::set<std::string>* child_counters =
-        find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
     child_counters->insert(name);
     return counter;
 }
