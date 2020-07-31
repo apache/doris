@@ -51,7 +51,6 @@ public class CheckDecommissionAction extends RestBaseController {
 
     public static final String HOST_PORTS = "host_ports";
 
-
     @RequestMapping(path = "/api/check_decommission",method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response)
             throws DdlException {

@@ -17,14 +17,21 @@
 
 package org.apache.doris.http.rest;
 
+import com.google.common.collect.Maps;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.util.Map;
 
 // This class is a RESTFUL interface to get query profile.
 // It will be used in query monitor to collect profiles.   
@@ -55,7 +62,7 @@ public class ProfileAction extends RestBaseController {
 
         Map<String, String> result = Maps.newHashMap();
         result.put("profile", queryProfileStr);
-        entity.setData(resultMap);
+        entity.setData(result);
         return entity; 
     }
 }

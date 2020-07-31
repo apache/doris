@@ -17,14 +17,13 @@
 
 package org.apache.doris.http.rest;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.ConfigBase.ConfField;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.collect.Maps;
 
@@ -33,7 +32,6 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
-import java.lang.reflect.Field;
 import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
@@ -42,7 +40,6 @@ import javax.servlet.http.HttpServletResponse;
 // This class is used to get current query_id of connection_id.
 // Every connection holds at most one query at every point.
 // Some we can get query_id firstly, and get query by query_id.
-
 public class ConnectionAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(ConnectionAction.class);
 
@@ -64,7 +61,7 @@ public class ConnectionAction extends RestBaseController {
         if (context == null || context.queryId() == null) {
             entity.setCode(HttpStatus.NOT_FOUND.value());
             entity.setMsg("connection id " + connectionId + " not found.");
-            return;
+            return entity;
         }
         String queryId = DebugUtil.printId(context.queryId());
 
