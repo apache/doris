@@ -226,7 +226,7 @@ rollup_index4(k4, k6, k5, k1, k2, k3, k7)
 
 以下是可以命中Rollup的一些聚合查询的种类，
 
-| 列类型 查询类型 |  Sum  | Distinct/Count Distinct |   Min |  Max  |  Ndv  |
+| 列类型 查询类型 |  Sum  | Distinct/Count Distinct |   Min |  Max  |  APPROX_COUNT_DISTINCT  |
 |--------------|-------|-------------------------|-------|-------|-------|
 |     Key      | false |           true          |  true |  true | true  |
 |   Value(Sum) |  true |          false          | false | false | false |

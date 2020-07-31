@@ -267,7 +267,7 @@ module.exports = [
               "hll_union_agg",
               "max",
               "min",
-              "ndv",
+              "approx_count_distinct",
               "percentile_approx",
               "stddev",
               "stddev_samp",
