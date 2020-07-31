@@ -17,14 +17,13 @@
 
 package org.apache.doris.http.rest;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.ConfigBase.ConfField;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryDetail;
+import org.apache.doris.qe.QueryDetailQueue;
 
 import com.google.common.collect.Maps;
 
@@ -33,7 +32,7 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
-import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
@@ -56,7 +55,7 @@ public class QueryDetailAction extends RestBaseController {
         if (eventTimeStr == null) {
             entity.setCode(HttpStatus.BAD_REQUEST.value());
             entity.setMsg("not valid parameter");
-            return;
+            return entity;
         }
 
         long eventTime = Long.valueOf(eventTimeStr.trim());
@@ -68,3 +67,4 @@ public class QueryDetailAction extends RestBaseController {
         return entity;
     }
 }
+
