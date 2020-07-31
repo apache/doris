@@ -51,7 +51,7 @@ ExprContext::~ExprContext() {
 
 // TODO(zc): memory tracker
 Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                            std::shared_ptr<MemTracker> tracker) {
+                            const std::shared_ptr<MemTracker>& tracker) {
     DCHECK(tracker != nullptr) << std::endl << get_stack_trace();
     DCHECK(_pool.get() == NULL);
     _prepared = true;

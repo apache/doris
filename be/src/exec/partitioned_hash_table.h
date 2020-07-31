@@ -110,16 +110,16 @@ class PartitionedHashTableCtx {
   /// evaluators for the build and probe expressions will also be allocated.
   /// Please see the comments of HashTableCtx constructor and Init() for details
   /// of other parameters.
-  static Status Create(ObjectPool* pool, RuntimeState* state,
-      const std::vector<Expr*>& build_exprs,
-      const std::vector<Expr*>& probe_exprs, bool stores_nulls,
-      const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
-      int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool, 
-      std::shared_ptr<MemTracker> tracker, const RowDescriptor& row_desc,
-      const RowDescriptor& row_desc_probe,
-      boost::scoped_ptr<PartitionedHashTableCtx>* ht_ctx);
+     static Status Create(ObjectPool* pool, RuntimeState* state,
+                          const std::vector<Expr*>& build_exprs,
+                          const std::vector<Expr*>& probe_exprs, bool stores_nulls,
+                          const std::vector<bool>& finds_nulls, int32_t initial_seed,
+                          int max_levels, int num_build_tuples, MemPool* mem_pool,
+                          MemPool* expr_results_pool, const std::shared_ptr<MemTracker>& tracker,
+                          const RowDescriptor& row_desc, const RowDescriptor& row_desc_probe,
+                          boost::scoped_ptr<PartitionedHashTableCtx>* ht_ctx);
 
-  /// Initialize the build and probe expression evaluators.
+     /// Initialize the build and probe expression evaluators.
   Status Open(RuntimeState* state);
 
   /// Call to cleanup any resources allocated by the expression evaluators.
@@ -211,12 +211,12 @@ class PartitionedHashTableCtx {
     /// Allocates memory and initializes various data structures. Return error status
     /// if memory allocation leads to the memory limits of the exec node to be exceeded.
     /// 'tracker' is the memory tracker of the exec node which owns this PartitionedHashTableCtx.
-    Status Init(RuntimeState* state, std::shared_ptr<MemTracker> tracker,
-        const std::vector<Expr*>& build_exprs);
+    Status Init(RuntimeState* state, const std::shared_ptr<MemTracker>& tracker,
+                const std::vector<Expr*>& build_exprs);
 
     /// Frees up various resources and updates memory tracker with proper accounting.
     /// 'tracker' should be the same memory tracker which was passed in for Init().
-    void Close(std::shared_ptr<MemTracker> tracker);
+    void Close(const std::shared_ptr<MemTracker>& tracker);
 
     /// Resets the cache states (iterators, end pointers etc) before writing.
     void Reset() noexcept;
@@ -385,7 +385,7 @@ class PartitionedHashTableCtx {
                           const std::vector<Expr*>& probe_exprs, bool stores_nulls,
                           const std::vector<bool>& finds_nulls, int32_t initial_seed,
                           int max_levels, MemPool* mem_pool, MemPool* expr_results_pool,
-                          std::shared_ptr<MemTracker> tracker);
+                          const std::shared_ptr<MemTracker>& tracker);
 
   /// Allocate various buffers for storing expression evaluation results, hash values,
   /// null bits etc. Also allocate evaluators for the build and probe expressions and

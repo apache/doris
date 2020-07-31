@@ -33,7 +33,7 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
                      int num_build_tuples, bool stores_nulls, 
                      const std::vector<bool>& finds_nulls,
                      int32_t initial_seed,
-                     std::shared_ptr<MemTracker> mem_tracker, int64_t num_buckets) :
+                     const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets) :
         _build_expr_ctxs(build_expr_ctxs),
         _probe_expr_ctxs(probe_expr_ctxs),
         _num_build_tuples(num_build_tuples),

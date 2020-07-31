@@ -73,7 +73,7 @@ private:
 class VectorizedRowBatch {
 public:
     VectorizedRowBatch(const TabletSchema* schema, const std::vector<uint32_t>& cols, int capacity,
-                       const std::shared_ptr<MemTracker>& parent_tracker = std::shared_ptr<MemTracker>());
+                       const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
 
     ~VectorizedRowBatch() {
         for (auto vec: _col_vectors) {

@@ -85,7 +85,7 @@ public:
         MemPool* pool,
         const SlotDescriptor* intermediate_slot_desc,
         const SlotDescriptor* output_slot_desc,
-        std::shared_ptr<MemTracker> mem_tracker,
+        const std::shared_ptr<MemTracker>& mem_tracker,
         FunctionContext** agg_fn_ctx);
 
     Status open(RuntimeState* state, FunctionContext* agg_fn_ctx);

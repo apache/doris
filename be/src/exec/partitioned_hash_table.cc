@@ -78,21 +78,24 @@ static int64_t NULL_VALUE[] = {
 };
 
 PartitionedHashTableCtx::PartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
-    const std::vector<Expr*>& probe_exprs, bool stores_nulls,
-    const std::vector<bool>& finds_nulls, int32_t initial_seed,
-    int max_levels, MemPool* mem_pool, MemPool* expr_results_pool, std::shared_ptr<MemTracker> tracker)
-    : tracker_(tracker),
-      build_exprs_(build_exprs),
-      probe_exprs_(probe_exprs),
-      stores_nulls_(stores_nulls),
-      finds_nulls_(finds_nulls),
-      finds_some_nulls_(std::accumulate(
-          finds_nulls_.begin(), finds_nulls_.end(), false, std::logical_or<bool>())),
-      level_(0),
-      scratch_row_(NULL),
-      mem_pool_(mem_pool),
-      expr_results_pool_(expr_results_pool) {
-  DCHECK(tracker_ != nullptr);
+                                                 const std::vector<Expr*>& probe_exprs,
+                                                 bool stores_nulls,
+                                                 const std::vector<bool>& finds_nulls,
+                                                 int32_t initial_seed, int max_levels,
+                                                 MemPool* mem_pool, MemPool* expr_results_pool,
+                                                 const std::shared_ptr<MemTracker>& tracker)
+        : tracker_(tracker),
+          build_exprs_(build_exprs),
+          probe_exprs_(probe_exprs),
+          stores_nulls_(stores_nulls),
+          finds_nulls_(finds_nulls),
+          finds_some_nulls_(std::accumulate(finds_nulls_.begin(), finds_nulls_.end(), false,
+                                            std::logical_or<bool>())),
+          level_(0),
+          scratch_row_(NULL),
+          mem_pool_(mem_pool),
+          expr_results_pool_(expr_results_pool) {
+    DCHECK(tracker_ != nullptr);
   DCHECK(!finds_some_nulls_ || stores_nulls_);
   // Compute the layout and buffer size to store the evaluated expr results
   DCHECK_EQ(build_exprs_.size(), probe_exprs_.size());
@@ -150,7 +153,7 @@ Status PartitionedHashTableCtx::Create(ObjectPool* pool, RuntimeState* state,
     const std::vector<Expr*>& probe_exprs, bool stores_nulls,
     const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
     int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool, 
-    std::shared_ptr<MemTracker> tracker, const RowDescriptor& row_desc,
+    const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc,
     const RowDescriptor& row_desc_probe,
     scoped_ptr<PartitionedHashTableCtx>* ht_ctx) {
   ht_ctx->reset(new PartitionedHashTableCtx(build_exprs, probe_exprs, stores_nulls,
@@ -314,7 +317,7 @@ PartitionedHashTableCtx::ExprValuesCache::ExprValuesCache()
     null_bitmap_(0) {}
 
 Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
-    std::shared_ptr<MemTracker> tracker, const std::vector<Expr*>& build_exprs) {
+    const std::shared_ptr<MemTracker>& tracker, const std::vector<Expr*>& build_exprs) {
   // Initialize the number of expressions.
   num_exprs_ = build_exprs.size();
   // Compute the layout of evaluated values of a row.
@@ -358,7 +361,7 @@ Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
   return Status::OK();
 }
 
-void PartitionedHashTableCtx::ExprValuesCache::Close(std::shared_ptr<MemTracker> tracker) {
+void PartitionedHashTableCtx::ExprValuesCache::Close(const std::shared_ptr<MemTracker>& tracker) {
   if (capacity_ == 0) return;
   cur_expr_values_ = NULL;
   cur_expr_values_null_ = NULL;

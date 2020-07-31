@@ -94,7 +94,7 @@ public:
         int num_build_tuples, bool stores_nulls, 
         const std::vector<bool>& finds_nulls,
         int32_t initial_seed,
-        std::shared_ptr<MemTracker> mem_tracker,
+        const std::shared_ptr<MemTracker>& mem_tracker,
         int64_t num_buckets);
 
     ~HashTable();
