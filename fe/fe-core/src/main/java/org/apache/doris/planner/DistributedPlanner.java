@@ -513,9 +513,11 @@ public class DistributedPlanner {
         DistributionInfo rightDistribution = rightTable.getDefaultDistributionInfo();
 
         if (leftDistribution instanceof HashDistributionInfo && rightDistribution instanceof HashDistributionInfo) {
-            List<Column> leftColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
-            List<Column> rightColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
+            List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
+            List<Column> rightDistributeColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
 
+            List<Column> leftJoinColumns = new ArrayList<>();
+            List<Column> rightJoinColumns = new ArrayList<>();
             List<BinaryPredicate> eqJoinConjuncts = node.getEqJoinConjuncts();
             for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
                 Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
@@ -527,10 +529,13 @@ public class DistributedPlanner {
                 SlotDescriptor leftSlot = lhsJoinExpr.unwrapSlotRef().getDesc();
                 SlotDescriptor rightSlot = rhsJoinExpr.unwrapSlotRef().getDesc();
 
-                //3 the eqJoinConjuncts must contain the distributionColumns
-                if (leftColumns.contains(leftSlot.getColumn()) && rightColumns.contains(rightSlot.getColumn())) {
-                    return true;
-                }
+                leftJoinColumns.add(leftSlot.getColumn());
+                rightJoinColumns.add(rightSlot.getColumn());
+            }
+
+            //3 the join columns should contains all distribute columns to enable colocate join
+            if (leftJoinColumns.containsAll(leftDistributeColumns) && rightJoinColumns.containsAll(rightDistributeColumns)) {
+                return true;
             }
         }
 
