@@ -31,24 +31,22 @@ class Arena;
 // The row has all columns layed out in memory based on the schema.column_offset()
 struct ContiguousRow {
     ContiguousRow(const Schema* schema, const void* row, bool with_delete_flag = false)
-            : _schema(schema), _row((void*)row), _with_delete_flag(with_delete_flag) {
-        if (_with_delete_flag) {
-            _delete = *reinterpret_cast<bool*>((char*)_row + _schema->schema_size());
-        }
-    }
+            : _schema(schema), _row((void*)row), _with_delete_flag(with_delete_flag) {}
     ContiguousRow(const Schema* schema, void* row, bool with_delete_flag = false)
-            : _schema(schema), _row(row), _with_delete_flag(with_delete_flag) {
-        if (_with_delete_flag) {
-            _delete = *reinterpret_cast<bool*>((char*)_row + _schema->schema_size());
-        }
-    }
+            : _schema(schema), _row(row), _with_delete_flag(with_delete_flag) {}
     RowCursorCell cell(uint32_t cid) const {
         return RowCursorCell((char*)_row + _schema->column_offset(cid));
     }
     void set_is_null(uint32_t cid, bool is_null) const { _schema->set_is_null(_row, cid, is_null); }
     const Schema* schema() const { return _schema; }
     void* row_ptr() const { return _row; }
-    bool is_delete() const { return _delete; }
+    bool is_delete() const {
+        if (_with_delete_flag) {
+            return *reinterpret_cast<bool*>((char*)_row + _schema->schema_size());
+        } else {
+            return false;
+        }
+    }
     void set_delete(bool val) {
         if (_with_delete_flag) {
             *reinterpret_cast<bool*>((char*)_row + _schema->schema_size()) = val;
@@ -59,7 +57,6 @@ struct ContiguousRow {
 private:
     const Schema* _schema;
     void* _row;
-    bool _delete = false;
     bool _with_delete_flag = false;
 };
 
@@ -166,7 +163,8 @@ void copy_row_in_memtable(DstRowType* dst, const SrcRowType& src, MemPool* pool)
 }
 
 template <>
-void copy_row_in_memtable<ContiguousRow>(ContiguousRow* dst, const ContiguousRow& src, MemPool* pool);
+void copy_row_in_memtable<ContiguousRow>(ContiguousRow* dst, const ContiguousRow& src,
+                                         MemPool* pool);
 
 template <typename DstRowType, typename SrcRowType>
 void agg_update_row(DstRowType* dst, const SrcRowType& src, MemPool* mem_pool) {
@@ -195,7 +193,7 @@ void agg_update_row(const std::vector<uint32_t>& cids, DstRowType* dst, const Sr
 
 template <>
 void agg_update_row<ContiguousRow>(const std::vector<uint32_t>& cids, ContiguousRow* dst,
- const ContiguousRow& src);
+                                   const ContiguousRow& src);
 
 template <typename RowType>
 void agg_finalize_row(RowType* row, MemPool* mem_pool) {
