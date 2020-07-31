@@ -344,7 +344,7 @@ TEST_F(TestDeltaWriter, write) {
     load_id.set_lo(0);
     WriteRequest write_req = {10004, 270068376, WriteType::LOAD,
                               20002, 30002, load_id, false, tuple_desc,
-                              &(tuple_desc->slots())};
+                              &(tuple_desc->slots()), PTabletWriterOpenRequest::APPEND, -1};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
