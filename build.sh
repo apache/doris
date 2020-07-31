@@ -209,9 +209,9 @@ function build_ui() {
     cd ${DORIS_HOME}/doris-ui
     ${NPM} install
     $NPM run build
-    rm -rf ${DORIS_HOME}/fe/src/main/resources/static/
-    mkdir -p ${DORIS_HOME}/fe/src/main/resources/static
-    cp -r ${DORIS_HOME}/doris-ui/dist/* ${DORIS_HOME}/fe/src/main/resources/static
+    rm -rf ${DORIS_HOME}/fe/fe-core/src/main/resources/static/
+    mkdir -p ${DORIS_HOME}/fe/fe-core/src/main/resources/static
+    cp -r ${DORIS_HOME}/doris-ui/dist/* ${DORIS_HOME}/fe/fe-core/src/main/resources/static
 }
 
 # Assesmble FE modules
