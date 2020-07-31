@@ -30,31 +30,32 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 // It will be used in query monitor to collect profiles.   
 // Usage:
 //      wget http://fe_host:fe_http_port/api/profile?query_id=123456
-public class ProfileAction extends RestBaseAction {
+public class ProfileAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(ProfileAction.class);
 
-    public ProfileAction(ActionController controller) {
-        super(controller);
-    }
+    @RequestMapping(path = "/api/profile",method = RequestMethod.GET)
+    protected Object profile(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request, response);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/profile", new ProfileAction(controller));
-    }
-
-    @Override
-    public void execute(BaseRequest request, BaseResponse response) {
-        String queryId = request.getSingleParameter("query_id");
+        String queryId = request.getParameter("query_id");
         if (queryId == null) {
-            response.getContent().append("not valid parameter");
-            sendResult(request, response, HttpResponseStatus.BAD_REQUEST);
-            return;
+            entity.setCode(HttpStatus.BAD_REQUEST.value());
+            entity.setMsg("not valid parameter");
+            return entity;
         }
+
         String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
-        if (queryProfileStr != null) {
-            response.getContent().append(queryProfileStr);
-            sendResult(request, response);
-        } else {
-            response.getContent().append("query id " + queryId + " not found.");
-            sendResult(request, response, HttpResponseStatus.NOT_FOUND);
+        if (queryProfileStr == null) {
+            entity.setCode(HttpStatus.NOT_FOUND.value());
+            entity.setMsg("query id " + queryId + " not found.");
+            return entity;
         }
+
+        Map<String, String> result = Maps.newHashMap();
+        result.put("profile", queryProfileStr);
+        entity.setData(resultMap);
+        return entity; 
     }
 }

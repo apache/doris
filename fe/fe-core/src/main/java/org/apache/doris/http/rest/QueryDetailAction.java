@@ -17,40 +17,54 @@
 
 package org.apache.doris.http.rest;
 
-import com.google.gson.Gson;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
-import java.util.List;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.qe.QueryDetail;
-import org.apache.doris.qe.QueryDetailQueue;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ConfigBase.ConfField;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.http.entity.HttpStatus;
+import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
-public class QueryDetailAction extends RestBaseAction {
+import com.google.common.collect.Maps;
 
-    public QueryDetailAction(ActionController controller) {
-        super(controller);
-    }
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/query_detail", new QueryDetailAction(controller));
-    }
+import java.lang.reflect.Field;
+import java.util.Map;
 
-    @Override
-    public void execute(BaseRequest request, BaseResponse response) {
-        String eventTimeStr = request.getSingleParameter("event_time");
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+// This class is used to get current query_id of connection_id.
+// Every connection holds at most one query at every point.
+// Some we can get query_id firstly, and get query by query_id.
+
+public class QueryDetailAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(QueryDetailAction.class);
+
+    @RequestMapping(path = "/api/query_detail", method = RequestMethod.GET)
+    protected Object query_detail(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request, response);
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        String eventTimeStr = request.getParameter("event_time");
         if (eventTimeStr == null) {
-            response.getContent().append("not valid parameter");
-            sendResult(request, response, HttpResponseStatus.BAD_REQUEST);
+            entity.setCode(HttpStatus.BAD_REQUEST.value());
+            entity.setMsg("not valid parameter");
             return;
         }
+
         long eventTime = Long.valueOf(eventTimeStr.trim());
         List<QueryDetail> queryDetails = QueryDetailQueue.getQueryDetails(eventTime);
-        Gson gson = new Gson();
-        String json_string = gson.toJson(queryDetails);
-        response.getContent().append(json_string);
-        sendResult(request, response);
+
+        Map<String, List<QueryDetail>> result = Maps.newHashMap();
+        result.put("query_details", queryDetails);
+        entity.setData(result);
+        return entity;
     }
 }
