@@ -24,12 +24,12 @@ namespace doris {
 
 VectorizedRowBatch::VectorizedRowBatch(const TabletSchema* schema,
                                        const std::vector<uint32_t>& cols, int capacity,
-                                       MemTracker* parent_tracker)
+                                       const std::shared_ptr<MemTracker>& parent_tracker)
         : _schema(schema), _cols(cols), _capacity(capacity), _limit(capacity) {
     _selected_in_use = false;
     _size = 0;
 
-    _tracker.reset(new MemTracker(-1, "VectorizedRowBatch", parent_tracker, true));
+    _tracker = MemTracker::CreateTracker(-1, "VectorizedRowBatch", parent_tracker);
     _mem_pool.reset(new MemPool(_tracker.get()));
 
     _selected = reinterpret_cast<uint16_t*>(new char[sizeof(uint16_t) * _capacity]);

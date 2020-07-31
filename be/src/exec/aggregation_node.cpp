@@ -113,7 +113,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::prepare(
             _build_expr_ctxs, state, build_row_desc, expr_mem_tracker()));
 
-    _tuple_pool.reset(new MemPool(mem_tracker()));
+    _tuple_pool.reset(new MemPool(mem_tracker().get()));
 
     _agg_fn_ctxs.resize(_aggregate_evaluators.size());
     int j = _probe_expr_ctxs.size();
@@ -128,8 +128,8 @@ Status AggregationNode::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, child(0)->row_desc(), _tuple_pool.get(),
-                intermediate_slot_desc, output_slot_desc, mem_tracker(), &_agg_fn_ctxs[i]));
+                state, child(0)->row_desc(), _tuple_pool.get(), intermediate_slot_desc,
+                output_slot_desc, mem_tracker(), &_agg_fn_ctxs[i]));
         state->obj_pool()->add(_agg_fn_ctxs[i]);
     }
 
@@ -160,7 +160,7 @@ Status AggregationNode::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_children[0]->open(state));
 
-    RowBatch batch(_children[0]->row_desc(), state->batch_size(), mem_tracker());
+    RowBatch batch(_children[0]->row_desc(), state->batch_size(), mem_tracker().get());
     int64_t num_input_rows = 0;
     int64_t num_agg_rows = 0;
 

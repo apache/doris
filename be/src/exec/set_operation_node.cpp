@@ -39,7 +39,7 @@ Status SetOperationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
-    _build_pool.reset(new MemPool(mem_tracker()));
+    _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -142,7 +142,7 @@ Status SetOperationNode::open(RuntimeState* state) {
     // initial build hash table used for remove duplicted
     _hash_tbl.reset(new HashTable(_child_expr_lists[0], _child_expr_lists[1], _build_tuple_size,
                                   true, _find_nulls, id(), mem_tracker(), 1024));
-    RowBatch build_batch(child(0)->row_desc(), state->batch_size(), mem_tracker());
+    RowBatch build_batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
     RETURN_IF_ERROR(child(0)->open(state));
 
     bool eos = false;

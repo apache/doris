@@ -460,7 +460,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         auto* hll = new HyperLogLog(*src_slice);
         dst_slice->data = reinterpret_cast<char*>(hll);
 
-        mem_pool->mem_tracker()->consume(sizeof(HyperLogLog));
+        mem_pool->mem_tracker()->Consume(sizeof(HyperLogLog));
 
         agg_pool->add(hll);
     }
@@ -507,7 +507,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
 
         dst_slice->data = (char*) bitmap;
 
-        mem_pool->mem_tracker()->consume(sizeof(BitmapValue));
+        mem_pool->mem_tracker()->Consume(sizeof(BitmapValue));
 
         agg_pool->add(bitmap);
     }

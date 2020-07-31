@@ -31,7 +31,8 @@ namespace doris {
 
 namespace segment_v2 {
 
-ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field), _pool(&_tracker) {
+ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field)
+        : _field(field), _tracker(new MemTracker(-1, "ZoneMapIndexWriter")), _pool(_tracker.get()) {
     _page_zone_map.min_value = _field->allocate_value(&_pool);
     _page_zone_map.max_value = _field->allocate_value(&_pool);
     _reset_zone_map(&_page_zone_map);
@@ -114,8 +115,8 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    auto tracker = std::make_shared<MemTracker>(-1, "temp in ZoneMapIndexReader");
+    MemPool pool(tracker.get());
     _page_zone_maps.resize(reader.num_values());
 
     // read and cache all page zone maps

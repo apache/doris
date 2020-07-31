@@ -242,7 +242,7 @@ void DataStreamRecvr::SenderQueue::add_batch(
         // Note: if this function makes a row batch, the batch *must* be added
         // to _batch_queue. It is not valid to create the row batch and destroy
         // it in this thread.
-        batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker());
+        batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker().get());
     }
    
     VLOG_ROW << "added #rows=" << batch->num_rows()
@@ -352,7 +352,7 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
 }
 
 DataStreamRecvr::DataStreamRecvr(
-        DataStreamMgr* stream_mgr, MemTracker* parent_tracker,
+        DataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, bool is_merging, 
         int total_buffer_limit, RuntimeProfile* profile, 
@@ -366,10 +366,7 @@ DataStreamRecvr::DataStreamRecvr(
             _num_buffered_bytes(0),
             _profile(profile),
             _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    // TODO: Now the parent tracker may cause problem when we need spill to disk, so we
-    // replace parent_tracker with nullptr, fix future
-    _mem_tracker.reset(new MemTracker(_profile, -1, "DataStreamRecvr", nullptr));
-    // _mem_tracker.reset(new MemTracker(_profile.get(), -1, "DataStreamRecvr", parent_tracker));
+    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamRecvr", parent_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
@@ -427,8 +424,7 @@ void DataStreamRecvr::close() {
     _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());
     _mgr = NULL;
     _merger.reset();
-    _mem_tracker->close();
-//    _mem_tracker->unregister_from_parent();
+    // TODO: Maybe shared tracker doesn't need to be reset manually
     _mem_tracker.reset();
 }
 

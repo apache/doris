@@ -317,7 +317,7 @@ Status EsHttpScanNode::scanner_scan(
     while (!scanner_eof) {
         // Fill one row batch
         std::shared_ptr<RowBatch> row_batch(
-            new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker()));
+            new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();

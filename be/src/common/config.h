@@ -544,6 +544,8 @@ namespace config {
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_rowset_stale_unconsistent_delete, "false");
 
+    // Soft memory limit as a fraction of hard memory limit.
+    CONF_Double(soft_mem_limit_frac, "0.9");
 } // namespace config
 
 } // namespace doris

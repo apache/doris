@@ -44,7 +44,7 @@ class Merger;
 //  4. gc unused rowstes
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet, const std::string& label, MemTracker* parent_tracker);
+    Compaction(TabletSharedPtr tablet, const std::string& label, const std::shared_ptr<MemTracker>& parent_tracker);
     virtual ~Compaction();
 
     virtual OLAPStatus compact() = 0;
@@ -78,10 +78,10 @@ private:
 
 protected:
     // the root tracker for this compaction
-    MemTracker _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // the child of root, only track rowset readers mem
-    MemTracker _readers_tracker;
+    std::shared_ptr<MemTracker> _readers_tracker;
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;

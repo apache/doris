@@ -138,7 +138,7 @@ class BufferPool::Client {
  public:
   Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group, 
      const std::string& name,
-      ReservationTracker* parent_reservation, MemTracker* mem_tracker,
+      ReservationTracker* parent_reservation, const std::shared_ptr<MemTracker>& mem_tracker,
       int64_t reservation_limit, RuntimeProfile* profile);
 
   ~Client() {

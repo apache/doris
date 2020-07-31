@@ -29,11 +29,11 @@ namespace doris {
 
 class KeyCoderTest : public testing::Test {
 public:
-    KeyCoderTest() : _pool(&_tracker) { }
+    KeyCoderTest() : _tracker(new MemTracker()), _pool(_tracker.get()) { }
     virtual ~KeyCoderTest() {
     }
 private:
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 

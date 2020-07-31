@@ -37,13 +37,12 @@ using std::numeric_limits;
 namespace doris {
 
 InitialReservations::InitialReservations(ObjectPool* obj_pool,
-    ReservationTracker* query_reservation, MemTracker* query_mem_tracker,
+    ReservationTracker* query_reservation, std::shared_ptr<MemTracker> query_mem_tracker,
     int64_t initial_reservation_total_claims)
-  : initial_reservation_mem_tracker_(obj_pool->add(
-      new MemTracker(-1, "Unclaimed reservations", query_mem_tracker, false, false))),
+  : initial_reservation_mem_tracker_(MemTracker::CreateTracker(-1, "Unclaimed reservations", query_mem_tracker, false)),
       remaining_initial_reservation_claims_(initial_reservation_total_claims) {
   initial_reservations_.InitChildTracker(nullptr, query_reservation,
-      initial_reservation_mem_tracker_, numeric_limits<int64_t>::max());
+      initial_reservation_mem_tracker_.get(), numeric_limits<int64_t>::max());
 }
 
 Status InitialReservations::Init(
@@ -85,6 +84,7 @@ void InitialReservations::Return(BufferPool::ClientHandle* src, int64_t bytes) {
 
 void InitialReservations::ReleaseResources() {
   initial_reservations_.Close();
-  initial_reservation_mem_tracker_->close();
+  // TODO(HW): Close() is private. make this tracker shared later
+  // initial_reservation_mem_tracker_->Close();
 }
 }

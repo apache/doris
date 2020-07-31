@@ -110,7 +110,7 @@ private:
 
     // Tracks memory consumption of any allocations numerous enough to be
     // interesting.
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // DISALLOW_COPY_AND_ASSIGN(FileBlockManager);
 

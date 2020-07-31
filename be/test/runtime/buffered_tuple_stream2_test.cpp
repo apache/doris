@@ -64,14 +64,14 @@ static const int NUM_STRINGS = sizeof(STRINGS) / sizeof(StringValue);
 
 class SimpleTupleStreamTest : public testing::Test {
 public:
-    SimpleTupleStreamTest() : _tracker(-1) {}
+    SimpleTupleStreamTest() : _tracker(new MemTracker(-1)) {}
      // A null dtor to pass codestyle check
     ~SimpleTupleStreamTest() {}
 protected:
     virtual void SetUp() {
         _test_env.reset(new TestEnv());
         create_descriptors();
-        _mem_pool.reset(new MemPool(&_tracker));
+        _mem_pool.reset(new MemPool(_tracker.get()));
     }
 
     virtual void create_descriptors() {
@@ -102,7 +102,7 @@ protected:
     void InitBlockMgr(int64_t limit, int block_size) {
         Status status = _test_env->create_query_state(0, limit, block_size, &_runtime_state);
         ASSERT_TRUE(status.ok());
-        status = _runtime_state->block_mgr2()->register_client(0, &_tracker, _runtime_state,
+        status = _runtime_state->block_mgr2()->register_client(0, _tracker, _runtime_state,
                 &_client);
         ASSERT_TRUE(status.ok());
     }
@@ -120,7 +120,7 @@ protected:
     }
 
     virtual RowBatch* CreateIntBatch(int offset, int num_rows, bool gen_null) {
-        RowBatch* batch = _pool.add(new RowBatch(*_int_desc, num_rows, &_tracker));
+        RowBatch* batch = _pool.add(new RowBatch(*_int_desc, num_rows, _tracker.get()));
         int tuple_size = _int_desc->tuple_descriptors()[0]->byte_size();
         uint8_t* tuple_mem = reinterpret_cast<uint8_t*>(
                 batch->tuple_data_pool()->allocate(tuple_size * num_rows));
@@ -149,7 +149,7 @@ protected:
 
     virtual RowBatch* CreateStringBatch(int offset, int num_rows, bool gen_null) {
         int tuple_size = sizeof(StringValue) + 1;
-        RowBatch* batch = _pool.add(new RowBatch(*_string_desc, num_rows, &_tracker));
+        RowBatch* batch = _pool.add(new RowBatch(*_string_desc, num_rows, _tracker.get()));
         uint8_t* tuple_mem = batch->tuple_data_pool()->allocate(tuple_size * num_rows);
         memset(tuple_mem, 0, tuple_size * num_rows);
         const int string_tuples = _string_desc->tuple_descriptors().size();
@@ -212,7 +212,7 @@ protected:
     void ReadValues(BufferedTupleStream2* stream, RowDescriptor* desc, vector<T>* results,
             int num_batches = -1) {
         bool eos = false;
-        RowBatch batch(*desc, BATCH_SIZE, &_tracker);
+        RowBatch batch(*desc, BATCH_SIZE, _tracker.get());
         int batches_read = 0;
         do {
             batch.reset();
@@ -357,7 +357,7 @@ protected:
     RuntimeState* _runtime_state;
     BufferedBlockMgr2::Client* _client;
 
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     ObjectPool _pool;
     RowDescriptor* _int_desc;
     RowDescriptor* _string_desc;
@@ -791,7 +791,7 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
     array_len_index = 0;
     bool eos = false;
     int rows_read = 0;
-    RowBatch batch(*_array_desc, BATCH_SIZE, &_tracker);
+    RowBatch batch(*_array_desc, BATCH_SIZE, _tracker.get());
     do {
         batch.reset();
         ASSERT_TRUE(stream.get_next(&batch, &eos).ok());

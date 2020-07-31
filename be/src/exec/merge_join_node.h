@@ -66,9 +66,12 @@ private:
         int row_idx;
         bool is_eos;
         TupleRow* current_row;
-        ChildReaderContext(const RowDescriptor& desc, int batch_size, MemTracker* mem_tracker) :
-            batch(desc, batch_size, mem_tracker), row_idx(0), is_eos(false), current_row(NULL) {
-        }
+        ChildReaderContext(const RowDescriptor& desc, int batch_size,
+                           const std::shared_ptr<MemTracker>& mem_tracker)
+                : batch(desc, batch_size, mem_tracker.get()),
+                  row_idx(0),
+                  is_eos(false),
+                  current_row(NULL) {}
     };
     // _left_batch must be cleared before calling get_next().  used cache child(0)'s data
     // _rigth_batch must be cleared before calling get_next().  used cache child(1)'s data

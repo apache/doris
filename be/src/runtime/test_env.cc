@@ -33,7 +33,7 @@ TestEnv::TestEnv() {
     // _exec_env->init_for_tests();
     _io_mgr_tracker.reset(new MemTracker(-1));
     _block_mgr_parent_tracker.reset(new MemTracker(-1));
-    _exec_env->disk_io_mgr()->init(_io_mgr_tracker.get());
+    _exec_env->disk_io_mgr()->init(_io_mgr_tracker);
     init_metrics();
     _tmp_file_mgr.reset(new TmpFileMgr());
     _tmp_file_mgr->init(_metrics.get());
@@ -77,7 +77,7 @@ Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_
 
     shared_ptr<BufferedBlockMgr2> mgr;
     RETURN_IF_ERROR(BufferedBlockMgr2::create(
-                *runtime_state, _block_mgr_parent_tracker.get(),
+                *runtime_state, _block_mgr_parent_tracker,
                 (*runtime_state)->runtime_profile(), _tmp_file_mgr.get(),
                 calculate_mem_tracker(max_buffers, block_size), block_size, &mgr));
     (*runtime_state)->set_block_mgr2(mgr);

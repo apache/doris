@@ -38,7 +38,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
                              const Conditions* conditions, const DeleteHandler* delete_handler,
                              const DelCondSatisfied delete_status, Cache* lru_cache,
                              RuntimeState* runtime_state, OlapReaderStatistics* stats,
-                             MemTracker* parent_tracker)
+                             const std::shared_ptr<MemTracker>& parent_tracker)
         : _file_name(file),
           _segment_group(segment_group),
           _segment_id(segment_id),
@@ -58,13 +58,12 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
           _is_using_mmap(false),
           _is_data_loaded(false),
           _buffer_size(0),
+          _tracker(MemTracker::CreateTracker(-1, "SegmentReader", parent_tracker)),
+          _mem_pool(new MemPool(_tracker.get())),
           _shared_buffer(NULL),
           _lru_cache(lru_cache),
           _runtime_state(runtime_state),
-          _stats(stats) {
-    _tracker.reset(new MemTracker(-1, "SegmentReader", parent_tracker, true));
-    _mem_pool.reset(new MemPool(_tracker.get()));
-}
+          _stats(stats) {}
 
 SegmentReader::~SegmentReader() {
     SAFE_DELETE(_shared_buffer);
@@ -253,7 +252,7 @@ OLAPStatus SegmentReader::seek_to_block(
 
         if (_runtime_state != NULL) {
             MemTracker::update_limits(_buffer_size, _runtime_state->mem_trackers());
-            if (MemTracker::limit_exceeded(*_runtime_state->mem_trackers())) {
+            if (MemTracker::limit_exceeded(_runtime_state->mem_trackers())) {
                 return OLAP_ERR_FETCH_MEMORY_EXCEEDED;
             }
         }

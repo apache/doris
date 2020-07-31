@@ -205,12 +205,12 @@ public:
         return _memory_used_counter;
     }
 
-    MemTracker* mem_tracker() const {
-        return _mem_tracker.get();
+    std::shared_ptr<MemTracker> mem_tracker() const {
+        return _mem_tracker;
     }
 
-    MemTracker* expr_mem_tracker() const {
-        return _expr_mem_tracker.get();
+    std::shared_ptr<MemTracker> expr_mem_tracker() const {
+        return _expr_mem_tracker;
     }
 
     MemPool* expr_mem_pool() { 
@@ -313,10 +313,10 @@ protected:
     boost::scoped_ptr<RuntimeProfile> _runtime_profile;
    
     /// Account for peak memory used by this node
-    boost::scoped_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
    
     /// MemTracker used by 'expr_mem_pool_'.
-    boost::scoped_ptr<MemTracker> _expr_mem_tracker;
+    std::shared_ptr<MemTracker> _expr_mem_tracker;
 
     /// MemPool for allocating data structures used by expression evaluators in this node.
     /// Created in Prepare().

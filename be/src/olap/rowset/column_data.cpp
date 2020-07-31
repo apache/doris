@@ -24,23 +24,25 @@
 
 namespace doris {
 
-ColumnData* ColumnData::create(SegmentGroup* segment_group, MemTracker* parent_tracker) {
+ColumnData* ColumnData::create(SegmentGroup* segment_group,
+                               const std::shared_ptr<MemTracker>& parent_tracker) {
     ColumnData* data = new (std::nothrow) ColumnData(segment_group, parent_tracker);
     return data;
 }
 
-ColumnData::ColumnData(SegmentGroup* segment_group, MemTracker* parent_tracker)
-      : _segment_group(segment_group),
-        _parent_tracker(parent_tracker),
-        _eof(false),
-        _conditions(nullptr),
-        _col_predicates(nullptr),
-        _delete_status(DEL_NOT_SATISFIED),
-        _runtime_state(nullptr),
-        _schema(segment_group->get_tablet_schema()),
-        _is_using_cache(false),
-        _segment_reader(nullptr),
-        _lru_cache(nullptr) {
+ColumnData::ColumnData(SegmentGroup* segment_group,
+                       const std::shared_ptr<MemTracker>& parent_tracker)
+        : _segment_group(segment_group),
+          _parent_tracker(parent_tracker),
+          _eof(false),
+          _conditions(nullptr),
+          _col_predicates(nullptr),
+          _delete_status(DEL_NOT_SATISFIED),
+          _runtime_state(nullptr),
+          _schema(segment_group->get_tablet_schema()),
+          _is_using_cache(false),
+          _segment_reader(nullptr),
+          _lru_cache(nullptr) {
     if (StorageEngine::instance() != nullptr) {
         _lru_cache = StorageEngine::instance()->index_stream_lru_cache();
     } else {

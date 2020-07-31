@@ -27,9 +27,9 @@ namespace doris {
 
 Semaphore Compaction::_concurrency_sem;
 
-Compaction::Compaction(TabletSharedPtr tablet, const std::string& label, MemTracker* parent_tracker)
-        : _mem_tracker(-1, label, parent_tracker, true),
-          _readers_tracker(-1, "readers tracker", &_mem_tracker, true),
+Compaction::Compaction(TabletSharedPtr tablet, const std::string& label, const std::shared_ptr<MemTracker>& parent_tracker)
+        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker)),
+          _readers_tracker(MemTracker::CreateTracker(-1, "readers tracker", _mem_tracker)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -153,7 +153,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
 OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(&_readers_tracker, &rs_reader));
+        RETURN_NOT_OK(rowset->create_reader(_readers_tracker, &rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;
