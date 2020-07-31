@@ -70,12 +70,7 @@ module.exports = [
         ],
         sidebarDepth: 2,
       },
-      {
-        title: "物化视图",
-        directoryPath: "materialized-view/",
-        children: [],
-        sidebarDepth: 2,
-      },
+      "materialized_view",
       {
         title: "HTTP API",
         directoryPath: "http-actions/",

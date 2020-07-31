@@ -69,6 +69,7 @@ module.exports = [
         ],
         sidebarDepth: 2,
       },
+      "materialized_view",
       {
         title: "HTTP API",
         directoryPath: "http-actions/",
