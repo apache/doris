@@ -73,12 +73,12 @@ private:
 class BitmapIndexIterator {
 public:
     explicit BitmapIndexIterator(BitmapIndexReader* reader)
-        : _reader(reader),
-          _dict_column_iter(reader->_dict_column_reader.get()),
-          _bitmap_column_iter(reader->_bitmap_column_reader.get()),
-          _current_rowid(0),
-          _pool(new MemPool(&_tracker)) {
-    }
+            : _reader(reader),
+              _dict_column_iter(reader->_dict_column_reader.get()),
+              _bitmap_column_iter(reader->_bitmap_column_reader.get()),
+              _current_rowid(0),
+              _tracker(new MemTracker()),
+              _pool(new MemPool(_tracker.get())) {}
 
     bool has_null_bitmap() const { return _reader->_has_null; }
 
@@ -119,7 +119,7 @@ private:
     IndexedColumnIterator _dict_column_iter;
     IndexedColumnIterator _bitmap_column_iter;
     rowid_t _current_rowid;
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 };
 

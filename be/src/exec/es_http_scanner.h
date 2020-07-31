@@ -87,7 +87,7 @@ private:
     std::vector<SlotDescriptor*> _slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool _mem_pool;
 
     const TupleDescriptor* _tuple_desc;

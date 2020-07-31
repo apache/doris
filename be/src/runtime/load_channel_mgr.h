@@ -70,7 +70,7 @@ private:
     Cache* _lastest_success_channel = nullptr;
 
     // check the total load mem consumption of this Backend
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // thread to clean timeout load channels
     std::thread _load_channels_clean_thread;

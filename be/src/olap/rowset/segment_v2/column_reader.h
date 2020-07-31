@@ -309,14 +309,16 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-            bool is_nullable, FieldType type, size_t schema_length) : _has_default_value(has_default_value),
-                                                _default_value(default_value),
-                                                _is_nullable(is_nullable),
-                                                _type(type),
-                                                _schema_length(schema_length),
-                                                _is_default_value_null(false),
-                                                _type_size(0),
-                                                _pool(new MemPool(&_tracker)){ }
+                               bool is_nullable, FieldType type, size_t schema_length)
+            : _has_default_value(has_default_value),
+              _default_value(default_value),
+              _is_nullable(is_nullable),
+              _type(type),
+              _schema_length(schema_length),
+              _is_default_value_null(false),
+              _type_size(0),
+              _tracker(new MemTracker()),
+              _pool(new MemPool(_tracker.get())) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -343,7 +345,7 @@ private:
     bool _is_default_value_null;
     size_t _type_size;
     void* _mem_value = nullptr;
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 
     // current rowid

@@ -363,7 +363,7 @@ public:
 
     ToRowBatchConverter(const arrow::RecordBatch& batch,
                         const RowDescriptor& row_desc,
-                        MemTracker* tracker)
+                        const std::shared_ptr<MemTracker>& tracker)
         : _batch(batch), _row_desc(row_desc), _tracker(tracker) { }
 
 #define PRIMITIVE_VISIT(TYPE) \
@@ -407,7 +407,7 @@ private:
 private:
     const arrow::RecordBatch& _batch;
     const RowDescriptor& _row_desc;
-    MemTracker* _tracker;
+    std::shared_ptr<MemTracker> _tracker;
 
     std::unique_ptr<SlotRef> _cur_slot_ref;
     std::shared_ptr<RowBatch> _output;
@@ -427,7 +427,7 @@ Status ToRowBatchConverter:: convert(std::shared_ptr<RowBatch>* result) {
     // TODO(zc): check if field type match
 
     size_t num_rows = _batch.num_rows();
-    _output.reset(new RowBatch(_row_desc, num_rows, _tracker));
+    _output.reset(new RowBatch(_row_desc, num_rows, _tracker.get()));
     _output->commit_rows(num_rows);
     auto pool = _output->tuple_data_pool();
     for (size_t row_id = 0; row_id < num_rows; ++row_id) {
@@ -454,7 +454,7 @@ Status ToRowBatchConverter:: convert(std::shared_ptr<RowBatch>* result) {
 
 Status convert_to_row_batch(const arrow::RecordBatch& batch,
                             const RowDescriptor& row_desc,
-                            MemTracker* tracker,
+                            const std::shared_ptr<MemTracker>& tracker,
                             std::shared_ptr<RowBatch>* result) {
     ToRowBatchConverter converter(batch, row_desc, tracker);
     return converter.convert(result);

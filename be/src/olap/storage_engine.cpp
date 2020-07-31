@@ -109,7 +109,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(NULL),
           _file_cache(nullptr),
-          _compaction_mem_tracker(-1, "compaction mem tracker(unlimited)"),
+          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "compaction mem tracker(unlimited)")),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
@@ -125,9 +125,9 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         return _unused_rowsets.size();
     });
     REGISTER_GAUGE_DORIS_METRIC(compaction_mem_current_consumption, [this]() {
-        return _compaction_mem_tracker.consumption();
+        return _compaction_mem_tracker->consumption();
         // We can get each compaction's detail usage
-        LOG(INFO) << _compaction_mem_tracker.LogUsage(2);
+        // LOG(INFO) << _compaction_mem_tracker=>LogUsage(2);
     });
 }
 
@@ -539,7 +539,7 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     DorisMetrics::instance()->cumulative_compaction_request_total.increment(1);
 
     std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
-    CumulativeCompaction cumulative_compaction(best_tablet, tracker_label, &_compaction_mem_tracker);
+    CumulativeCompaction cumulative_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
@@ -575,7 +575,7 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     DorisMetrics::instance()->base_compaction_request_total.increment(1);
 
     std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
-    BaseCompaction base_compaction(best_tablet, tracker_label, &_compaction_mem_tracker);
+    BaseCompaction base_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
         best_tablet->set_last_base_compaction_failure_time(UnixMillis());

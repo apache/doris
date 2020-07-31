@@ -80,8 +80,8 @@ public:
         ASSERT_EQ(slices.size(), page_decoder.count());
 
         //check values
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
@@ -170,8 +170,8 @@ public:
             ASSERT_TRUE(status.ok());
 
             //check values
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            auto tracker = std::make_shared<MemTracker>();
+            MemPool pool(tracker.get());
             TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
             Slice* values = reinterpret_cast<Slice*>(pool.allocate(sizeof(Slice)));
             ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, 1, &pool);

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
+
 namespace doris_udf {
 class FunctionContext;
 }
@@ -36,7 +38,7 @@ public:
     }
 private:
     RuntimeState* _state = nullptr;
-    MemTracker* _mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool* _memory_pool = nullptr;
     doris_udf::FunctionContext* _fn_ctx = nullptr;
 };

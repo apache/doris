@@ -33,7 +33,7 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
                      int num_build_tuples, bool stores_nulls, 
                      const std::vector<bool>& finds_nulls,
                      int32_t initial_seed,
-                     MemTracker* mem_tracker, int64_t num_buckets) :
+                     const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets) :
         _build_expr_ctxs(build_expr_ctxs),
         _probe_expr_ctxs(probe_expr_ctxs),
         _num_build_tuples(num_build_tuples),
@@ -47,14 +47,14 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
         _exceeded_limit(false),
         _mem_tracker(mem_tracker),
         _mem_limit_exceeded(false) {
-    DCHECK(mem_tracker != NULL);
+    DCHECK(_mem_tracker);
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
     DCHECK_EQ((num_buckets & (num_buckets - 1)), 0) << "num_buckets must be a power of 2";
     _buckets.resize(num_buckets);
     _num_buckets = num_buckets;
     _num_buckets_till_resize = MAX_BUCKET_OCCUPANCY_FRACTION * _num_buckets;
-    _mem_tracker->consume(_buckets.capacity() * sizeof(Bucket));
+    _mem_tracker->Consume(_buckets.capacity() * sizeof(Bucket));
 
     // Compute the layout and buffer size to store the evaluated expr results
     _results_buffer_size = Expr::compute_results_layout(_build_expr_ctxs,
@@ -67,7 +67,7 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     _nodes = reinterpret_cast<uint8_t*>(malloc(_nodes_capacity * _node_byte_size));
     memset(_nodes, 0, _nodes_capacity * _node_byte_size);
 
-    _mem_tracker->consume(_nodes_capacity * _node_byte_size);
+    _mem_tracker->Consume(_nodes_capacity * _node_byte_size);
     if (_mem_tracker->limit_exceeded()) {
         mem_limit_exceeded(_nodes_capacity * _node_byte_size);
     }
@@ -81,8 +81,8 @@ void HashTable::close() {
     delete[] _expr_values_buffer;
     delete[] _expr_value_null_bits;
     free(_nodes);
-    _mem_tracker->release(_nodes_capacity * _node_byte_size);
-    _mem_tracker->release(_buckets.size() * sizeof(Bucket));
+    _mem_tracker->Release(_nodes_capacity * _node_byte_size);
+    _mem_tracker->Release(_buckets.size() * sizeof(Bucket));
 }
 
 bool HashTable::eval_row(TupleRow* row, const vector<ExprContext*>& ctxs) {
@@ -187,7 +187,7 @@ void HashTable::resize_buckets(int64_t num_buckets) {
 
     int64_t old_num_buckets = _num_buckets;
     int64_t delta_bytes = (num_buckets - old_num_buckets) * sizeof(Bucket);
-    if (!_mem_tracker->try_consume(delta_bytes)) {
+    if (!_mem_tracker->TryConsume(delta_bytes)) {
         mem_limit_exceeded(delta_bytes);
         return;
     }
@@ -248,7 +248,7 @@ void HashTable::grow_node_array() {
     free(_nodes);
     _nodes = new_nodes;
 
-    _mem_tracker->consume(new_size - old_size);
+    _mem_tracker->Consume(new_size - old_size);
     if (_mem_tracker->limit_exceeded()) {
         mem_limit_exceeded(new_size - old_size);
     }

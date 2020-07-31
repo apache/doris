@@ -294,8 +294,7 @@ public:
     // - mem_limit: maximum memory that will be used by the block mgr.
     // - buffer_size: maximum size of each buffer.
     static Status create(
-            // RuntimeState* state, MemTracker* parent,
-            RuntimeState* state, MemTracker* parent,
+            RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
             RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
             int64_t mem_limit, int64_t buffer_size,
             boost::shared_ptr<BufferedBlockMgr2>* block_mgr);
@@ -312,7 +311,7 @@ public:
     // Buffers used by this client are reflected in tracker.
     // TODO: The fact that we allow oversubscription is problematic.
     // as the code expects the reservations to always be granted (currently not the case).
-    Status register_client(int num_reserved_buffers, MemTracker* tracker,
+    Status register_client(int num_reserved_buffers, const std::shared_ptr<MemTracker>& tracker,
             RuntimeState* state, Client** client);
 
     // Clears all reservations for this client.
@@ -388,7 +387,7 @@ public:
 
     int num_pinned_buffers(Client* client) const;
     int num_reserved_buffers_remaining(Client* client) const;
-    MemTracker* get_tracker(Client* client) const;
+    std::shared_ptr<MemTracker> get_tracker(Client* client) const;
     int64_t max_block_size() const { {
         return _max_block_size; }
     }
@@ -425,7 +424,7 @@ private:
 
     // Initializes the block mgr. Idempotent and thread-safe.
     void init(DiskIoMgr* io_mgr, RuntimeProfile* profile,
-            MemTracker* parent_tracker, int64_t mem_limit);
+              const std::shared_ptr<MemTracker>& parent_tracker, int64_t mem_limit);
 
     // Initializes _tmp_files. This is initialized the first time we need to write to disk.
     // Must be called with _lock taken.
@@ -527,7 +526,7 @@ private:
     ObjectPool _obj_pool;
 
     // Track buffers allocated by the block manager.
-    boost::scoped_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // The temporary file manager used to allocate temporary file space.
     TmpFileMgr* _tmp_file_mgr;

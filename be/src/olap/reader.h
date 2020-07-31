@@ -201,7 +201,7 @@ private:
     TabletSharedPtr tablet() { return _tablet; }
 
 private:
-    std::unique_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::set<uint32_t> _load_bf_columns;
     std::vector<uint32_t> _return_columns;

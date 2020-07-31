@@ -186,6 +186,7 @@ public:
 
     Status none_of(std::initializer_list<bool> vars);
 
+    // TODO(HW): remove after mem tracker shared
     void clear_all_batches();
 
 private:
@@ -315,6 +316,8 @@ private:
     friend class NodeChannel;
     friend class IndexChannel;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
+
     ObjectPool* _pool;
     const RowDescriptor& _input_row_desc;
 
@@ -350,7 +353,6 @@ private:
     DorisNodesInfo* _nodes_info = nullptr;
 
     RuntimeProfile* _profile = nullptr;
-    MemTracker* _mem_tracker = nullptr;
 
     std::set<int64_t> _partition_ids;
 

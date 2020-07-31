@@ -123,7 +123,7 @@ private:
     std::vector<uint8_t*> _column_null_bitmaps;
     size_t _num_rows;
     // manages the memory for slice's data
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 
     // index of selected rows for rows passed the predicate

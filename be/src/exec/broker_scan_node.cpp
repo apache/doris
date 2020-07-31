@@ -325,7 +325,7 @@ Status BrokerScanNode::scanner_scan(
     while (!scanner_eof) {
         // Fill one row batch
         std::shared_ptr<RowBatch> row_batch(
-            new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker()));
+            new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();
@@ -382,7 +382,7 @@ Status BrokerScanNode::scanner_scan(
                     // 1. too many batches in queue, or
                     // 2. at least one batch in queue and memory exceed limit.
                    (_batch_queue.size() >= _max_buffered_batches
-                    || (mem_tracker()->any_limit_exceeded() && !_batch_queue.empty()))) {
+                    || (mem_tracker()->AnyLimitExceeded(MemLimit::HARD) && !_batch_queue.empty()))) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }
             // Process already set failed, so we just return OK

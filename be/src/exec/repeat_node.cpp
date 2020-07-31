@@ -175,7 +175,7 @@ Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         }
 
         _child_row_batch.reset(
-                    new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
+                    new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
         RETURN_IF_ERROR(child(0)->get_next(state, _child_row_batch.get(), &_child_eos));
 
         if (_child_row_batch->num_rows() <= 0) {

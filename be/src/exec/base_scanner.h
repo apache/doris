@@ -76,7 +76,7 @@ protected:
     Tuple* _src_tuple;
     TupleRow* _src_tuple_row;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     MemPool _mem_pool;
 

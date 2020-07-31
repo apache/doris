@@ -27,17 +27,24 @@
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, mem_tracker, StorageEngine::instance());
+OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
+                             DeltaWriter** writer) {
+    *writer = new DeltaWriter(req, parent, StorageEngine::instance());
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine) :
-        _req(*req), _tablet(nullptr), _cur_rowset(nullptr), _new_rowset(nullptr),
-        _new_tablet(nullptr), _rowset_writer(nullptr), _tablet_schema(nullptr),
-        _delta_written_success(false), _storage_engine(storage_engine) {
-    _mem_tracker.reset(new MemTracker(-1, "delta writer", parent));
-}
+DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
+                         StorageEngine* storage_engine)
+        : _req(*req),
+          _tablet(nullptr),
+          _cur_rowset(nullptr),
+          _new_rowset(nullptr),
+          _new_tablet(nullptr),
+          _rowset_writer(nullptr),
+          _tablet_schema(nullptr),
+          _delta_written_success(false),
+          _storage_engine(storage_engine),
+          _mem_tracker(MemTracker::CreateTracker(-1, "DeltaWriter", parent)) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -195,7 +202,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
 void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
                                   _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker.get()));
+                                  _mem_tracker));
 }
 
 OLAPStatus DeltaWriter::close() {
