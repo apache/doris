@@ -124,7 +124,7 @@ public: \
         _vectorized_batch = new VectorizedRowBatch(tablet_schema, ids, size); \
         _vectorized_batch->set_size(size); \
     } \
-    std::unique_ptr<MemTracker> _mem_tracker; \
+    std::shared_ptr<MemTracker> _mem_tracker; \
     std::unique_ptr<MemPool> _mem_pool; \
     VectorizedRowBatch* _vectorized_batch; \
 }; \

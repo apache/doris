@@ -27,7 +27,8 @@
 
 namespace doris {
 
-BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset, MemTracker* parent_tracker)
+BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
+                                   const std::shared_ptr<MemTracker>& parent_tracker)
         : _rowset(std::move(rowset)), _stats(&_owned_stats), _parent_tracker(parent_tracker) {
     _rowset->aquire();
 }

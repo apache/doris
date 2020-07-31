@@ -55,7 +55,7 @@ Status OlapRewriteNode::prepare(RuntimeState* state) {
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     // _child_row_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
     _child_row_batch.reset(
-            new RowBatch(child(0)->row_desc(), state->batch_size(), state->fragment_mem_tracker()));
+            new RowBatch(child(0)->row_desc(), state->batch_size(), state->fragment_mem_tracker().get()));
 
     _max_decimal_val.resize(_column_types.size());
     _max_decimalv2_val.resize(_column_types.size());

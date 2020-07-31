@@ -206,27 +206,30 @@ public:
     /// is stored in ObjectPool 'pool' and returned in 'expr' on success. 'row_desc' is the
     /// tuple row descriptor of the input tuple row. On failure, 'expr' is set to NULL and
     /// the expr tree (if created) will be closed. Error status will be returned too.
-    static Status create(const TExpr& texpr, const RowDescriptor& row_desc,
-        RuntimeState* state, ObjectPool* pool, Expr** expr, MemTracker* tracker);
+    static Status create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
+                         ObjectPool* pool, Expr** expr, const std::shared_ptr<MemTracker>& tracker);
 
     /// Create a new ScalarExpr based on thrift Expr 'texpr'. The newly created ScalarExpr
     /// is stored in ObjectPool 'state->obj_pool()' and returned in 'expr'. 'row_desc' is
     /// the tuple row descriptor of the input tuple row. Returns error status on failure.
-    static Status create(const TExpr& texpr, const RowDescriptor& row_desc,
-        RuntimeState* state, Expr** expr, MemTracker* tracker);
+    static Status create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
+                         Expr** expr, const std::shared_ptr<MemTracker>& tracker);
 
     /// Convenience functions creating multiple ScalarExpr.
     static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-        RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs, MemTracker* tracker);
+                         RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs,
+                         const std::shared_ptr<MemTracker>& tracker);
 
     /// Convenience functions creating multiple ScalarExpr.
     static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-        RuntimeState* state, std::vector<Expr*>* exprs, MemTracker* tracker);
+                         RuntimeState* state, std::vector<Expr*>* exprs,
+                         const std::shared_ptr<MemTracker>& tracker);
 
     /// Convenience function for preparing multiple expr trees.
     /// Allocations from 'ctxs' will be counted against 'tracker'.
     static Status prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
-                          const RowDescriptor& row_desc, MemTracker* tracker);
+                          const RowDescriptor& row_desc,
+                          const std::shared_ptr<MemTracker>& tracker);
 
     /// Convenience function for opening multiple expr trees.
     static Status open(const std::vector<ExprContext*>& ctxs, RuntimeState* state);

@@ -29,14 +29,13 @@
 namespace doris {
 
 MysqlTableSink::MysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& t_exprs) :
-        _pool(pool),
-        _row_desc(row_desc),
-        _t_output_expr(t_exprs) {
-}
+                               const std::vector<TExpr>& t_exprs)
+        : _pool(pool),
+          _row_desc(row_desc),
+          _t_output_expr(t_exprs),
+          _mem_tracker(MemTracker::CreateTracker(-1, "MysqlTableSink")) {}
 
-MysqlTableSink::~MysqlTableSink() {
-}
+MysqlTableSink::~MysqlTableSink() {}
 
 Status MysqlTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(DataSink::init(t_sink));
@@ -57,7 +56,7 @@ Status MysqlTableSink::init(const TDataSink& t_sink) {
 Status MysqlTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker.get()));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
     std::stringstream title;
     title << "MysqlTableSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile

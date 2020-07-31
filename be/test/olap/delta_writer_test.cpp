@@ -47,7 +47,7 @@ static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
 StorageEngine* k_engine = nullptr;
-MemTracker* k_mem_tracker = nullptr;
+std::shared_ptr<MemTracker> k_mem_tracker = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -66,7 +66,7 @@ void set_up() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
 
-    k_mem_tracker = new MemTracker(-1, "delta writer test");
+    k_mem_tracker.reset(new MemTracker(-1, "delta writer test"));
 }
 
 void tear_down() {
@@ -74,7 +74,6 @@ void tear_down() {
     k_engine = nullptr;
     system("rm -rf ./data_test");
     FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
-    delete k_mem_tracker;
 }
 
 void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTabletReq* request) {
@@ -349,8 +348,8 @@ TEST_F(TestDeltaWriter, write) {
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    auto tracker = std::make_shared<MemTracker>();
+    MemPool pool(tracker.get());
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));

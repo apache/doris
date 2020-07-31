@@ -79,7 +79,7 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _mem_tracker.reset(new MemTracker(load_mem_limit, "load channel mgr"));
+    _mem_tracker = MemTracker::CreateTracker(load_mem_limit, "load channel mgr");
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -103,7 +103,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             channel.reset(new LoadChannel(load_id, job_max_memory,
-                                          job_timeout_s, _mem_tracker.get()));
+                                          job_timeout_s, _mem_tracker));
             _load_channels.insert({load_id, channel});
         }
     }

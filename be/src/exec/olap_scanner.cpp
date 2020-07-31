@@ -238,7 +238,7 @@ Status OlapScanner::get_batch(
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemTracker> tracker(new MemTracker(state->fragment_mem_tracker()->limit()));
+    auto tracker = MemTracker::CreateTracker(state->fragment_mem_tracker()->limit(), "OlapScanner");
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;

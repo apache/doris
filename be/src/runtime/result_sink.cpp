@@ -57,8 +57,7 @@ Status ResultSink::prepare_exprs(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::create_expr_trees(
             state->obj_pool(), _t_output_expr, &_output_expr_ctxs));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(
-            _output_expr_ctxs, state, _row_desc, _expr_mem_tracker.get()));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
     return Status::OK();
 }
 

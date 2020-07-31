@@ -42,8 +42,8 @@ static const string TEST_DIR = "./ut_dir/column_reader_writer_test";
 
 class ColumnReaderWriterTest : public testing::Test {
 public:
-    ColumnReaderWriterTest() : _pool(&_tracker) { }
-    virtual ~ColumnReaderWriterTest() { }
+    ColumnReaderWriterTest() : _tracker(new MemTracker()), _pool(_tracker.get()) {}
+    virtual ~ColumnReaderWriterTest() {}
 
 protected:
     void SetUp() override {
@@ -60,7 +60,7 @@ protected:
     }
 
 private:
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 
@@ -146,8 +146,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             st = iter->seek_to_first();
             ASSERT_TRUE(st.ok()) << st.to_string();
 
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            auto tracker = std::make_shared<MemTracker>();
+            MemPool pool(tracker.get());
             Type vals[1024];
             Type* vals_ = vals;
             uint8_t is_null[1024];
@@ -180,8 +180,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         }
 
         {
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            auto tracker = std::make_shared<MemTracker>();
+            MemPool pool(tracker.get());
             Type vals[1024];
             uint8_t is_null[1024];
             ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
@@ -235,8 +235,8 @@ void test_read_default_value(string value, void* result) {
             st = iter.seek_to_first();
             ASSERT_TRUE(st.ok()) << st.to_string();
 
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            auto tracker = std::make_shared<MemTracker>();
+            MemPool pool(tracker.get());
             Type vals[1024];
             Type* vals_ = vals;
             uint8_t is_null[1024];
@@ -264,8 +264,8 @@ void test_read_default_value(string value, void* result) {
         }
 
         {
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            auto tracker = std::make_shared<MemTracker>();
+            MemPool pool(tracker.get());
             Type vals[1024];
             uint8_t is_null[1024];
             ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);

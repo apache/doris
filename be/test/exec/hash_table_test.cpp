@@ -28,7 +28,6 @@
 #include "exprs/expr.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
-#include "runtime/mem_limit.hpp"
 #include "util/cpu_info.h"
 #include "util/runtime_profile.h"
 
@@ -277,12 +276,11 @@ TEST_F(HashTableTest, GrowTableTest) {
     int build_row_val = 0;
     int num_to_add = 4;
     int expected_size = 0;
-    MemTracker mem_limit(1024 * 1024);
-    vector<MemTracker*> mem_limits;
-    mem_limits.push_back(&mem_limit);
+
+    auto mem_tracker = std::make_shared<MemTracker>(1024 * 1024);
     HashTable hash_table(
-        _build_expr, _probe_expr, 1, false, 0, mem_limits, num_to_add);
-    EXPECT_TRUE(!mem_limit.limit_exceeded());
+        _build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
+    EXPECT_FALSE(mem_tracker->limit_exceeded());
 
     // This inserts about 5M entries
     for (int i = 0; i < 20; ++i) {
@@ -295,7 +293,7 @@ TEST_F(HashTableTest, GrowTableTest) {
         EXPECT_EQ(hash_table.size(), expected_size);
     }
 
-    EXPECT_TRUE(mem_limit.limit_exceeded());
+    EXPECT_TRUE(mem_tracker->limit_exceeded());
 
     // Validate that we can find the entries
     for (int i = 0; i < expected_size * 5; i += 100000) {
@@ -316,11 +314,10 @@ TEST_F(HashTableTest, GrowTableTest2) {
     int build_row_val = 0;
     int num_to_add = 1024;
     int expected_size = 0;
-    MemTracker mem_limit(1024 * 1024);
-    vector<MemTracker*> mem_limits;
-    mem_limits.push_back(&mem_limit);
+
+    auto mem_tracker = std::make_shared<MemTracker>(1024 * 1024);
     HashTable hash_table(
-        _build_expr, _probe_expr, 1, false, 0, mem_limits, num_to_add);
+        _build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
 
     LOG(INFO) << time(NULL);
 

@@ -316,7 +316,7 @@ private:
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
-    MemTracker _compaction_mem_tracker;
+    std::shared_ptr<MemTracker> _compaction_mem_tracker;
 
     bool _stop_bg_worker = false;
     std::thread _unused_rowset_monitor_thread;

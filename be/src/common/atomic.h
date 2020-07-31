@@ -201,6 +201,12 @@ public:
     /// Atomic store with "release" memory-ordering semantic.
     inline void store(T* val) { _ptr.store(reinterpret_cast<intptr_t>(val)); }
 
+    /// Store 'new_val' and return the previous value. Implies a Release memory barrier
+    /// (i.e. the same as Store()).
+    inline T* swap(T* val) {
+      return reinterpret_cast<T*>(_ptr.swap(reinterpret_cast<intptr_t>(val)));
+    }
+
 private:
     AtomicInt<intptr_t> _ptr;
 };

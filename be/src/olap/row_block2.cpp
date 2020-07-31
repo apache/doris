@@ -27,19 +27,20 @@ using strings::Substitute;
 namespace doris {
 
 RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
-    : _schema(schema),
-      _capacity(capacity),
-      _column_datas(_schema.num_columns(), nullptr),
-      _column_null_bitmaps(_schema.num_columns(), nullptr),
-      _pool(new MemPool(&_tracker)),
-      _selection_vector(nullptr) {
+        : _schema(schema),
+          _capacity(capacity),
+          _column_datas(_schema.num_columns(), nullptr),
+          _column_null_bitmaps(_schema.num_columns(), nullptr),
+          _tracker(new MemTracker(-1, "RowBlockV2")),
+          _pool(new MemPool(_tracker.get())),
+          _selection_vector(nullptr) {
     auto bitmap_size = BitmapSize(capacity);
     for (auto cid : _schema.column_ids()) {
         size_t data_size = _schema.column(cid)->type_info()->size() * _capacity;
         _column_datas[cid] = new uint8_t[data_size];
 
         if (_schema.column(cid)->is_nullable()) {
-            _column_null_bitmaps[cid] = new uint8_t[bitmap_size];;
+            _column_null_bitmaps[cid] = new uint8_t[bitmap_size];
         }
     }
     _selection_vector = new uint16_t[_capacity];
