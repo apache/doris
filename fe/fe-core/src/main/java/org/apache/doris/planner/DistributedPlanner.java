@@ -494,19 +494,23 @@ public class DistributedPlanner {
         OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
         OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
 
-        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+        // if left table and right table is same table, they are naturally colocate relationship
+        // no need to check colocate group
+        if (leftTable.getId() != rightTable.getId()) {
+            ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
 
-        //1 the table must be colocate
-        if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
-            cannotReason.add("table not in same group");
-            return false;
-        }
+            //1 the table must be colocate
+            if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
+                cannotReason.add("table not in the same group");
+                return false;
+            }
 
-        //2 the colocate group must be stable
-        GroupId groupId = colocateIndex.getGroup(leftTable.getId());
-        if (colocateIndex.isGroupUnstable(groupId)) {
-            cannotReason.add("group is not stable");
-            return false;
+            //2 the colocate group must be stable
+            GroupId groupId = colocateIndex.getGroup(leftTable.getId());
+            if (colocateIndex.isGroupUnstable(groupId)) {
+                cannotReason.add("group is not stable");
+                return false;
+            }
         }
 
         DistributionInfo leftDistribution = leftTable.getDefaultDistributionInfo();
