@@ -282,6 +282,16 @@ public class QueryPlanTest {
                 "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
                 "properties(\"replication_num\" = \"1\");");
 
+        createTable("create table test.colocate1\n" +
+                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
+                "properties(\"replication_num\" = \"1\"," +
+                "\"colocate_with\" = \"group1\");");
+
+        createTable("create table test.colocate2\n" +
+                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
+                "properties(\"replication_num\" = \"1\"," +
+                "\"colocate_with\" = \"group1\");");
+
         createTable("create external table test.mysql_table\n" +
                 "(k1 int, k2 int)\n" +
                 "ENGINE=MYSQL\n" +
@@ -872,6 +882,17 @@ public class QueryPlanTest {
         queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+    }
+
+    @Test
+    public void testColocateJoin() throws Exception {
+        String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and t1.k2 = t2.k2 and t1.k3 = t2.k3";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: true"));
+
+        queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: false"));
     }
 
     @Test
