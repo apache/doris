@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -325,7 +326,7 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testDuplicateColumn1(@Injectable SlotRef slotRef1,
-            @Injectable SelectStmt selectStmt) throws UserException {
+                                     @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -415,7 +416,7 @@ public class CreateMaterializedViewStmtTest {
                                             @Injectable SlotRef slotRef4,
                                             @Injectable TableRef tableRef,
                                             @Injectable SelectStmt selectStmt,
-            @Injectable AggregateInfo aggregateInfo) throws UserException {
+                                            @Injectable AggregateInfo aggregateInfo) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -506,8 +507,8 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregation(@Injectable SlotRef slotRef1,
-            @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
-            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                                              @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
+                                                              @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -606,8 +607,8 @@ public class CreateMaterializedViewStmtTest {
      */
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithFloat(@Injectable SlotRef slotRef1,
-            @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
-            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                                                       @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
+                                                                       @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -704,8 +705,8 @@ public class CreateMaterializedViewStmtTest {
     */
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithVarchar(@Injectable SlotRef slotRef1,
-            @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
-            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                                                         @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
+                                                                         @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -802,7 +803,7 @@ public class CreateMaterializedViewStmtTest {
      */
     @Test
     public void testMVColumnsWithFirstFloat(@Injectable SlotRef slotRef1,
-            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -850,7 +851,7 @@ public class CreateMaterializedViewStmtTest {
     */
     @Test
     public void testMVColumnsWithFirstVarchar(@Injectable SlotRef slotRef1,
-            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                              @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -903,10 +904,10 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testMVColumns(@Injectable SlotRef slotRef1,
-            @Injectable SlotRef slotRef2,
-            @Injectable TableRef tableRef,
-            @Injectable SelectStmt selectStmt,
-            @Injectable AggregateInfo aggregateInfo) throws UserException {
+                              @Injectable SlotRef slotRef2,
+                              @Injectable TableRef tableRef,
+                              @Injectable SelectStmt selectStmt,
+                              @Injectable AggregateInfo aggregateInfo) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -981,9 +982,9 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testDeduplicateMV(@Injectable SlotRef slotRef1,
-            @Injectable TableRef tableRef,
-            @Injectable SelectStmt selectStmt,
-            @Injectable AggregateInfo aggregateInfo) throws UserException {
+                                  @Injectable TableRef tableRef,
+                                  @Injectable SelectStmt selectStmt,
+                                  @Injectable AggregateInfo aggregateInfo) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -1020,6 +1021,44 @@ public class CreateMaterializedViewStmtTest {
         } catch (UserException e) {
             Assert.fail(e.getMessage());
         }
+
+    }
+
+    @Test
+    public void testBuildMVColumnItem(@Injectable SelectStmt selectStmt) {
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        SlotRef slotRef = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params = Lists.newArrayList();
+        params.add(slotRef);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", params);
+        slotRef.setType(Type.LARGEINT);
+        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
+        Assert.assertEquals(Type.LARGEINT, mvColumnItem.getType());
+
+        SlotRef slotRef2 = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params2 = Lists.newArrayList();
+        params2.add(slotRef2);
+        FunctionCallExpr functionCallExpr2 = new FunctionCallExpr("sum", params2);
+        slotRef2.setType(Type.SMALLINT);
+        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
+        Assert.assertEquals(Type.BIGINT, mvColumnItem2.getType());
+
+        SlotRef slotRef3 = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params3 = Lists.newArrayList();
+        params3.add(slotRef3);
+        FunctionCallExpr functionCallExpr3 = new FunctionCallExpr("min", params3);
+        slotRef3.setType(Type.VARCHAR);
+        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
+        Assert.assertEquals(Type.VARCHAR, mvColumnItem3.getType());
+
+        SlotRef slotRef4 = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params4 = Lists.newArrayList();
+        params4.add(slotRef4);
+        FunctionCallExpr functionCallExpr4 = new FunctionCallExpr("sum", params4);
+        slotRef4.setType(Type.DOUBLE);
+        MVColumnItem mvColumnItem4 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr4);
+        Assert.assertEquals(Type.DOUBLE, mvColumnItem4.getType());
+
 
     }
 }
