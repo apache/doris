@@ -207,9 +207,26 @@ public class SingleNodePlanner {
      * Select/Project/Join/Union [All]/Group by/Having/Order by clauses of the query stmt.
      */
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
-            throws UserException, AnalysisException {
+            throws UserException {
         if (analyzer.hasEmptyResultSet()) {
-            return createEmptyNode(stmt, analyzer);
+            PlanNode node = createEmptyNode(stmt, analyzer);
+
+            // handle window function with limit zero
+            if (stmt instanceof SelectStmt) {
+                SelectStmt selectStmt = (SelectStmt) stmt;
+                if (selectStmt.getAnalyticInfo() != null) {
+                    AnalyticInfo analyticInfo = selectStmt.getAnalyticInfo();
+                    AnalyticPlanner analyticPlanner = new AnalyticPlanner(analyticInfo, analyzer, ctx_);
+                    List<Expr> inputPartitionExprs = Lists.newArrayList();
+                    AggregateInfo aggInfo = selectStmt.getAggInfo();
+                    PlanNode root = analyticPlanner.createSingleNodePlan(node,
+                            aggInfo != null ? aggInfo.getGroupingExprs() : null, inputPartitionExprs);
+
+                    // In order to substitute the analytic expr with slot in result exprs
+                    node.setOutputSmap(root.outputSmap);
+                }
+            }
+            return node;
         }
 
         long newDefaultOrderByLimit = defaultOrderByLimit;
