@@ -1,7 +1,7 @@
 ---
 {
-    "title": "NDV",
-    "language": "zh-CN"
+    "title": "APPROX_COUNT_DISTINCT",
+    "language": "en"
 }
 ---
 
@@ -24,25 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# NDV
-## description
+# APPROX_COUNT_DISTINCT
+## Description
 ### Syntax
 
-`NDV(expr)`
+`APPROX_COUNT_DISTINCT (expr)`
 
 
-返回类似于 COUNT(DISTINCT col) 结果的近似值聚合函数。
+Returns an approximate aggregation function similar to the result of COUNT (DISTINCT col).
 
-它比 COUNT 和 DISTINCT 组合的速度更快，并使用固定大小的内存，因此对于高基数的列可以使用更少的内存。
+It combines COUNT and DISTINCT faster and uses fixed-size memory, so less memory can be used for columns with high cardinality.
 
 ## example
 ```
-MySQL > select ndv(query_id) from log_statis group by datetime;
+MySQL > select approx_count_distinct(query_id) from log_statis group by datetime;
 +-----------------+
-| ndv(`query_id`) |
+| approx_count_distinct(`query_id`) |
 +-----------------+
 | 17721           |
 +-----------------+
 ```
 ##keyword
-NDV
+APPROX_COUNT_DISTINCT

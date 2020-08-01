@@ -997,6 +997,17 @@ public class FunctionSet {
                     "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     true, false, true));
 
+            //APPROX_COUNT_DISTINCT
+            //alias of ndv, compute approx count distinct use HyperLogLog
+            addBuiltin(AggregateFunction.createBuiltin("approx_count_distinct",
+                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                    "_ZN5doris12HllFunctions8hll_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris12HllFunctions" + HLL_UPDATE_SYMBOL.get(t),
+                    "_ZN5doris12HllFunctions9hll_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris12HllFunctions13hll_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "_ZN5doris12HllFunctions12hll_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
             // BITMAP_UNION_INT
             addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION_INT,
                     Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
