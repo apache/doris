@@ -72,7 +72,7 @@ distributed by hash(id) buckets 32;
         curl --location-trusted -uname:password -T data -H "label:load_1" -H "columns:dt, id, name, province, sex, cuid, os, set1=hll_hash(cuid), set2=hll_hash(os)"
             http://host/api/test_db/test/_stream_load
 
-3. There are three common ways of aggregating data: (without aggregating the base table directly, the speed may be similar to that of using NDV directly)
+3. There are three common ways of aggregating data: (without aggregating the base table directly, the speed may be similar to that of using APPROX_COUNT_DISTINCT directly)
 
 A. Create a rollup that allows HLL columns to generate aggregation.
 alter table test add rollup test_rollup(dt, set1);
