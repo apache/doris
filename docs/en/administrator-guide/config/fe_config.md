@@ -333,6 +333,16 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### `http_port`
 
+HTTP bind port. Defaults to 8030.
+
+### `http_max_line_length`
+
+The max length of an HTTP URL. The unit of this configuration is BYTE. Defaults to 4096.
+
+### `http_max_header_size`
+
+The max size of allowed HTTP headers. The unit of this configuration is BYTE. Defaults to 8192.
+
 ### `ignore_meta_check`
 
 ### `init_connect`
