@@ -77,7 +77,6 @@ const char* unit_name(MetricUnit unit) {
     }
 }
 
-// TODO(yingchun): need optimize: duplicate keys, order, reduce copy
 std::string labels_to_string(const Labels& entity_labels, const Labels& metric_labels) {
     if (entity_labels.empty() && metric_labels.empty()) {
         return std::string();
