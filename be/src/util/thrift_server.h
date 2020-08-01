@@ -140,9 +140,6 @@ private:
     typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey> > SessionKeySet;
     SessionKeySet _session_keys;
 
-    // True if metrics are enabled
-    bool _metrics_enabled;
-
     // Helper class which monitors starting servers. Needs access to internal members, and
     // is not used outside of this class.
     class ThriftServerEventProcessor;

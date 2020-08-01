@@ -219,8 +219,9 @@ void ClientCacheHelper::init_metrics(const std::string& name) {
     // usage, but ensures that _metrics_enabled is published.
     boost::lock_guard<boost::mutex> lock(_lock);
 
-    // TODO(yingchun): these metrics are not compaitable with old versions
-    _thrift_client_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("thrift_client.") + name, {{"name", name}});
+    _thrift_client_metric_entity =
+        DorisMetrics::instance()->metric_registry()->register_entity(
+            std::string("thrift_client.") + name, {{"name", name}});
     METRIC_REGISTER(_thrift_client_metric_entity, thrift_used_clients);
     METRIC_REGISTER(_thrift_client_metric_entity, thrift_opened_clients);
 

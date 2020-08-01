@@ -33,7 +33,6 @@ public:
     LoadStreamMgr();
     ~LoadStreamMgr();
 
-    // TODO(yingchun): move body to cpp file
     Status put(const UniqueId& id,
                std::shared_ptr<StreamLoadPipe> stream) {
         std::lock_guard<std::mutex> l(_lock);

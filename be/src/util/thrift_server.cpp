@@ -226,10 +226,8 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
         _thrift_server->_session_handler->session_start(*_session_key);
     }
 
-    if (_thrift_server->_metrics_enabled) {
-        _thrift_server->thrift_connections_total.increment(1L);
-        _thrift_server->thrift_current_connections.increment(1L);
-    }
+    _thrift_server->thrift_connections_total.increment(1L);
+    _thrift_server->thrift_current_connections.increment(1L);
 
     // Store the _session_key in the per-client context to avoid recomputing
     // it. If only this were accessible from RPC method calls, we wouldn't have to
@@ -258,9 +256,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
         _thrift_server->_session_keys.erase(_session_key);
     }
 
-    if (_thrift_server->_metrics_enabled) {
-        _thrift_server->thrift_current_connections.increment(-1L);
-    }
+    _thrift_server->thrift_current_connections.increment(-1L);
 }
 
 ThriftServer::ThriftServer(
@@ -278,17 +274,9 @@ ThriftServer::ThriftServer(
             _server(NULL),
             _processor(processor),
             _session_handler(NULL) {
-    // TODO(yingchun): when to disable?
-    if (true) {
-        _metrics_enabled = true;
-
-        // TODO(yingchun): these metrics are not compaitable with old versions
-        _thrift_server_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("thrift_server.") + name, {{"name", name}});
-        METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
-        METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
-    } else {
-        _metrics_enabled = false;
-    }
+    _thrift_server_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("thrift_server.") + name, {{"name", name}});
+    METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
+    METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
 }
 
 Status ThriftServer::start() {
