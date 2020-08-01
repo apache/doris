@@ -69,7 +69,7 @@ under the License.
         curl --location-trusted -uname:password -T data -H "label:load_1" -H "columns:dt, id, name, province, sex, cuid, os, set1=hll_hash(cuid), set2=hll_hash(os)"
             http://host/api/test_db/test/_stream_load
 
-    3. 聚合数据，常用方式3种：（如果不聚合直接对base表查询，速度可能跟直接使用ndv速度差不多）
+    3. 聚合数据，常用方式3种：（如果不聚合直接对base表查询，速度可能跟直接使用approx_count_distinct速度差不多）
 
       a. 创建一个rollup，让hll列产生聚合，
         alter table test add rollup test_rollup(dt, set1);

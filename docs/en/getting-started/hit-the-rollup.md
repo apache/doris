@@ -226,7 +226,7 @@ Of course, the function of aggregated data is indispensable for general polymer 
 
 The following are some types of aggregated queries that can hit Rollup.
 
-| Column type Query type |  Sum  | Distinct/Count Distinct |   Min |  Max  |  Ndv  |
+| Column type Query type |  Sum  | Distinct/Count Distinct |   Min |  Max  |  APPROX_COUNT_DISTINCT  |
 |--------------|-------|-------------------------|-------|-------|-------|
 |     Key      | false |           true          |  true |  true | true  |
 |   Value(Sum) |  true |          false          | false | false | false |
