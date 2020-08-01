@@ -32,6 +32,8 @@ import org.junit.Test;
 
 import mockit.Mocked;
 
+import java.util.List;
+
 public class DeleteStmtTest {
 
     Analyzer analyzer;
@@ -73,7 +75,7 @@ public class DeleteStmtTest {
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("should be compound or binary predicate"));
+            Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
         }
 
         // case 2
@@ -102,7 +104,7 @@ public class DeleteStmtTest {
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("should be compound or binary predicate"));
+            Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
         }
 
         // case 4
@@ -117,7 +119,7 @@ public class DeleteStmtTest {
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Right expr should be value"));
+            Assert.assertTrue(e.getMessage().contains("Right expr of binary predicate should be value"));
         }
 
         // case 5
@@ -132,7 +134,7 @@ public class DeleteStmtTest {
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Left expr should be column name"));
+            Assert.assertTrue(e.getMessage().contains("Left expr of binary predicate should be column name"));
         }
         
         // case 6 partition is null
@@ -152,10 +154,16 @@ public class DeleteStmtTest {
         // normal
         binaryPredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                                               new StringLiteral("abc"));
-        CompoundPredicate compoundPredicate2 = 
+        List<Expr> inList = Lists.newArrayList();
+        inList.add(new StringLiteral("2323"));
+        inList.add(new StringLiteral("1518"));
+        inList.add(new StringLiteral("5768"));
+        inList.add(new StringLiteral("6725"));
+        InPredicate inPredicate = new InPredicate(new SlotRef(null, "k2"), inList, true);
+        CompoundPredicate compoundPredicate2 =
                 new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
                                       binaryPredicate,
-                                      binaryPredicate);
+                                      inPredicate);
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
                                                   binaryPredicate,
                                                   compoundPredicate2);
