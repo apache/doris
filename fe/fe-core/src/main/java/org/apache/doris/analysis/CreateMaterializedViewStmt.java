@@ -47,10 +47,10 @@ import java.util.Set;
  * <p>
  * Syntax:
  * CREATE MATERIALIZED VIEW [MV name] (
- *     SELECT select_expr[, select_expr ...]
- *     FROM [Base view name]
- *     GROUP BY column_name[, column_name ...]
- *     ORDER BY column_name[, column_name ...])
+ * SELECT select_expr[, select_expr ...]
+ * FROM [Base view name]
+ * GROUP BY column_name[, column_name ...]
+ * ORDER BY column_name[, column_name ...])
  * [PROPERTIES ("key" = "value")]
  */
 public class CreateMaterializedViewStmt extends DdlStmt {
@@ -60,11 +60,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     static {
         FN_NAME_TO_PATTERN = Maps.newHashMap();
         FN_NAME_TO_PATTERN.put(AggregateType.SUM.name().toLowerCase(),
-                new MVColumnOneChildPattern(AggregateType.SUM.name().toLowerCase()));
+                               new MVColumnOneChildPattern(AggregateType.SUM.name().toLowerCase()));
         FN_NAME_TO_PATTERN.put(AggregateType.MIN.name().toLowerCase(),
-                new MVColumnOneChildPattern(AggregateType.MIN.name().toLowerCase()));
+                               new MVColumnOneChildPattern(AggregateType.MIN.name().toLowerCase()));
         FN_NAME_TO_PATTERN.put(AggregateType.MAX.name().toLowerCase(),
-                new MVColumnOneChildPattern(AggregateType.MAX.name().toLowerCase()));
+                               new MVColumnOneChildPattern(AggregateType.MAX.name().toLowerCase()));
         FN_NAME_TO_PATTERN.put(FunctionSet.COUNT, new MVColumnOneChildPattern(FunctionSet.COUNT));
         FN_NAME_TO_PATTERN.put(FunctionSet.BITMAP_UNION, new MVColumnBitmapUnionPattern());
         FN_NAME_TO_PATTERN.put(FunctionSet.HLL_UNION, new MVColumnHLLUnionPattern());
@@ -78,9 +78,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     /**
      * origin stmt: select k1, k2, v1, sum(v2) from base_table group by k1, k2, v1
      * mvColumnItemList: [k1: {name: k1, isKey: true, aggType: null, isAggregationTypeImplicit: false},
-     *                    k2: {name: k2, isKey: true, aggType: null, isAggregationTypeImplicit: false},
-     *                    v1: {name: v1, isKey: true, aggType: null, isAggregationTypeImplicit: false},
-     *                    v2: {name: v2, isKey: false, aggType: sum, isAggregationTypeImplicit: false}]
+     * k2: {name: k2, isKey: true, aggType: null, isAggregationTypeImplicit: false},
+     * v1: {name: v1, isKey: true, aggType: null, isAggregationTypeImplicit: false},
+     * v2: {name: v2, isKey: false, aggType: sum, isAggregationTypeImplicit: false}]
      * This order of mvColumnItemList is meaningful.
      */
     private List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
@@ -139,16 +139,16 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
-                    + selectStmt.getWhereClause().toSql());
+                                                + selectStmt.getWhereClause().toSql());
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
-                    + selectStmt.getHavingPred().toSql());
+                                                + selectStmt.getHavingPred().toSql());
         }
         analyzeOrderByClause();
         if (selectStmt.getLimit() != -1) {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
-                    + " limit " + selectStmt.getLimit());
+                                                + " limit " + selectStmt.getLimit());
         }
     }
 
@@ -174,7 +174,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
-                        + "Error column: " + selectListItemExpr.toSql());
+                                                    + "Error column: " + selectListItemExpr.toSql());
             }
             if (selectListItemExpr instanceof SlotRef) {
                 if (meetAggregate) {
@@ -245,7 +245,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         List<OrderByElement> orderByElements = selectStmt.getOrderByElements();
         if (orderByElements.size() > mvColumnItemList.size()) {
             throw new AnalysisException("The number of columns in order clause must be less then " + "the number of "
-                    + "columns in select clause");
+                                                + "columns in select clause");
         }
         if (beginIndexOfAggregation != -1 && (orderByElements.size() != (beginIndexOfAggregation))) {
             throw new AnalysisException("The key of columns in mv must be all of group by columns");
@@ -254,13 +254,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             Expr orderByElement = orderByElements.get(i).getExpr();
             if (!(orderByElement instanceof SlotRef)) {
                 throw new AnalysisException("The column in order clause must be original column without calculation. "
-                        + "Error column: " + orderByElement.toSql());
+                                                    + "Error column: " + orderByElement.toSql());
             }
             MVColumnItem mvColumnItem = mvColumnItemList.get(i);
             SlotRef slotRef = (SlotRef) orderByElement;
             if (!mvColumnItem.getName().equalsIgnoreCase(slotRef.getColumnName())) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
-                        + "the order of columns in select list");
+                                                    + "the order of columns in select list");
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
             mvColumnItem.setIsKey(true);
@@ -339,7 +339,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
-    public MVColumnItem buildMVColumnItem(FunctionCallExpr functionCallExpr) throws AnalysisException {
+    private MVColumnItem buildMVColumnItem(FunctionCallExpr functionCallExpr) throws AnalysisException {
         String functionName = functionCallExpr.getFnName().getFunction();
         List<SlotRef> slots = new ArrayList<>();
         functionCallExpr.collect(SlotRef.class, slots);
@@ -353,11 +353,23 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         Type type;
         switch (functionName.toLowerCase()) {
             case "sum":
+                mvColumnName = baseColumnName;
+                mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
+                PrimitiveType baseColumnType = baseColumnRef.getType().getPrimitiveType();
+                if (baseColumnType == PrimitiveType.TINYINT || baseColumnType == PrimitiveType.SMALLINT
+                        || baseColumnType == PrimitiveType.INT) {
+                    type = Type.BIGINT;
+                } else if (baseColumnType == PrimitiveType.FLOAT) {
+                    type = Type.DOUBLE;
+                } else {
+                    type = Type.fromPrimitiveType(baseColumnRef.getType().getPrimitiveType());
+                }
+                break;
             case "min":
             case "max":
                 mvColumnName = baseColumnName;
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
-                type = Type.BIGINT;
+                type = Type.fromPrimitiveType(baseColumnRef.getType().getPrimitiveType());
                 break;
             case FunctionSet.BITMAP_UNION:
                 // Compatible aggregation models
@@ -445,7 +457,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     case FunctionSet.COUNT:
                         Expr defineExpr = new CaseExpr(null, Lists.newArrayList(
                                 new CaseWhenClause(new IsNullPredicate(slots.get(0), false),
-                                        new IntLiteral(0, Type.BIGINT))), new IntLiteral(1, Type.BIGINT));
+                                                   new IntLiteral(0, Type.BIGINT))), new IntLiteral(1, Type.BIGINT));
                         result.put(mvColumnBuilder(functionName, baseColumnName), defineExpr);
                         break;
                     default:

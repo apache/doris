@@ -105,6 +105,7 @@ public class MVColumnItem {
         } else {
             Column result = new Column(baseColumn);
             result.setIsKey(isKey);
+            result.setType(type);
             result.setAggregationType(aggregationType, isAggregationTypeImplicit);
             return result;
         }
