@@ -331,6 +331,16 @@ FE 的配置项有两种方式进行配置：
 
 ### `http_port`
 
+HTTP服务监听的端口号，默认为8030
+
+### `http_max_line_length`
+
+HTTP服务允许接收请求的URL的最大长度，单位为比特，默认是4096
+
+### `http_max_header_size`
+
+HTTP服务允许接收请求的Header的最大长度，单位为比特，默认是8192
+
 ### `ignore_meta_check`
 
 ### `init_connect`
