@@ -38,6 +38,7 @@ import com.google.common.collect.Maps;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
@@ -48,8 +49,8 @@ import javax.servlet.http.HttpServletResponse;
  * calc row count from replica to table
  * fe_host:fe_http_port/api/rowcount?db=dbname&table=tablename
  */
+@RestController
 public class RowCountAction extends RestBaseController {
-
 
     @RequestMapping(path = "/api/rowcount",method = RequestMethod.GET)
     protected Object rowcount(HttpServletRequest request, HttpServletResponse response) throws DdlException {

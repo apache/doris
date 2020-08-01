@@ -33,6 +33,7 @@ import com.google.common.base.Strings;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -48,6 +49,7 @@ import javax.servlet.http.HttpServletResponse;
  * This API is not intended to compute the exact row count of the specified table, if you need the exact row count,
  * please consider using the sql syntax `select count(*) from {table}`
  */
+@RestController
 public class TableRowCountAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count",method = RequestMethod.GET)

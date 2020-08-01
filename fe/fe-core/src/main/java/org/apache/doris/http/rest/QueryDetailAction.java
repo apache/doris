@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
@@ -41,7 +42,7 @@ import javax.servlet.http.HttpServletResponse;
 // This class is used to get current query_id of connection_id.
 // Every connection holds at most one query at every point.
 // Some we can get query_id firstly, and get query by query_id.
-
+@RestController
 public class QueryDetailAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(QueryDetailAction.class);
 

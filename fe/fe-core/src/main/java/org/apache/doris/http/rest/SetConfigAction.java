@@ -32,6 +32,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -44,6 +45,7 @@ import javax.servlet.http.HttpServletResponse;
  * eg:
  *  fe_host:http_port/api/_set_config?config_key1=config_value1&config_key2=config_value2&...
  */
+@RestController
 public class SetConfigAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
 

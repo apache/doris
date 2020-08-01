@@ -37,6 +37,7 @@ import com.google.common.base.Strings;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,6 +50,7 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * Get table schema for specified cluster.database.table with privilege checking
  */
+@RestController
 public class TableSchemaAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",method = RequestMethod.GET)

@@ -28,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -37,6 +38,7 @@ import java.util.Map;
 // It will be used in query monitor to collect profiles.   
 // Usage:
 //      wget http://fe_host:fe_http_port/api/profile?query_id=123456
+@RestController
 public class ProfileAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(ProfileAction.class);
 

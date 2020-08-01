@@ -60,6 +60,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -77,9 +78,9 @@ import io.netty.handler.codec.http.HttpResponseStatus;
  * This class responsible for parse the sql and generate the query plan fragment for a (only one) table{@see OlapTable}
  * the related tablet maybe pruned by query planer according the `where` predicate.
  */
+@RestController
 public class TableQueryPlanAction extends RestBaseController{
     public static final Logger LOG = LogManager.getLogger(TableQueryPlanAction.class);
-
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",method = {RequestMethod.GET,RequestMethod.POST})
     public Object query_plan(HttpServletRequest request, HttpServletResponse response)

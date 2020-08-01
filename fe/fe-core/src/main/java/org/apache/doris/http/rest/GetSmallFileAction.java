@@ -37,7 +37,6 @@ import javax.servlet.http.HttpServletResponse;
 public class GetSmallFileAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(GetSmallFileAction.class);
 
-
     @RequestMapping(path = "/api/get_small_file",method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
         String token = request.getParameter("token");

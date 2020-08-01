@@ -26,6 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
@@ -37,8 +38,8 @@ import javax.servlet.http.HttpServletResponse;
  * eg:
  *  fe_host:http_port/api/_meta_replay_state
  */
+@RestController
 public class MetaReplayerCheckAction extends RestBaseController {
-
 
     @RequestMapping(path = "/api/_meta_replay_state",method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {

@@ -53,7 +53,6 @@ import javax.servlet.http.HttpServletResponse;
 public class GetLogFileAction extends RestBaseController {
     private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
 
-
     @RequestMapping(path = "/api/get_log_file",method = {RequestMethod.GET,RequestMethod.HEAD})
     public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         executeCheckPassword(request,response);
