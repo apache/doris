@@ -18,8 +18,7 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -33,11 +32,9 @@ public class HealthAction extends RestBaseController {
 
     @RequestMapping(path =  "/api/health",method = RequestMethod.GET)
     public Object execute() {
-
         Map<String,Object> result = new HashMap<>();
         result.put("total_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(false).size());
         result.put("online_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(true).size());
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(result);
-        return entity;
+        return ResponseEntityBuilder.ok(result);
     }
 }

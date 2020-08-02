@@ -18,9 +18,7 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
-import org.apache.doris.http.exception.UnauthorizedException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -31,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import javax.servlet.http.HttpServletRequest;
@@ -45,35 +44,30 @@ public class ConnectionAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(ConnectionAction.class);
 
     @RequestMapping(path = "/api/connection",method = RequestMethod.GET)
-    protected Object connection(HttpServletRequest request, HttpServletResponse response) throws UnauthorizedException {
+    protected Object connection(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String connStr = request.getParameter("connection_id");
-        if (connStr == null) {
-            entity.setMsgWithCode("Missing connection_id", RestApiStatusCode.COMMON_ERROR);
-            return entity;
+        if (Strings.isNullOrEmpty(connStr)) {
+            return ResponseEntityBuilder.badRequest("Missing connection_id");
         }
 
         long connectionId = -1;
         try {
             connectionId = Long.valueOf(connStr.trim());
         } catch (NumberFormatException e) {
-            entity.setMsgWithCode("Invalid connection id: " + e.getMessage(), RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.badRequest("Invalid connection id: " + e.getMessage());
         }
 
         ConnectContext context = ExecuteEnv.getInstance().getScheduler().getContext(connectionId);
         if (context == null || context.queryId() == null) {
-            entity.setMsgWithCode("connection id " + connectionId + " not found.", RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.okWithCommonError("connection id " + connectionId + " not found.");
         }
         String queryId = DebugUtil.printId(context.queryId());
 
         Map<String, String> result = Maps.newHashMap();
         result.put("query_id", queryId);
-        entity.setData(result);
-        return entity;
+        return ResponseEntityBuilder.ok(result);
     }
 }

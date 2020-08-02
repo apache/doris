@@ -19,10 +19,9 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
+import org.apache.doris.http.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -45,8 +44,7 @@ public class CancelStreamLoad extends RestBaseController{
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_cancel", method = RequestMethod.POST)
     public Object execute(@PathVariable(value = DB_KEY) final String dbName,
-                          HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
+                          HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
 
         RedirectView redirectView = redirectToMaster(request, response);
@@ -55,38 +53,35 @@ public class CancelStreamLoad extends RestBaseController{
         }
 
         if (Strings.isNullOrEmpty(dbName)) {
-            entity.setMsgWithCode("No database selected", RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.badRequest("No database selected");
         }
 
         String fullDbName = getFullDbName(dbName);
 
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            entity.setMsgWithCode("No label specified", RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.badRequest("No label specified");
         }
 
         Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            entity.setMsgWithCode("unknown database, database=" + dbName, RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.okWithCommonError("unknown database, database=" + dbName);
         }
 
         // TODO(cmy): Currently we only check priv in db level.
         // Should check priv in table level.
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullDbName, PrivPredicate.LOAD)) {
-            entity.setMsgWithCode("Access denied for user '" + ConnectContext.get().getQualifiedUser()
-                    + "' to database '" + fullDbName + "'", RestApiStatusCode.COMMON_ERROR);
+            throw new UnauthorizedException("Access denied for user '" + ConnectContext.get().getQualifiedUser()
+                    + "' to database '" + fullDbName + "'");
         }
 
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), label, "user cancel");
         } catch (UserException e) {
-            entity.setMsgWithCode(e.getMessage(), RestApiStatusCode.COMMON_ERROR);
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
-        return  entity;
+        return ResponseEntityBuilder.ok();
     }
 
 }

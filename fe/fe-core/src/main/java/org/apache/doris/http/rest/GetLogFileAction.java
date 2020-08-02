@@ -18,24 +18,25 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.entity.HttpStatus;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import org.codehaus.jackson.map.ObjectMapper;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.File;
-import java.util.Map;
-import java.util.Set;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.File;
+import java.io.IOException;
+import java.util.Map;
+import java.util.Set;
 
 /*
  *  get log file infos:
@@ -54,61 +55,44 @@ public class GetLogFileAction extends RestBaseController {
     private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
 
     @RequestMapping(path = "/api/get_log_file",method = {RequestMethod.GET,RequestMethod.HEAD})
-    public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+    public Object execute(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request,response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
         String logType = request.getParameter("type");
         String logFile = request.getParameter("file");
-        org.apache.doris.http.entity.ResponseEntity entity = org.apache.doris.http.entity.ResponseEntity.status(HttpStatus.OK).build("Success");
-        File log = null;
+
         // check param empty
         if (Strings.isNullOrEmpty(logType)) {
-            entity.setCode(HttpStatus.BAD_REQUEST.value());
-            entity.setMsg("Miss type parameter");
-            return entity;
+            return ResponseEntityBuilder.badRequest("Miss type parameter");
         }
 
         // check type valid or not
         if (!logFileTypes.contains(logType)) {
-            entity.setCode(HttpStatus.BAD_REQUEST.value());
-            entity.setMsg("log type: " + logType + " is invalid!");
-            return entity;
+            return ResponseEntityBuilder.badRequest("log type: " + logType + " is invalid!");
         }
 
         String method = request.getMethod();
         if (method.equals(RequestMethod.HEAD.name())) {
             String fileInfos = getFileInfos(logType);
             response.setHeader("file_infos", fileInfos);
-            entity.setCode(HttpStatus.OK.value());
-            entity.setMsg("OK");
-            return entity;
+            return ResponseEntityBuilder.ok();
         } else if (method.equals(RequestMethod.GET.name())) {
-            log = getLogFile(logType, logFile);
+            File log = getLogFile(logType, logFile);
             if (!log.exists() || !log.isFile()) {
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                entity.setMsg("Log file not exist: " + log.getName());
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + log.getName());
             }
             if(log != null) {
-                boolean isSuccess = getFile(request,response,log,log.getName());
-                if(isSuccess) {
-                    return entity;
-                } else {
-                    entity.setCode(HttpStatus.INTERNAL_SERVER_ERROR.value());
-                    entity.setMsg(HttpStatus.INTERNAL_SERVER_ERROR.name());
-                    return entity;
+                try {
+                    getFile(request, response, log, log.getName());
+                } catch (IOException e) {
+                    return ResponseEntityBuilder.internalError(e.getMessage());
                 }
             } else {
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                entity.setMsg("Log file not exist: " + log.getName());
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + log.getName());
             }
-        } else {
-            entity.setCode(HttpStatus.METHOD_NOT_ALLOWED.value());
-            entity.setMsg("HTTP method is not allowed.");
-            return entity;
         }
-
-
+        return ResponseEntityBuilder.ok();
     }
 
     private String getFileInfos(String logType) {

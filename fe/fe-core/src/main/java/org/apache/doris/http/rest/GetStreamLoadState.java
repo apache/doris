@@ -19,18 +19,15 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 
-import com.google.common.base.Strings;
-
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
+
+import com.google.common.base.Strings;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -39,58 +36,28 @@ import javax.servlet.http.HttpServletResponse;
 public class GetStreamLoadState extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/get_load_state", method = RequestMethod.GET)
-    public Object execute(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+    public Object execute(@PathVariable(value = DB_KEY) final String dbName,
+                          HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request,response);
-        ResponseEntity<String> entity = ResponseEntity.status(HttpStatus.OK).build("Success");
-        try {
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-        } catch (Exception e){
-            e.printStackTrace();
-        }
 
-        final String clusterName = ConnectContext.get().getClusterName();
-        if (Strings.isNullOrEmpty(clusterName)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No cluster selected");
-            return entity;
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
-
-        String dbName = request.getParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(dbName)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
-        }
-
-        String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
 
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No label selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
+
+        final String fullDbName = getFullDbName(dbName);
 
         Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("unknown database, database=" + dbName);
-            return entity;
+            return ResponseEntityBuilder.okWithCommonError("unknown database, database=" + dbName);
         }
 
         String state = Catalog.getCurrentGlobalTransactionMgr().getLabelState(db.getId(), label).toString();
-        entity.setData(state);
-        return entity;
-    }
-
-    private static class Result extends RestBaseResult {
-        private String state;
-        public Result(String state) {
-            this.state = state;
-        }
+        return ResponseEntityBuilder.ok(state);
     }
 }

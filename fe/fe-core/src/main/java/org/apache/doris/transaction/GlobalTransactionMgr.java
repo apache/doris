@@ -147,7 +147,6 @@ public class GlobalTransactionMgr implements Writable {
             LOG.warn("Get transaction status by label " + label + " failed", e);
             return TransactionStatus.UNKNOWN;
         }
-
     }
 
     public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos)

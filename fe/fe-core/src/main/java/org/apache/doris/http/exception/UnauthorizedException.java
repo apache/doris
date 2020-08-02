@@ -17,9 +17,7 @@
 
 package org.apache.doris.http.exception;
 
-import org.apache.doris.common.DdlException;
-
-public class UnauthorizedException extends DdlException {
+public class UnauthorizedException extends RuntimeException {
     public UnauthorizedException(String msg) {
         super(msg);
     }

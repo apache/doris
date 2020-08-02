@@ -19,10 +19,10 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
-import org.apache.doris.http.exception.UnauthorizedException;
+import org.apache.doris.http.entity.ResponseBody;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -46,12 +46,11 @@ public class BootstrapFinishAction {
     public static final String QUERY_PORT = "queryPort";
     public static final String RPC_PORT = "rpcPort";
 
-
     @RequestMapping(path = "/api/bootstrap",method = RequestMethod.GET)
-    public Object execute(HttpServletRequest request, HttpServletResponse response) throws UnauthorizedException {
+    public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
         boolean isReady = Catalog.getCurrentCatalog().isReady();
 
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
+        ResponseBody body = new ResponseBody();
 
         // to json response
         BootstrapResult result = new BootstrapResult();
@@ -64,35 +63,30 @@ public class BootstrapFinishAction {
                 try {
                     clusterId = Integer.valueOf(clusterIdStr);
                 } catch (NumberFormatException e) {
-                    entity.setMsgWithCode("invalid cluster id format: " + clusterIdStr, RestApiStatusCode.COMMON_ERROR);
+                    return ResponseEntityBuilder.badRequest("invalid cluster id format: " + clusterIdStr);
                 }
 
-                if (entity.getCode() == HttpStatus.OK.value()) {
-                    if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
-                        entity.setMsgWithCode("invalid cluster id: " + clusterId, RestApiStatusCode.COMMON_ERROR);
-                    }
+
+                if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
+                    return ResponseEntityBuilder.okWithCommonError("invalid cluster id: " + clusterId);
                 }
 
-                if (entity.getCode() == HttpStatus.OK.value()) {
-                    if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
-                        entity.setMsgWithCode( "invalid token: " + token, RestApiStatusCode.COMMON_ERROR);
-                    }
+
+                if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
+                    return ResponseEntityBuilder.okWithCommonError("invalid token: " + token);
                 }
 
-                if (entity.getCode() == HttpStatus.OK.value()) {
-                    // cluster id and token are valid, return replayed journal id
-                    long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
-                    result.setMaxReplayedJournal(replayedJournalId);
-                    result.setQueryPort(Config.query_port);
-                    result.setRpcPort(Config.rpc_port);
-                    entity.setData(result);
-                }
+                // cluster id and token are valid, return replayed journal id
+                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                result.setMaxReplayedJournal(replayedJournalId);
+                result.setQueryPort(Config.query_port);
+                result.setRpcPort(Config.rpc_port);
             }
-        } else {
-            entity.setMsgWithCode("not ready", RestApiStatusCode.COMMON_ERROR);
+
+            return ResponseEntityBuilder.ok(result);
         }
 
-        return entity;
+        return ResponseEntityBuilder.ok("not ready");
     }
 
     private static class BootstrapResult {

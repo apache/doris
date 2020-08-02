@@ -21,9 +21,7 @@ import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
-import org.apache.doris.http.exception.UnauthorizedException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -54,23 +52,19 @@ public class CheckDecommissionAction extends RestBaseController {
     public static final String HOST_PORTS = "host_ports";
 
     @RequestMapping(path = "/api/check_decommission",method = RequestMethod.GET)
-    public Object execute(HttpServletRequest request, HttpServletResponse response)
-            throws UnauthorizedException {
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
+    public Object execute(HttpServletRequest request, HttpServletResponse response) {
         //check user auth
         executeCheckPassword(request,response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         String hostPorts = request.getParameter(HOST_PORTS);
         if (Strings.isNullOrEmpty(hostPorts)) {
-            entity.setMsgWithCode("No host:port specified", RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.badRequest("No host:port specified");
         }
 
         String[] hostPortArr = hostPorts.split(",");
         if (hostPortArr.length == 0) {
-            entity.setMsgWithCode("No host:port specified", RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.badRequest("No host:port specified");
         }
 
         List<Pair<String, Integer>> hostPortPairs = Lists.newArrayList();
@@ -79,8 +73,7 @@ public class CheckDecommissionAction extends RestBaseController {
             try {
                 pair = SystemInfoService.validateHostAndPort(hostPort);
             } catch (AnalysisException e) {
-                entity.setMsgWithCode(e.getMessage(), RestApiStatusCode.COMMON_ERROR);
-                return entity;
+                return ResponseEntityBuilder.badRequest(e.getMessage());
             }
             hostPortPairs.add(pair);
         }
@@ -88,11 +81,9 @@ public class CheckDecommissionAction extends RestBaseController {
         try {
             List<Backend> backends = SystemHandler.checkDecommission(hostPortPairs);
             List<String> backendsList = backends.stream().map(b -> b.getHost() + ":" + b.getHeartbeatPort()).collect(Collectors.toList());
-            entity.setData(backendsList);
-            return entity;
+            return ResponseEntityBuilder.ok(backendsList);
         } catch (DdlException e) {
-            entity.setMsgWithCode(e.getMessage(), RestApiStatusCode.COMMON_ERROR);
-            return entity;
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
     }
 }
