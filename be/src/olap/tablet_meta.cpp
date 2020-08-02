@@ -125,7 +125,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         string data_type;
         EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
         column->set_type(data_type);
-        if (tcolumn.column_type.type == TPrimitiveType::DECIMAL) {
+        if (tcolumn.column_type.type == TPrimitiveType::DECIMAL ||
+            tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
             column->set_precision(tcolumn.column_type.precision);
             column->set_frac(tcolumn.column_type.scale);
         }
