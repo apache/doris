@@ -19,14 +19,12 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -61,11 +59,7 @@ public class CancelStreamLoad extends RestBaseController{
             return entity;
         }
 
-        String fullDbName = dbName;
-        String clusterName = ClusterNamespace.getClusterNameFromFullName(fullDbName);
-        if (clusterName == null) {
-            fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
-        }
+        String fullDbName = getFullDbName(dbName);
 
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {

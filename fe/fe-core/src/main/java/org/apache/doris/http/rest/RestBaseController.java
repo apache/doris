@@ -207,6 +207,7 @@ public class RestBaseController extends BaseController {
 
         return false;
     }
+
     public boolean writeFileResponse(HttpServletRequest request, HttpServletResponse response,File imageFile){
         if (imageFile == null || !imageFile.exists()) {
             return false;
@@ -218,4 +219,12 @@ public class RestBaseController extends BaseController {
         }
     }
 
+    public String getFullDbName(String dbName) {
+        String fullDbName = dbName;
+        String clusterName = ClusterNamespace.getClusterNameFromFullName(fullDbName);
+        if (clusterName == null) {
+            fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
+        }
+        return fullDbName;
+    }
 }

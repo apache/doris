@@ -19,9 +19,9 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.http.entity.HttpStatus;
 import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.exception.UnauthorizedException;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -48,7 +48,7 @@ public class BootstrapFinishAction {
 
 
     @RequestMapping(path = "/api/bootstrap",method = RequestMethod.GET)
-    public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+    public Object execute(HttpServletRequest request, HttpServletResponse response) throws UnauthorizedException {
         boolean isReady = Catalog.getCurrentCatalog().isReady();
 
         ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
