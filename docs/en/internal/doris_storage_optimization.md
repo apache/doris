@@ -164,17 +164,18 @@ message ColumnMetaPB {
 	repeated MetadataPairPB column_meta_datas;
 }
 
-message FileFooterPB {
+message SegmentFooterPB {
 	optional uint32 version = 2 [default = 1]; // 用于版本兼容和升级使用
 	repeated ColumnPB schema = 5; // 列Schema
-    optional uint64 num_values = 4; // 文件中保存的行数
-    optional uint64 index_footprint = 7; // 索引大小
-    optional uint64 data_footprint = 8; // 数据大小
+  optional uint64 num_values = 4; // 文件中保存的行数
+  optional uint64 index_footprint = 7; // 索引大小
+  optional uint64 data_footprint = 8; // 数据大小
 	optional uint64 raw_data_footprint = 8; // 原始数据大小
 
-    optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
-    repeated ColumnMetaPB column_metas = 10; // 列元数据
+  optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
+  repeated ColumnMetaPB column_metas = 10; // 列元数据
 	optional PagePointerPB key_index_page; // short key索引page
+  optional PagePointerPB delete_index_page; // delete index索引page
 }
 
 ```

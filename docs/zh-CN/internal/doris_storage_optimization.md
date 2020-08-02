@@ -110,6 +110,39 @@ non-nullable data page结构如下：
 
 我们会每隔N行（可配置）生成一个short key的稀疏索引，索引的内容为：short key->行号(ordinal)
 
+### Delete Index page ###
+
+当按照key进行导入删除时，我们会为这些key生成一个delete key的位图索引，索引的内容为：删除的行号(ordinal)，这个功能为Doris 0.13版本新增功能
+delete index footer page的具体格式：
+```
+
+                 +--------------------+
+                 |        type        |
+                 |--------------------|
+                 |  uncompressed_size |
+                 |--------------------|
+                 |    content_bytes   |
+                 |--------------------|
+                 |      num_items     |
+                 |--------------------|
+                 |      checksum      |
+                 +--------------------+
+```
+
+其中各个字段含义如下：
+- type
+  - 类型为DELETE_INDEX_PAGE，表示删除索引类型的page
+- uncompressed_size
+  - 未压缩的page大小
+- content_bytes
+  - 索引内容的数据大小
+- num_items
+  - 存储索引中记录的删除条目数量
+- checksum
+  - 索引页内容的校验和
+
+编码格式：索引数据的编码格式采用了roaring bitmap格式进行编码
+
 ### Column的其他索引 ###
 
 该格式设计支持后续扩展其他的索引信息，比如bitmap索引，spatial索引等等，只需要将需要的数据写到现有的列数据后面，并且添加对应的元数据字段到FileFooterPB中
@@ -163,17 +196,18 @@ message ColumnMetaPB {
 	repeated MetadataPairPB column_meta_datas;
 }
 
-message FileFooterPB {
+message SegmentFooterPB {
 	optional uint32 version = 2 [default = 1]; // 用于版本兼容和升级使用
 	repeated ColumnPB schema = 5; // 列Schema
-    optional uint64 num_values = 4; // 文件中保存的行数
-    optional uint64 index_footprint = 7; // 索引大小
-    optional uint64 data_footprint = 8; // 数据大小
+  optional uint64 num_values = 4; // 文件中保存的行数
+  optional uint64 index_footprint = 7; // 索引大小
+  optional uint64 data_footprint = 8; // 数据大小
 	optional uint64 raw_data_footprint = 8; // 原始数据大小
 
-    optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
-    repeated ColumnMetaPB column_metas = 10; // 列元数据
+  optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
+  repeated ColumnMetaPB column_metas = 10; // 列元数据
 	optional PagePointerPB key_index_page; // short key索引page
+  optional PagePointerPB delete_index_page; // delete index索引page
 }
 
 ```
