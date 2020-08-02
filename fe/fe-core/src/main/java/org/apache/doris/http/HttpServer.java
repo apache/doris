@@ -50,7 +50,7 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.charset","UTF-8");
         properties.put("spring.http.encoding.enabled",true);
         properties.put("spring.http.encoding.force",true);
-        properties.put("logging.pattern.console","");
+        // properties.put("logging.pattern.console","");
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
                 .properties(properties)

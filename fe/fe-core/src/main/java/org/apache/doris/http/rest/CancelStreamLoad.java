@@ -48,7 +48,7 @@ public class CancelStreamLoad extends RestBaseController{
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_cancel", method = RequestMethod.POST)
     public Object execute(@PathVariable(value = DB_KEY) final String dbName,
                           HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
         executeCheckPassword(request, response);
 
         RedirectView redirectView = redirectToMaster(request, response);
