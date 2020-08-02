@@ -896,6 +896,13 @@ public class QueryPlanTest {
     }
 
     @Test
+    public void testSelfColocateJoin() throws Exception {
+        String queryStr = "explain select * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: true"));
+    }
+
+    @Test
     public void testJoinWithMysqlTable() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
