@@ -399,6 +399,15 @@ void JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator value
 
 // for simple format json
 void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid) {
+    if (!objectValue.IsObject()) {
+        // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"},
+        // not other type of Json format.
+        _state->append_error_msg_to_file(_print_json_value(objectValue), "Expect json object value");
+        _counter->num_rows_filtered++;
+        *valid = false; // current row is invalid
+        return;
+    }
+
     int nullcount = 0;
     for (auto v : slot_descs) {
         if (objectValue.HasMember(v->col_name().c_str())) {

@@ -239,11 +239,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             return Status::InternalError(ss.str());
         }
 
-        size_t max_body_bytes = config::streaming_load_max_batch_size_mb * 1024 * 1024;
         if (ctx->format == TFileFormatType::FORMAT_JSON) {
+            size_t max_body_bytes = config::streaming_load_max_batch_size_mb * 1024 * 1024;
             if (ctx->body_bytes > max_body_bytes) {
                 std::stringstream ss;
-                ss << "body exceed max size of json format: " << ctx->body_bytes << ", limit: " << max_body_bytes;
+                ss << "The size of this batch exceed the max size [" << max_body_bytes
+                   << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
                 return Status::InternalError(ss.str());
             }
         }
