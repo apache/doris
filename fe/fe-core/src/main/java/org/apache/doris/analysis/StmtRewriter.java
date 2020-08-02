@@ -1060,6 +1060,7 @@ public class StmtRewriter {
         if (groupByExprs != null && !groupByExprs.isEmpty()) {
             if (stmt.hasGroupByClause()) {
                 stmt.groupByClause.getGroupingExprs().addAll(groupByExprs);
+                stmt.groupByClause.getOriGroupingExprs().addAll(groupByExprs);
             } else {
                 stmt.groupByClause = new GroupByClause(groupByExprs, GroupByClause.GroupingType.GROUP_BY);
             }
