@@ -54,7 +54,7 @@ public class FEFunctionsTest {
         TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
         new Expectations(timeUtils) {
             {
-                TimeUtils.getTimeZone();
+                TimeUtils.getSessionTimeZone();
                 minTimes = 0;
                 result = tz;
             }

@@ -142,6 +142,6 @@ public class PropertyAnalyzerTest {
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
         // avoid UT fail because time zone different
         DateLiteral dateLiteral = new DateLiteral(tomorrowTimeStr, Type.DATETIME);
-        Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());
+        Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getSessionTimeZone()), dataProperty.getCooldownTimeMs());
     }
 }

@@ -288,7 +288,7 @@ public class AlterTest {
         // batch update storage_medium and storage_cool_down properties
         stmt = "alter table test.tbl4 modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
         DateLiteral dateLiteral = new DateLiteral("9999-12-31 00:00:00", Type.DATETIME);
-        long coolDownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+        long coolDownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getSessionTimeZone());
         DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, coolDownTimeMs);
         partitionList = Lists.newArrayList(p2, p3, p4);
         for (Partition partition : partitionList) {

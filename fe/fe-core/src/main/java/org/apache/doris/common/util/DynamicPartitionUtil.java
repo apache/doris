@@ -219,7 +219,7 @@ public class DynamicPartitionUtil {
                 throw new DdlException("Must assign dynamic_partition.buckets properties");
             }
             if (Strings.isNullOrEmpty(timeZone)) {
-                properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSystemTimeZone().getID());
+                properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSessionTimeZone().getID());
             }
         }
         return true;
