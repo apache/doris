@@ -143,14 +143,6 @@ public class TimeUtils {
         return TimeZone.getTimeZone(ZoneId.of(ZoneId.systemDefault().getId(), TIMEZONE_ALIAS_MAP));
     }
 
-    // get time zone of given zone name, or return system time zone if name is null.
-    public static TimeZone getOrSystemTimeZone(String timeZone) {
-        if (Strings.isNullOrEmpty(timeZone)) {
-            return getSystemTimeZone();
-        }
-        return TimeZone.getTimeZone(ZoneId.of(timeZone, TIMEZONE_ALIAS_MAP));
-    }
-    
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp <= 0L) {
             return FeConstants.null_string;
@@ -167,8 +159,7 @@ public class TimeUtils {
     
     public static synchronized Date getTimeAsDate(String timeString) {
         try {
-            Date date = TIME_FORMAT.parse(timeString);
-            return date;
+            return TIME_FORMAT.parse(timeString);
         } catch (ParseException e) {
             LOG.warn("invalid time format: {}", timeString);
             return null;
