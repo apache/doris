@@ -258,7 +258,7 @@ public class TimeUtils {
             Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
             // it supports offset and region timezone type, "CST" use here is compatibility purposes.
             boolean match = matcher.matches();
-            if (!value.contains("/") && !value.equals("CST") && !value.equals("UTC") && !match) {
+            if (!value.contains("/") && !value.equals("CST") && !value.equals("PRC") && !value.equals("UTC") && !match) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
             }
             if (match) {
