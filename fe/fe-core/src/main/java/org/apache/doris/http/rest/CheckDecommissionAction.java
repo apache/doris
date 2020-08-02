@@ -56,7 +56,7 @@ public class CheckDecommissionAction extends RestBaseController {
     @RequestMapping(path = "/api/check_decommission",method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response)
             throws UnauthorizedException {
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
         //check user auth
         executeCheckPassword(request,response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
