@@ -372,7 +372,8 @@ public class SchemaChangeJobV2Test {
         OlapTable olapTable = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage(String.format("Must assign %s properties", missPropertyKey));
+        expectedEx.expectMessage("errCode = 2, detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. " +
+                "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.");
 
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
     }
