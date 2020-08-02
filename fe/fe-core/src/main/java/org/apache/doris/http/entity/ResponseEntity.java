@@ -17,6 +17,8 @@
 
 package org.apache.doris.http.entity;
 
+import org.apache.doris.http.rest.RestApiStatusCode;
+
 import java.util.Map;
 
 /**
@@ -46,25 +48,17 @@ public final class ResponseEntity<T> {
         this.data = body;
     }
 
-    public ResponseEntity(HttpStatus status, Map<String, String> headers, T body, String mimetype) {
-        this.code = status.value();
-        this.msg = status.getReasonPhrase();
-        this.data = body;
-    }
-
-    public ResponseEntity(HttpStatus status, Map<String, String> headers, T body, String mimetype, String fileName) {
-        this.msg = status.getReasonPhrase();
-        this.code = status.value();
-        this.data = body;
-    }
-
-
+    // Used to describe the error message. If there are no errors, it displays "OK"
     private String msg;
-
+    // The user displays an error code.
+    // If there is no error, 200 is displayed.
+    // If there is an error, it is usually Doris's internal error code, not the HTTP standard error code.
+    // The HTTP standard error code should be reflected in the return value of the HTTP protocol.
     private int code;
-
+    // to save the response body
     private T data;
-
+    // to save the number of records in response body.
+    // currently not used and always be 0.
     private int count;
 
     public int getCount() {
@@ -83,6 +77,11 @@ public final class ResponseEntity<T> {
         this.msg = msg;
     }
 
+    public void setMsgWithCode(String msg, RestApiStatusCode code) {
+        this.msg = msg;
+        this.code = code.code;
+    }
+
     public int getCode() {
         return code;
     }
@@ -90,7 +89,6 @@ public final class ResponseEntity<T> {
     public void setCode(int code) {
         this.code = code;
     }
-
 
     public T getData() {
         return data;
@@ -101,7 +99,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 根据状态码创建ResponseBuilder
+     * Create ResponseBuilder base on status
      *
      * @param status
      * @return
@@ -111,7 +109,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http OK ResponseBuilder
+     * Create Http OK ResponseBuilder
      *
      * @return
      */
@@ -120,7 +118,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http OK ResponseEntity
+     * Create Http OK ResponseEntity
      *
      * @param data
      * @return
@@ -131,32 +129,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http OK ResponseEntity
-     *
-     * @param data
-     * @param mimetype
-     * @return
-     */
-    public static <T> ResponseEntity<T> ok(T data, String mimetype) {
-        ResponseBuilder builder = ok();
-        return builder.build(data, mimetype);
-    }
-
-    /**
-     * 创建Http OK ResponseEntity
-     *
-     * @param body
-     * @param mimetype
-     * @param fileName
-     * @return
-     */
-    public static <T> ResponseEntity<T> ok(T body, String mimetype, String fileName) {
-        ResponseBuilder builder = ok();
-        return builder.build(body, mimetype, fileName);
-    }
-
-    /**
-     * 创建Http Created ResponseBuilder
+     * Create Http Created ResponseBuilder
      *
      * @return
      */
@@ -165,7 +138,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http Created ResponseEntity
+     * Create Http Created ResponseEntity
      *
      * @param body
      * @return
@@ -176,7 +149,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http No Content ResponseBuilder
+     * Create Http No Content ResponseBuilder
      *
      * @return
      */
@@ -185,7 +158,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http No Content ResponseEntity
+     * Create Http No Content ResponseEntity
      *
      * @param body
      * @return
@@ -196,7 +169,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http Not Found ResponseBuilder
+     * Create Http Not Found ResponseBuilder
      *
      * @return
      */
@@ -205,7 +178,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http Not Found ResponseEntity
+     * Create Http Not Found ResponseEntity
      *
      * @param body
      * @return
@@ -216,7 +189,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http Internal Server Error ResponseEntity
+     * Create Http Internal Server Error ResponseEntity
      *
      * @return
      */
@@ -225,7 +198,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 创建Http Internal Server Error ResponseEntity
+     * Create Http Internal Server Error ResponseEntity
      *
      * @param data
      * @return
@@ -236,7 +209,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * 设置headers
+     * Set headers
      *
      * @param headers
      * @return
@@ -246,7 +219,7 @@ public final class ResponseEntity<T> {
     }
 
     /**
-     * Http Response 构建器
+     * Http Response Builder
      *
      */
     public static class ResponseBuilder {
@@ -270,14 +243,6 @@ public final class ResponseEntity<T> {
 
         public <T> ResponseEntity<T> build(T data) {
             return new ResponseEntity<>(this.status, this.headers, data);
-        }
-
-        public <T> ResponseEntity<T> build(T data, String mimetype) {
-            return new ResponseEntity<>(this.status, this.headers, data, mimetype);
-        }
-
-        public <T> ResponseEntity<T> build(T data, String mimetype, String fileName) {
-            return new ResponseEntity<>(this.status, this.headers, data, mimetype, fileName);
         }
     }
 

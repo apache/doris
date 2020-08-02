@@ -33,6 +33,10 @@ import org.springframework.web.bind.annotation.RestController;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+/**
+ * Api for checking the whether the FE has been started successfully.
+ *
+ */
 @RestController
 public class BootstrapFinishAction {
 
@@ -48,10 +52,11 @@ public class BootstrapFinishAction {
     public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         boolean isReady = Catalog.getCurrentCatalog().isReady();
 
+        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
+
         // to json response
-        BootstrapResult result = null;
+        BootstrapResult result = new BootstrapResult();
         if (isReady) {
-            result = new BootstrapResult();
             String clusterIdStr = request.getParameter(CLUSTER_ID);
             String token = request.getParameter(TOKEN);
             if (!Strings.isNullOrEmpty(clusterIdStr) && !Strings.isNullOrEmpty(token)) {
@@ -60,51 +65,44 @@ public class BootstrapFinishAction {
                 try {
                     clusterId = Integer.valueOf(clusterIdStr);
                 } catch (NumberFormatException e) {
-                    result.status = ActionStatus.FAILED;
-                    result.msg = "invalid cluster id format: " + clusterIdStr;
+                    entity.setMsgWithCode("invalid cluster id format: " + clusterIdStr, RestApiStatusCode.COMMON_ERROR);
                 }
 
-                if (result.status == ActionStatus.OK) {
+                if (entity.getCode() == HttpStatus.OK.value()) {
                     if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
-                        result.status = ActionStatus.FAILED;
-                        result.msg = "invalid cluster id: " + Catalog.getCurrentCatalog().getClusterId();
+                        entity.setMsgWithCode("invalid cluster id: " + clusterId, RestApiStatusCode.COMMON_ERROR);
                     }
                 }
 
-                if (result.status == ActionStatus.OK) {
+                if (entity.getCode() == HttpStatus.OK.value()) {
                     if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
-                        result.status = ActionStatus.FAILED;
-                        result.msg = "invalid token: " + Catalog.getCurrentCatalog().getToken();
+                        entity.setMsgWithCode( "invalid token: " + token, RestApiStatusCode.COMMON_ERROR);
                     }
                 }
 
-                if (result.status == ActionStatus.OK) {
+                if (entity.getCode() == HttpStatus.OK.value()) {
                     // cluster id and token are valid, return replayed journal id
                     long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
                     result.setMaxReplayedJournal(replayedJournalId);
                     result.setQueryPort(Config.query_port);
                     result.setRpcPort(Config.rpc_port);
+                    entity.setData(result);
                 }
             }
         } else {
-            result = new BootstrapResult("not ready");
+            entity.setMsgWithCode("not ready", RestApiStatusCode.COMMON_ERROR);
         }
 
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(result);
         return entity;
     }
 
-    public static class BootstrapResult extends RestBaseResult {
+    private static class BootstrapResult {
         private long replayedJournalId = 0;
         private int queryPort = 0;
         private int rpcPort = 0;
 
         public BootstrapResult() {
-            super();
-        }
 
-        public BootstrapResult(String msg) {
-            super(msg);
         }
 
         public void setMaxReplayedJournal(long replayedJournalId) {
@@ -129,11 +127,6 @@ public class BootstrapFinishAction {
 
         public int getRpcPort() {
             return rpcPort;
-        }
-        @Override
-        public String toJson() {
-            Gson gson = new Gson();
-            return gson.toJson(this);
         }
     }
 }
