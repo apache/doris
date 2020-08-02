@@ -57,11 +57,11 @@ public class DynamicPartitionUtilTest {
     private static ZonedDateTime getZonedDateTimeFromStr(String dateStr) throws DateTimeException {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(FORMAT);
         return LocalDate.parse(dateStr, formatter).atStartOfDay(
-                TimeUtils.getOrSystemTimeZone(TimeUtils.DEFAULT_TIME_ZONE).toZoneId());
+                TimeUtils.getOrSessionTimeZone(TimeUtils.DEFAULT_TIME_ZONE).toZoneId());
     }
 
     private static TimeZone getCTSTimeZone() {
-        return TimeUtils.getOrSystemTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
+        return TimeUtils.getOrSessionTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
     }
 
     @Test

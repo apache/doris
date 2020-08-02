@@ -51,8 +51,8 @@ public class FEFunctions {
      */
     @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
-        long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
+        long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getSessionTimeZone());
+        long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getSessionTimeZone());
         return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000, Type.TIME);
     }
 
@@ -63,7 +63,7 @@ public class FEFunctions {
         // DATEDIFF function only uses the date part for calculations and ignores the time part
         firstDate.castToDate();
         secondDate.castToDate();
-        long datediff = (firstDate.unixTimestamp(TimeUtils.getTimeZone()) - secondDate.unixTimestamp(TimeUtils.getTimeZone())) / 1000 / 60 / 60 / 24;
+        long datediff = (firstDate.unixTimestamp(TimeUtils.getSessionTimeZone()) - secondDate.unixTimestamp(TimeUtils.getSessionTimeZone())) / 1000 / 60 / 60 / 24;
         return new IntLiteral(datediff, Type.INT);
     }
 
@@ -176,7 +176,7 @@ public class FEFunctions {
 
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unixTimestamp(LiteralExpr arg) throws AnalysisException {
-        long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getSessionTimeZone()) / 1000;
         // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
         unixTime = unixTime < 0 ? 0 : unixTime;
         unixTime = unixTime > Integer.MAX_VALUE ? 0 : unixTime;
@@ -185,7 +185,7 @@ public class FEFunctions {
 
     @FEFunction(name = "unix_timestamp", argTypes = { "DATE" }, returnType = "INT")
     public static IntLiteral unixTimestamp2(LiteralExpr arg) throws AnalysisException {
-        long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getSessionTimeZone()) / 1000;
         // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
         unixTime = unixTime < 0 ? 0 : unixTime;
         unixTime = unixTime > Integer.MAX_VALUE ? 0 : unixTime;
@@ -198,7 +198,7 @@ public class FEFunctions {
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }
-        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
+        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getSessionTimeZone(), Type.DATETIME);
         return new StringLiteral(dl.getStringValue());
     }
 
@@ -208,23 +208,23 @@ public class FEFunctions {
         if (unixTime.getLongValue() < 0) {
             throw new AnalysisException("unixtime should larger than zero");
         }
-        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
+        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getSessionTimeZone(), Type.DATETIME);
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
-        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATETIME);
+        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getSessionTimeZone())), Type.DATETIME);
     }
 
     @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
     public static DateLiteral curDate() throws AnalysisException {
-        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
+        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getSessionTimeZone())), Type.DATE);
     }
 
     @FEFunction(name = "utc_timestamp", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral utcTimestamp() throws AnalysisException {
-        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getOrSystemTimeZone("+00:00"))),
+        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getOrSessionTimeZone("+00:00"))),
                 Type.DATETIME);
     }
 

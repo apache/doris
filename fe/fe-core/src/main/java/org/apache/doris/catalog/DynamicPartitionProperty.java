@@ -50,7 +50,7 @@ public class DynamicPartitionProperty {
     private int buckets;
     private StartOfDate startOfWeek;
     private StartOfDate startOfMonth;
-    private TimeZone tz = TimeUtils.getSystemTimeZone();
+    private TimeZone tz = TimeUtils.getSessionTimeZone();
     private int replicationNum;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
@@ -58,7 +58,7 @@ public class DynamicPartitionProperty {
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
-            this.tz = TimeUtils.getOrSystemTimeZone(properties.get(TIME_ZONE));
+            this.tz = TimeUtils.getOrSessionTimeZone(properties.get(TIME_ZONE));
             // In order to compatible dynamic add partition version
             this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
             this.end = Integer.parseInt(properties.get(END));
