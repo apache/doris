@@ -38,7 +38,9 @@ void check_time_zone_valid(const std::string& timezone) {
 TEST_F(TimeZoneTest, TestTimeZone) {
     // UTC has mapped to Africa/Abidjan
     check_time_zone_valid("Africa/Abidjan");
+    // PRC CST has mapped to Asia/Shanghai
     check_time_zone_valid("Asia/Shanghai");
+    check_time_zone_valid("+08:00");
 }
 } // namespace doris
 
