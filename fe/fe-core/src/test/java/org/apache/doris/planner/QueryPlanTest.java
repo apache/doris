@@ -967,11 +967,13 @@ public class QueryPlanTest {
         sqls.add("explain select count(*) from baseall limit 0;");
         sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall limit 0;");
         sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a limit 0;");
+        sqls.add("explain select * from baseall join bigtable as b limit 0");
 
         sqls.add("explain select * from baseall where 1 = 2");
         sqls.add("explain select count(*) from baseall where 1 = 2;");
         sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall where 1 =2;");
         sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a where 1 =2;");
+        sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
 
         for(String sql: sqls) {
             String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
