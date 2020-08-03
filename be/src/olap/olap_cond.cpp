@@ -75,11 +75,11 @@ static CondOp parse_op_type(const string& op) {
         return OP_NOT_IN;
     } else if (op == ">=") {
         return OP_GE;
-    } else if (op == ">>") {
+    } else if (op == ">>" || op == ">") {
         return OP_GT;
     } else if (op == "<=") {
         return OP_LE;
-    } else if (op == "<<") {
+    } else if (op == "<<" || op == "<") {
         return OP_LT;
     }
 

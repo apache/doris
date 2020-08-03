@@ -325,13 +325,13 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.condition_values.push_back("7");
     conditions.push_back(condition);
 
-    condition.column_name = "k6";
+    condition.column_name = "k12";
     condition.condition_op = "!*=";
     condition.condition_values.clear();
     condition.condition_values.push_back("9");
     conditions.push_back(condition);
 
-    condition.column_name = "k7";
+    condition.column_name = "k13";
     condition.condition_op = "*=";
     condition.condition_values.clear();
     condition.condition_values.push_back("1");
@@ -347,13 +347,13 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("k1=1", del_pred.sub_predicates(0).c_str());
     EXPECT_STREQ("k2>>3", del_pred.sub_predicates(1).c_str());
     EXPECT_STREQ("k3<=5", del_pred.sub_predicates(2).c_str());
-    EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(0).c_str());
-    EXPECT_STREQ("k5!=7", del_pred.sub_predicates(1).c_str());
-    EXPECT_STREQ("k6=9", del_pred.sub_predicates(2).c_str());
+    EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(3).c_str());
+    EXPECT_STREQ("k5=7", del_pred.sub_predicates(4).c_str());
+    EXPECT_STREQ("k12!=9", del_pred.sub_predicates(5).c_str());
 
     ASSERT_EQ(size_t(1), del_pred.in_predicates_size());
     ASSERT_FALSE(del_pred.in_predicates(0).is_not_in());
-    EXPECT_STREQ("k7", del_pred.in_predicates(0).column_name().c_str());
+    EXPECT_STREQ("k13", del_pred.in_predicates(0).column_name().c_str());
     ASSERT_EQ(std::size_t(2), del_pred.in_predicates(0).values().size());
 }
 
