@@ -110,8 +110,8 @@ The matching relationship between the aggregation in the materialized view and t
 | min | min |
 | max | max |
 | count | count |
-| bitmap\_union | bitmap\_union, bitmap\_union\_count, count( distinct) |
-| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv, approx_count_distinct |
+| bitmap\_union | bitmap\_union, bitmap\_union\_count, count(distinct) |
+| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv, approx\_count\_distinct |
 
 After the aggregation functions of bitmap and hll match the materialized view in the query, the aggregation operator of the query will be rewritten according to the table structure of the materialized view. See example 2 for details.
 

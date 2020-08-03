@@ -112,7 +112,7 @@ HELP CREATE MATERIALIZED VIEW
 | max        | max      |
 | count      | count    |
 | bitmap\_union | bitmap\_union, bitmap\_union\_count, count(distinct) |
-| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv, approx_count_distinct | 
+| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv, approx\_count\_distinct | 
 
 其中 bitmap 和 hll 的聚合函数在查询匹配到物化视图后，查询的聚合算子会根据物化视图的表结构进行一个改写。详细见实例2。
 
