@@ -110,6 +110,10 @@ public:
         _delete_state = delete_state;
     }
 
+    void set_delete_bitmap(std::shared_ptr<Roaring> delete_bitmap) {
+        _delete_bitmap = delete_bitmap;
+    }
+
 private:
     Schema _schema;
     size_t _capacity;
@@ -133,6 +137,8 @@ private:
 
     // block delete state
     DelCondSatisfied _delete_state;
+    // delete bit map
+    std::shared_ptr<Roaring> _delete_bitmap;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

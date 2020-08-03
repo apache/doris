@@ -74,6 +74,10 @@ public:
         column_schema(index)->to_index(&dst_cell, cell(index));
     }
 
+    void set_is_delete(bool is_delete) { _is_delete = is_delete;}
+
+    bool is_delete() { return _is_delete; }
+
     // deep copy field content (ignore null-byte)
     void set_field_content(size_t index, const char* buf, MemPool* mem_pool) {
         char* dest = cell_ptr(index);
@@ -165,6 +169,8 @@ private:
 
     char* _variable_buf = nullptr;
     size_t _variable_len;
+
+    bool _is_delete;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };

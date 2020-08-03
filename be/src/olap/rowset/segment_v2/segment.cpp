@@ -80,6 +80,8 @@ Status Segment::new_iterator(const Schema& schema,
     }
 
     RETURN_IF_ERROR(_load_index());
+    RETURN_IF_ERROR(_load_delete_index());
+
     iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     iter->get()->init(read_options);
     return Status::OK();
@@ -154,6 +156,36 @@ Status Segment::_load_index() {
 
         _sk_index_decoder.reset(new ShortKeyIndexDecoder);
         return _sk_index_decoder->parse(body, footer.short_key_page_footer());
+    });
+}
+
+Status Segment::_load_delete_index() {
+    return _delete_index_once.call([this] {
+        if (!_footer.has_delete_index_page()) {
+            _delete_index_decoder.reset(new DeleteBitmapIndexDecoder(true));
+            Status::OK(); 
+        }
+
+        // read and parse delete key index page
+        std::unique_ptr<fs::ReadableBlock> rblock;
+        fs::BlockManager* block_mgr = fs::fs_util::block_manager();
+        RETURN_IF_ERROR(block_mgr->open_block(_fname, &rblock));
+
+        PageReadOptions opts;
+        opts.rblock = rblock.get();
+        opts.page_pointer = PagePointer(_footer.delete_index_page());
+        opts.codec = nullptr; // delete key index page uses NO_COMPRESSION for now
+        OlapReaderStatistics tmp_stats;
+        opts.stats = &tmp_stats;
+
+        Slice body;
+        PageFooterPB footer;
+        RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
+        DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
+        DCHECK(footer.has_delete_index_page_footer());
+
+        _delete_index_decoder.reset(new DeleteBitmapIndexDecoder());
+        return _delete_index_decoder->parse(body, footer.delete_index_page_footer());
     });
 }
 

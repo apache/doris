@@ -79,9 +79,12 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
                 helper->set_not_null(cid);
                 helper->set_field_content_shallow(cid,
                         reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+
             }
         }
     }
+
+    dst->set_delete_bitmap(_delete_bitmap);
     // swap MemPool to copy string content
     dst->mem_pool()->exchange_data(_pool.get());
     dst->set_pos(0);

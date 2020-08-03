@@ -561,6 +561,30 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
             i += range_size;
         }
     }
+
+    // read delete index
+    {
+        std::shared_ptr<Roaring> current_bitmap(new Roaring());
+    
+        auto iter = _segment->delete_index_iterator();
+        const Roaring& delete_bitmap = iter.delete_bitmap();
+        *current_bitmap = delete_bitmap & *current_bitmap;
+
+        const uint16_t* sv = block->selection_vector();
+        const uint16_t sv_size = block->selected_size();
+        uint16_t i = 0;
+
+        while (i < sv_size) {
+
+            if(_block_rowids[sv[i]] && delete_bitmap.contains(sv[i])) {
+                current_bitmap->add(i);
+            }  
+            i++;
+        }
+
+        block->set_delete_bitmap(current_bitmap);
+    }
+
     return Status::OK();
 }
 

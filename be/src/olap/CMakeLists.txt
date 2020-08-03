@@ -71,6 +71,7 @@ add_library(Olap STATIC
     data_dir.cpp
     row.cpp
     short_key_index.cpp
+    delete_bitmap_index.cpp
     snapshot_manager.cpp
     stream_index_common.cpp
     stream_index_reader.cpp
