@@ -99,7 +99,7 @@ public:
 
     DeleteBitmapIndexIterator delete_index_iterator() const { 
         DCHECK(_delete_index_once.has_called() && _delete_index_once.stored_result().ok());
-        return _delete_index_decoder->get_interator();
+        return _delete_index_decoder->get_iterator();
     }
 
     // This will return the last row block in this segment.
@@ -150,12 +150,13 @@ private:
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
 
+    // used to guarantee that delete index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _delete_index_once;
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
-
+    // delete index decoder
     std::unique_ptr<DeleteBitmapIndexDecoder> _delete_index_decoder;
 
 };

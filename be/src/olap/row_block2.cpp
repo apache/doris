@@ -68,7 +68,8 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
                     helper->set_null(cid);
                 } else {
                     helper->set_not_null(cid);
-                    helper->set_field_content_shallow(cid,
+                    helper->set_field_content_shallow(
+                            cid,
                             reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
                 }
             }
@@ -77,9 +78,8 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
                 uint16_t row_idx = _selection_vector[i];
                 dst->get_row(i, helper);
                 helper->set_not_null(cid);
-                helper->set_field_content_shallow(cid,
-                        reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
-
+                helper->set_field_content_shallow(
+                        cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
             }
         }
     }

@@ -127,6 +127,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
     RETURN_IF_ERROR(_write_short_key_index());
+    RETURN_IF_ERROR(_write_delete_index());
     *index_size = _wblock->bytes_appended() - index_offset;
     RETURN_IF_ERROR(_write_footer());
     RETURN_IF_ERROR(_wblock->finalize());

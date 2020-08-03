@@ -68,6 +68,7 @@ public:
 
     inline void get_row(uint32_t row_index, RowCursor* cursor) const {
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
+        // set current row whether it is deleted
         cursor->set_is_delete(_delete_bitmap->contains(row_index));
     }
 
@@ -107,6 +108,7 @@ public:
     uint8_t block_status() const { return _block_status; }
     void set_block_status(uint8_t status) { _block_status = status; }
 
+    // set delete bimap
     void set_delete_bitmap(std::shared_ptr<Roaring> delete_bitmap) {
         _delete_bitmap = delete_bitmap;
     }
@@ -144,6 +146,7 @@ private:
 
     std::unique_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
+    // delete bitmap which records deleted rows
     std::shared_ptr<Roaring> _delete_bitmap;
     // 由于内部持有内存资源，所以这里禁止拷贝和赋值
     DISALLOW_COPY_AND_ASSIGN(RowBlock);

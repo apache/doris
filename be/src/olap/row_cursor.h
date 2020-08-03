@@ -74,7 +74,7 @@ public:
         column_schema(index)->to_index(&dst_cell, cell(index));
     }
 
-    void set_is_delete(bool is_delete) { _is_delete = is_delete;}
+    void set_is_delete(bool is_delete) { _is_delete = is_delete; }
 
     bool is_delete() { return _is_delete; }
 
@@ -170,6 +170,7 @@ private:
     char* _variable_buf = nullptr;
     size_t _variable_len;
 
+    // current row is deleted
     bool _is_delete;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);

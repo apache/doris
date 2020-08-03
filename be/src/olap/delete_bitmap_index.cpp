@@ -26,13 +26,16 @@ namespace doris {
 
 Status DeleteBitmapIndexBuilder::add_delete_item(const uint32_t& _row_count) {
     _delete_bitmap.add(_row_count);
+    _num_items++;
     return Status::OK();
 }
 
 Status DeleteBitmapIndexBuilder::finalize(std::vector<Slice>* body,
                                           segment_v2::PageFooterPB* page_footer) {
-
+    // get the size after serialize
+    _delete_bitmap.runOptimize();
     uint32_t size = _delete_bitmap.getSizeInBytes(false);
+    // fill in bitmap index page
     page_footer->set_type(segment_v2::DELETE_INDEX_PAGE);
     page_footer->set_uncompressed_size(size);
 
@@ -40,25 +43,23 @@ Status DeleteBitmapIndexBuilder::finalize(std::vector<Slice>* body,
     footer->set_num_items(_num_items);
     footer->set_content_bytes(size);
 
-    faststring buf;
-    buf.reserve(size);
-    _delete_bitmap.write(reinterpret_cast<char*>(buf.data()), false);    
-    body->emplace_back(buf);
+    // write bitmap to slice as return
+    _buf.resize(size);
+    _delete_bitmap.write(reinterpret_cast<char*>(_buf.data()), false);
+    body->emplace_back(_buf);
     return Status::OK();
 }
 
 Status DeleteBitmapIndexDecoder::parse(const Slice& body, const segment_v2::DeleteIndexFooterPB& footer) {
     _footer = footer;
-
     // check if body size match footer's information
     if (body.size != (_footer.content_bytes())) {
-        return Status::Corruption(
-                Substitute("Index size not match, need=$0, real=$1",
-                           _footer.content_bytes(), body.size));
+        return Status::Corruption(Substitute("Index size not match, need=$0, real=$1",
+                                             _footer.content_bytes(), body.size));
     }
-
     // set index buffer
     Slice index_data(body.data, _footer.content_bytes());
+    // load delete bitmap
     _delete_bitmap = Roaring::read(index_data.data, false);
 
     _parsed = true;

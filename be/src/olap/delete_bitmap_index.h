@@ -36,60 +36,75 @@ namespace doris {
 class DeleteBitmapIndexIterator;
 class DeleteBitmapIndexDecoder;
 
+/// This class is a builder which can build delete bitmap index. SegmentWriter can use it to generate
+/// delete bitmap index page and save it in segment.
 class DeleteBitmapIndexBuilder {
 public:
+    /// Construction function of DeleteBitmapIndexBuilder
     DeleteBitmapIndexBuilder() : _num_items(0) {
     }
 
+    /// Add delete item to delete bitmap index
     Status add_delete_item(const uint32_t& _row_count);
 
+    /// How many bytes are required to serialize this bitmap
     uint64_t size() {
         return _delete_bitmap.getSizeInBytes(false);
     }
 
+    /// When the segment flush, use finalize function to flush index data to slice to generate index page 
+    /// and fill the page footer record meta.
     Status finalize(std::vector<Slice>* body, segment_v2::PageFooterPB* footer);
 
 private:
+    /// the number of delete items in delete bitmap index
     uint32_t _num_items;
 
+    /// roaring bitmap to record rowids of delete items 
     Roaring _delete_bitmap;
+
+    faststring _buf;
 };
 
-// An Iterator to iterate one short key index.
-// Client can use this class to iterator all items in this index.
+/// An Iterator to iterate one delete bitmap index.
+/// Client can use this class to access the bitmap.
 class DeleteBitmapIndexIterator {
 public:
+    /// Construction function of DeleteBitmapIndexBuilder
     DeleteBitmapIndexIterator(const DeleteBitmapIndexDecoder* decoder)
             : _decoder(decoder) {}
 
+    /// get const delete bitmap to access delete bitmap record
     const Roaring& delete_bitmap() const;
 
 private:
     const DeleteBitmapIndexDecoder* _decoder;
 };
 
-// Used to decode bitmap ordinal to header and encoded index data.
-// Usage:
-//      DeleteBitmapIndexDecoder decoder;
-//      decoder.parse(body, footer);
-//      auto iter = decoder.seek_to_ordinal(ordinal);
+/// Used to decode bitmap ordinal to footer and encoded index data.
+/// Usage:
+///      DeleteBitmapIndexDecoder decoder;
+///      decoder.parse(body, footer);
 class DeleteBitmapIndexDecoder {
 public:
     DeleteBitmapIndexDecoder(bool parsed = false) : _parsed(parsed), _delete_bitmap() {}
 
-    // client should assure that body is available when this class is used
+    /// client should assure that body is available when this class is used
     Status parse(const Slice& body, const segment_v2::DeleteIndexFooterPB& footer);
 
+    /// The number of delete items in delete bitmap index
     uint32_t num_items() const {
         DCHECK(_parsed);
         return _footer.num_items();
     }
 
-    DeleteBitmapIndexIterator get_interator() const { 
+    /// Get the iterator of DeleteBitmapIndex
+    DeleteBitmapIndexIterator get_iterator() const { 
         DCHECK(_parsed);
         return {this};
     }
 
+    /// get const delete bitmap to access delete bitmap record
     const Roaring& delete_bitmap() const { return _delete_bitmap; }
 
 private:

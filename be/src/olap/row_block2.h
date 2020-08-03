@@ -110,6 +110,7 @@ public:
         _delete_state = delete_state;
     }
 
+    // set delete bitmap
     void set_delete_bitmap(std::shared_ptr<Roaring> delete_bitmap) {
         _delete_bitmap = delete_bitmap;
     }
