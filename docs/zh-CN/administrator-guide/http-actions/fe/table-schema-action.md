@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-用于获取指定表的表结构信息。
+用于获取指定表的表结构信息。该接口目前用于 Spark-Doris-Connector 中，Spark 获取 Doris 的表结构信息。
     
 ## Path parameters
 
@@ -54,8 +54,49 @@ under the License.
 
 ## Response
 
-TODO
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"properties": [{
+			"type": "INT",
+			"name": "k1",
+			"comment": ""
+		}, {
+			"type": "INT",
+			"name": "k2",
+			"comment": ""
+		}],
+		"status": 200
+	},
+	"count": 0
+}
+```
     
 ## Examples
 
-TODO
+1. 获取指定表的表结构信息。
+
+    ```
+    GET /api/db1/tbl1/_schema
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"properties": [{
+    			"type": "INT",
+    			"name": "k1",
+    			"comment": ""
+    		}, {
+    			"type": "INT",
+    			"name": "k2",
+    			"comment": ""
+    		}],
+    		"status": 200
+    	},
+    	"count": 0
+    }
+    ```

@@ -16,7 +16,6 @@
 // under the License.
 package org.apache.doris.http.rest;
 
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -32,11 +31,8 @@ import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.MasterOpExecutor;
-import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.ShowResultSet;
-import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
@@ -46,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -80,13 +77,20 @@ public class ShowAction extends RestBaseController {
     @RequestMapping(path = "/api/show_meta_info", method = RequestMethod.GET)
     public Object show_meta_info(HttpServletRequest request, HttpServletResponse response) {
         String action = request.getParameter("action");
+        if (Strings.isNullOrEmpty(action)) {
+            return ResponseEntityBuilder.badRequest("Missing action parameter");
+        }
         switch (Action.getAction(action.toUpperCase())) {
             case SHOW_DB_SIZE:
                 return ResponseEntityBuilder.ok(getDataSize());
             case SHOW_HA:
-                return ResponseEntityBuilder.ok(getHaInfo());
+                try {
+                    return ResponseEntityBuilder.ok(getHaInfo());
+                } catch (IOException e) {
+                    return ResponseEntityBuilder.internalError(e.getMessage());
+                }
             default:
-                return ResponseEntityBuilder.badRequest("Unknown action" + action);
+                return ResponseEntityBuilder.badRequest("Unknown action: " + action);
         }
     }
 
@@ -107,28 +111,9 @@ public class ShowAction extends RestBaseController {
 
         // forward to master if necessary
         if (!Catalog.getCurrentCatalog().isMaster() && isForward) {
-            String showProcStmt = "SHOW PROC \"" + path + "\"";
-            ConnectContext context = new ConnectContext(null);
-            context.setCatalog(Catalog.getCurrentCatalog());
-            context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            context.setQualifiedUser(ConnectContext.get().getQualifiedUser());
-            context.setRemoteIP(ConnectContext.get().getRemoteIP());
-            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0), context,
-                    RedirectStatus.FORWARD_NO_SYNC);
-            LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
-
-            try {
-                masterOpExecutor.execute();
-            } catch (Exception e) {
-                return ResponseEntityBuilder.internalError("Failed to forward stmt: " + e.getMessage());
-            }
-
-            ShowResultSet resultSet = masterOpExecutor.getProxyResultSet();
-            if (resultSet == null) {
-                return ResponseEntityBuilder.internalError("Failed to get result set");
-            }
-
-            return ResponseEntityBuilder.ok(resultSet.getResultRows());
+            RedirectView redirectView = redirectToMaster(request, response);
+            Preconditions.checkNotNull(redirectView);
+            return redirectView;
         } else {
             ProcNodeInterface procNode = null;
             ProcService instance = ProcService.getInstance();
@@ -182,7 +167,6 @@ public class ShowAction extends RestBaseController {
     @RequestMapping(path = "/api/show_data", method = RequestMethod.GET)
     public Object show_data(HttpServletRequest request, HttpServletResponse response) {
 
-        Map<String, Map<String, Long>> result = Maps.newHashMap();
         Map<String, Long> oneEntry = Maps.newHashMap();
 
         String dbName = request.getParameter(DB_KEY);
@@ -192,10 +176,10 @@ public class ShowAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             Database db = fullNameToDb.get(fullDbName);
             if (db == null) {
-                return ResponseEntityBuilder.okWithCommonError("database " + dbName + " not found.");
+                return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
             }
             totalSize = getDataSizeOfDatabase(db);
-            oneEntry.put(dbName, totalSize);
+            oneEntry.put(fullDbName, totalSize);
         } else {
             for (Database db : fullNameToDb.values()) {
                 if (db.isInfoSchemaDb()) {
@@ -205,10 +189,10 @@ public class ShowAction extends RestBaseController {
             }
             oneEntry.put("__total_size", totalSize);
         }
-        return ResponseEntityBuilder.ok(result);
+        return ResponseEntityBuilder.ok(oneEntry);
     }
 
-    private Map<String, String> getHaInfo() {
+    private Map<String, String> getHaInfo() throws IOException {
         HashMap<String, String> feInfo = new HashMap<String, String>();
         feInfo.put("role", Catalog.getCurrentCatalog().getFeType().toString());
         if (Catalog.getCurrentCatalog().isMaster()) {
@@ -237,7 +221,7 @@ public class ShowAction extends RestBaseController {
 
             List<InetSocketAddress> electableNodes = haProtocol.getElectableNodes(false);
             ArrayList<String> electableNodeNames = new ArrayList<String>();
-            if (!electableNodes.isEmpty()) {
+            if (electableNodes != null) {
                 for (InetSocketAddress node : electableNodes) {
                     electableNodeNames.add(node.getHostString());
                 }
@@ -256,14 +240,12 @@ public class ShowAction extends RestBaseController {
 
         feInfo.put("can_read", String.valueOf(Catalog.getCurrentCatalog().canRead()));
         feInfo.put("is_ready", String.valueOf(Catalog.getCurrentCatalog().isReady()));
-        try {
-            Storage storage = new Storage(Config.meta_dir + "/image");
-            feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));
-            long lastCheckpointTime = storage.getCurrentImageFile().lastModified();
-            feInfo.put("last_checkpoint_time", String.valueOf(lastCheckpointTime));
-        } catch (IOException e) {
-            LOG.warn(e.getMessage());
-        }
+
+        Storage storage = new Storage(Config.meta_dir + "/image");
+        feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));
+        long lastCheckpointTime = storage.getCurrentImageFile().lastModified();
+        feInfo.put("last_checkpoint_time", String.valueOf(lastCheckpointTime));
+
         return feInfo;
     }
 

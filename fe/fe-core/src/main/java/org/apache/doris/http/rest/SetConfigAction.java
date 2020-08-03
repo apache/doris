@@ -24,19 +24,18 @@ import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.lang.reflect.Field;
-import java.util.Map;
+import com.google.common.collect.Maps;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.lang.reflect.Field;
+import java.util.Map;
 
 /*
  * used to set fe config
@@ -84,7 +83,7 @@ public class SetConfigAction extends RestBaseController {
             try {
                 ConfigBase.setConfigField(f, confVals[0]);
             } catch (Exception e) {
-                LOG.warn("failed to set config {}:{}", confKey, confVals[0], e);
+                LOG.warn("failed to set config {}:{}, {}", confKey, confVals[0], e.getMessage());
                 continue;
             }
 
@@ -93,7 +92,9 @@ public class SetConfigAction extends RestBaseController {
 
         for (String key : configs.keySet()) {
             if (!setConfigs.containsKey(key)) {
-                errConfigs.put(key, configs.get(key).toString());
+                String[] confVals = configs.get(key);
+                String confVal = confVals.length == 1 ? confVals[0] : "invalid value";
+                errConfigs.put(key, confVal);
             }
         }
 
@@ -102,9 +103,5 @@ public class SetConfigAction extends RestBaseController {
         resultMap.put("err", errConfigs);
 
         return ResponseEntityBuilder.ok(resultMap);
-    }
-
-    public static void print(String msg) {
-        System.out.println(System.currentTimeMillis() + " " + msg);
     }
 }

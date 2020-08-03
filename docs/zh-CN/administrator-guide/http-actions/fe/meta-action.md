@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Connection",
+    "title": "Meta Action",
     "language": "zh-CN"
 }
 ---
@@ -24,27 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Conection
+# Meta Action
 
 ## Request
 
-`GET /api/connection`
+```
+GET /image
+GET /info
+GET /version
+GET /put
+GET /journal_id
+GET /role
+GET /check
+GET /dump
+```
 
 ## Description
 
-给定一个 connection id，返回这个连接当前正在执行的，或最后一次执行完成的 query id。
-
-connection id 可以通过 MySQL 命令 `show processlist;` 中的 id 列查看。
+这是一组 FE 元数据相关的 API，除了 `/dump` 以外，都为 FE 节点之间内部通讯用。
     
 ## Path parameters
 
-无
+* `<db>`
+
+    指定数据库
+
+* `<table>`
+
+    指定表
 
 ## Query parameters
 
-* `connection_id`
-
-    指定的 connection id
+无
 
 ## Request body
 
@@ -54,10 +65,19 @@ connection id 可以通过 MySQL 命令 `show processlist;` 中的 id 列查看�
 
 ```
 {
-	"msg": "OK",
+	"msg": "success",
 	"code": 0,
 	"data": {
-		"query_id": "b52513ce3f0841ca-9cb4a96a268f2dba"
+		"properties": [{
+			"type": "INT",
+			"name": "k1",
+			"comment": ""
+		}, {
+			"type": "INT",
+			"name": "k2",
+			"comment": ""
+		}],
+		"status": 200
 	},
 	"count": 0
 }
@@ -65,17 +85,26 @@ connection id 可以通过 MySQL 命令 `show processlist;` 中的 id 列查看�
     
 ## Examples
 
-1. 获取指定 connection id 的 query id
+1. 获取指定表的表结构信息。
 
     ```
-    GET /api/connection?connection_id=101
+    GET /api/db1/tbl1/_schema
     
     Response:
     {
-    	"msg": "OK",
+    	"msg": "success",
     	"code": 0,
     	"data": {
-    		"query_id": "b52513ce3f0841ca-9cb4a96a268f2dba"
+    		"properties": [{
+    			"type": "INT",
+    			"name": "k1",
+    			"comment": ""
+    		}, {
+    			"type": "INT",
+    			"name": "k2",
+    			"comment": ""
+    		}],
+    		"status": 200
     	},
     	"count": 0
     }

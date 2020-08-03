@@ -36,6 +36,8 @@ under the License.
 ## Description
 
 用户可以通过该 HTTP 接口获取 FE 的日志文件。
+
+其中 HEAD 请求用于获取指定日志类型的日志文件列表。GET 请求用于下载指定的日志文件。
     
 ## Path parameters
 
@@ -80,13 +82,11 @@ under the License.
 
 1. 获取对应类型的日志文件列表
 
-    示例：
-    
-    `curl -v -X HEAD -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log`
-    
-    返回结果：
-    
     ```
+    HEAD /api/get_log/file?type=fe.audit.log
+    
+    Response:
+    
     HTTP/1.1 200 OK
     file_infos: {"fe.audit.log":24759,"fe.audit.log.20190528.1":132934}
     content-type: text/html
@@ -96,13 +96,19 @@ under the License.
     在返回的 header 中，`file_infos` 字段以 json 格式展示文件列表以及对应文件大小（单位字节）
     
 2. 下载日志文件
-
-    示例：
     
     ```
-    curl -X GET -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log\&file=fe.audit.log.20190528.1
+    GET /api/get_log/file?type=fe.audit.log&file=fe.audit.log.20190528.1
+    
+    Response:
+    
+    < HTTP/1.1 200
+    < Vary: Origin
+    < Vary: Access-Control-Request-Method
+    < Vary: Access-Control-Request-Headers
+    < Content-Disposition: attachment;fileName=fe.audit.log
+    < Content-Type: application/octet-stream;charset=UTF-8
+    < Transfer-Encoding: chunked
+    
+    ... File Content ...
     ```
-    
-    返回结果：
-    
-    以文件的形式下载指定的文件。

@@ -359,58 +359,19 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
     Return the internal Colocation info in JSON format:
     
     {
-    	"colocate_meta": {
-    		"groupName2Id": {
-    			"g1": {
-    				"dbId": 10005,
-    				"grpId": 10008
-    			}
-    		},
-    		"group2Tables": {},
-    		"table2Group": {
-    			"10007": {
-    				"dbId": 10005,
-    				"grpId": 10008
-    			},
-    			"10040": {
-    				"dbId": 10005,
-    				"grpId": 10008
-    			}
-    		},
-    		"group2Schema": {
-    			"10005.10008": {
-    				"groupId": {
-    					"dbId": 10005,
-    					"grpId": 10008
-    				},
-    				"distributionColTypes": [{
-    					"type": "INT",
-    					"len": -1,
-    					"isAssignedStrLenInColDefinition": false,
-    					"precision": 0,
-    					"scale": 0
-    				}],
-    				"bucketsNum": 10,
-    				"replicationNum": 2
-    			}
-    		},
-    		"group2BackendsPerBucketSeq": {
-    			"10005.10008": [
-    				[10004, 10002],
-    				[10003, 10002],
-    				[10002, 10004],
-    				[10003, 10002],
-    				[10002, 10004],
-    				[10003, 10002],
-    				[10003, 10004],
-    				[10003, 10004],
-    				[10003, 10004],
-    				[10002, 10004]
-    			]
-    		},
-    		"unstableGroups": []
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"infos": [
+    			["10003.12002", "10003_group1", "10037, 10043", "1", "1", "int(11)", "true"]
+    		],
+    		"unstableGroupIds": [],
+    		"allGroupIds": [{
+    			"dbId": 10003,
+    			"grpId": 12002
+    		}]
     	},
-    	"status": "OK"
+    	"count": 0
     }
     ```
 2. Mark Group as Stable or Unstable
@@ -436,7 +397,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
 	The interface can force the number distribution of a group.
 
     ```
-    POST /api/colocate/bucketseq?db_id=10005&group_id= 10008
+    POST /api/colocate/bucketseq?db_id=10005&group_id=10008
     
     Body:
     [[10004,10002],[10003,10002],[10002,10004],[10003,10002],[10002,10004],[10003,10002],[10003,10004],[10003,10004],[10003,10004],[10002,10004]]

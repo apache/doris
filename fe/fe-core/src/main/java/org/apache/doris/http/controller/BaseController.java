@@ -81,7 +81,8 @@ public class BaseController {
             ctx.setCatalog(Catalog.getCurrentCatalog());
             ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
-
+            LOG.debug("check auth without cookie success for user: {}, thread: {}",
+                    currentUser, Thread.currentThread().getId());
             return true;
         } catch (UnauthorizedException e) {
             //response.appendContent("Authentication Failed. <br/> " + e.getMessage());
@@ -122,6 +123,8 @@ public class BaseController {
                 ctx.setCatalog(Catalog.getCurrentCatalog());
                 ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
                 ctx.setThreadLocalInfo();
+                LOG.debug("check cookie success for user: {}, thread: {}",
+                        sessionValue.currentUser, Thread.currentThread().getId());
                 return true;
             }
         }

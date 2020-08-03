@@ -29,23 +29,22 @@ import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.system.Frontend;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Map;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class MetaService extends RestBaseController {
@@ -78,7 +77,6 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(path = "/image", method = RequestMethod.GET)
     public Object image(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
         checkFromValidFe(request);
 
         String versionStr = request.getParameter(VERSION);
@@ -99,16 +97,14 @@ public class MetaService extends RestBaseController {
 
         try {
             writeFileResponse(request, response, imageFile);
-            return ResponseEntityBuilder.ok();
+            return null;
         } catch (IOException e) {
             return ResponseEntityBuilder.internalError(e.getMessage());
         }
     }
 
-
     @RequestMapping(path = "/info", method = RequestMethod.GET)
     public Object info(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request, response);
         checkFromValidFe(request);
 
         try {
@@ -123,7 +119,6 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(path = "/version", method = RequestMethod.GET)
     public void version(HttpServletRequest request, HttpServletResponse response) throws IOException, DdlException {
-        executeCheckPassword(request, response);
         checkFromValidFe(request);
         File versionFile = new File(imageDir, Storage.VERSION_FILE);
         writeFileResponse(request, response, versionFile);
@@ -131,7 +126,6 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(path = "/put", method = RequestMethod.GET)
     public Object put(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request, response);
         checkFromValidFe(request);
 
         String portStr = request.getParameter(PORT);
@@ -154,7 +148,7 @@ public class MetaService extends RestBaseController {
         checkLongParam(versionStr);
 
         String machine = request.getRemoteHost();
-        String url = "http://" + machine + ":" + portStr + "/image?version=" + versionStr;
+        String url = "http://" + machine + ":" + port + "/image?version=" + versionStr;
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Catalog.getCurrentCatalog().getImageDir());
         try {
@@ -180,7 +174,6 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(path = "/journal_id", method = RequestMethod.GET)
     public Object journal_id(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request, response);
         checkFromValidFe(request);
         long id = Catalog.getCurrentCatalog().getReplayedJournalId();
         response.setHeader("id", Long.toString(id));
@@ -189,7 +182,6 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(path = "/role", method = RequestMethod.GET)
     public Object role(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request, response);
         checkFromValidFe(request);
 
         String host = request.getParameter(HOST);
@@ -218,7 +210,6 @@ public class MetaService extends RestBaseController {
      */
     @RequestMapping(path = "/check", method = RequestMethod.GET)
     public Object check(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request, response);
         checkFromValidFe(request);
 
         try {
@@ -233,16 +224,15 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
     public Object dump(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeCheckPassword(request, response);
+
         /*
          * Before dump, we acquired the catalog read lock and all databases' read lock and all
          * the jobs' read lock. This will guarantee the consistency of database and job queues.
          * But Backend may still inconsistent.
+         *
+         * TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
          */
-        executeCheckPassword(request, response);
-
-        //needAdmin=true
-        executeCheckPassword(request, response);
-        // TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
         String dumpFilePath = Catalog.getCurrentCatalog().dumpImage();
 
         if (dumpFilePath == null) {

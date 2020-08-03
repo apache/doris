@@ -25,7 +25,6 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.http.HttpServer;
-import org.apache.doris.http.config.SpringLog4j2Config;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.qe.QeService;
@@ -44,7 +43,9 @@ import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -87,10 +88,10 @@ public class PaloFe {
                 throw new IllegalArgumentException("Java version doesn't match");
             }
 
-            Log4jConfig.initLogging();
+            Log4jConfig.initLogging(dorisHomeDir + "/conf/");
 
             // set dns cache ttl
-            java.security.Security.setProperty("networkaddress.cache.ttl" , "60");
+            java.security.Security.setProperty("networkaddress.cache.ttl", "60");
 
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
@@ -108,14 +109,15 @@ public class PaloFe {
             // 1. QeService for MySQL Server
             // 2. FeServer for Thrift Server
             // 3. HttpServer for HTTP Server
-            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
+            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
+                    ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
             HttpServer httpServer = new HttpServer();
             httpServer.setPort(Config.http_port);
 
             feServer.start();
             qeService.start();
-            httpServer.start();
+            httpServer.start(dorisHomeDir);
 
             ThreadPoolManager.registerAllThreadPoolMetric();
 
@@ -135,12 +137,12 @@ public class PaloFe {
      *      Specify the helper node when joining a bdb je replication group
      * -b --bdb
      *      Run bdbje debug tools
-     *      
+     *
      *      -l --listdb
      *          List all database names in bdbje
      *      -d --db
      *          Specify a database in bdbje
-     *          
+     *
      *          -s --stat
      *              Print statistic of a database, including count, first key, last key
      *          -f --from
@@ -149,7 +151,7 @@ public class PaloFe {
      *              Specify the end scan key
      *          -m --metaversion
      *              Specify the meta version to decode log value
-     *              
+     *
      */
     private static CommandLineOptions parseArgs(String[] args) {
         CommandLineParser commandLineParser = new BasicParser();
@@ -188,7 +190,7 @@ public class PaloFe {
                     System.err.println("BDBJE database name is missing");
                     System.exit(-1);
                 }
-                
+
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
                     return new CommandLineOptions(false, "", bdbOpts);
@@ -218,7 +220,7 @@ public class PaloFe {
                             System.exit(-1);
                         }
                     }
-                    
+
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
                     return new CommandLineOptions(false, "", bdbOpts);
                 }

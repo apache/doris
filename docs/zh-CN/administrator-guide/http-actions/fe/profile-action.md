@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-用于获取指定query id的 query profile
+用于获取指定 query id 的 query profile
     
 ## Path parameters
 
@@ -50,8 +50,31 @@ under the License.
 
 ## Response
 
-TODO
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"profile": "query profile ..."
+	},
+	"count": 0
+}
+```
     
 ## Examples
 
-TODO
+1. 获取指定 query_id 的 query profile
+
+    ```
+    GET /api/profile?query_id=f732084bc8e74f39-8313581c9c3c0b58
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"profile": "query profile ..."
+    	},
+    	"count": 0
+    }
+    ```

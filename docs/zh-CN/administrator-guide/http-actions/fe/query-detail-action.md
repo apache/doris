@@ -40,9 +40,9 @@ under the License.
 
 ## Query parameters
 
-* event_time
+* `event_time`
 
-    指定的时间点，获取该时间点之后的查询信息。
+    指定的时间点（Unix 时间戳，单位毫秒），获取该时间点之后的查询信息。
     
 ## Request body
 
@@ -50,38 +50,67 @@ under the License.
 
 ## Response
 
-TODO
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"query_details": [{
+			"eventTime": 1596462699216,
+			"queryId": "f732084bc8e74f39-8313581c9c3c0b58",
+			"startTime": 1596462698969,
+			"endTime": 1596462699216,
+			"latency": 247,
+			"state": "FINISHED",
+			"database": "db1",
+			"sql": "select * from tbl1"
+		}, {
+			"eventTime": 1596463013929,
+			"queryId": "ed2d0d80855d47a5-8b518a0f1472f60c",
+			"startTime": 1596463013913,
+			"endTime": 1596463013929,
+			"latency": 16,
+			"state": "FINISHED",
+			"database": "db1",
+			"sql": "select k1 from tbl1"
+		}]
+	},
+	"count": 0
+}
+```
     
 ## Examples
 
-从FE获取所有的查询细节，获取关于查询执行的相关信息。
-FE会返回在event_time之后的查询细节，其中event_time单位会精确到毫秒。
+1. 获取指定时间点之后的查询详情。
 
-```
-curl -X GET http://fe_host:fe_http_port/api/query_detail?event_time=1592054515284
-```
-
-查询信息会以JSON格式返回。
-```
-[
-  {
-    "eventTime": 1592201405063,
-    "queryId": "a0a9259df9844029-845331577440a3bd",
-    "startTime": 1592201405055,
-    "endTime": 1592201405063,
-    "latency": 8,
-    "state": "FINISHED",
-    "database": "test",
-    "sql": "select * from table1"
-  },
-  {
-    "eventTime": 1592201420842,
-    "queryId": "21cd79c3e1634e8a-bdac090c7e7bcc36",
-    "startTime": 1592201420834,
-    "endTime": 1592201420842,
-    "latency": 8,
-    "state": "FINISHED",
-    "database": "test",
-    "sql": "select * from table1"
-  }
-]
+    ```
+    GET /api/query_detail?event_time=1596462079958
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"query_details": [{
+    			"eventTime": 1596462699216,
+    			"queryId": "f732084bc8e74f39-8313581c9c3c0b58",
+    			"startTime": 1596462698969,
+    			"endTime": 1596462699216,
+    			"latency": 247,
+    			"state": "FINISHED",
+    			"database": "db1",
+    			"sql": "select * from tbl1"
+    		}, {
+    			"eventTime": 1596463013929,
+    			"queryId": "ed2d0d80855d47a5-8b518a0f1472f60c",
+    			"startTime": 1596463013913,
+    			"endTime": 1596463013929,
+    			"latency": 16,
+    			"state": "FINISHED",
+    			"database": "db1",
+    			"sql": "select k1 from tbl1"
+    		}]
+    	},
+    	"count": 0
+    }
+    ```

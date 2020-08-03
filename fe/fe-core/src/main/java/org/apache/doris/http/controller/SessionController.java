@@ -61,7 +61,6 @@ public class SessionController {
         return entity;
     }
 
-
     private void appendSessionInfo(List<Map<String, String>> result) {
         List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler().listConnection("root");
         List<List<String>> rowSet = Lists.newArrayList();

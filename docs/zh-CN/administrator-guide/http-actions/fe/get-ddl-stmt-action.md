@@ -57,7 +57,7 @@ under the License.
 ```
 {
 	"msg": "OK",
-	"code": 200,
+	"code": 0,
 	"data": {
 		"create_partition": ["ALTER TABLE `tbl1` ADD PARTITION ..."],
 		"create_table": ["CREATE TABLE `tbl1` ...],
@@ -77,7 +77,7 @@ under the License.
     Response
     {
     	"msg": "OK",
-    	"code": 200,
+    	"code": 0,
     	"data": {
     		"create_partition": [],
     		"create_table": ["CREATE TABLE `tbl1` (\n  `k1` int(11) NULL COMMENT \"\",\n  `k2` int(11) NULL COMMENT \"\"\n) ENGINE=OLAP\nDUPLICATE KEY(`k1`, `k2`)\nCOMMENT \"OLAP\"\nDISTRIBUTED BY HASH(`k1`) BUCKETS 1\nPROPERTIES (\n\"replication_num\" = \"1\",\n\"version_info\" = \"1,0\",\n\"in_memory\" = \"false\",\n\"storage_format\" = \"DEFAULT\"\n);"],

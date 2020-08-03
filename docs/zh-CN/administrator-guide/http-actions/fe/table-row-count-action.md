@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-用于获取指定表的行数统计信息
+用于获取指定表的行数统计信息。该接口目前用于 Spark-Doris-Connector 中，Spark 获取 Doris 的表统计信息。
     
 ## Path parameters
 
@@ -54,8 +54,35 @@ under the License.
 
 ## Response
 
-TODO
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"size": 1,
+		"status": 200
+	},
+	"count": 0
+}
+```
+
+其中 `data.size` 字段表示指定表的行数。
     
 ## Examples
 
-TODO
+1. 获取指定表的行数。
+
+    ```
+    GET /api/db1/tbl1/_count
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"size": 1,
+    		"status": 200
+    	},
+    	"count": 0
+    }
+    ```

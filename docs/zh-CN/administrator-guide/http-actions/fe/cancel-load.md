@@ -57,7 +57,7 @@ under the License.
     ```
     {
     	"msg": "OK",
-    	"code": 200,
+    	"code": 0,
     	"data": null,
     	"count": 0
     }
@@ -67,7 +67,7 @@ under the License.
 
     ```
     {
-    	"msg": "Error msg",
+    	"msg": "Error msg...",
     	"code": 1,
     	"data": null,
     	"count": 0
@@ -84,7 +84,7 @@ under the License.
     Response:
     {
     	"msg": "OK",
-    	"code": 200,
+    	"code": 0,
     	"data": null,
     	"count": 0
     }

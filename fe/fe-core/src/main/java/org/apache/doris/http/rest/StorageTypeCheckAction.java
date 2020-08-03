@@ -28,18 +28,17 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageType;
 
-import com.google.common.base.Strings;
-
-import org.json.JSONObject;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.Map;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 public class StorageTypeCheckAction extends RestBaseController {
@@ -60,7 +59,7 @@ public class StorageTypeCheckAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Database " + dbName + " does not exist");
         }
 
-        JSONObject root = new JSONObject();
+        Map<String, Map<String, String>> result = Maps.newHashMap();
         db.readLock();
         try {
             List<Table> tbls = db.getTables();
@@ -70,18 +69,18 @@ public class StorageTypeCheckAction extends RestBaseController {
                 }
 
                 OlapTable olapTbl = (OlapTable) tbl;
-                JSONObject indexObj = new JSONObject();
+                Map<String, String> indexMap = Maps.newHashMap();
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTbl.getIndexIdToMeta().entrySet()) {
                     MaterializedIndexMeta indexMeta = entry.getValue();
                     if (indexMeta.getStorageType() == TStorageType.ROW) {
-                        indexObj.put(olapTbl.getIndexNameById(entry.getKey()), indexMeta.getStorageType().name());
+                        indexMap.put(olapTbl.getIndexNameById(entry.getKey()), indexMeta.getStorageType().name());
                     }
                 }
-                root.put(tbl.getName(), indexObj);
+                result.put(tbl.getName(), indexMap);
             }
         } finally {
             db.readUnlock();
         }
-        return ResponseEntityBuilder.ok(root);
+        return ResponseEntityBuilder.ok(result);
     }
 }

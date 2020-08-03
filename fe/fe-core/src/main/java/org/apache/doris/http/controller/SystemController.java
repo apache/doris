@@ -61,6 +61,7 @@ public class SystemController {
         if (Strings.isNullOrEmpty(currentPath)) {
             currentPath = "/";
         }
+        LOG.debug("get /system requset, thread id: {}", Thread.currentThread().getId());
         ResponseEntity entity = appendSystemInfo(currentPath, currentPath);
         return entity;
     }

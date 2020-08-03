@@ -40,11 +40,11 @@ under the License.
 
 ## Query parameters
 
-* db
+* `db`
 
     指定的数据库
 
-* table
+* `table`
 
     指定的表名
 
@@ -54,8 +54,31 @@ under the License.
 
 ## Response
 
-TODO
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"tbl1": 10000
+	},
+	"count": 0
+}
+```
     
 ## Examples
 
-TODO
+1. 更新并获取指定 Table 的行数
+
+    ```
+    GET /api/rowcount?db=example_db&table=tbl1
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"tbl1": 10000
+    	},
+    	"count": 0
+    }
+    ```

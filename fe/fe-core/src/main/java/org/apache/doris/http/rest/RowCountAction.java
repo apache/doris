@@ -31,17 +31,16 @@ import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.Map;
 
 /*
  * calc row count from replica to table
@@ -65,11 +64,12 @@ public class RowCountAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No table selected");
         }
 
+        String fullDbName = getFullDbName(dbName);
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(dbName);
+        Database db = catalog.getDb(fullDbName);
         if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database[" + dbName + "] does not exist");
+            return ResponseEntityBuilder.okWithCommonError("Database[" + fullDbName + "] does not exist");
         }
         db.writeLock();
         try {

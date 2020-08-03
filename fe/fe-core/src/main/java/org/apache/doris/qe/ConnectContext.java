@@ -25,7 +25,6 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.qe.QueryDetail;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -94,7 +93,8 @@ public class ConnectContext {
     protected Catalog catalog;
     protected boolean isSend;
 
-    protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();;
+    protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
+    ;
 
     protected String remoteIP;
 
@@ -337,7 +337,7 @@ public class ConnectContext {
     // kill operation with no protect.
     public void kill(boolean killConnection) {
         LOG.warn("kill timeout query, {}, kill connection: {}",
-                 getMysqlChannel().getRemoteHostPortString(), killConnection);
+                getMysqlChannel().getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -363,7 +363,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -371,7 +371,7 @@ public class ConnectContext {
         } else {
             if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
                 LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
                 // Only kill
                 killFlag = true;
@@ -391,7 +391,7 @@ public class ConnectContext {
     }
 
     public class ThreadInfo {
-        public List<String>  toRow(long nowMs) {
+        public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));

@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-返回指定label的导入作业的状态
+返回指定label的导入事务的状态
     
 ## Path parameters
 
@@ -52,8 +52,37 @@ under the License.
 
 ## Response
 
-TODO
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": "VISIBLE",
+	"count": 0
+}
+```
+
+如label不存在，则返回：
+
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": "UNKNOWN",
+	"count": 0
+}
+```
     
 ## Examples
 
-TODO
+1. 回去指定label的导入事务的状态。
+
+    ```
+    GET /api/example_db/get_load_state?label=my_label
+    
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": "VISIBLE",
+    	"count": 0
+    }
+    ```

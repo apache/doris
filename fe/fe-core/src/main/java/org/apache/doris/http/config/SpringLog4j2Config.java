@@ -17,7 +17,6 @@
 
 package org.apache.doris.http.config;
 
-import org.apache.doris.PaloFe;
 import org.apache.doris.common.Log4jConfig;
 
 import java.io.File;
@@ -27,16 +26,17 @@ import java.io.Writer;
 
 public class SpringLog4j2Config {
 
+    public static final String SPRING_LOG_XML_FILE = "log4j2-spring.xml";
+
     /**
      * write spring boot log4j2-spring.xml file
      */
-    public static void writeSpringLogConf() throws IOException {
+    public static void writeSpringLogConf(String confDir) throws IOException {
         Writer writer = null;
         try {
-            //log4j2-spring.xml file path
-            String logConfFilePath = PaloFe.class.getResource("/").getPath();
-            File file = new File(logConfFilePath + "log4j2-spring.xml");
-            if(!file.exists()){
+            // log4j2-spring.xml file path
+            File file = new File(confDir + SPRING_LOG_XML_FILE);
+            if (!file.exists()) {
                 file.createNewFile();
                 //write file
                 writer = new FileWriter(file);
@@ -49,10 +49,8 @@ public class SpringLog4j2Config {
                 writer.write(Log4jConfig.getLogXmlConfTemplate());
             }
             System.out.println("==============================");
-        }catch (IOException e){
-            e.printStackTrace();
         } finally {
-            if(writer != null){
+            if (writer != null) {
                 writer.close();
             }
         }

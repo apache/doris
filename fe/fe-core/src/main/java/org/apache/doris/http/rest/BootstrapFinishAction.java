@@ -77,7 +77,7 @@ public class BootstrapFinishAction {
 
                 // cluster id and token are valid, return replayed journal id
                 long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
-                result.setMaxReplayedJournal(replayedJournalId);
+                result.setReplayedJournalId(replayedJournalId);
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
             }
@@ -85,7 +85,7 @@ public class BootstrapFinishAction {
             return ResponseEntityBuilder.ok(result);
         }
 
-        return ResponseEntityBuilder.ok("not ready");
+        return ResponseEntityBuilder.okWithCommonError("not ready");
     }
 
     private static class BootstrapResult {
@@ -97,11 +97,11 @@ public class BootstrapFinishAction {
 
         }
 
-        public void setMaxReplayedJournal(long replayedJournalId) {
+        public void setReplayedJournalId(long replayedJournalId) {
             this.replayedJournalId = replayedJournalId;
         }
 
-        public long getMaxReplayedJournal() {
+        public long getReplayedJournalId() {
             return replayedJournalId;
         }
 

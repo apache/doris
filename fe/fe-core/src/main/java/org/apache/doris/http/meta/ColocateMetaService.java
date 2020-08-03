@@ -28,22 +28,22 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
-import java.lang.reflect.Type;
-import java.util.List;
+import com.google.common.base.Preconditions;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.lang.reflect.Type;
+import java.util.List;
 
 /*
  * the colocate meta define in {@link ColocateTableIndex}
@@ -65,10 +65,11 @@ import javax.servlet.http.HttpServletResponse;
  *      eg:
  *          POST    /api/colocate/bucketseq?db_id=123&group_id=456
  */
+
+@RestController
 public class ColocateMetaService extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(ColocateMetaService.class);
     private static final String GROUP_ID = "group_id";
-    private static final String TABLE_ID = "table_id";
     private static final String DB_ID = "db_id";
 
     private static ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();

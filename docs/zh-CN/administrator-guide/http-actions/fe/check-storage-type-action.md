@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-用于检查指定数据库下的表的存储格式是行存还是列存
+用于检查指定数据库下的表的存储格式否是行存格式。（行存格式已废弃）
     
 ## Path parameters
 
@@ -40,7 +40,7 @@ under the License.
 
 ## Query parameters
 
-* db
+* `db`
 
     指定数据库
 
@@ -50,8 +50,35 @@ under the License.
 
 ## Response
 
-TODO
-    
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"tbl2": {},
+		"tbl1": {}
+	},
+	"count": 0
+}
+```
+
+如果表名后由内容，则会显示存储格式为行存的 base 或者 rollup 表。
+
 ## Examples
 
-TODO
+1. 检查指定数据库下表的存储格式是否为行存
+
+    ```
+    GET /api/_check_storagetype
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"tbl2": {},
+    		"tbl1": {}
+    	},
+    	"count": 0
+    }
+    ```

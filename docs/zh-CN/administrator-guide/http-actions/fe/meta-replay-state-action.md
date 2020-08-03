@@ -26,13 +26,15 @@ under the License.
 
 # Meta Replay State Action
 
+（未实现）
+
 ## Request
 
 `GET /api/_meta_replay_state`
 
 ## Description
 
-获取 FE 节点元数据回放的状态
+获取 FE 节点元数据回放的状态。
     
 ## Path parameters
 

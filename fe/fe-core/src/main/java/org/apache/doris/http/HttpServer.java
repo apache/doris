@@ -17,6 +17,8 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.http.config.SpringLog4j2Config;
+
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -42,7 +44,7 @@ public class HttpServer extends SpringBootServletInitializer {
         return application.sources(HttpServer.class);
     }
 
-    public void start() {
+    public void start(String dorisHome) {
         Map<String, Object> properties = new HashMap<>();
         properties.put("server.port", port);
         properties.put("server.servlet.context-path", "/");
@@ -50,6 +52,7 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
+        properties.put("logging.config", dorisHome + "/conf/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
                 .properties(properties)

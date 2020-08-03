@@ -45,6 +45,7 @@ public class AuthInterceptor extends BaseController implements HandlerIntercepto
     @Override
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response, Object handler) throws Exception {
+        logger.debug("get prehandle. thread: {}", Thread.currentThread().getId());
         String sessionId = getCookieValue(request, BaseController.PALO_SESSION_ID, response);
         SessionValue user = HttpAuthManager.getInstance().getSessionValue(sessionId);
         String method = request.getMethod();

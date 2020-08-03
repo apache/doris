@@ -59,7 +59,7 @@ under the License.
     ```
     {
     	"msg": "OK",
-    	"code": 200,
+    	"code": 0,
     	"data": null,
     	"count": 0
     }
@@ -72,7 +72,7 @@ under the License.
     ```
     {
     	"msg": "OK",
-    	"code": 200,
+    	"code": 0,
     	"data": {
     		"queryPort": 9030,
     		"rpcPort": 9020,
@@ -96,7 +96,7 @@ under the License.
     Response:
     {
     	"msg": "OK",
-    	"code": 200,
+    	"code": 0,
     	"data": null,
     	"count": 0
     }
@@ -110,7 +110,7 @@ under the License.
     Response:
     {
     	"msg": "OK",
-    	"code": 200,
+    	"code": 0,
     	"data": {
     		"queryPort": 9030,
     		"rpcPort": 9020,
