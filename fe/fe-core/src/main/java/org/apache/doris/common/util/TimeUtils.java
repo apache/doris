@@ -29,10 +29,10 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Preconditions; 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager; 
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.text.ParseException;
 import java.text.ParsePosition;
@@ -55,10 +55,13 @@ public class TimeUtils {
 
     private static final TimeZone TIME_ZONE;
 
-    // set CST to +08:00 instead of America/Chicago
-    // set UTC to +00:00 whose TZ database name is Africa/Abidjan
-    // reference: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-    public static final ImmutableMap<String, String> TIMEZONE_ALIAS_MAP = ImmutableMap.of(
+    /**
+      * set CST to +08:00 instead of America/Chicago
+      * set UTC to +00:00 whose TZ database name is Africa/Abidjan
+      * reference: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+      * NOTICE: If we add some alias, we should add UT in be/test/util/time_zone_test.cpp to ensure that the timezone is compatible in BE
+      */
+    private static final ImmutableMap<String, String> TIMEZONE_ALIAS_MAP = ImmutableMap.of(
             "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE, "UTC", DEFAULT_UTC_TIME_ZONE);
 
     // NOTICE: Date formats are not synchronized.
@@ -248,7 +251,15 @@ public class TimeUtils {
         return d.getTime();
     }
 
-    // Check if the time zone_value is valid
+    public static boolean containsInTimeZoneAliasMap(String timezone) {
+        return TIMEZONE_ALIAS_MAP.containsKey(timezone);
+    }
+
+    /**
+     * Check if the time zone_value is valid
+     * Unify return TimeZone string from ZoneId.getId()
+     * eg: input: CST --> output: Asia/Shanghai, input: UTC --> output: Africa/Abidjan
+     */
     public static String checkTimeZoneValidAndStandardize(String value) throws DdlException {
         try {
             if (value == null) {
@@ -258,7 +269,7 @@ public class TimeUtils {
             Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
             // it supports offset and region timezone type, "CST" use here is compatibility purposes.
             boolean match = matcher.matches();
-            if (!value.contains("/") && !value.equals("CST") && !value.equals("PRC") && !value.equals("UTC") && !match) {
+            if (!value.contains("/") && !containsInTimeZoneAliasMap(value) && !match) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
             }
             if (match) {
@@ -275,8 +286,7 @@ public class TimeUtils {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
                 }
             }
-            ZoneId.of(value, TIMEZONE_ALIAS_MAP);
-            return value;
+            return ZoneId.of(value, TIMEZONE_ALIAS_MAP).getId();
         } catch (DateTimeException ex) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
         }

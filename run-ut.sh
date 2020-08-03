@@ -178,6 +178,7 @@ ${DORIS_TEST_BINARY_DIR}/util/monotime_test
 ${DORIS_TEST_BINARY_DIR}/util/scoped_cleanup_test
 ${DORIS_TEST_BINARY_DIR}/util/thread_test
 ${DORIS_TEST_BINARY_DIR}/util/threadpool_test
+${DORIS_TEST_BINARY_DIR}/util/time_zone_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/config_test
