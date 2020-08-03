@@ -28,6 +28,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
@@ -371,6 +372,7 @@ public class RollupJobV2Test {
     @Test
     public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException,
             AnalysisException {
+        Config.enable_materialized_view = true;
         // prepare file
         File file = new File(fileName);
         file.createNewFile();
@@ -395,12 +397,14 @@ public class RollupJobV2Test {
         List<Expr> params = Lists.newArrayList();
         SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
         params.add(param1);
-        Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
-        columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));
+        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, Type.BITMAP);
+        mvColumnItem.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));
+        List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
+        mvColumnItemList.add(mvColumnItem);
         new Expectations() {
             {
-                stmt.parseDefineExprWithoutAnalyze();
-                result = columnNameToDefineExpr;
+                stmt.getMVColumnItemList();
+                result =  mvColumnItemList;
             }
         };
 
