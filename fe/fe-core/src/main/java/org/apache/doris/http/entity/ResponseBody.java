@@ -20,7 +20,10 @@ package org.apache.doris.http.entity;
 import org.apache.doris.http.rest.RestApiStatusCode;
 
 /**
- * The response body of restful api
+ * The response body of restful api.
+ * <p>
+ * The getter setter methods of all member variables need to be retained
+ * to ensure that Spring can perform json format conversion.
  *
  * @param <T> type of data
  */
@@ -56,8 +59,37 @@ public class ResponseBody<T> {
         return this;
     }
 
+
+    public String getMsg() {
+        return msg;
+    }
+
+    public void setMsg(String msg) {
+        this.msg = msg;
+    }
+
+    public int getCode() {
+        return code;
+    }
+
+    public void setCode(int code) {
+        this.code = code;
+    }
+
+    public T getData() {
+        return data;
+    }
+
+    public void setData(T data) {
+        this.data = data;
+    }
+
     public void setCount(int count) {
         this.count = count;
+    }
+
+    public int getCount() {
+        return count;
     }
 
     public ResponseBody commonError(String msg) {

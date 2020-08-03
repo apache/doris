@@ -130,7 +130,6 @@ public class RestBaseController extends BaseController {
         return true;
     }
 
-
     public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
         URI urlObj = null;
         URI resultUriObj = null;
@@ -142,7 +141,12 @@ public class RestBaseController extends BaseController {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        RedirectView redirectView = new RedirectView(resultUriObj.toASCIIString() + request.getQueryString());
+        String redirectUrl = resultUriObj.toASCIIString();
+        if (!Strings.isNullOrEmpty(request.getQueryString())) {
+            redirectUrl += request.getQueryString();
+        }
+        LOG.info("redirect url: {}", redirectUrl);
+        RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
         return redirectView;
