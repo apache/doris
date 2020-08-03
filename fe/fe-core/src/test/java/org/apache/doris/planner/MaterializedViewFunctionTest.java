@@ -758,6 +758,15 @@ public class MaterializedViewFunctionTest {
     }
 
     @Test
+    public void testApproxCountDistinctToHll() throws Exception {
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, " +
+                "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
+        dorisAssert.withMaterializedView(createUserTagMVSql);
+        String query = "select approx_count_distinct(tag_id) from " + USER_TAG_TABLE_NAME + ";";
+        dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, "hll_union_agg");
+    }
+
+    @Test
     public void testHLLUnionFamilyRewrite() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, " +
                 "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME + " group by user_id;";
