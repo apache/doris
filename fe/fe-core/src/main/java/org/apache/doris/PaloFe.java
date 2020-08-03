@@ -43,9 +43,7 @@ import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
 import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -89,6 +87,8 @@ public class PaloFe {
             }
 
             Log4jConfig.initLogging();
+            //write springboot log4j2 conf file
+            writeSpringLogConf();
 
             // set dns cache ttl
             java.security.Security.setProperty("networkaddress.cache.ttl" , "60");
@@ -126,6 +126,30 @@ public class PaloFe {
         } catch (Throwable e) {
             e.printStackTrace();
             return;
+        }
+    }
+
+    /**
+     * write spring boot log4j2-spring.xml file
+     */
+    private static void writeSpringLogConf() throws IOException {
+        Writer writer = null;
+        try {
+            //log4j2-spring.xml file path
+            String logConfFilePath = PaloFe.class.getResource("/").getPath();
+            File file = new File(logConfFilePath + "log4j2-spring.xml");
+            if(!file.exists()){
+                file.createNewFile();
+                //write file
+                writer = new FileWriter(file);
+                writer.write(Log4jConfig.getLogXmlConfTemplate());
+            }
+        }catch (IOException e){
+            e.printStackTrace();
+        } finally {
+            if(writer != null){
+                writer.close();
+            }
         }
     }
 

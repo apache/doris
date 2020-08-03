@@ -111,7 +111,10 @@ public class Log4jConfig extends XmlConfiguration {
     private static String sysLogLevel;
     private static String[] verboseModules;
     private static String[] auditModules;
-    
+
+    private static String logXmlConfTemplate;
+
+
     private static void reconfig() throws IOException {
         String newXmlConfTemplate = xmlConfTemplate;
 
@@ -182,6 +185,7 @@ public class Log4jConfig extends XmlConfiguration {
         System.out.println("=====");
         System.out.println(newXmlConfTemplate);
         System.out.println("=====");
+        logXmlConfTemplate = newXmlConfTemplate;
 
         // new SimpleLog4jConfiguration with xmlConfTemplate
         ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes("UTF-8"));
@@ -191,6 +195,10 @@ public class Log4jConfig extends XmlConfiguration {
         // LoggerContext.start(new Configuration)
         LoggerContext context = (LoggerContext) LogManager.getContext(false);
         context.start(config);  
+    }
+
+    public static String getLogXmlConfTemplate(){
+        return logXmlConfTemplate;
     }
     
     public static class Tuple<X, Y, Z> {

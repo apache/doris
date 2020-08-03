@@ -27,6 +27,10 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.logging.LogLevel;
+import org.springframework.boot.logging.LoggerConfiguration;
+import org.springframework.boot.logging.LoggingSystem;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,6 +53,8 @@ public class LogController {
 
     private String addVerboseName;
     private String delVerboseName;
+    @Autowired
+    private LoggingSystem loggingSystem;
 
     @RequestMapping(path = "/log", method = RequestMethod.GET)
     public Object log(HttpServletRequest request) {
@@ -75,6 +81,7 @@ public class LogController {
                     verboseNames.add(addVerboseName);
                     configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
                             null);
+                    loggingSystem.setLogLevel(addVerboseName, LogLevel.DEBUG);
                 }
             }
             if (!Strings.isNullOrEmpty(delVerboseName)) {
@@ -84,6 +91,9 @@ public class LogController {
                     verboseNames.remove(delVerboseName);
                     configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
                             null);
+                    LoggerConfiguration loggerConfiguration = loggingSystem.getLoggerConfiguration(delVerboseName);
+                    loggingSystem.getLoggerConfigurations().remove(loggerConfiguration);
+                    loggingSystem.beforeInitialize();
                 }
             }
 
