@@ -286,6 +286,11 @@ public class SingleNodePlanner {
             PlanNode node = createEmptyNode(stmt, analyzer);
             // Ensure result exprs will be substituted by right outputSmap
             node.setOutputSmap(root.outputSmap);
+            // Currently, getMaterializedTupleIds for AnalyticEvalNode is wrong,
+            // So we explicitly add AnalyticEvalNode tuple ids to EmptySetNode
+            if (root instanceof AnalyticEvalNode) {
+                node.getTupleIds().addAll(root.tupleIds);
+            }
             return node;
         }
 
