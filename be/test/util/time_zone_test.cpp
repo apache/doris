@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
+#include "cctz/time_zone.h"
 
 #include <gtest/gtest.h>
 
-#include "cctz/time_zone.h"
+#include <string>
+
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -39,7 +40,7 @@ TEST_F(TimeZoneTest, TestTimeZone) {
     check_time_zone_valid("Africa/Abidjan");
     check_time_zone_valid("Asia/Shanghai");
 }
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
