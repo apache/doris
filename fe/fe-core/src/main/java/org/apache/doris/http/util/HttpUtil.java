@@ -17,8 +17,6 @@
 
 package org.apache.doris.http.util;
 
-import static org.springframework.http.HttpHeaders.CONNECTION;
-
 import com.google.common.base.Strings;
 
 import java.io.BufferedReader;
@@ -26,19 +24,21 @@ import java.io.IOException;
 
 import javax.servlet.http.HttpServletRequest;
 
+import static org.springframework.http.HttpHeaders.CONNECTION;
+
 public class HttpUtil {
-    public static boolean isKeepAlive(HttpServletRequest request ) {
-        if(!request.getHeader(CONNECTION).equals("close") &&
+    public static boolean isKeepAlive(HttpServletRequest request) {
+        if (!request.getHeader(CONNECTION).equals("close") &&
                 (request.getProtocol().equals("") ||
-                        request.getHeader(CONNECTION).equals("keep-alive"))){
+                        request.getHeader(CONNECTION).equals("keep-alive"))) {
             return true;
         }
         return false;
     }
 
-    public static boolean isSslEnable(HttpServletRequest request){
+    public static boolean isSslEnable(HttpServletRequest request) {
         String url = request.getRequestURL().toString();
-        if(!Strings.isNullOrEmpty(url) && url.startsWith("https")){
+        if (!Strings.isNullOrEmpty(url) && url.startsWith("https")) {
             return true;
         }
         return false;

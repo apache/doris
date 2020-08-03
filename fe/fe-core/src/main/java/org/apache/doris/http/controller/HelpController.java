@@ -17,8 +17,7 @@
 
 package org.apache.doris.http.controller;
 
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.qe.HelpModule;
 import org.apache.doris.qe.HelpTopic;
 
@@ -41,8 +40,8 @@ public class HelpController {
 
     private String queryString = null;
 
-    @RequestMapping(path = "/help",method = RequestMethod.GET)
-    public Object helpSearch(HttpServletRequest request){
+    @RequestMapping(path = "/help", method = RequestMethod.GET)
+    public Object helpSearch(HttpServletRequest request) {
         this.queryString = request.getParameter("query");
         if (Strings.isNullOrEmpty(queryString)) {
             // ATTN: according to Mysql protocol, the default query should be "contents"
@@ -51,105 +50,104 @@ public class HelpController {
         } else {
             queryString = queryString.trim();
         }
-        Map<String,Object> result = new HashMap<>();
+        Map<String, Object> result = new HashMap<>();
         appendHelpInfo(result);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(result);
-        return entity;
+        return ResponseEntityBuilder.ok(result);
     }
 
-    private void appendHelpInfo(Map<String,Object> result) {
+    private void appendHelpInfo(Map<String, Object> result) {
         appendExactMatchTopic(result);
         appendFuzzyMatchTopic(result);
         appendCategories(result);
     }
 
-    private void appendExactMatchTopic(Map<String,Object> result) {
+    private void appendExactMatchTopic(Map<String, Object> result) {
         HelpModule module = HelpModule.getInstance();
         HelpTopic topic = module.getTopic(queryString);
         if (topic == null) {
-            result.put("matching","No Exact Matching Topic.");
+            result.put("matching", "No Exact Matching Topic.");
         } else {
-            Map<String,Object> subMap = new HashMap<>();
-            appendOneTopicInfo(subMap, topic,"matching");
-            result.put("matchingTopic",subMap);
+            Map<String, Object> subMap = new HashMap<>();
+            appendOneTopicInfo(subMap, topic, "matching");
+            result.put("matchingTopic", subMap);
         }
     }
 
-    private void appendFuzzyMatchTopic(Map<String,Object> result) {
+    private void appendFuzzyMatchTopic(Map<String, Object> result) {
         HelpModule module = HelpModule.getInstance();
         List<String> topics = module.listTopicByKeyword(queryString);
         if (topics.isEmpty()) {
-            result.put("fuzzy","No Fuzzy Matching Topic");
+            result.put("fuzzy", "No Fuzzy Matching Topic");
         } else if (topics.size() == 1) {
             result.put("fuzzy", "Find only one topic, show you the detail info below");
-            Map<String,Object> subMap = new HashMap<>();
-            appendOneTopicInfo(subMap, module.getTopic(topics.get(0)),"fuzzy");
-            result.put("fuzzyTopic",subMap);
+            Map<String, Object> subMap = new HashMap<>();
+            appendOneTopicInfo(subMap, module.getTopic(topics.get(0)), "fuzzy");
+            result.put("fuzzyTopic", subMap);
         } else {
             result.put("size", topics.size());
-            result.put("datas",topics);
+            result.put("datas", topics);
         }
     }
 
-    private void appendCategories(Map<String,Object> result) {
+    private void appendCategories(Map<String, Object> result) {
         HelpModule module = HelpModule.getInstance();
         List<String> categories = module.listCategoryByName(queryString);
         if (categories.isEmpty()) {
-            result.put("matching","No Matching Category");
+            result.put("matching", "No Matching Category");
         } else if (categories.size() == 1) {
             result.put("matching", "Find only one category, so show you the detail info below");
             List<String> topics = module.listTopicByCategory(categories.get(0));
 
             if (topics.size() > 0) {
-                List<Map<String,String>> topic_list = new ArrayList<>();
+                List<Map<String, String>> topic_list = new ArrayList<>();
                 result.put("topicSize", topics.size());
-                for(String topic : topics) {
-                    Map<String,String> top = new HashMap<>();
-                    top.put("name",topic);
+                for (String topic : topics) {
+                    Map<String, String> top = new HashMap<>();
+                    top.put("name", topic);
                     topic_list.add(top);
                 }
-                result.put("topicdatas",topic_list);
+                result.put("topicdatas", topic_list);
             }
 
             List<String> subCategories = module.listCategoryByCategory(categories.get(0));
             if (subCategories.size() > 0) {
-                List<Map<String,String>> subCate = new ArrayList<>();
+                List<Map<String, String>> subCate = new ArrayList<>();
                 result.put("subCateSize", subCategories.size());
-                for(String sub : subCategories) {
-                    Map<String,String> subMap = new HashMap<>();
-                    subMap.put("name",sub);
+                for (String sub : subCategories) {
+                    Map<String, String> subMap = new HashMap<>();
+                    subMap.put("name", sub);
                     subCate.add(subMap);
                 }
-                result.put("subdatas",subCate);
+                result.put("subdatas", subCate);
             }
         } else {
-            List<Map<String,String>> category_list = new ArrayList<>();
+            List<Map<String, String>> category_list = new ArrayList<>();
             if (categories.size() > 0) {
                 result.put("categoriesSize", categories.size());
-                for(String cate : categories) {
-                    Map<String,String> subMap = new HashMap<>();
-                    subMap.put("name",cate);
+                for (String cate : categories) {
+                    Map<String, String> subMap = new HashMap<>();
+                    subMap.put("name", cate);
                     category_list.add(subMap);
                 }
-                result.put("categoryDatas",category_list);
+                result.put("categoryDatas", category_list);
             }
         }
     }
 
     // The browser will combine continuous whitespace to one, we use <pre> tag to solve this issue.
-    private void appendOneTopicInfo(Map<String,Object> result, HelpTopic topic,String prefix) {
-        result.put(prefix+"topic", escapeHtmlInPreTag(topic.getName()) );
-        result.put(prefix+"description",escapeHtmlInPreTag(topic.getDescription()));
-        result.put(prefix+"example",escapeHtmlInPreTag(topic.getExample()));
-        result.put(prefix+"Keyword", escapeHtmlInPreTag(topic.getKeywords().toString()));
-        result.put(prefix+"Url", escapeHtmlInPreTag(topic.getUrl()));
+    private void appendOneTopicInfo(Map<String, Object> result, HelpTopic topic, String prefix) {
+        result.put(prefix + "topic", escapeHtmlInPreTag(topic.getName()));
+        result.put(prefix + "description", escapeHtmlInPreTag(topic.getDescription()));
+        result.put(prefix + "example", escapeHtmlInPreTag(topic.getExample()));
+        result.put(prefix + "Keyword", escapeHtmlInPreTag(topic.getKeywords().toString()));
+        result.put(prefix + "Url", escapeHtmlInPreTag(topic.getUrl()));
     }
 
     protected String escapeHtmlInPreTag(String oriStr) {
         if (oriStr == null) {
             return "";
         }
-        String content =oriStr.replaceAll("\n","</br>");
+        String content = oriStr.replaceAll("\n", "</br>");
         return content;
     }
 

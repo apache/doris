@@ -27,17 +27,18 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /*
  * calc row count from replica to table
@@ -51,10 +52,10 @@ public class CheckDecommissionAction extends RestBaseController {
 
     public static final String HOST_PORTS = "host_ports";
 
-    @RequestMapping(path = "/api/check_decommission",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/check_decommission", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
         //check user auth
-        executeCheckPassword(request,response);
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         String hostPorts = request.getParameter(HOST_PORTS);

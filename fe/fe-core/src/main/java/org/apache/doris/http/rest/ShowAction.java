@@ -16,25 +16,19 @@
 // under the License.
 package org.apache.doris.http.rest;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.ha.HAProtocol;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
@@ -42,14 +36,17 @@ import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -58,8 +55,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 @RestController
-public class ShowAction extends RestBaseController{
+public class ShowAction extends RestBaseController {
 
     private static final Logger LOG = LogManager.getLogger(ShowAction.class);
 
@@ -77,32 +77,27 @@ public class ShowAction extends RestBaseController{
         }
     }
 
-    @RequestMapping(path = "/api/show_meta_info",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/show_meta_info", method = RequestMethod.GET)
     public Object show_meta_info(HttpServletRequest request, HttpServletResponse response) {
         String action = request.getParameter("action");
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         switch (Action.getAction(action.toUpperCase())) {
             case SHOW_DB_SIZE:
-                entity.setData(getDataSize());
-                break;
+                return ResponseEntityBuilder.ok(getDataSize());
             case SHOW_HA:
-                entity.setData(getHaInfo());
-                break;
+                return ResponseEntityBuilder.ok(getHaInfo());
             default:
-                break;
+                return ResponseEntityBuilder.badRequest("Unknown action" + action);
         }
-        return entity;
     }
 
     // Format:
     //http://username:password@192.168.1.1:8030/api/show_proc?path=/
-    @RequestMapping(path = "/api/show_proc",method = RequestMethod.GET)
-    public Object show_proc(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
+    @RequestMapping(path = "/api/show_proc", method = RequestMethod.GET)
+    public Object show_proc(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         // check authority
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         String path = request.getParameter("path");
         String forward = request.getParameter("forward");
         boolean isForward = false;
@@ -125,18 +120,15 @@ public class ShowAction extends RestBaseController{
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {
-                entity.setMsg("Failed to forward stmt: " + e.getMessage());
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                return entity;
+                return ResponseEntityBuilder.internalError("Failed to forward stmt: " + e.getMessage());
             }
 
             ShowResultSet resultSet = masterOpExecutor.getProxyResultSet();
             if (resultSet == null) {
-                entity.setMsg("Failed to get result set");
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                return entity;
+                return ResponseEntityBuilder.internalError("Failed to get result set");
             }
-            entity.setData(resultSet.getResultRows());
+
+            return ResponseEntityBuilder.ok(resultSet.getResultRows());
         } else {
             ProcNodeInterface procNode = null;
             ProcService instance = ProcService.getInstance();
@@ -147,8 +139,7 @@ public class ShowAction extends RestBaseController{
                     procNode = instance.open(path);
                 }
             } catch (AnalysisException e) {
-                LOG.warn(e.getMessage());
-                //response.getContent().append("[]");
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
 
             if (procNode != null) {
@@ -156,20 +147,19 @@ public class ShowAction extends RestBaseController{
                 try {
                     result = procNode.fetchResult();
                     List<List<String>> rows = result.getRows();
-                    entity.setData(rows);
+                    return ResponseEntityBuilder.ok(rows);
                 } catch (AnalysisException e) {
-                    LOG.warn(e.getMessage());
-                    //response.getContent().append("[]");
+                    return ResponseEntityBuilder.okWithCommonError(e.getMessage());
                 }
+            } else {
+                return ResponseEntityBuilder.badRequest("Invalid proc path: " + path);
             }
         }
-        return entity;
     }
 
-    @RequestMapping(path = "/api/show_runtime_info",method = RequestMethod.GET)
-    public Object show_runtime_info(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+    @RequestMapping(path = "/api/show_runtime_info", method = RequestMethod.GET)
+    public Object show_runtime_info(HttpServletRequest request, HttpServletResponse response) {
         HashMap<String, String> feInfo = new HashMap<String, String>();
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
 
         // Get memory info
         Runtime r = Runtime.getRuntime();
@@ -182,42 +172,40 @@ public class ShowAction extends RestBaseController{
         for (parentThread = Thread.currentThread().getThreadGroup();
              parentThread.getParent() != null;
              parentThread = parentThread.getParent()) {
-        };
+        }
+        ;
         feInfo.put("thread_cnt", String.valueOf(parentThread.activeCount()));
 
-        entity.setData(feInfo);
-        return feInfo;
+        return ResponseEntityBuilder.ok(feInfo);
     }
 
-    @RequestMapping(path = "/api/show_data",method = RequestMethod.GET)
-    public Object show_data(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+    @RequestMapping(path = "/api/show_data", method = RequestMethod.GET)
+    public Object show_data(HttpServletRequest request, HttpServletResponse response) {
 
         Map<String, Map<String, Long>> result = Maps.newHashMap();
         Map<String, Long> oneEntry = Maps.newHashMap();
 
-        String dbName = request.getParameter("db");
+        String dbName = request.getParameter(DB_KEY);
         ConcurrentHashMap<String, Database> fullNameToDb = Catalog.getCurrentCatalog().getFullNameToDb();
         long totalSize = 0;
         if (dbName != null) {
-            Database db = fullNameToDb.get(ClusterNamespace.getFullName("default_cluster", dbName));
+            String fullDbName = getFullDbName(dbName);
+            Database db = fullNameToDb.get(fullDbName);
             if (db == null) {
-                entity.setMsg("database " + dbName + " not found.");
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("database " + dbName + " not found.");
             }
             totalSize = getDataSizeOfDatabase(db);
             oneEntry.put(dbName, totalSize);
         } else {
             for (Database db : fullNameToDb.values()) {
-                LOG.info("database name: {}", db.getFullName());
+                if (db.isInfoSchemaDb()) {
+                    continue;
+                }
                 totalSize += getDataSizeOfDatabase(db);
             }
             oneEntry.put("__total_size", totalSize);
         }
-        result.put("show_data", oneEntry);
-        entity.setData(result);
-        return entity;
+        return ResponseEntityBuilder.ok(result);
     }
 
     private Map<String, String> getHaInfo() {

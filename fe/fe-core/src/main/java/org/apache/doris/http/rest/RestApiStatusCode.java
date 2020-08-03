@@ -17,7 +17,7 @@
 
 package org.apache.doris.http.rest;
 
-public enum  RestApiStatusCode {
+public enum RestApiStatusCode {
     OK(0),
     COMMON_ERROR(1);
 

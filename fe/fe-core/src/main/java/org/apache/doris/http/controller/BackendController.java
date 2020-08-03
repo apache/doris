@@ -18,8 +18,7 @@
 package org.apache.doris.http.controller;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
@@ -38,14 +37,13 @@ import java.util.Map;
 public class BackendController {
     private static final Logger LOG = LogManager.getLogger(BackendController.class);
 
-    @RequestMapping(path = "/backend",method = RequestMethod.GET)
-    public Object backend(){
+    @RequestMapping(path = "/backend", method = RequestMethod.GET)
+    public Object backend() {
         ImmutableMap<Long, Backend> backendMap = Catalog.getCurrentSystemInfo().getIdToBackend();
-        Map<String,Backend> result = new HashMap<>();
-        for(long key : backendMap.keySet()){
-            result.put(Long.toString(key),backendMap.get(key));
+        Map<String, Backend> result = new HashMap<>();
+        for (long key : backendMap.keySet()) {
+            result.put(Long.toString(key), backendMap.get(key));
         }
-        ResponseEntity<Map> entity = ResponseEntity.status(HttpStatus.OK).build(result);
-        return entity;
+        return ResponseEntityBuilder.ok(result);
     }
 }

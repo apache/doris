@@ -19,8 +19,7 @@ package org.apache.doris.http.controller;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Log4jConfig;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -51,9 +50,9 @@ public class LogController {
     private String addVerboseName;
     private String delVerboseName;
 
-    @RequestMapping(path = "/log",method = RequestMethod.GET)
-    public Object log(HttpServletRequest request){
-        Map<String,Map<String,String>> map = new HashMap<>();
+    @RequestMapping(path = "/log", method = RequestMethod.GET)
+    public Object log(HttpServletRequest request) {
+        Map<String, Map<String, String>> map = new HashMap<>();
         // get parameters
         addVerboseName = request.getParameter("add_verbose");
         delVerboseName = request.getParameter("del_verbose");
@@ -61,12 +60,11 @@ public class LogController {
 
         appendLogConf(map);
         appendLogInfo(map);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(map);
-        return entity;
+        return ResponseEntityBuilder.ok(map);
     }
 
-    private void appendLogConf(Map<String,Map<String,String>> content) {
-        Map<String,String> map = new HashMap<>();
+    private void appendLogConf(Map<String, Map<String, String>> content) {
+        Map<String, String> map = new HashMap<>();
 
         try {
             Log4jConfig.Tuple<String, String[], String[]> configs = Log4jConfig.updateLogging(null, null, null);
@@ -90,20 +88,20 @@ public class LogController {
             }
 
             map.put("Level", configs.x);
-            map.put("VerboseNames" , StringUtils.join(configs.y, ",") );
-            map.put("AuditNames",StringUtils.join(configs.z, ","));
-            content.put("LogConfiguration",map);
+            map.put("VerboseNames", StringUtils.join(configs.y, ","));
+            map.put("AuditNames", StringUtils.join(configs.z, ","));
+            content.put("LogConfiguration", map);
         } catch (IOException e) {
             LOG.error(e);
             e.printStackTrace();
         }
     }
 
-    private void appendLogInfo(Map<String,Map<String,String>> content) {
-        Map<String,String> map = new HashMap<>();
+    private void appendLogInfo(Map<String, Map<String, String>> content) {
+        Map<String, String> map = new HashMap<>();
 
         final String logPath = Config.sys_log_dir + "/fe.warn.log";
-        map.put("logPath",logPath );
+        map.put("logPath", logPath);
 
         RandomAccessFile raf = null;
         try {
@@ -112,7 +110,7 @@ public class LogController {
             long startPos = fileSize < WEB_LOG_BYTES ? 0L : fileSize - WEB_LOG_BYTES;
             long webContentLength = fileSize < WEB_LOG_BYTES ? fileSize : WEB_LOG_BYTES;
             raf.seek(startPos);
-            map.put("Showinglast" , webContentLength + " bytes of log");
+            map.put("Showinglast", webContentLength + " bytes of log");
             StringBuffer buffer = new StringBuffer();
             String fileBuffer = null;
             buffer.append("<pre>");
@@ -120,12 +118,12 @@ public class LogController {
                 buffer.append(fileBuffer).append("</br>");
             }
             buffer.append("</pre>");
-            map.put("log",buffer.toString());
+            map.put("log", buffer.toString());
 
         } catch (FileNotFoundException e) {
-            map.put("error","Couldn't open log file: "+ logPath);
+            map.put("error", "Couldn't open log file: " + logPath);
         } catch (IOException e) {
-            map.put("error","Failed to read log file: " + logPath );
+            map.put("error", "Failed to read log file: " + logPath);
         } finally {
             try {
                 if (raf != null) {
@@ -135,6 +133,6 @@ public class LogController {
                 LOG.warn("fail to close log file: " + logPath, e);
             }
         }
-        content.put("LogContents",map);
+        content.put("LogContents", map);
     }
 }

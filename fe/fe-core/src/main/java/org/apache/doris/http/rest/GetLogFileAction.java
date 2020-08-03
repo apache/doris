@@ -22,21 +22,22 @@ import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.codehaus.jackson.map.ObjectMapper;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  *  get log file infos:
@@ -54,9 +55,9 @@ import java.util.Set;
 public class GetLogFileAction extends RestBaseController {
     private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
 
-    @RequestMapping(path = "/api/get_log_file",method = {RequestMethod.GET,RequestMethod.HEAD})
+    @RequestMapping(path = "/api/get_log_file", method = {RequestMethod.GET, RequestMethod.HEAD})
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request,response);
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String logType = request.getParameter("type");
@@ -82,7 +83,7 @@ public class GetLogFileAction extends RestBaseController {
             if (!log.exists() || !log.isFile()) {
                 return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + log.getName());
             }
-            if(log != null) {
+            if (log != null) {
                 try {
                     getFile(request, response, log, log.getName());
                 } catch (IOException e) {

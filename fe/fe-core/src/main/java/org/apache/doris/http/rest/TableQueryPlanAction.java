@@ -17,6 +17,8 @@
 
 package org.apache.doris.http.rest;
 
+import io.netty.handler.codec.http.HttpResponseStatus;
+
 import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
@@ -25,11 +27,8 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.http.util.HttpUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanFragment;
@@ -58,6 +57,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -72,84 +72,65 @@ import java.util.UUID;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 /**
  * This class responsible for parse the sql and generate the query plan fragment for a (only one) table{@see OlapTable}
  * the related tablet maybe pruned by query planer according the `where` predicate.
  */
 @RestController
-public class TableQueryPlanAction extends RestBaseController{
+public class TableQueryPlanAction extends RestBaseController {
     public static final Logger LOG = LogManager.getLogger(TableQueryPlanAction.class);
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",method = {RequestMethod.GET,RequestMethod.POST})
-    public Object query_plan(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
-        executeCheckPassword(request,response);
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan", method = {RequestMethod.GET, RequestMethod.POST})
+    public Object query_plan(
+            @PathVariable(value = DB_KEY) final String dbName,
+            @PathVariable(value = TABLE_KEY) final String tblName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
-        String dbName = request.getParameter(DB_KEY);
-        String tableName = request.getParameter(TABLE_KEY);
+
         String postContent = HttpUtil.getBody(request);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         try {
             // may be these common validate logic should be moved to one base class
-            if (Strings.isNullOrEmpty(dbName)
-                    || Strings.isNullOrEmpty(tableName)) {
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                entity.setMsg(dbName +"/"+tableName+" must be selected");
-                return entity;
-            }
             String sql;
             if (Strings.isNullOrEmpty(postContent)) {
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                entity.setMsg("POST body must contains [sql] root object");
-                return entity;
+                return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
             JSONObject jsonObject;
             try {
                 jsonObject = new JSONObject(postContent);
             } catch (JSONException e) {
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                entity.setMsg("malformed json [ " + postContent + " ]");
-                return entity;
+                return ResponseEntityBuilder.badRequest("malformed json: " + e.getMessage());
             }
+
             sql = String.valueOf(jsonObject.opt("sql"));
             if (Strings.isNullOrEmpty(sql)) {
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                entity.setMsg("POST body must contains [sql] root object");
-                return entity;
+                return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
             LOG.info("receive SQL statement [{}] from external service [ user [{}]] for database [{}] table [{}]",
-                    sql, ConnectContext.get().getCurrentUserIdentity(), dbName, tableName);
+                    sql, ConnectContext.get().getCurrentUserIdentity(), dbName, tblName);
 
-            String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
+            String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                entity.setMsg("Database [" + dbName + "] " + "does not exists");
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
             // may be should acquire writeLock
             db.readLock();
             try {
-                Table table = db.getTable(tableName);
+                Table table = db.getTable(tblName);
                 if (table == null) {
-                    entity.setCode(HttpStatus.NOT_FOUND.value());
-                    entity.setMsg("Table [" + tableName + "] " + "does not exists");
-                    return entity;
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
                 }
                 // just only support OlapTable, ignore others such as ESTable
                 if (table.getType() != Table.TableType.OLAP) {
-                    entity.setCode(HttpStatus.FORBIDDEN.value());
-                    entity.setMsg("only support OlapTable currently, but Table [" + tableName + "] "
-                            + "is not a OlapTable");
-                    return entity;
+                    return ResponseEntityBuilder.okWithCommonError("only support OlapTable currently, "
+                            + "but Table [" + tblName + "] " + "is not a OlapTable");
                 }
                 // parse/analysis/plan the sql and acquire tablet distributions
-                handleQuery(ConnectContext.get(), fullDbName, tableName, sql, resultMap);
+                handleQuery(ConnectContext.get(), fullDbName, tblName, sql, resultMap);
             } finally {
                 db.readUnlock();
             }
@@ -158,12 +139,7 @@ public class TableQueryPlanAction extends RestBaseController{
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
         }
-        try {
-            entity.setData(resultMap);
-        } catch (Exception e) {
-            entity.setData(e.getMessage());
-        }
-        return entity;
+        return ResponseEntityBuilder.ok(resultMap);
     }
 
 

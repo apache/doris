@@ -43,13 +43,13 @@ public class HttpServer extends SpringBootServletInitializer {
     }
 
     public void start() {
-        Map<String,Object> properties = new HashMap<>();
-        properties.put("server.port",port);
-        properties.put("server.servlet.context-path","/");
-        properties.put("spring.resources.static-locations","classpath:/static");
-        properties.put("spring.http.encoding.charset","UTF-8");
-        properties.put("spring.http.encoding.enabled",true);
-        properties.put("spring.http.encoding.force",true);
+        Map<String, Object> properties = new HashMap<>();
+        properties.put("server.port", port);
+        properties.put("server.servlet.context-path", "/");
+        properties.put("spring.resources.static-locations", "classpath:/static");
+        properties.put("spring.http.encoding.charset", "UTF-8");
+        properties.put("spring.http.encoding.enabled", true);
+        properties.put("spring.http.encoding.force", true);
         // properties.put("logging.pattern.console","");
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)

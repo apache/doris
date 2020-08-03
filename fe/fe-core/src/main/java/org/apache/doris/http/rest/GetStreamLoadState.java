@@ -21,13 +21,13 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.http.entity.ResponseEntityBuilder;
 
+import com.google.common.base.Strings;
+
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
-
-import com.google.common.base.Strings;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -38,7 +38,7 @@ public class GetStreamLoadState extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/get_load_state", method = RequestMethod.GET)
     public Object execute(@PathVariable(value = DB_KEY) final String dbName,
                           HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request,response);
+        executeCheckPassword(request, response);
 
         RedirectView redirectView = redirectToMaster(request, response);
         if (redirectView != null) {

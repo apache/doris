@@ -22,19 +22,18 @@ import org.apache.doris.common.Config;
 import org.apache.doris.http.entity.ResponseBody;
 import org.apache.doris.http.entity.ResponseEntityBuilder;
 
+import com.google.common.base.Strings;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.google.common.base.Strings;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 /**
  * Api for checking the whether the FE has been started successfully.
- *
  */
 @RestController
 public class BootstrapFinishAction {
@@ -46,7 +45,7 @@ public class BootstrapFinishAction {
     public static final String QUERY_PORT = "queryPort";
     public static final String RPC_PORT = "rpcPort";
 
-    @RequestMapping(path = "/api/bootstrap",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
         boolean isReady = Catalog.getCurrentCatalog().isReady();
 

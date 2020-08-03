@@ -85,9 +85,9 @@ public class BaseController {
             return true;
         } catch (UnauthorizedException e) {
             //response.appendContent("Authentication Failed. <br/> " + e.getMessage());
-            Map<String,Object> map = new HashMap<>();
-            map.put("code",500);
-            map.put("msg","Authentication Failed.");
+            Map<String, Object> map = new HashMap<>();
+            map.put("code", 500);
+            map.put("msg", "Authentication Failed.");
             return false;
         }
     }
@@ -102,7 +102,7 @@ public class BaseController {
 
 
     private boolean checkCookie(HttpServletRequest request, HttpServletResponse response) {
-        String sessionId = getCookieValue(request,PALO_SESSION_ID,response);
+        String sessionId = getCookieValue(request, PALO_SESSION_ID, response);
         HttpAuthManager authMgr = HttpAuthManager.getInstance();
         if (!Strings.isNullOrEmpty(sessionId)) {
             SessionValue sessionValue = authMgr.getSessionValue(sessionId);
@@ -113,7 +113,7 @@ public class BaseController {
                     PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
                             PaloPrivilege.NODE_PRIV),
                             CompoundPredicate.Operator.OR))) {
-                updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME,response);
+                updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
                 ConnectContext ctx = new ConnectContext(null);
                 ctx.setQualifiedUser(sessionValue.currentUser.getQualifiedUser());
@@ -128,9 +128,9 @@ public class BaseController {
         return false;
     }
 
-    public String getCookieValue(HttpServletRequest request, String cookieName, HttpServletResponse response){
+    public String getCookieValue(HttpServletRequest request, String cookieName, HttpServletResponse response) {
         Cookie[] cookies = request.getCookies();
-        if(cookies != null) {
+        if (cookies != null) {
             for (Cookie cookie : cookies) {
                 if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                     String sessionId = cookie.getValue();
@@ -141,9 +141,9 @@ public class BaseController {
         return null;
     }
 
-    public void updateCookieAge(HttpServletRequest request, String cookieName, int age,HttpServletResponse response) {
+    public void updateCookieAge(HttpServletRequest request, String cookieName, int age, HttpServletResponse response) {
         Cookie[] cookies = request.getCookies();
-        for(Cookie cookie :cookies){
+        for (Cookie cookie : cookies) {
             if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                 cookie.setMaxAge(age);
                 response.addCookie(cookie);

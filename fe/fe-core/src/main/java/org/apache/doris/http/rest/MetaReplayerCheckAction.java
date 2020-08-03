@@ -18,9 +18,7 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -41,15 +39,13 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class MetaReplayerCheckAction extends RestBaseController {
 
-    @RequestMapping(path = "/api/_meta_replay_state",method = RequestMethod.GET)
-    public Object execute(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+    @RequestMapping(path = "/api/_meta_replay_state", method = RequestMethod.GET)
+    public Object execute(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         Map<String, String> resultMap = Catalog.getCurrentCatalog().getMetaReplayState().getInfo();
 
-        entity.setData(resultMap);
-        return entity;
+        return ResponseEntityBuilder.ok(resultMap);
     }
 }

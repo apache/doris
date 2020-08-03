@@ -21,16 +21,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -52,45 +48,32 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class TableRowCountAction extends RestBaseController {
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count",method = RequestMethod.GET)
-    public Object count(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
-        executeCheckPassword(request,response);
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count", method = RequestMethod.GET)
+    public Object count(
+            @PathVariable(value = DB_KEY) final String dbName,
+            @PathVariable(value = TABLE_KEY) final String tblName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
-        String dbName = request.getParameter(DB_KEY);
-        String tableName = request.getParameter(TABLE_KEY);
-        ResponseEntity<Object> entity = ResponseEntity.status(HttpStatus.OK).build("Success");
         try {
-            if (Strings.isNullOrEmpty(dbName)
-                    || Strings.isNullOrEmpty(tableName)) {
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                entity.setMsg(dbName +"/"+tableName+" must be selected");
-                return entity;
-            }
-            String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
+            String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                entity.setMsg( "Database [" + dbName + "] " + "does not exists");
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
             db.writeLock();
             try {
-                Table table = db.getTable(tableName);
+                Table table = db.getTable(tblName);
                 if (table == null) {
-                    entity.setCode(HttpStatus.NOT_FOUND.value());
-                    entity.setMsg( "Table [" + tableName + "] " + "does not exists");
-                    return entity;
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
                 }
                 // just only support OlapTable, ignore others such as ESTable
                 if (!(table instanceof OlapTable)) {
-                    entity.setCode(HttpStatus.FORBIDDEN.value());
-                    entity.setMsg("Table [" + tableName + "] "
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] "
                             + "is not a OlapTable, only support OlapTable currently");
-                    return entity;
                 }
                 OlapTable olapTable = (OlapTable) table;
                 resultMap.put("status", 200);
@@ -103,11 +86,7 @@ public class TableRowCountAction extends RestBaseController {
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
         }
-        try {
-           entity.setData(resultMap);
-        } catch (Exception e) {
-            entity.setData(e.getMessage());
-        }
-        return entity;
+
+        return ResponseEntityBuilder.ok(resultMap);
     }
 }

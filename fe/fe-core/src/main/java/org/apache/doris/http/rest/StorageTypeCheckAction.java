@@ -23,10 +23,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageType;
@@ -47,25 +44,20 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class StorageTypeCheckAction extends RestBaseController {
 
-    @RequestMapping(path = "/api/_check_storagetype",method = RequestMethod.GET)
-    protected Object check_storagetype(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
+    @RequestMapping(path = "/api/_check_storagetype", method = RequestMethod.GET)
+    protected Object check_storagetype(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
 
         String dbName = request.getParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No database selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
+        String fullDbName = getFullDbName(dbName);
         Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("Database " + dbName + " does not exist");
-            return entity;
+            return ResponseEntityBuilder.badRequest("Database " + dbName + " does not exist");
         }
 
         JSONObject root = new JSONObject();
@@ -90,7 +82,6 @@ public class StorageTypeCheckAction extends RestBaseController {
         } finally {
             db.readUnlock();
         }
-        entity.setData(root);
-        return entity;
+        return ResponseEntityBuilder.ok(root);
     }
 }

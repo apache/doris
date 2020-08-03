@@ -31,14 +31,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.servlet.view.RedirectView;
 
-import com.google.common.base.Strings;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -46,6 +45,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 public class RestBaseController extends BaseController {
 
@@ -140,7 +142,7 @@ public class RestBaseController extends BaseController {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        RedirectView redirectView = new RedirectView(resultUriObj.toASCIIString()  + request.getQueryString());
+        RedirectView redirectView = new RedirectView(resultUriObj.toASCIIString() + request.getQueryString());
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
         return redirectView;
@@ -157,10 +159,10 @@ public class RestBaseController extends BaseController {
 
     public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)
             throws IOException {
-        response.setHeader("Content-type","application/octet-stream");
+        response.setHeader("Content-type", "application/octet-stream");
         response.addHeader("Content-Disposition", "attachment;fileName=" + fileName); // set file name
         if (obj instanceof File) {
-            File file = (File)obj;
+            File file = (File) obj;
             byte[] buffer = new byte[1024];
             FileInputStream fis = null;
             BufferedInputStream bis = null;
@@ -196,15 +198,12 @@ public class RestBaseController extends BaseController {
         }
     }
 
-    public boolean writeFileResponse(HttpServletRequest request, HttpServletResponse response,File imageFile){
-        if (imageFile == null || !imageFile.exists()) {
-            return false;
-        } else {
-            response.setHeader("Content-type","application/octet-stream");
-            response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());// 设置文件名
-            response.setHeader("X-Image-Size",imageFile.length() +"");
-            return getFile(request,response,imageFile,imageFile.getName());
-        }
+    public void writeFileResponse(HttpServletRequest request, HttpServletResponse response, File imageFile) throws IOException {
+        Preconditions.checkArgument(imageFile != null && imageFile.exists());
+        response.setHeader("Content-type", "application/octet-stream");
+        response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());
+        response.setHeader("X-Image-Size", imageFile.length() + "");
+        getFile(request, response, imageFile, imageFile.getName());
     }
 
     public String getFullDbName(String dbName) {

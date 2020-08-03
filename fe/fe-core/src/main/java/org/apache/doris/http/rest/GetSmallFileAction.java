@@ -21,23 +21,24 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.http.entity.ResponseEntityBuilder;
 
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
+import java.io.IOException;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
 
 @RestController
 public class GetSmallFileAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(GetSmallFileAction.class);
 
-    @RequestMapping(path = "/api/get_small_file",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/get_small_file", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
         String token = request.getParameter("token");
         String fileIdStr = request.getParameter("file_id");

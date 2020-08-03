@@ -25,16 +25,12 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,70 +49,53 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class TableSchemaAction extends RestBaseController {
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",method = RequestMethod.GET)
-    protected Object schema(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema", method = RequestMethod.GET)
+    protected Object schema(
+            @PathVariable(value = DB_KEY) final String dbName,
+            @PathVariable(value = TABLE_KEY) final String tblName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
-        String dbName = request.getParameter(DB_KEY);
-        String tableName = request.getParameter(TABLE_KEY);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
 
         try {
-            if (Strings.isNullOrEmpty(dbName)
-                    || Strings.isNullOrEmpty(tableName)) {
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                entity.setMsg("No database or table selected.");
-                return entity;
-            }
-            String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
+            String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                entity.setMsg("Database [" + dbName + "] " + "does not exists");
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
             db.readLock();
             try {
-                Table table = db.getTable(tableName);
+                Table table = db.getTable(tblName);
                 if (table == null) {
-                    entity.setCode(HttpStatus.NOT_FOUND.value());
-                    entity.setMsg("Table [" + tableName + "] " + "does not exists");
-                    return entity;
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
                 }
                 // just only support OlapTable, ignore others such as ESTable
                 if (!(table instanceof OlapTable)) {
-                    entity.setCode(HttpStatus.FORBIDDEN.value());
-                    entity.setMsg("Table [" + tableName + "] "
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] "
                             + "is not a OlapTable, only support OlapTable currently");
-                    return entity;
                 }
-                try {
-                    List<Column> columns = table.getBaseSchema();
-                    List<Map<String, String>> propList = new ArrayList(columns.size());
-                    for (Column column : columns) {
-                        Map<String, String> baseInfo = new HashMap<>(2);
-                        Type colType = column.getOriginType();
-                        PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
-                            ScalarType scalarType = (ScalarType) colType;
-                            baseInfo.put("precision", scalarType.getPrecision() + "");
-                            baseInfo.put("scale", scalarType.getScalarScale() + "");
-                        }
-                        baseInfo.put("type", primitiveType.toString());
-                        baseInfo.put("comment", column.getComment());
-                        baseInfo.put("name", column.getName());
-                        propList.add(baseInfo);
+
+                List<Column> columns = table.getBaseSchema();
+                List<Map<String, String>> propList = new ArrayList(columns.size());
+                for (Column column : columns) {
+                    Map<String, String> baseInfo = new HashMap<>(2);
+                    Type colType = column.getOriginType();
+                    PrimitiveType primitiveType = colType.getPrimitiveType();
+                    if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
+                        ScalarType scalarType = (ScalarType) colType;
+                        baseInfo.put("precision", scalarType.getPrecision() + "");
+                        baseInfo.put("scale", scalarType.getScalarScale() + "");
                     }
-                    resultMap.put("status", 200);
-                    resultMap.put("properties", propList);
-                } catch (Exception e) {
-                    entity.setCode(HttpStatus.INTERNAL_SERVER_ERROR.value());
-                    entity.setMsg(e.getMessage() == null ? "Null Pointer Exception" : e.getMessage());
-                    return entity;
+                    baseInfo.put("type", primitiveType.toString());
+                    baseInfo.put("comment", column.getComment());
+                    baseInfo.put("name", column.getName());
+                    propList.add(baseInfo);
                 }
+                resultMap.put("status", 200);
+                resultMap.put("properties", propList);
             } finally {
                 db.readUnlock();
             }
@@ -125,12 +104,7 @@ public class TableSchemaAction extends RestBaseController {
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
         }
-        try {
-            entity.setData(resultMap);
-        } catch (Exception e) {
-            // may be this never happen
-            entity.setData(e.getMessage());
-        }
-        return entity;
+
+        return ResponseEntityBuilder.ok(resultMap);
     }
 }

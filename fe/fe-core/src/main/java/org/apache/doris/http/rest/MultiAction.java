@@ -18,10 +18,8 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -30,6 +28,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -48,105 +47,79 @@ public class MultiAction extends RestBaseController {
     private static final String SUB_LABEL_KEY = "sub_label";
 
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_desc",method = RequestMethod.POST)
-    public Object multi_desc(HttpServletRequest request, HttpServletResponse response)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_desc", method = RequestMethod.POST)
+    public Object multi_desc(
+            @PathVariable(value = DB_KEY) final String dbName,
+            HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        executeCheckPassword(request, response);
+
         execEnv = ExecuteEnv.getInstance();
-        String db = request.getParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(db)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
-        }
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No label selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+
+        String fullDbName = getFullDbName(dbName);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
         // only Master has these load info
-        try {
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-        } catch (Exception e){
-            e.printStackTrace();
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
+        execEnv = ExecuteEnv.getInstance();
         final List<String> labels = Lists.newArrayList();
         execEnv.getMultiLoadMgr().desc(fullDbName, label, labels);
-        entity.setData(labels);
-        return entity;
+        return ResponseEntityBuilder.ok(labels);
     }
 
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_list",method = RequestMethod.POST)
-    public Object multi_list(HttpServletRequest request, HttpServletResponse response)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_list", method = RequestMethod.POST)
+    public Object multi_list(
+            @PathVariable(value = DB_KEY) final String dbName,
+            HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        executeCheckPassword(request, response);
         execEnv = ExecuteEnv.getInstance();
-        String db = request.getParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(db)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
-        }
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+
+        String fullDbName = getFullDbName(dbName);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
         // only Master has these load info
-        try {
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-        } catch (Exception e){
-            e.printStackTrace();
+
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
         final List<String> labels = Lists.newArrayList();
         execEnv.getMultiLoadMgr().list(fullDbName, labels);
-        entity.setData(labels);
-        return entity;
+        return ResponseEntityBuilder.ok(labels);
     }
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_start",method = RequestMethod.POST)
-    public Object multi_start(HttpServletRequest request, HttpServletResponse response)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_start", method = RequestMethod.POST)
+    public Object multi_start(
+            @PathVariable(value = DB_KEY) final String dbName,
+            HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        executeCheckPassword(request, response);
         execEnv = ExecuteEnv.getInstance();
-        String db = request.getParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(db)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
-        }
+
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No label selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+        String fullDbName = getFullDbName(dbName);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
         // Mutli start request must redirect to master, because all following sub requests will be handled
         // on Master
-        try {
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-        } catch (Exception e){
-            e.printStackTrace();
+
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
         Map<String, String> properties = Maps.newHashMap();
@@ -158,129 +131,93 @@ public class MultiAction extends RestBaseController {
             }
         }
         execEnv.getMultiLoadMgr().startMulti(fullDbName, label, properties);
-        return entity;
+        return ResponseEntityBuilder.ok();
     }
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_unload",method = RequestMethod.POST)
-    public Object multi_unload(HttpServletRequest request, HttpServletResponse response)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_unload", method = RequestMethod.POST)
+    public Object multi_unload(
+            @PathVariable(value = DB_KEY) final String dbName,
+            HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        executeCheckPassword(request, response);
         execEnv = ExecuteEnv.getInstance();
-        String db = request.getParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(db)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
-        }
+
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No label selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
 
         String subLabel = request.getParameter(SUB_LABEL_KEY);
         if (Strings.isNullOrEmpty(subLabel)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No sub_label selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No sub label selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+        String fullDbName = getFullDbName(dbName);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
-        try {
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-        } catch (Exception e){
-            e.printStackTrace();
+
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
         execEnv.getMultiLoadMgr().unload(fullDbName, label, subLabel);
-        return entity;
+        return ResponseEntityBuilder.ok();
     }
 
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_commit",method = RequestMethod.POST)
-    public Object multi_commit(HttpServletRequest request, HttpServletResponse response)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_commit", method = RequestMethod.POST)
+    public Object multi_commit(
+            @PathVariable(value = DB_KEY) final String dbName,
+            HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        executeCheckPassword(request, response);
         execEnv = ExecuteEnv.getInstance();
-        String db = request.getParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(db)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
-        }
+
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No label selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+        String fullDbName = getFullDbName(dbName);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
         // only Master has these load info
-        try {
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-        } catch (Exception e){
-            e.printStackTrace();
+
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
+
         execEnv.getMultiLoadMgr().commit(fullDbName, label);
-        return entity;
+        return ResponseEntityBuilder.ok();
     }
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_abort",method = RequestMethod.POST)
-    public Object multi_abort(HttpServletRequest request, HttpServletResponse response)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_abort", method = RequestMethod.POST)
+    public Object multi_abort(
+            @PathVariable(value = DB_KEY) final String dbName,
+            HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+        executeCheckPassword(request, response);
         execEnv = ExecuteEnv.getInstance();
-        String db = request.getParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(db)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
-        }
+
         String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No label selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
+        String fullDbName = getFullDbName(dbName);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
         // only Master has these load info
-        try {
-            RedirectView redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
-            }
-        } catch (Exception e){
-            e.printStackTrace();
+
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
         execEnv.getMultiLoadMgr().abort(fullDbName, label);
-        return entity;
-    }
-
-    private static class Result extends RestBaseResult {
-        private List<String> labels;
-
-        public Result(List<String> labels) {
-            this.labels = labels;
-        }
+        return ResponseEntityBuilder.ok();
     }
 }
 

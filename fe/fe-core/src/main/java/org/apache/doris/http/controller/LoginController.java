@@ -33,20 +33,20 @@ import javax.servlet.http.HttpServletResponse;
 @RequestMapping("/rest/v1")
 public class LoginController extends BaseController {
 
-    @RequestMapping(path = "/login",method = RequestMethod.POST)
-    public Object login(HttpServletRequest request, HttpServletResponse response, @RequestBody String body){
+    @RequestMapping(path = "/login", method = RequestMethod.POST)
+    public Object login(HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
         JSONObject root = new JSONObject(body);
         Map<String, Object> result = root.toMap();
         String auth = result.get("username") + ":" + result.get("password").toString();
-        request.setAttribute("Authorization",auth);
-        Map<String,Object> msg = new HashMap<>();
+        request.setAttribute("Authorization", auth);
+        Map<String, Object> msg = new HashMap<>();
         try {
-            if(checkAuthWithCookie(request,response)){
-                msg.put("code",200);
-                msg.put("msg","Login success!");
+            if (checkAuthWithCookie(request, response)) {
+                msg.put("code", 200);
+                msg.put("msg", "Login success!");
             } else {
-                msg.put("code",401);
-                msg.put("msg","Login fail!");
+                msg.put("code", 401);
+                msg.put("msg", "Login fail!");
             }
             return msg;
         } catch (Exception e) {

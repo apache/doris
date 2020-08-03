@@ -21,8 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.http.rest.RestBaseController;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.persist.MetaCleaner;
@@ -31,18 +30,19 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
-
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -54,24 +54,11 @@ public class MetaService extends RestBaseController {
     private static final int TIMEOUT_SECOND = 10;
 
     private static final String VERSION = "version";
+    private static final String HOST = "host";
     private static final String PORT = "port";
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
-    public Object executeCheck(HttpServletRequest request, HttpServletResponse response,boolean needCheckClientIsFe) {
-        if (needCheckClientIsFe) {
-            try {
-                checkFromValidFe(request, response);
-                return null;
-            } catch (InvalidClientException e) {
-                ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                entity.setMsg("invalid client host.");
-                return entity;
-            }
-        }
-        return null;
-    }
     private boolean isFromValidFe(HttpServletRequest request) {
         String clientHost = request.getRemoteHost();
         Frontend fe = Catalog.getCurrentCatalog().getFeByHost(clientHost);
@@ -82,122 +69,91 @@ public class MetaService extends RestBaseController {
         return true;
     }
 
-    private void checkFromValidFe(HttpServletRequest request, HttpServletResponse response)
+    private void checkFromValidFe(HttpServletRequest request)
             throws InvalidClientException {
         if (!isFromValidFe(request)) {
-            throw new InvalidClientException("invalid client host");
+            throw new InvalidClientException("invalid client host: " + request.getRemoteHost());
         }
     }
 
     @RequestMapping(path = "/image", method = RequestMethod.GET)
-    public Object image(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        Object obj = executeCheck(request,response,true);
-        if(obj != null){
-            return obj;
-        }
+    public Object image(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        checkFromValidFe(request);
+
         String versionStr = request.getParameter(VERSION);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
 
         if (Strings.isNullOrEmpty(versionStr)) {
-            entity.setMsg("Miss version parameter");
-            entity.setCode(HttpStatus.BAD_REQUEST.value());
-            return entity;
+            return ResponseEntityBuilder.badRequest("Miss version parameter");
         }
 
         long version = checkLongParam(versionStr);
         if (version < 0) {
-            entity.setMsg("The version number cannot be less than 0");
-            entity.setCode(HttpStatus.BAD_REQUEST.value());
-            return entity;
+            return ResponseEntityBuilder.badRequest("The version number cannot be less than 0");
         }
 
         File imageFile = Storage.getImageFile(imageDir, version);
         if (!imageFile.exists()) {
-            entity.setMsg("The version number cannot be less than 0");
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            return entity;
+            return ResponseEntityBuilder.notFound("image file not found");
         }
 
-        if (writeFileResponse(request, response, imageFile)) {
-            entity.setMsg("success");
-            return entity;
-        } else {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            return entity;
+        try {
+            writeFileResponse(request, response, imageFile);
+            return ResponseEntityBuilder.ok();
+        } catch (IOException e) {
+            return ResponseEntityBuilder.internalError(e.getMessage());
         }
     }
 
 
     @RequestMapping(path = "/info", method = RequestMethod.GET)
     public Object info(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        Object obj = executeCheck(request,response,true);
-        if(obj != null){
-            return obj;
-        }
+        executeCheckPassword(request, response);
+        checkFromValidFe(request);
+
         try {
             Storage currentStorageInfo = new Storage(imageDir.getAbsolutePath());
             StorageInfo storageInfo = new StorageInfo(currentStorageInfo.getClusterID(),
                     currentStorageInfo.getImageSeq(), currentStorageInfo.getEditsSeq());
-            ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(storageInfo);
-
-            return entity;
+            return ResponseEntityBuilder.ok(storageInfo);
         } catch (IOException e) {
-            ResponseEntity entity = ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-            LOG.warn("IO error.", e);
-            entity.setMsg("failed to get master info.");
-            return entity;
+            return ResponseEntityBuilder.internalError(e.getMessage());
         }
     }
 
     @RequestMapping(path = "/version", method = RequestMethod.GET)
     public void version(HttpServletRequest request, HttpServletResponse response) throws IOException, DdlException {
-        executeCheckPassword(request,response);
-        Object obj = executeCheck(request,response,true);
-        if(obj != null){
-            response.setStatus(HttpStatus.BAD_REQUEST.value());
-            response.getWriter().write("invalid client host");
-        }
+        executeCheckPassword(request, response);
+        checkFromValidFe(request);
         File versionFile = new File(imageDir, Storage.VERSION_FILE);
         writeFileResponse(request, response, versionFile);
     }
 
-
     @RequestMapping(path = "/put", method = RequestMethod.GET)
     public Object put(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        String machine = request.getRemoteHost();
+        executeCheckPassword(request, response);
+        checkFromValidFe(request);
+
         String portStr = request.getParameter(PORT);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
-        Object obj = executeCheck(request,response,true);
-        if(obj != null){
-            return obj;
-        }
+
         // check port to avoid SSRF(Server-Side Request Forgery)
         if (Strings.isNullOrEmpty(portStr)) {
-            entity.setMsg("Port number cannot be empty");
-            entity.setCode(HttpStatus.BAD_REQUEST.value());
-            return entity;
+            return ResponseEntityBuilder.badRequest("Port number cannot be empty");
         }
-        {
-            int port = Integer.parseInt(portStr);
-            if (port < 0 || port > 65535) {
-                LOG.warn("port is invalid. port={}", port);
-                entity.setMsg("port is invalid. The port number is between 0-65535");
-                entity.setCode(HttpStatus.BAD_REQUEST.value());
-                return entity;
-            }
+
+        int port = Integer.parseInt(portStr);
+        if (port < 0 || port > 65535) {
+            return ResponseEntityBuilder.badRequest("port is invalid. The port number is between 0-65535");
         }
 
         String versionStr = request.getParameter(VERSION);
         if (Strings.isNullOrEmpty(versionStr)) {
-            entity.setMsg("Miss version parameter");
-            entity.setCode(HttpStatus.BAD_REQUEST.value());
-            return entity;
+            return ResponseEntityBuilder.badRequest("Miss version parameter");
         }
+
         checkLongParam(versionStr);
 
+        String machine = request.getRemoteHost();
         String url = "http://" + machine + ":" + portStr + "/image?version=" + versionStr;
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Catalog.getCurrentCatalog().getImageDir());
@@ -205,18 +161,13 @@ public class MetaService extends RestBaseController {
             OutputStream out = MetaHelper.getOutputStream(filename, dir);
             MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);
             MetaHelper.complete(filename, dir);
-//                writeResponse(request, response);
         } catch (FileNotFoundException e) {
-            LOG.warn("file not found. file: {}", filename, e);
-            entity.setMsg("file not found.");
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            return entity;
+            return ResponseEntityBuilder.notFound("file not found.");
         } catch (IOException e) {
             LOG.warn("failed to get remote file. url: {}", url, e);
-            entity.setMsg("failed to get remote file.");
-            entity.setCode(HttpStatus.INTERNAL_SERVER_ERROR.value());
-            return entity;
+            return ResponseEntityBuilder.internalError("failed to get remote file: " + e.getMessage());
         }
+
         // Delete old image files
         try {
             MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
@@ -224,35 +175,25 @@ public class MetaService extends RestBaseController {
         } catch (Exception e) {
             LOG.error("Follower/Observer delete old image file fail.", e);
         }
-        return entity;
+        return ResponseEntityBuilder.ok();
     }
 
     @RequestMapping(path = "/journal_id", method = RequestMethod.GET)
     public Object journal_id(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        Object obj = executeCheck(request,response,true);
-        if(obj != null){
-            return obj;
-        }
+        executeCheckPassword(request, response);
+        checkFromValidFe(request);
         long id = Catalog.getCurrentCatalog().getReplayedJournalId();
         response.setHeader("id", Long.toString(id));
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
-        return entity;
+        return ResponseEntityBuilder.ok();
     }
-
-
-    private static final String HOST = "host";
-
 
     @RequestMapping(path = "/role", method = RequestMethod.GET)
     public Object role(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
+        executeCheckPassword(request, response);
+        checkFromValidFe(request);
+
         String host = request.getParameter(HOST);
         String portString = request.getParameter(PORT);
-        Object obj = executeCheck(request,response,true);
-        if(obj != null){
-            return obj;
-        }
         if (!Strings.isNullOrEmpty(host) && !Strings.isNullOrEmpty(portString)) {
             int port = Integer.parseInt(portString);
             Frontend fe = Catalog.getCurrentCatalog().checkFeExist(host, port);
@@ -262,13 +203,9 @@ public class MetaService extends RestBaseController {
                 response.setHeader("role", fe.getRole().name());
                 response.setHeader("name", fe.getNodeName());
             }
-            //writeResponse(request, response);
-            ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
-            return entity;
+            return ResponseEntityBuilder.ok();
         } else {
-            ResponseEntity entity = ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-            entity.setMsg("Miss parameter");
-            return entity;
+            return ResponseEntityBuilder.badRequest("Miss parameter");
         }
     }
 
@@ -281,20 +218,17 @@ public class MetaService extends RestBaseController {
      */
     @RequestMapping(path = "/check", method = RequestMethod.GET)
     public Object check(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        Object obj = executeCheck(request,response,true);
-        if(obj != null){
-            return obj;
-        }
+        executeCheckPassword(request, response);
+        checkFromValidFe(request);
+
         try {
             Storage storage = new Storage(imageDir.getAbsolutePath());
             response.setHeader(MetaBaseAction.CLUSTER_ID, Integer.toString(storage.getClusterID()));
             response.setHeader(MetaBaseAction.TOKEN, storage.getToken());
         } catch (IOException e) {
-            LOG.error(e);
+            return ResponseEntityBuilder.internalError(e.getMessage());
         }
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
-        return entity;
+        return ResponseEntityBuilder.ok();
     }
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
@@ -304,25 +238,19 @@ public class MetaService extends RestBaseController {
          * the jobs' read lock. This will guarantee the consistency of database and job queues.
          * But Backend may still inconsistent.
          */
-        executeCheckPassword(request,response);
-        Object obj = executeCheck(request,response,false);
-        if(obj != null){
-            return obj;
-        }
+        executeCheckPassword(request, response);
+
         //needAdmin=true
         executeCheckPassword(request, response);
         // TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
         String dumpFilePath = Catalog.getCurrentCatalog().dumpImage();
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build();
 
         if (dumpFilePath == null) {
-            entity.setMsg("dump failed. " + dumpFilePath);
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            return entity;
+            return ResponseEntityBuilder.okWithCommonError("dump failed.");
         }
-        entity.setMsg("dump finished. " + dumpFilePath);
-        //writeResponse(request, response);
-        return entity;
+        Map<String, String> res = Maps.newHashMap();
+        res.put("dumpFilePath", dumpFilePath);
+        return ResponseEntityBuilder.ok(res);
     }
 
 }

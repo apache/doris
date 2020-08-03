@@ -24,8 +24,8 @@ import org.apache.doris.common.proc.ProcDirInterface;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseBody;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
@@ -36,6 +36,7 @@ import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -54,8 +55,8 @@ public class SystemController {
 
     private static final Logger LOG = LogManager.getLogger(SystemController.class);
 
-    @RequestMapping(path = "/system",method = RequestMethod.GET)
-    public Object system(HttpServletRequest request){
+    @RequestMapping(path = "/system", method = RequestMethod.GET)
+    public Object system(HttpServletRequest request) {
         String currentPath = request.getParameter("path");
         if (Strings.isNullOrEmpty(currentPath)) {
             currentPath = "/";
@@ -63,7 +64,6 @@ public class SystemController {
         ResponseEntity entity = appendSystemInfo(currentPath, currentPath);
         return entity;
     }
-
 
     protected ProcNodeInterface getProcNode(String path) {
         ProcService instance = ProcService.getInstance();
@@ -81,19 +81,13 @@ public class SystemController {
         return node;
     }
 
-
     private ResponseEntity appendSystemInfo(String procPath, String path) {
-
-
-        List<Map<String,String>> list = new ArrayList<>();
-        Map<String,Object> map = new HashMap<>();
+        List<Map<String, String>> list = new ArrayList<>();
+        Map<String, Object> map = new HashMap<>();
 
         ProcNodeInterface procNode = getProcNode(procPath);
         if (procNode == null) {
-            map.put("code","404");
-            map.put("msg","No such proc path[" + path + "]");
-            ResponseEntity entity = ResponseEntity.status(HttpStatus.NOT_FOUND).build(map);
-            return entity;
+            return ResponseEntityBuilder.notFound("No such proc path[" + path + "]");
         }
         boolean isDir = (procNode instanceof ProcDirInterface);
 
@@ -108,18 +102,12 @@ public class SystemController {
                 masterOpExecutor.execute();
             } catch (Exception e) {
                 LOG.warn("Fail to forward. ", e);
-                map.put("code","500");
-                map.put("msg","Failed to forward request to master");
-                ResponseEntity entity = ResponseEntity.status(HttpStatus.SERVICE_ERROR).build(map);
-                return entity;
+                return ResponseEntityBuilder.internalError("Failed to forward request to master: " + e.getMessage());
             }
 
             ShowResultSet resultSet = masterOpExecutor.getProxyResultSet();
             if (resultSet == null) {
-                map.put("code","505");
-                map.put("msg","Failed to get result from master");
-                ResponseEntity entity = ResponseEntity.status(HttpStatus.SERVICE_ERROR).build(map);
-                return entity;
+                return ResponseEntityBuilder.internalError("Failed to get result from master");
             }
 
             columnNames = resultSet.getMetaData().getColumns().stream().map(c -> c.getName()).collect(
@@ -130,12 +118,10 @@ public class SystemController {
             try {
                 result = procNode.fetchResult();
             } catch (AnalysisException e) {
-                String meg = "The result is null,maybe haven't be implemented completely[" + e.getMessage() + "], please check."
-                        + "INFO: ProcNode type is [" + procNode.getClass().getName() + "]";
-                map.put("msg",meg);
-                map.put("code",500);
-                ResponseEntity entity = ResponseEntity.status(HttpStatus.SERVICE_ERROR).build(map);
-                return entity;
+                return ResponseEntityBuilder.internalError("The result is null."
+                        + "Maybe haven't be implemented completely[" + e.getMessage() + "], please check."
+                        + "INFO: ProcNode type is [" + procNode.getClass().getName() + "]: "
+                        + e.getMessage());
             }
 
             columnNames = result.getColumnNames();
@@ -146,18 +132,17 @@ public class SystemController {
         Preconditions.checkNotNull(rows);
 
 
-
-        for ( List<String> strList : rows) {
-            Map<String,String> resultMap = new HashMap<>();
+        for (List<String> strList : rows) {
+            Map<String, String> resultMap = new HashMap<>();
 
             int columnIndex = 1;
-            for (int i = 0; i < strList.size() ; i++) {
+            for (int i = 0; i < strList.size(); i++) {
                 if (isDir && columnIndex == 1) {
                     String str = strList.get(i);
-                    resultMap.put(columnNames.get(0),str);
+                    resultMap.put(columnNames.get(0), str);
                     String escapeStr = str.replace("%", "%25");
-                    String uriPath = "path=" +  path + "/" + escapeStr;
-                    resultMap.put("hrefPath",uriPath);
+                    String uriPath = "path=" + path + "/" + escapeStr;
+                    resultMap.put("hrefPath", uriPath);
                 } else {
                     resultMap.put(columnNames.get(i), strList.get(i));
                 }
@@ -165,8 +150,8 @@ public class SystemController {
             }
             list.add(resultMap);
         }
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(list);
-        entity.setCount(list.size());
+        ResponseEntity entity = ResponseEntityBuilder.ok(list);
+        ((ResponseBody) entity.getBody()).setCount(list.size());
         return entity;
     }
 

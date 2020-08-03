@@ -21,6 +21,7 @@ import org.apache.doris.http.rest.RestApiStatusCode;
 
 /**
  * The response body of restful api
+ *
  * @param <T> type of data
  */
 public class ResponseBody<T> {
@@ -36,7 +37,6 @@ public class ResponseBody<T> {
     // to save the number of records in response body.
     // currently not used and always be 0.
     private int count;
-
 
     public ResponseBody() {
     }
@@ -54,6 +54,10 @@ public class ResponseBody<T> {
     public ResponseBody data(T data) {
         this.data = data;
         return this;
+    }
+
+    public void setCount(int count) {
+        this.count = count;
     }
 
     public ResponseBody commonError(String msg) {

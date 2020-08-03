@@ -23,18 +23,19 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.Map;
 
 // This class is used to get current query_id of connection_id.
 // Every connection holds at most one query at every point.
@@ -43,7 +44,7 @@ import java.util.Map;
 public class ConnectionAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(ConnectionAction.class);
 
-    @RequestMapping(path = "/api/connection",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/connection", method = RequestMethod.GET)
     protected Object connection(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);

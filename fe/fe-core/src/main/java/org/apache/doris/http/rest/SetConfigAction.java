@@ -20,9 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigBase.ConfField;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -49,10 +47,9 @@ import javax.servlet.http.HttpServletResponse;
 public class SetConfigAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
 
-    @RequestMapping(path = "/api/_set_config",method = RequestMethod.GET)
-    protected Object set_config(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+    @RequestMapping(path = "/api/_set_config", method = RequestMethod.GET)
+    protected Object set_config(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         Map<String, String[]> configs = request.getParameterMap();
@@ -85,9 +82,9 @@ public class SetConfigAction extends RestBaseController {
             }
 
             try {
-                ConfigBase.setConfigField(f,confVals[0] );
+                ConfigBase.setConfigField(f, confVals[0]);
             } catch (Exception e) {
-                LOG.warn("failed to set config {}:{}", confKey, confVals[0],  e);
+                LOG.warn("failed to set config {}:{}", confKey, confVals[0], e);
                 continue;
             }
 
@@ -104,8 +101,7 @@ public class SetConfigAction extends RestBaseController {
         resultMap.put("set", setConfigs);
         resultMap.put("err", errConfigs);
 
-        entity.setData(resultMap);
-        return entity;
+        return ResponseEntityBuilder.ok(resultMap);
     }
 
     public static void print(String msg) {

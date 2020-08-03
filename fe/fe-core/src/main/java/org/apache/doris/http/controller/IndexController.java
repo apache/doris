@@ -17,21 +17,6 @@
 
 package org.apache.doris.http.controller;
 
-import org.apache.doris.common.Version;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
-
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
-
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 import oshi.hardware.GlobalMemory;
@@ -48,45 +33,59 @@ import oshi.software.os.OperatingSystem;
 import oshi.util.FormatUtil;
 import oshi.util.Util;
 
+import org.apache.doris.common.Version;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
+
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/rest/v1")
 public class IndexController {
 
-    @RequestMapping(path = "/index",method = RequestMethod.GET)
-    public Object index(){
-        Map<String, Map<String,String>> map = new HashMap<>();
+    @RequestMapping(path = "/index", method = RequestMethod.GET)
+    public Object index() {
+        Map<String, Map<String, String>> map = new HashMap<>();
         appendVersionInfo(map);
         appendHardwareInfo(map);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build(map);
-        return entity;
+        return ResponseEntityBuilder.ok(map);
     }
 
-    private void appendVersionInfo( Map<String,Map<String,String>> content) {
-        Map<String,String> map = new HashMap<>();
-        map.put("Version", Version.DORIS_BUILD_VERSION );
-        map.put("Git" , Version.DORIS_BUILD_HASH );
-        map.put("BuildInfo" , Version.DORIS_BUILD_INFO);
-        map.put("BuildTime" , Version.DORIS_BUILD_TIME);
-        content.put("VersionInfo",map);
+    private void appendVersionInfo(Map<String, Map<String, String>> content) {
+        Map<String, String> map = new HashMap<>();
+        map.put("Version", Version.DORIS_BUILD_VERSION);
+        map.put("Git", Version.DORIS_BUILD_HASH);
+        map.put("BuildInfo", Version.DORIS_BUILD_INFO);
+        map.put("BuildTime", Version.DORIS_BUILD_TIME);
+        content.put("VersionInfo", map);
     }
 
-    private void appendHardwareInfo( Map<String,Map<String,String>> content) {
+    private void appendHardwareInfo(Map<String, Map<String, String>> content) {
         SystemInfo si = new SystemInfo();
         OperatingSystem os = si.getOperatingSystem();
         HardwareAbstractionLayer hal = si.getHardware();
         CentralProcessor processor = hal.getProcessor();
         GlobalMemory memory = hal.getMemory();
-        Map<String,String> map = new HashMap<>();
-        map.put("OS",String.join("<br>", getOperatingSystem(os)) );
-        map.put("Processor",String.join("<br>", getProcessor(processor)) );
-        map.put("Memory",String.join("<br>", getMemory(memory)) );
-        map.put("Processes",String.join("<br>", getProcesses(os, memory)) );
-        map.put("Disk",String.join("<br>", getDisks(hal.getDiskStores())) );
-        map.put("FileSystem",String.join("<br>", getFileSystem(os.getFileSystem())) );
-        map.put("NetworkInterface",String.join("<br>", getNetworkInterfaces(hal.getNetworkIFs())) );
-        map.put("NetworkParameter",String.join("<br>", getNetworkParameters(os.getNetworkParams())) );
-        content.put("HarewareInfo",map);
+        Map<String, String> map = new HashMap<>();
+        map.put("OS", String.join("<br>", getOperatingSystem(os)));
+        map.put("Processor", String.join("<br>", getProcessor(processor)));
+        map.put("Memory", String.join("<br>", getMemory(memory)));
+        map.put("Processes", String.join("<br>", getProcesses(os, memory)));
+        map.put("Disk", String.join("<br>", getDisks(hal.getDiskStores())));
+        map.put("FileSystem", String.join("<br>", getFileSystem(os.getFileSystem())));
+        map.put("NetworkInterface", String.join("<br>", getNetworkInterfaces(hal.getNetworkIFs())));
+        map.put("NetworkParameter", String.join("<br>", getNetworkParameters(os.getNetworkParams())));
+        content.put("HarewareInfo", map);
     }
+
     private List<String> getOperatingSystem(OperatingSystem os) {
         List<String> osInfo = new ArrayList<>();
         osInfo.add(String.valueOf(os));
@@ -95,6 +94,7 @@ public class IndexController {
         osInfo.add("Running with" + (os.isElevated() ? "" : "out") + " elevated permissions.");
         return osInfo;
     }
+
     private List<String> getProcessor(CentralProcessor processor) {
         List<String> processorInfo = new ArrayList<>();
         processorInfo.add(String.valueOf(processor));
@@ -189,6 +189,7 @@ public class IndexController {
         }
         return processInfo;
     }
+
     private List<String> getDisks(HWDiskStore[] diskStores) {
         List<String> diskInfo = new ArrayList<>();
         diskInfo.add("Disks:&nbsp;&nbsp;");

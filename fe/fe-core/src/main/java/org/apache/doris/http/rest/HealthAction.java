@@ -30,9 +30,9 @@ import java.util.Map;
 @RestController
 public class HealthAction extends RestBaseController {
 
-    @RequestMapping(path =  "/api/health",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/health", method = RequestMethod.GET)
     public Object execute() {
-        Map<String,Object> result = new HashMap<>();
+        Map<String, Object> result = new HashMap<>();
         result.put("total_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(false).size());
         result.put("online_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(true).size());
         return ResponseEntityBuilder.ok(result);

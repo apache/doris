@@ -37,12 +37,12 @@ public class ResponseEntityBuilder {
     }
 
     public static ResponseEntity ok(Object data) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.OK).data(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.OK).msg("success").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
     public static ResponseEntity ok() {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.OK).data("success");
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.OK).msg("success");
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 

@@ -41,13 +41,14 @@ import javax.servlet.http.HttpServletResponse;
 @Component
 public class AuthInterceptor extends BaseController implements HandlerInterceptor {
     private Logger logger = LoggerFactory.getLogger(AuthInterceptor.class);
+
     @Override
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response, Object handler) throws Exception {
-        String sessionId = getCookieValue(request,BaseController.PALO_SESSION_ID,response);
+        String sessionId = getCookieValue(request, BaseController.PALO_SESSION_ID, response);
         SessionValue user = HttpAuthManager.getInstance().getSessionValue(sessionId);
-        String method =request.getMethod();
-        if(method.equalsIgnoreCase(RequestMethod.OPTIONS.toString())){
+        String method = request.getMethod();
+        if (method.equalsIgnoreCase(RequestMethod.OPTIONS.toString())) {
             response.setStatus(HttpStatus.NO_CONTENT.value());
             return true;
         } else {

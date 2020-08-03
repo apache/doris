@@ -28,9 +28,10 @@ import com.google.common.base.Strings;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
 
 //fehost:port/metrics
 //fehost:port/metrics?type=core
@@ -39,7 +40,7 @@ public class MetricsAction {
 
     private static final String TYPE_PARAM = "type";
 
-    @RequestMapping(path =  "/metrics")
+    @RequestMapping(path = "/metrics")
     public void execute(HttpServletRequest request, HttpServletResponse response) {
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;

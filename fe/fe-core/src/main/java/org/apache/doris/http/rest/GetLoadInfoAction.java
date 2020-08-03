@@ -25,12 +25,12 @@ import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
-
-import com.google.common.base.Strings;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -41,9 +41,9 @@ public class GetLoadInfoAction extends RestBaseController {
 
     protected Catalog catalog;
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request,response);
+        executeCheckPassword(request, response);
 
         this.catalog = Catalog.getCurrentCatalog();
 

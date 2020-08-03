@@ -27,9 +27,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.entity.HttpStatus;
-import org.apache.doris.http.entity.ResponseEntity;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -52,47 +50,36 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class RowCountAction extends RestBaseController {
 
-    @RequestMapping(path = "/api/rowcount",method = RequestMethod.GET)
-    protected Object rowcount(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request,response);
-        ResponseEntity entity = ResponseEntity.status(HttpStatus.OK).build("Success");
+    @RequestMapping(path = "/api/rowcount", method = RequestMethod.GET)
+    protected Object rowcount(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String dbName = request.getParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No database selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No database selected");
         }
 
         String tableName = request.getParameter(TABLE_KEY);
         if (Strings.isNullOrEmpty(tableName)) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("No table selected");
-            return entity;
+            return ResponseEntityBuilder.badRequest("No table selected");
         }
 
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         Catalog catalog = Catalog.getCurrentCatalog();
         Database db = catalog.getDb(dbName);
         if (db == null) {
-            entity.setCode(HttpStatus.NOT_FOUND.value());
-            entity.setMsg("Database[" + dbName + "] does not exist");
-            return entity;
+            return ResponseEntityBuilder.okWithCommonError("Database[" + dbName + "] does not exist");
         }
         db.writeLock();
         try {
             Table table = db.getTable(tableName);
             if (table == null) {
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                entity.setMsg("Table[" + tableName + "] does not exist");
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
             }
 
             if (table.getType() != TableType.OLAP) {
-                entity.setCode(HttpStatus.NOT_FOUND.value());
-                entity.setMsg("Table[" + tableName + "] is not OLAP table");
-                return entity;
+                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] is not OLAP table");
             }
 
             OlapTable olapTable = (OlapTable) table;
@@ -118,7 +105,6 @@ public class RowCountAction extends RestBaseController {
         } finally {
             db.writeUnlock();
         }
-        entity.setData(indexRowCountMap);
-        return entity;
+        return ResponseEntityBuilder.ok(indexRowCountMap);
     }
 }

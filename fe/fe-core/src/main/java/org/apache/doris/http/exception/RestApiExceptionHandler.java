@@ -13,6 +13,7 @@
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
+// under the License.
 
 package org.apache.doris.http.exception;
 
@@ -35,21 +36,21 @@ public class RestApiExceptionHandler {
 
     @ExceptionHandler(UnauthorizedException.class)
     @ResponseBody
-    public Object unauthorizedHandler(UnauthorizedException e){
+    public Object unauthorizedHandler(UnauthorizedException e) {
         LOG.debug("unauthorized exception", e);
         return ResponseEntityBuilder.unauthorized(e.getMessage());
     }
 
     @ExceptionHandler(DdlException.class)
     @ResponseBody
-    public Object ddlExceptionHandler(DdlException e){
+    public Object ddlExceptionHandler(DdlException e) {
         LOG.debug("ddl exception", e);
         return ResponseEntityBuilder.ok(e.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
     @ResponseBody
-    public Object unexpectedExceptionHandler(Exception e){
+    public Object unexpectedExceptionHandler(Exception e) {
         LOG.debug("unexpected exception", e);
         return ResponseEntityBuilder.internalError(e.getMessage());
     }

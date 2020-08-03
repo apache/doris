@@ -52,7 +52,7 @@ public final class HttpAuthManager {
     }
 
     public SessionValue getSessionValue(String sessionId) {
-        if(!Strings.isNullOrEmpty(sessionId)) {
+        if (!Strings.isNullOrEmpty(sessionId)) {
             return authSessions.getIfPresent(sessionId);
         }
         return null;

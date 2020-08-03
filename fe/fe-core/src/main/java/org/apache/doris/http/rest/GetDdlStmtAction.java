@@ -24,20 +24,21 @@ import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import java.util.List;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.List;
-import java.util.Map;
 
 /*
  * used to get a table's ddl stmt
@@ -49,9 +50,9 @@ public class GetDdlStmtAction extends RestBaseController {
 
     private static final Logger LOG = LogManager.getLogger(GetDdlStmtAction.class);
 
-    @RequestMapping(path = "/api/_get_ddl",method = RequestMethod.GET)
+    @RequestMapping(path = "/api/_get_ddl", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request,response);
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         String dbName = request.getParameter(DB_KEY);
