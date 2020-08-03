@@ -41,7 +41,7 @@ import java.util.Optional;
 public class AlterRoutineLoadStmt extends DdlStmt {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
-    
+
     private static final ImmutableSet<String> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)
@@ -49,6 +49,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)
             .add(CreateRoutineLoadStmt.JSONPATHS)
+            .add(CreateRoutineLoadStmt.JSONROOT)
             .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
@@ -63,7 +64,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     private Map<String, String> analyzedJobProperties = Maps.newHashMap();
 
     public AlterRoutineLoadStmt(LabelName labelName, Map<String, String> jobProperties,
-            RoutineLoadDataSourceProperties dataSourceProperties) {
+                                RoutineLoadDataSourceProperties dataSourceProperties) {
         this.labelName = labelName;
         this.jobProperties = jobProperties != null ? jobProperties : Maps.newHashMap();
         this.dataSourceProperties = dataSourceProperties;
@@ -169,6 +170,10 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.JSONPATHS)) {
             analyzedJobProperties.put(CreateRoutineLoadStmt.JSONPATHS, jobProperties.get(CreateRoutineLoadStmt.JSONPATHS));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.JSONROOT)) {
+            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONROOT, jobProperties.get(CreateRoutineLoadStmt.JSONROOT));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)) {

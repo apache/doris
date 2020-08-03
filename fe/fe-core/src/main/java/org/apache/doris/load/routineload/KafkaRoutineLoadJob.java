@@ -89,7 +89,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     public KafkaRoutineLoadJob(Long id, String name, String clusterName,
-            long dbId, long tableId, String brokerList, String topic) {
+                               long dbId, long tableId, String brokerList, String topic) {
         super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA);
         this.brokerList = brokerList;
         this.topic = topic;
@@ -191,10 +191,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         LOG.debug("current concurrent task number is min"
-                + "(partition num: {}, desire task concurrent num: {}, alive be num: {}, config: {})",
+                        + "(partition num: {}, desire task concurrent num: {}, alive be num: {}, config: {})",
                 partitionNum, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
         currentTaskConcurrentNum = Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)),
-                        Config.max_routine_load_task_concurrent_num);
+                Config.max_routine_load_task_concurrent_num);
         return currentTaskConcurrentNum;
     }
 
@@ -209,20 +209,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     //        otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
     @Override
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
-            TransactionStatus txnStatus) {
+                                      TransactionStatus txnStatus) {
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0 && txnStatus == TransactionStatus.ABORTED) {
             // case 1
             return false;
         }
-        
+
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
                 && (!((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).hasPartition())) {
             // case 2
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
-                             .add("job_id", id)
-                             .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
-                             .add("progress_partition_offset_size", 0)
-                             .add("msg", "commit attachment info is incorrect"));
+                    .add("job_id", id)
+                    .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
+                    .add("progress_partition_offset_size", 0)
+                    .add("msg", "commit attachment info is incorrect"));
             return false;
         }
         return true;
@@ -276,12 +276,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     newCurrentKafkaPartition = getAllKafkaPartitions();
                 } catch (Exception e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                     .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
-                                     .build(), e);
+                            .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
+                            .build(), e);
                     if (this.state == JobState.NEED_SCHEDULE) {
                         unprotectUpdateState(JobState.PAUSED,
                                 new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
-                                "Job failed to fetch all current partition with error " + e.getMessage()),
+                                        "Job failed to fetch all current partition with error " + e.getMessage()),
                                 false /* not replay */);
                     }
                     return false;
@@ -291,9 +291,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                         currentKafkaPartitions = newCurrentKafkaPartition;
                         if (LOG.isDebugEnabled()) {
                             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                              .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
-                                              .add("msg", "current kafka partitions has been change")
-                                              .build());
+                                    .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
+                                    .add("msg", "current kafka partitions has been change")
+                                    .build());
                         }
                         return true;
                     } else {
@@ -303,9 +303,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     currentKafkaPartitions = newCurrentKafkaPartition;
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                          .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
-                                          .add("msg", "current kafka partitions has been change")
-                                          .build());
+                                .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
+                                .add("msg", "current kafka partitions has been change")
+                                .build());
                     }
                     return true;
                 }
@@ -413,9 +413,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ((KafkaProgress) progress).addPartitionOffset(Pair.create(kafkaPartition, beginOffSet));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                      .add("kafka_partition_id", kafkaPartition)
-                                      .add("begin_offset", beginOffSet)
-                                      .add("msg", "The new partition has been added in job"));
+                            .add("kafka_partition_id", kafkaPartition)
+                            .add("begin_offset", beginOffSet)
+                            .add("msg", "The new partition has been added in job"));
                 }
             }
         }
@@ -444,6 +444,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private void setCustomKafkaProperties(Map<String, String> kafkaProperties) {
         this.customProperties = kafkaProperties;
     }
+
     @Override
     protected String dataSourcePropertiesJsonToString() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
@@ -491,7 +492,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_51) {
             int count = in.readInt();
-            for (int i = 0 ;i < count ;i ++) {
+            for (int i = 0; i < count; i++) {
                 String propertyKey = Text.readString(in);
                 String propertyValue = Text.readString(in);
                 if (propertyKey.startsWith("property.")) {
@@ -511,7 +512,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (getState() != JobState.PAUSED) {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
-            
+
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
@@ -523,7 +524,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
-            RoutineLoadDataSourceProperties dataSourceProperties)
+                                          RoutineLoadDataSourceProperties dataSourceProperties)
             throws DdlException {
 
         List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
@@ -539,7 +540,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // we can only modify the partition that is being consumed
             ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
         }
-        
+
         if (!jobProperties.isEmpty()) {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
             modifyCommonJobProperties(copiedJobProperties);
@@ -550,7 +551,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             this.customProperties.putAll(customKafkaProperties);
             convertCustomProperties(true);
         }
-        
+
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
     }

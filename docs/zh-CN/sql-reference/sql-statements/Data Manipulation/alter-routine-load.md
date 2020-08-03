@@ -56,9 +56,10 @@ under the License.
     4. `max_batch_rows`
     5. `max_batch_size`
     6. `jsonpaths`
-    7. `strip_outer_array`
-    8. `strict_mode`
-    9. `timezone`
+    7. `json_root`
+    8. `strip_outer_array`
+    9. `strict_mode`
+    10. `timezone`
 
 
 4. `data_source`
