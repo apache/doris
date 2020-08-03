@@ -33,7 +33,7 @@ under the License.
 
 语法：
 
-    ALTER ROUTINE LOAD [db.]job_name
+    ALTER ROUTINE LOAD FOR [db.]job_name
     [job_properties]
     FROM data_source
     [data_source_properties]
@@ -84,7 +84,7 @@ under the License.
 1. 将 `desired_concurrent_number` 修改为 1
 
     ```
-    ALTER ROUTINE LOAD db1.label1
+    ALTER ROUTINE LOAD FOR db1.label1
     PROPERTIES
     (
         "desired_concurrent_number" = "1"
@@ -94,7 +94,7 @@ under the License.
 2.  将 `desired_concurrent_number` 修改为 10，修改 partition 的offset，修改 group id。
 
     ```
-    ALTER ROUTINE LOAD db1.label1
+    ALTER ROUTINE LOAD FOR db1.label1
     PROPERTIES
     (
         "desired_concurrent_number" = "10"

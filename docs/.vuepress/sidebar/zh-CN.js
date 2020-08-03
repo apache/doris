@@ -409,7 +409,6 @@ module.exports = [
             title: "DML",
             directoryPath: "Data Manipulation/",
             children: [
-              "alter-routine-load",
               "BROKER LOAD",
               "CANCEL LOAD",
               "DELETE",
@@ -419,6 +418,7 @@ module.exports = [
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
+              "alter-routine-load",
               "PAUSE ROUTINE LOAD",
               "RESUME ROUTINE LOAD",
               "ROUTINE LOAD",

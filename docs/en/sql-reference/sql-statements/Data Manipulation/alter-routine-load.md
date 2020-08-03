@@ -33,7 +33,7 @@ Only jobs in the PAUSED state can be modified.
 
 Syntax:
 
-    ALTER ROUTINE LOAD [db.]job_name
+    ALTER ROUTINE LOAD FOR [db.]job_name
     [job_properties]
     FROM data_source
     [data_source_properties]
@@ -80,7 +80,7 @@ Syntax:
 1. Modify `desired_concurrent_number` to 1
 
     ```
-    ALTER ROUTINE LOAD db1.label1
+    ALTER ROUTINE LOAD FOR db1.label1
     PROPERTIES
     (
         "desired_concurrent_number" = "1"
@@ -90,7 +90,7 @@ Syntax:
 2.  Modify `desired_concurrent_number` to 10, modify partition offset, and modify group id。
 
     ```
-    ALTER ROUTINE LOAD db1.label1
+    ALTER ROUTINE LOAD FOR db1.label1
     PROPERTIES
     (
         "desired_concurrent_number" = "10"
