@@ -185,8 +185,8 @@ message DeletePredicatePB {
 }
 
 message InPredicatePB {
-   required string column_name = 1;
-   required bool is_not_in = 2;
+   optional string column_name = 1;
+   optional bool is_not_in = 2;
    repeated string values = 3;
 }
 
