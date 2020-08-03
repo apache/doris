@@ -164,7 +164,7 @@ private:
     int64_t _packet_seq;
 
     // we're accumulating rows into this batch
-    boost::scoped_ptr<RowBatch> _batch;
+    std::unique_ptr<RowBatch> _batch;
 
     bool _need_close;
     int _be_number;
@@ -227,7 +227,14 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     }
 
     _brpc_request.set_eos(eos);
-    if (batch != nullptr) {
+    if (batch != nullptr && RowBatch::get_batch_size(*batch) > config::brpc_socket_max_unwritten_bytes) {
+        std::string* tuple_data_to_attachment = batch->release_tuple_data();
+        butil::IOBuf& io_buf = _closure->cntl.request_attachment();
+        // append_user_data will not copy data instead of reference
+        io_buf.append_user_data(const_cast<char*>(tuple_data_to_attachment->c_str()),
+                                tuple_data_to_attachment->size(),
+                                [](void* address) { free(address); });
+        batch->mutable_tuple_data(); // to padding the required tuple_data field in PB
         _brpc_request.set_allocated_row_batch(batch);
     }
     _brpc_request.set_packet_seq(_packet_seq++);
@@ -270,12 +277,7 @@ Status DataStreamSender::Channel::add_row(TupleRow* row) {
 }
 
 Status DataStreamSender::Channel::send_current_batch(bool eos) {
-    {
-        SCOPED_TIMER(_parent->_serialize_batch_timer);
-        int uncompressed_bytes = _batch->serialize(&_pb_batch);
-        COUNTER_UPDATE(_parent->_bytes_sent_counter, RowBatch::get_batch_size(_pb_batch));
-        COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes);
-    }
+    _parent->serialize_batch(_batch.get(), &_pb_batch, 1);
     _batch->reset();
     RETURN_IF_ERROR(send_batch(&_pb_batch, eos));
     return Status::OK();
