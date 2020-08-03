@@ -39,7 +39,7 @@ under the License.
 
 ## 优势
 
-+ 对于那些经常重复的使用相同的子查询结果的查询性能大幅提升
++ 对于那些经常重复的使用相同的子查询结果的查询性能大幅提升。
 + Doris自动维护物化视图的数据，无论是新的导入，还是删除操作都能保证base 表和物化视图表的数据一致性。无需任何额外的人工维护成本。
 + 查询时，会自动匹配到最优物化视图，并直接从物化视图中读取数据。
 
@@ -86,7 +86,7 @@ HELP CREATE MATERIALIZED VIEW
 
 ### 支持聚合函数
 
-目前物化视图功能支持的聚合函数有：
+目前物化视图创建语句支持的聚合函数有：
 
 + SUM, MIN, MAX (Version 0.12)
 + COUNT, BITMAP\_UNION, HLL\_UNION (Version 0.13)
@@ -95,7 +95,7 @@ HELP CREATE MATERIALIZED VIEW
 
 为保证物化视图表和 Base 表的数据一致性, Doris 会将导入，删除等对 base 表的操作都同步到物化视图表中。并且通过增量更新的方式来提升更新效率。通过事务方式来保证原子性。
 
-比如如果用户通过 INSERT 命令插入数据到 base 表中，则这条数据会同步插入到物化视图中。当 base 表和物化视图表均写入成功后，INSERT 命令才会成功返回。 
+比如如果用户通过 INSERT 命令插入数据到 base 表中，则这条数据会同步插入到物化视图中。当 base 表和物化视图表均写入成功后，INSERT 命令才会成功返回。
 
 ### 查询自动匹配
 
@@ -111,8 +111,8 @@ HELP CREATE MATERIALIZED VIEW
 | min        | min      |
 | max        | max      |
 | count      | count    |
-| bitmap\_union | bitmap\_union, bitmap\_union\_count, count(distinct) |
-| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv() | 
+| bitmap\_union | bitmap\_union, bitmap\_union\_count, count(distinct) |
+| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv, approx_count_distinct | 
 
 其中 bitmap 和 hll 的聚合函数在查询匹配到物化视图后，查询的聚合算子会根据物化视图的表结构进行一个改写。详细见实例2。
 
@@ -144,7 +144,7 @@ MySQL [test]> desc mv_test all;
 +-----------+---------------+-----------------+----------+------+-------+---------+--------------+
 ```
 
-可以看到当前 `mv_test` 表一共有三张物化视图：mv_1, mv_2 和 mv_3，以及他们的表结构。
+可以看到当前 `mv_test` 表一共有三张物化视图：mv\_1, mv\_2 和 mv\_3，以及他们的表结构。
 
 ### 删除物化视图
 
@@ -207,7 +207,8 @@ Query OK, 0 rows affected (0.012 sec)
 由于创建物化视图是一个异步的操作，用户在提交完创建物化视图任务后，需要异步的通过命令检查物化视图是否构建完成。命令如下：
 
 ```
-SHOW ALTER TABLE ROLLUP FROM db_name;
+SHOW ALTER TABLE ROLLUP FROM db_name; (Version 0.12)
+SHOW ALTER TABLE MATERIALIZED VIEW FROM db_name; (Version 0.13)
 ```
 
 这个命令中 `db_name` 是一个参数, 你需要替换成自己真实的 db 名称。命令的结果是显示这个 db 的所有创建物化视图的任务。结果如下：
@@ -325,7 +326,7 @@ MySQL [test]> desc advertiser_view_record;
 	由于用户想要查询的是广告的 UV 值，也就是需要对相同广告的用户进行一个精确去重，则查询一般为：
 	
 	```
-	SELECT advertiser, channel, count(distinct user_id) FROM  advertiser_view_record GROUP BY advertiser, channel;
+	SELECT advertiser, channel, count(distinct user_id) FROM advertiser_view_record GROUP BY advertiser, channel;
 	```
 	
 	针对这种求 UV 的场景，我们就可以创建一个带 `bitmap_union` 的物化视图从而达到一个预先精确去重的效果。
@@ -361,16 +362,16 @@ MySQL [test]> desc advertiser_view_record;
 	
 2. 查询自动匹配
 
-	当物化视图表创建完成后，查询广告 UV 时，Doris就会自动从刚才创建好的物化视图 `advertiser_uv ` 中查询数据。比如原始的查询语句如下：
+	当物化视图表创建完成后，查询广告 UV 时，Doris就会自动从刚才创建好的物化视图 `advertiser_uv` 中查询数据。比如原始的查询语句如下：
 	
 	```
-	SELECT advertiser, channel, count(distinct user_id) FROM  advertiser_view_record GROUP BY advertiser, channel;
+	SELECT advertiser, channel, count(distinct user_id) FROM advertiser_view_record GROUP BY advertiser, channel;
 	```
 	
 	在选中物化视图后，实际的查询会转化为：
 	
 	```
-	SELECT advertiser, channel, bitmap_union_count(to_bitmap(user_id))  FROM advertiser_uv GROUP BY advertiser, channel;
+	SELECT advertiser, channel, bitmap_union_count(to_bitmap(user_id)) FROM advertiser_uv GROUP BY advertiser, channel;
 	```
 	
 	通过 EXPLAIN 命令可以检验到 Doris 是否匹配到了物化视图：
@@ -482,9 +483,5 @@ MySQL [test]> desc advertiser_view_record;
 
 1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b)不支持。
 2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
-3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
-
-
-
-
-
+3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
+4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。

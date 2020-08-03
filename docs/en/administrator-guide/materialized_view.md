@@ -111,7 +111,7 @@ The matching relationship between the aggregation in the materialized view and t
 | max | max |
 | count | count |
 | bitmap\_union | bitmap\_union, bitmap\_union\_count, count( distinct) |
-| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv() |
+| hll\_union | hll\_raw\_agg, hll\_union\_agg, ndv, approx_count_distinct |
 
 After the aggregation functions of bitmap and hll match the materialized view in the query, the aggregation operator of the query will be rewritten according to the table structure of the materialized view. See example 2 for details.
 
@@ -143,7 +143,7 @@ MySQL [test]> desc mv_test all;
 +-----------+---------------+-----------------+----------+------+-------+---------+--------------+
 ```
 
-You can see that the current `mv_test` table has three materialized views: mv_1, mv_2 and mv_3, and their table structure.
+You can see that the current `mv_test` table has three materialized views: mv\_1, mv\_2 and mv\_3, and their table structure.
 
 ### Delete materialized view
 
@@ -206,7 +206,8 @@ Query OK, 0 rows affected (0.012 sec)
 Since the creation of a materialized view is an asynchronous operation, after the user submits the task of creating a materialized view, he needs to asynchronously check whether the materialized view has been constructed through a command. The command is as follows:
 
 ```
-SHOW ALTER TABLE ROLLUP FROM db_name;
+SHOW ALTER TABLE ROLLUP FROM db_name; (Version 0.12)
+SHOW ALTER TABLE MATERIALIZED VIEW FROM db_name; (Version 0.13)
 ```
 
 In this command, `db_name` is a parameter, you need to replace it with your real db name. The result of the command is to display all the tasks of creating a materialized view of this db. The results are as follows:
@@ -481,3 +482,4 @@ This problem can be solved by creating a materialized view with k3 as the first 
 1. The parameter of the aggregate function of the materialized view does not support the expression only supports a single column, for example: sum(a+b) does not support.
 2. If the conditional column of the delete statement does not exist in the materialized view, the delete operation cannot be performed. If you must delete data, you need to delete the materialized view before deleting the data.
 3. Too many materialized views on a single table will affect the efficiency of importing: When importing data, the materialized view and base table data are updated synchronously. If a table has more than 10 materialized view tables, it may cause the import speed to be very high. slow. This is the same as a single import needs to import 10 tables at the same time.
+4. The same column with different aggregate functions cannot appear in a materialized view at the same time. For example, select sum(a), min(a) from table are not supported.
