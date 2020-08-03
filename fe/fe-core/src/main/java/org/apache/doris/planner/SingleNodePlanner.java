@@ -208,27 +208,6 @@ public class SingleNodePlanner {
      */
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException {
-        if (analyzer.hasEmptyResultSet()) {
-            PlanNode node = createEmptyNode(stmt, analyzer);
-
-            // handle window function with limit zero
-            if (stmt instanceof SelectStmt) {
-                SelectStmt selectStmt = (SelectStmt) stmt;
-                if (selectStmt.getAnalyticInfo() != null) {
-                    AnalyticInfo analyticInfo = selectStmt.getAnalyticInfo();
-                    AnalyticPlanner analyticPlanner = new AnalyticPlanner(analyticInfo, analyzer, ctx_);
-                    List<Expr> inputPartitionExprs = Lists.newArrayList();
-                    AggregateInfo aggInfo = selectStmt.getAggInfo();
-                    PlanNode root = analyticPlanner.createSingleNodePlan(node,
-                            aggInfo != null ? aggInfo.getGroupingExprs() : null, inputPartitionExprs);
-
-                    // In order to substitute the analytic expr with slot in result exprs
-                    node.setOutputSmap(root.outputSmap);
-                }
-            }
-            return node;
-        }
-
         long newDefaultOrderByLimit = defaultOrderByLimit;
         if (newDefaultOrderByLimit == -1) {
             newDefaultOrderByLimit = 65535;
@@ -300,6 +279,16 @@ public class SingleNodePlanner {
         if (stmt.getAssertNumRowsElement() != null) {
             root = createAssertRowCountNode(root, stmt.getAssertNumRowsElement(), analyzer);
         }
+
+        if (analyzer.hasEmptyResultSet()) {
+            // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
+            scanNodes.clear();
+            PlanNode node = createEmptyNode(stmt, analyzer);
+            // Ensure result exprs will be substituted by right outputSmap
+            node.setOutputSmap(root.outputSmap);
+            return node;
+        }
+
         return root;
     }
 
@@ -687,7 +676,7 @@ public class SingleNodePlanner {
             rowTuples.addAll(tblRef.getMaterializedTupleIds());
         }
 
-        if (analyzer.hasEmptySpjResultSet()) {
+        if (analyzer.hasEmptySpjResultSet() && selectStmt.getAggInfo() != null) {
             final PlanNode emptySetNode = new EmptySetNode(ctx_.getNextNodeId(), rowTuples);
             emptySetNode.init(analyzer);
             emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
