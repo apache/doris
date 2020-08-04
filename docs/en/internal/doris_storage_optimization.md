@@ -36,7 +36,7 @@ Documents include:
 - The file starts with an 8-byte magic code to identify the file format and version
 - Data Region: Used to store data information for each column, where the data is loaded on demand by pages.
 - Index Region: Doris stores the index data of each column in Index Region, where the data is loaded according to column granularity, so the data information of the following column is stored separately.
-- Footer信息
+- Footer
 	- FileFooterPB: Metadata Information for Definition Files
 	- Chesum of 4 bytes of footer Pb content
 	- Four bytes FileFooterPB message length for reading FileFooterPB
@@ -120,23 +120,23 @@ FileFooterPB is defined as:
 
 ```
 message ColumnPB {
-    optional uint32 column_id = 1; // 这里使用column id，不使用column name是因为计划支持修改列名
-    optional string type = 2; // 列类型
-    optional string aggregation = 3; // 是否聚合
-    optional uint32 length = 4; // 长度
-    optional bool is_key = 5; // 是否是主键列
-    optional string default_value = 6; // 默认值
-    optional uint32 precision = 9 [default = 27]; // 精度
+    optional uint32 column_id = 1; // The column id is used here, and the column name is not used because the plan supports modifying the column name
+    optional string type = 2; // Column type
+    optional string aggregation = 3; // Whether to aggregate
+    optional uint32 length = 4; // Length of column
+    optional bool is_key = 5; // Whether column is a primary key column
+    optional string default_value = 6; // Defalut value
+    optional uint32 precision = 9 [default = 27]; // Precision of column
     optional uint32 frac = 10 [default = 9];
-    optional bool is_nullable = 11 [default=false]; // 是否有null
-    optional bool is_bf_column = 15 [default=false]; // 是否有bf词典
-	optional bool is_bitmap_column = 16 [default=false]; // 是否有bitmap索引
+    optional bool is_nullable = 11 [default=false]; // Whether column is allowed to assgin null
+    optional bool is_bf_column = 15 [default=false]; // Whether column has bloom filter index
+	  optional bool is_bitmap_column = 16 [default=false]; // Whether column has bitmap index
 }
 
 // page偏移
 message PagePointerPB {
-	required uint64 offset; // page在文件中的偏移
-	required uint32 length; // page的大小
+	required uint64 offset; // offset of page in segment file
+	required uint32 length; // length of page
 }
 
 message MetadataPairPB {
@@ -145,37 +145,37 @@ message MetadataPairPB {
 }
 
 message ColumnMetaPB {
-	optional ColumnMessage encoding; // 编码方式
+	optional ColumnMessage encoding; // Encoding of column
 
-	optional PagePointerPB dict_page // 词典page
-	repeated PagePointerPB bloom_filter_pages; // bloom filter词典信息
-	optional PagePointerPB ordinal_index_page; // 行号索引数据
-	optional PagePointerPB page_zone_map_page; // page级别统计信息索引数据
+	optional PagePointerPB dict_page // Dictionary page
+	repeated PagePointerPB bloom_filter_pages; // Bloom filter pages
+	optional PagePointerPB ordinal_index_page; // Ordinal index page
+	optional PagePointerPB page_zone_map_page; // Page level of statistics index data
 
-	optional PagePointerPB bitmap_index_page; // bitmap索引数据
+	optional PagePointerPB bitmap_index_page; // Bitmap index page
 
-	optional uint64 data_footprint; // 列中索引的大小
-	optional uint64 index_footprint; // 列中数据的大小
-	optional uint64 raw_data_footprint; // 原始列数据大小
+	optional uint64 data_footprint; // The size of the index in the column
+	optional uint64 index_footprint; // The size of the data in the column
+	optional uint64 raw_data_footprint; // Original column data size
 
-	optional CompressKind compress_kind; // 列的压缩方式
+	optional CompressKind compress_kind; // Column compression type
 
-	optional ZoneMapPB column_zone_map; //文件级别的过滤条件
+	optional ZoneMapPB column_zone_map; // Segment level of statistics index data
 	repeated MetadataPairPB column_meta_datas;
 }
 
 message SegmentFooterPB {
-	optional uint32 version = 2 [default = 1]; // 用于版本兼容和升级使用
-	repeated ColumnPB schema = 5; // 列Schema
-  optional uint64 num_values = 4; // 文件中保存的行数
-  optional uint64 index_footprint = 7; // 索引大小
-  optional uint64 data_footprint = 8; // 数据大小
-	optional uint64 raw_data_footprint = 8; // 原始数据大小
+	optional uint32 version = 2 [default = 1]; // For version compatibility and upgrade use
+	repeated ColumnPB schema = 5; // Schema of columns
+  optional uint64 num_values = 4; // Number of lines saved in the file
+  optional uint64 index_footprint = 7; // Index size
+  optional uint64 data_footprint = 8; // Data size
+	optional uint64 raw_data_footprint = 8; // Original data size
 
-  optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
-  repeated ColumnMetaPB column_metas = 10; // 列元数据
-	optional PagePointerPB key_index_page; // short key索引page
-  optional PagePointerPB delete_index_page; // delete index索引page
+  optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // Compression type
+  repeated ColumnMetaPB column_metas = 10; // Column metadata
+	optional PagePointerPB key_index_page = 11; // short key index page
+  optional PagePointerPB delete_index_page = 12; // delete index index page
 }
 
 ```
