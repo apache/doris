@@ -146,7 +146,7 @@ public class TupleIsNullPredicate extends Predicate {
      * Throws an InternalException if expr evaluation in the BE failed.
      */
     private static boolean requiresNullWrapping(Expr expr, Analyzer analyzer) {
-        if (expr.isConstant()) {
+        if (expr.isConstant() || expr.getType().isNull()) {
             return false;
         }
         return true;
