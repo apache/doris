@@ -227,13 +227,9 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     }
 
     _brpc_request.set_eos(eos);
-    if (batch != nullptr && RowBatch::get_batch_size(*batch) > config::brpc_socket_max_unwritten_bytes) {
-        std::string* tuple_data_to_attachment = batch->release_tuple_data();
+    if (batch != nullptr) {
         butil::IOBuf& io_buf = _closure->cntl.request_attachment();
-        // append_user_data will not copy data instead of reference
-        io_buf.append_user_data(const_cast<char*>(tuple_data_to_attachment->c_str()),
-                                tuple_data_to_attachment->size(),
-                                [](void* address) { free(address); });
+        io_buf.append(batch->tuple_data());
         batch->mutable_tuple_data(); // to padding the required tuple_data field in PB
         _brpc_request.set_allocated_row_batch(batch);
     }
