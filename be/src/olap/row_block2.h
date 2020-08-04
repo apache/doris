@@ -59,7 +59,7 @@ public:
     // all previously returned ColumnBlocks are invalidated after clear(), accessing them
     // will result in undefined behavior.
     void clear() {
-        _delete_bitmap.reset(new Roaring());
+        _delete_bitmap.reset();
         _num_rows = 0;
         _pool->clear();
         _selected_size = _capacity;
