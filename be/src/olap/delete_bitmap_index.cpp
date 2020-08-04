@@ -66,7 +66,7 @@ Status DeleteBitmapIndexDecoder::parse(const Slice& body, const segment_v2::Dele
     return Status::OK();
 }
 
-const Roaring& DeleteBitmapIndexIterator:: delete_bitmap() const{
-    return _decoder->delete_bitmap();
+const Roaring& DeleteBitmapIndexIterator:: get_delete_bitmap() const{
+    return _decoder->get_delete_bitmap();
 }
 }

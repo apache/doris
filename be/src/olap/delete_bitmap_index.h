@@ -75,7 +75,7 @@ public:
             : _decoder(decoder) {}
 
     /// get const delete bitmap to access delete bitmap record
-    const Roaring& delete_bitmap() const;
+    const Roaring& get_delete_bitmap() const;
 
 private:
     const DeleteBitmapIndexDecoder* _decoder;
@@ -105,7 +105,7 @@ public:
     }
 
     /// get const delete bitmap to access delete bitmap record
-    const Roaring& delete_bitmap() const { return _delete_bitmap; }
+    const Roaring& get_delete_bitmap() const { return _delete_bitmap; }
 
 private:
     bool _parsed;

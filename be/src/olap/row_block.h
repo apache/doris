@@ -95,6 +95,10 @@ public:
         return _mem_pool.get();
     }
 
+    Roaring* get_delete_bitmap() const { 
+        return _delete_bitmap.get();
+    }
+
     // 重用rowblock之前需调用clear，恢复到init之后的原始状态
     void clear();
 
@@ -107,11 +111,6 @@ public:
     bool has_remaining() const { return _pos < _limit; }
     uint8_t block_status() const { return _block_status; }
     void set_block_status(uint8_t status) { _block_status = status; }
-
-    // set delete bimap
-    void set_delete_bitmap(std::shared_ptr<Roaring> delete_bitmap) {
-        _delete_bitmap = delete_bitmap;
-    }
 
 private:
 
@@ -147,7 +146,7 @@ private:
     std::unique_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
     // delete bitmap which records deleted rows
-    std::shared_ptr<Roaring> _delete_bitmap;
+    std::unique_ptr<Roaring> _delete_bitmap;
     // 由于内部持有内存资源，所以这里禁止拷贝和赋值
     DISALLOW_COPY_AND_ASSIGN(RowBlock);
 };

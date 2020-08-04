@@ -59,6 +59,7 @@ public:
     // all previously returned ColumnBlocks are invalidated after clear(), accessing them
     // will result in undefined behavior.
     void clear() {
+        _delete_bitmap.reset(new Roaring());
         _num_rows = 0;
         _pool->clear();
         _selected_size = _capacity;
@@ -110,9 +111,9 @@ public:
         _delete_state = delete_state;
     }
 
-    // set delete bitmap
-    void set_delete_bitmap(std::shared_ptr<Roaring> delete_bitmap) {
-        _delete_bitmap = delete_bitmap;
+    // get delete bitmap
+    Roaring* get_delete_bitmap() {
+        return _delete_bitmap.get();
     }
 
 private:
@@ -139,7 +140,7 @@ private:
     // block delete state
     DelCondSatisfied _delete_state;
     // delete bit map
-    std::shared_ptr<Roaring> _delete_bitmap;
+    std::unique_ptr<Roaring> _delete_bitmap;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

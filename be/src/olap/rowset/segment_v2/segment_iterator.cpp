@@ -564,10 +564,10 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 
     // phase 4: read delete index, fill in the row whether is delete.
     {
-        std::shared_ptr<Roaring> current_bitmap(new Roaring());
-    
+        Roaring* current_bitmap = block->get_delete_bitmap();
+
         // fetch delete index
-        const Roaring& delete_bitmap = _segment->delete_index_iterator().delete_bitmap();
+        const Roaring& delete_bitmap = _segment->delete_index_iterator().get_delete_bitmap();
 
         const uint16_t* sv = block->selection_vector();
         const uint16_t sv_size = block->selected_size();
@@ -581,7 +581,6 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
             }
             i++;
         }
-        block->set_delete_bitmap(current_bitmap);
     }
 
     return Status::OK();

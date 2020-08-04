@@ -56,7 +56,7 @@ TEST_F(DeleteBitmapIndexTest, buider) {
     st = decoder.parse(buf, footer.delete_index_page_footer());
     ASSERT_TRUE(st.ok());
 
-    auto& bitmap = decoder.get_iterator().delete_bitmap();
+    auto& bitmap = decoder.get_iterator().get_delete_bitmap();
     {
         ASSERT_TRUE(bitmap.contains(1002));
     }

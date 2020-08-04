@@ -84,7 +84,7 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
         }
     }
 
-    dst->set_delete_bitmap(_delete_bitmap);
+    dst->get_delete_bitmap()->swap(*(_delete_bitmap.get()));
     // swap MemPool to copy string content
     dst->mem_pool()->exchange_data(_pool.get());
     dst->set_pos(0);
