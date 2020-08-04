@@ -196,7 +196,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         long baseIndexId = checkAndGetBaseIndex(baseIndexName, olapTable);
         // Step1.3: mv clause validation
-        List<Column> mvColumns = checkAndPrepareMaterializedView(addMVClause, olapTable);
+        List<Column> mvColumns = checkAndPrepareMaterializedView(addMVClause, db, olapTable);
 
         // Step2: create mv job
         RollupJobV2 rollupJobV2 = createMaterializedViewJob(mvIndexName, baseIndexName, mvColumns, addMVClause
@@ -260,7 +260,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 long baseIndexId = checkAndGetBaseIndex(baseIndexName, olapTable);
 
                 // step 2.2  check rollup schema
-                List<Column> rollupSchema = checkAndPrepareMaterializedView(addRollupClause, olapTable, baseIndexId, changeStorageFormat);
+                List<Column> rollupSchema = checkAndPrepareMaterializedView(addRollupClause, db, olapTable, baseIndexId, changeStorageFormat);
 
                 // step 3 create rollup job
                 RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, addRollupClause.getProperties(),
@@ -415,12 +415,24 @@ public class MaterializedViewHandler extends AlterHandler {
         return mvJob;
     }
 
-    private List<Column> checkAndPrepareMaterializedView(CreateMaterializedViewStmt addMVClause, OlapTable olapTable)
+    private List<Column> checkAndPrepareMaterializedView(CreateMaterializedViewStmt addMVClause, Database db, OlapTable olapTable)
             throws DdlException {
         // check if mv index already exists
         if (olapTable.hasMaterializedIndex(addMVClause.getMVName())) {
             throw new DdlException("Materialized view[" + addMVClause.getMVName() + "] already exists");
         }
+
+        for (Table tbl : db.getTables()) {
+            if (tbl.getType() == Table.TableType.OLAP) {
+                List<MaterializedIndex> visibleMaterializedViews = ((OlapTable) tbl).getVisibleIndex();
+                for (MaterializedIndex mvIdx : visibleMaterializedViews) {
+                    if (((OlapTable) tbl).getIndexNameById(mvIdx.getId()).equals(addMVClause.getMVName())) {
+                        throw new DdlException("Materialized view[" + addMVClause.getMVName() + "] already exists");
+                    }
+                }
+            }
+        }
+
         // check if mv columns are valid
         // a. Aggregate or Unique table:
         //     1. For aggregate table, mv columns with aggregate function should be same as base schema
@@ -465,7 +477,7 @@ public class MaterializedViewHandler extends AlterHandler {
         return newMVColumns;
     }
 
-    public List<Column> checkAndPrepareMaterializedView(AddRollupClause addRollupClause, OlapTable olapTable,
+    public List<Column> checkAndPrepareMaterializedView(AddRollupClause addRollupClause, Database db, OlapTable olapTable,
                                                         long baseIndexId, boolean changeStorageFormat)
             throws DdlException{
         String rollupIndexName = addRollupClause.getRollupName();
@@ -484,6 +496,17 @@ public class MaterializedViewHandler extends AlterHandler {
         // 2. check if rollup index already exists
         if (olapTable.hasMaterializedIndex(rollupIndexName)) {
             throw new DdlException("Rollup index[" + rollupIndexName + "] already exists");
+        }
+
+        for (Table tbl : db.getTables()) {
+            if (tbl.getType() == Table.TableType.OLAP) {
+                List<MaterializedIndex> visibleMaterializedViews = ((OlapTable) tbl).getVisibleIndex();
+                for (MaterializedIndex mvIdx : visibleMaterializedViews) {
+                    if (((OlapTable) tbl).getIndexNameById(mvIdx.getId()).equals(rollupIndexName)) {
+                        throw new DdlException("Materialized view[" + rollupIndexName + "] already exists");
+                    }
+                }
+            }
         }
 
         // 3. check if rollup columns are valid

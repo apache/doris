@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -119,7 +120,7 @@ public class Alter {
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         // check db
-        String dbName = stmt.getTableName().getDb();
+        String dbName = stmt.getDbName();
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
@@ -130,6 +131,22 @@ public class Alter {
             String tableName = stmt.getTableName().getTbl();
             Table table = db.getTable(tableName);
             // if table exists
+            if (table == null) {
+                boolean hasfindTable = false;
+                for (Table t : db.getTables()) {
+                    OlapTable olapTable = (OlapTable) t;
+                    for (MaterializedIndex mvIdx : olapTable.getVisibleIndex()) {
+                        if ( olapTable.getIndexNameById(mvIdx.getId()).equals(stmt.getMvName())) {
+                            table = olapTable;
+                            hasfindTable = true;
+                            break;
+                        }
+                    }
+                    if (hasfindTable) {
+                        break;
+                    }
+                }
+            }
             if (table == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
             }

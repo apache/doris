@@ -37,8 +37,8 @@ public class DropMaterializedViewStmtTest {
     PaloAuth paloAuth;
 
     @Test
-    public void testEmptyMVName(@Injectable TableName tableName) {
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "", tableName);
+    public void testEmptyMVName() {
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", "testDb");
         try {
             stmt.analyze(analyzer);
             Assert.fail();
@@ -56,7 +56,7 @@ public class DropMaterializedViewStmtTest {
                 result = false;
             }
         };
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", tableName);
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", "testDb");
         try {
             stmt.analyze(analyzer);
             Assert.fail();

@@ -30,7 +30,7 @@ public class ShowRollupStmtTest {
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
-
+    /*
     @Test
     public void testNormal() throws AnalysisException {
         // use default database
@@ -62,4 +62,5 @@ public class ShowRollupStmtTest {
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
+    */
 }

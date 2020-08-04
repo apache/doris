@@ -1625,9 +1625,9 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, tableName, false)));
     :}
-    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
+    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON ident:db
     {:
-        RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
+        RESULT = new DropMaterializedViewStmt(ifExists, mvName, db);
     :}
     | KW_DROP KW_RESOURCE ident_or_text:resourceName
     {:
@@ -2064,6 +2064,10 @@ show_param ::=
     | KW_TABLE KW_STATUS opt_db:db opt_wild_where
     {:
         RESULT = new ShowTableStatusStmt(db, parser.wild, parser.where);
+    :}
+    | KW_MATERIALIZED KW_VIEW KW_ON ident:db
+    {:
+        RESULT = new ShowRollupStmt(db);
     :}
     /* show table status */
     | opt_full KW_TABLES opt_db:db opt_wild_where
