@@ -76,7 +76,7 @@ public:
 
     void set_is_delete(bool is_delete) { _is_delete = is_delete; }
 
-    bool is_delete() { return _is_delete; }
+    bool is_delete() const { return _is_delete; }
 
     // deep copy field content (ignore null-byte)
     void set_field_content(size_t index, const char* buf, MemPool* mem_pool) {

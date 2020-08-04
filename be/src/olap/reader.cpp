@@ -411,13 +411,14 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             *eof = true;
             return OLAP_SUCCESS;
         }
-
         cur_delete_flag = _next_delete_flag;
         // the verion is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
-        direct_copy_row(row_cursor, *_next_key);
-        agg_finalize_row(_value_cids, row_cursor, mem_pool);
+        if (!_next_key->is_delete()) {
+            direct_copy_row(row_cursor, *_next_key);
+            agg_finalize_row(_value_cids, row_cursor, mem_pool);
+        }
         // skip the lower version rows;
         while (nullptr != _next_key) {
             auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
