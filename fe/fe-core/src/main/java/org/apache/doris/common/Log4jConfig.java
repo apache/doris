@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import com.google.common.collect.Maps;
 
+import org.apache.doris.http.config.SpringLog4j2Config;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.ConfigurationSource;
@@ -186,6 +187,7 @@ public class Log4jConfig extends XmlConfiguration {
         System.out.println(newXmlConfTemplate);
         System.out.println("=====");
         logXmlConfTemplate = newXmlConfTemplate;
+        SpringLog4j2Config.writeSpringLogConf();
 
         // new SimpleLog4jConfiguration with xmlConfTemplate
         ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes("UTF-8"));

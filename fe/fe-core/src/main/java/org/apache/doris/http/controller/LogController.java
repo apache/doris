@@ -19,6 +19,7 @@ package org.apache.doris.http.controller;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Log4jConfig;
+import org.apache.doris.http.config.ReadEnvironment;
 import org.apache.doris.http.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
@@ -28,9 +29,6 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.logging.LogLevel;
-import org.springframework.boot.logging.LoggerConfiguration;
-import org.springframework.boot.logging.LoggingSystem;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,8 +51,9 @@ public class LogController {
 
     private String addVerboseName;
     private String delVerboseName;
+
     @Autowired
-    private LoggingSystem loggingSystem;
+    private ReadEnvironment readEnvironment;
 
     @RequestMapping(path = "/log", method = RequestMethod.GET)
     public Object log(HttpServletRequest request) {
@@ -63,7 +62,6 @@ public class LogController {
         addVerboseName = request.getParameter("add_verbose");
         delVerboseName = request.getParameter("del_verbose");
         LOG.info("add verbose name: {}, del verbose name: {}", addVerboseName, delVerboseName);
-
         appendLogConf(map);
         appendLogInfo(map);
         return ResponseEntityBuilder.ok(map);
@@ -81,7 +79,7 @@ public class LogController {
                     verboseNames.add(addVerboseName);
                     configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
                             null);
-                    loggingSystem.setLogLevel(addVerboseName, LogLevel.DEBUG);
+                    readEnvironment.reinitializeLoggingSystem();
                 }
             }
             if (!Strings.isNullOrEmpty(delVerboseName)) {
@@ -91,9 +89,7 @@ public class LogController {
                     verboseNames.remove(delVerboseName);
                     configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
                             null);
-                    LoggerConfiguration loggerConfiguration = loggingSystem.getLoggerConfiguration(delVerboseName);
-                    loggingSystem.getLoggerConfigurations().remove(loggerConfiguration);
-                    loggingSystem.beforeInitialize();
+                    readEnvironment.reinitializeLoggingSystem();
                 }
             }
 
