@@ -30,7 +30,8 @@ using std::vector;
 namespace doris {
 RowCursor::RowCursor() :
         _fixed_len(0),
-        _variable_len(0) {}
+        _variable_len(0),
+        _is_delete(false) {}
 
 RowCursor::~RowCursor() {
     delete [] _owned_fixed_buf;

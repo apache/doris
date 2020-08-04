@@ -25,6 +25,7 @@
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "olap/delete_bitmap_index.h"
 
 namespace doris {
 
@@ -75,6 +76,7 @@ private:
     Status _write_bitmap_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
+    Status _write_delete_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
 
@@ -88,6 +90,7 @@ private:
 
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
+    std::unique_ptr<DeleteBitmapIndexBuilder> _delete_bitmap_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     uint32_t _row_count = 0;
 };

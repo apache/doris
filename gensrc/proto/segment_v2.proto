@@ -59,6 +59,7 @@ enum PageTypePB {
     INDEX_PAGE = 2;
     DICTIONARY_PAGE = 3;
     SHORT_KEY_PAGE = 4;
+    DELETE_INDEX_PAGE = 5;
 }
 
 message DataPageFooterPB {
@@ -106,6 +107,13 @@ message ShortKeyFooterPB {
     optional uint32 num_segment_rows = 6;
 }
 
+message DeleteIndexFooterPB {
+    // How many index item in this index.
+    optional uint32 num_items = 1;
+    // The total bytes occupied by the delete index
+    optional uint32 content_bytes = 2;
+}
+
 message PageFooterPB {
     // required: indicates which of the *_footer fields is set
     optional PageTypePB type = 1;
@@ -120,6 +128,8 @@ message PageFooterPB {
     optional DictPageFooterPB dict_page_footer = 9;
     // present only when type == SHORT_KEY_PAGE
     optional ShortKeyFooterPB short_key_page_footer = 10;
+    // present only when type == DELETE_INDEX_PAGE
+    optional DeleteIndexFooterPB delete_index_page_footer = 11;
 }
 
 message ZoneMapPB {

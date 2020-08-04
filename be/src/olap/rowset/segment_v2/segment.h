@@ -28,6 +28,8 @@
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
+#include "olap/delete_bitmap_index.h"
+
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
 #include "util/once.h"
@@ -95,6 +97,11 @@ public:
         return _sk_index_decoder->upper_bound(key);
     }
 
+    DeleteBitmapIndexIterator delete_index_iterator() const { 
+        DCHECK(_delete_index_once.has_called() && _delete_index_once.stored_result().ok());
+        return _delete_index_decoder->get_iterator();
+    }
+
     // This will return the last row block in this segment.
     // NOTE: Before call this function , client should assure that
     // this segment is not empty.
@@ -120,6 +127,8 @@ private:
     // May be called multiple times, subsequent calls will no op.
     Status _load_index();
 
+    Status _load_delete_index();
+
 private:
     friend class SegmentIterator;
     std::string _fname;
@@ -140,10 +149,16 @@ private:
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
+
+    // used to guarantee that delete index will be loaded at most once in a thread-safe way
+    DorisCallOnce<Status> _delete_index_once;
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
+    // delete index decoder
+    std::unique_ptr<DeleteBitmapIndexDecoder> _delete_index_decoder;
+
 };
 
 }

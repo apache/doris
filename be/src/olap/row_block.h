@@ -68,6 +68,8 @@ public:
 
     inline void get_row(uint32_t row_index, RowCursor* cursor) const {
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
+        // set current row whether it is deleted
+        cursor->set_is_delete(_delete_bitmap->contains(row_index));
     }
 
     template<typename RowType>
@@ -91,6 +93,10 @@ public:
 
     MemPool* mem_pool() const {
         return _mem_pool.get();
+    }
+
+    Roaring* get_delete_bitmap() const { 
+        return _delete_bitmap.get();
     }
 
     // 重用rowblock之前需调用clear，恢复到init之后的原始状态
@@ -139,6 +145,8 @@ private:
 
     std::unique_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
+    // delete bitmap which records deleted rows
+    std::unique_ptr<Roaring> _delete_bitmap;
     // 由于内部持有内存资源，所以这里禁止拷贝和赋值
     DISALLOW_COPY_AND_ASSIGN(RowBlock);
 };
