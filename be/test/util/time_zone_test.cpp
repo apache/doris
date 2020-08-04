@@ -32,7 +32,7 @@ protected:
 
 void check_time_zone_valid(const std::string& timezone) {
     cctz::time_zone ctz;
-    EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone(timezone, ctz))
+    EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone(timezone, ctz));
 }
 
 TEST_F(TimeZoneTest, TestTimeZone) {
