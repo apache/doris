@@ -19,7 +19,7 @@ package org.apache.doris.qe.cache;
 
 import org.apache.doris.analysis.SelectStmt;
 //import org.apache.doris.common.Config;
-//import org.apache.doris.common.Status;
+import org.apache.doris.common.Status;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.logging.log4j.LogManager;
@@ -40,19 +40,17 @@ public abstract class Cache {
     protected SelectStmt selectStmt;
     //protected RowBatchBuilder rowBatchBuilder;
     //protected CacheAnalyzer.CacheTable latestTable;
-    //protected CacheProxy proxy;
+    protected CacheProxy proxy;
     protected HitRange hitRange;
 
     protected Cache(TUniqueId queryId, SelectStmt selectStmt) {
         this.queryId = queryId;
         this.selectStmt = selectStmt;
-        //proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
+        proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
         hitRange = HitRange.None;
     }
-    /**
-    * Get cache data from sql cache and partition cache
-    */ 
-    //public abstract CacheProxy.FetchCacheResult getCacheData(Status status);
+
+    public abstract CacheProxy.FetchCacheResult getCacheData(Status status);
 
     public HitRange getHitRange() {
         return hitRange;
@@ -85,6 +83,6 @@ public abstract class Cache {
         } else {
             return true;
         }*/
-        return false;
+        return false;   
     }
 }
