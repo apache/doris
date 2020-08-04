@@ -27,6 +27,7 @@
 #include "olap/types.h"
 #include "olap/selection_vector.h"
 #include "olap/row_block.h"
+#include "util/bitmap.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
@@ -59,7 +60,6 @@ public:
     // all previously returned ColumnBlocks are invalidated after clear(), accessing them
     // will result in undefined behavior.
     void clear() {
-        _delete_bitmap.reset();
         _num_rows = 0;
         _pool->clear();
         _selected_size = _capacity;
@@ -112,8 +112,8 @@ public:
     }
 
     // get delete bitmap
-    Roaring* get_delete_bitmap() {
-        return _delete_bitmap.get();
+    uint8_t* get_delete_bitmap() {
+        return _delete_bitmap;
     }
 
 private:
@@ -140,7 +140,7 @@ private:
     // block delete state
     DelCondSatisfied _delete_state;
     // delete bit map
-    std::unique_ptr<Roaring> _delete_bitmap;
+    uint8_t* _delete_bitmap;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

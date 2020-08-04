@@ -564,22 +564,27 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 
     // phase 4: read delete index, fill in the row whether is delete.
     {
-        Roaring* current_bitmap = block->get_delete_bitmap();
+        uint8_t* current_bitmap = block->get_delete_bitmap();
 
         // fetch delete index
-        const Roaring& delete_bitmap = _segment->delete_index_iterator().get_delete_bitmap();
+        auto iter = _segment->delete_flag_iterator();
 
         const uint16_t* sv = block->selection_vector();
         const uint16_t sv_size = block->selected_size();
         uint16_t i = 0;
         // check the delete rows and fill in the current_bitmap
-        // which use i in selection_vector as rowid 
+        // which use i in selection_vector as rowid
+        uint16_t j = 0;
         while (i < sv_size) {
-
-            if(delete_bitmap.contains(_block_rowids[sv[i]])) {
-                current_bitmap->add(i);
+            j = i + 1;
+            if (j < sv_size &&  _block_rowids[sv[j]] == _block_rowids[sv[j - 1]] + 1) {
+                ++j;
             }
-            i++;
+
+            uint16_t range_size = j - i;
+            RETURN_IF_ERROR(iter.seek_to_ordinal(_block_rowids[sv[i]]));
+            RETURN_IF_ERROR(iter.next_batch(current_bitmap, i, range_size));
+            i += range_size;
         }
     }
 

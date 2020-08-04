@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/delete_bitmap_index.h"
+#include "olap/rowset/segment_v2/delete_bitmap_flag.h"
 
 #include <gtest/gtest.h>
 
@@ -25,50 +25,63 @@
 
 namespace doris {
 
+namespace segment_v2{
+
 class DeleteBitmapIndexTest : public testing::Test {
 public:
     DeleteBitmapIndexTest() { }
     virtual ~DeleteBitmapIndexTest() {
     }
+
+    void SetUp() {
+        size_t bitmap_size = BitmapSize(_size);
+        _bitmap = new uint8_t[bitmap_size];
+    }
+
+    void TearDown() {
+        delete[] _bitmap;
+    }
+private:
+    uint8_t* _bitmap;
+    size_t _size = 10000;
+
 };
 
 TEST_F(DeleteBitmapIndexTest, buider) {
-    DeleteBitmapIndexBuilder builder;
+    DeleteBitmapFlagBuilder builder;
 
     int num_items = 0;
-    for (int i = 1000; i < 10000; i += 2) {
-        builder.add_delete_item(i);
-        num_items++;
+    for (int i = 0; i < _size; i++) {
+        builder.add_delete_item(i % 2 == 0, 1);
+        if (i % 2 == 0) {
+            num_items++;
+        }
     }
     std::vector<Slice> slices;
     segment_v2::PageFooterPB footer;
     auto st = builder.finalize(&slices, &footer);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(segment_v2::DELETE_INDEX_PAGE, footer.type());
-    ASSERT_EQ(num_items, footer.delete_index_page_footer().num_items());
+    ASSERT_EQ(segment_v2::DELETE_FLAG_PAGE, footer.type());
+    ASSERT_EQ(num_items, footer.delete_flag_page_footer().num_items());
     
     std::string buf;
     for (auto& slice : slices) {
         buf.append(slice.data, slice.size);
     }
 
-    DeleteBitmapIndexDecoder decoder;
-    st = decoder.parse(buf, footer.delete_index_page_footer());
+    DeleteBitmapFlagDecoder decoder;
+    st = decoder.parse(buf, footer.delete_flag_page_footer());
     ASSERT_TRUE(st.ok());
 
-    auto& bitmap = decoder.get_iterator().get_delete_bitmap();
-    {
-        ASSERT_TRUE(bitmap.contains(1002));
-    }
-    {
-        ASSERT_TRUE(!bitmap.contains(1003));
-    }
-    {
-        ASSERT_TRUE(!bitmap.contains(5003));
-    }
-    {
-        ASSERT_TRUE(bitmap.contains(5002));
-    }
+    DeleteBitmapFlagIterator iter(&decoder);
+   
+    iter.next_batch(_bitmap, 0, _size);
+    ASSERT_TRUE(BitmapTest(_bitmap,1002)); 
+    ASSERT_FALSE(BitmapTest(_bitmap,1003)); 
+    ASSERT_TRUE(BitmapTest(_bitmap,5002)); 
+    ASSERT_FALSE(BitmapTest(_bitmap,5003));
+
+}
 }
 }
 

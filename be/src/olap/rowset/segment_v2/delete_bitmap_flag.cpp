@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/delete_bitmap_index.h"
+#include "olap/rowset/segment_v2/delete_bitmap_flag.h"
 
 #include <string>
 #include "gutil/strings/substitute.h"
@@ -24,49 +24,55 @@ using strings::Substitute;
 
 namespace doris {
 
-Status DeleteBitmapIndexBuilder::add_delete_item(const uint32_t& _row_count) {
-    _delete_bitmap.add(_row_count);
-    _num_items++;
+namespace segment_v2 {
+
+Status DeleteBitmapFlagBuilder::add_delete_item(bool value, const uint32_t& row_count) {
+    _delete_bitmap.Put(value, row_count);
+    if (value) {
+        _num_items += row_count;
+    }
     return Status::OK();
 }
 
-Status DeleteBitmapIndexBuilder::finalize(std::vector<Slice>* body,
+Status DeleteBitmapFlagBuilder::finalize(std::vector<Slice>* body,
                                           segment_v2::PageFooterPB* page_footer) {
     // get the size after serialize
-    _delete_bitmap.runOptimize();
-    uint32_t size = _delete_bitmap.getSizeInBytes(false);
-    // fill in bitmap index page
-    page_footer->set_type(segment_v2::DELETE_INDEX_PAGE);
+    uint32_t size = 0;
+    if (_num_items > 0) {
+        _delete_bitmap.Flush();
+        size = _buf.size();
+    }
+    // fill in bitmap flag page
+    page_footer->set_type(segment_v2::DELETE_FLAG_PAGE);
     page_footer->set_uncompressed_size(size);
 
-    segment_v2::DeleteIndexFooterPB* footer = page_footer->mutable_delete_index_page_footer();
+    segment_v2::DeleteFlagFooterPB* footer = page_footer->mutable_delete_flag_page_footer();
     footer->set_num_items(_num_items);
     footer->set_content_bytes(size);
 
-    // write bitmap to slice as return
-    _buf.resize(size);
-    _delete_bitmap.write(reinterpret_cast<char*>(_buf.data()), false);
-    body->emplace_back(_buf);
+    if (_num_items > 0) {
+        body->emplace_back(_buf);
+    }
     return Status::OK();
 }
 
-Status DeleteBitmapIndexDecoder::parse(const Slice& body, const segment_v2::DeleteIndexFooterPB& footer) {
+Status DeleteBitmapFlagDecoder::parse(const Slice& body, const segment_v2::DeleteFlagFooterPB& footer) {
     _footer = footer;
     // check if body size match footer's information
     if (body.size != (_footer.content_bytes())) {
-        return Status::Corruption(Substitute("Index size not match, need=$0, real=$1",
+        return Status::Corruption(Substitute("Flag size not match, need=$0, real=$1",
                                              _footer.content_bytes(), body.size));
     }
-    // set index buffer
-    Slice index_data(body.data, _footer.content_bytes());
-    // load delete bitmap
-    _delete_bitmap = Roaring::read(index_data.data, false);
+
+    if (footer.num_items() > 0) {
+        // set flag buffer
+        Slice flag_data(body.data, _footer.content_bytes());
+        // load delete bitmap
+        _delete_bitmap = RleDecoder<bool>((const uint8_t*)flag_data.data, flag_data.size, 1);
+    }
 
     _parsed = true;
     return Status::OK();
 }
-
-const Roaring& DeleteBitmapIndexIterator:: get_delete_bitmap() const{
-    return _decoder->get_delete_bitmap();
 }
 }

@@ -59,7 +59,7 @@ enum PageTypePB {
     INDEX_PAGE = 2;
     DICTIONARY_PAGE = 3;
     SHORT_KEY_PAGE = 4;
-    DELETE_INDEX_PAGE = 5;
+    DELETE_FLAG_PAGE = 5;
 }
 
 message DataPageFooterPB {
@@ -107,7 +107,7 @@ message ShortKeyFooterPB {
     optional uint32 num_segment_rows = 6;
 }
 
-message DeleteIndexFooterPB {
+message DeleteFlagFooterPB {
     // How many index item in this index.
     optional uint32 num_items = 1;
     // The total bytes occupied by the delete index
@@ -128,8 +128,8 @@ message PageFooterPB {
     optional DictPageFooterPB dict_page_footer = 9;
     // present only when type == SHORT_KEY_PAGE
     optional ShortKeyFooterPB short_key_page_footer = 10;
-    // present only when type == DELETE_INDEX_PAGE
-    optional DeleteIndexFooterPB delete_index_page_footer = 11;
+    // present only when type == DELETE_FLAG_PAGE
+    optional DeleteFlagFooterPB delete_flag_page_footer = 11;
 }
 
 message ZoneMapPB {
@@ -176,7 +176,7 @@ message SegmentFooterPB {
     // Short key index's page
     optional PagePointerPB short_key_index_page = 9;
     // Use bitmap index to indicate which row is marked for deleting
-    optional PagePointerPB delete_index_page = 10;
+    optional PagePointerPB delete_flag_page = 10;
 }
 
 message BTreeMetaPB {

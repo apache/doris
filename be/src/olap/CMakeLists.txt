@@ -71,7 +71,6 @@ add_library(Olap STATIC
     data_dir.cpp
     row.cpp
     short_key_index.cpp
-    delete_bitmap_index.cpp
     snapshot_manager.cpp
     stream_index_common.cpp
     stream_index_reader.cpp
@@ -110,6 +109,7 @@ add_library(Olap STATIC
     rowset/segment_v2/bloom_filter_index_writer.cpp
     rowset/segment_v2/bloom_filter.cpp
     rowset/segment_v2/zone_map_index.cpp
+    rowset/segment_v2/delete_bitmap_flag.cpp
     task/engine_batch_load_task.cpp
     task/engine_checksum_task.cpp
     task/engine_clone_task.cpp

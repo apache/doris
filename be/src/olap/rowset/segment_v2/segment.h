@@ -28,7 +28,7 @@
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
-#include "olap/delete_bitmap_index.h"
+#include "olap/rowset/segment_v2/delete_bitmap_flag.h"
 
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -97,9 +97,9 @@ public:
         return _sk_index_decoder->upper_bound(key);
     }
 
-    DeleteBitmapIndexIterator delete_index_iterator() const { 
+    DeleteBitmapFlagIterator delete_flag_iterator() const { 
         DCHECK(_delete_index_once.has_called() && _delete_index_once.stored_result().ok());
-        return _delete_index_decoder->get_iterator();
+        return {_delete_flag_decoder.get()};
     }
 
     // This will return the last row block in this segment.
@@ -157,7 +157,7 @@ private:
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // delete index decoder
-    std::unique_ptr<DeleteBitmapIndexDecoder> _delete_index_decoder;
+    std::unique_ptr<DeleteBitmapFlagDecoder> _delete_flag_decoder;
 
 };
 

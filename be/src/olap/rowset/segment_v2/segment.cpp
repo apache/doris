@@ -161,8 +161,8 @@ Status Segment::_load_index() {
 
 Status Segment::_load_delete_index() {
     return _delete_index_once.call([this] {
-        if (!_footer.has_delete_index_page()) {
-            _delete_index_decoder.reset(new DeleteBitmapIndexDecoder(true));
+        if (!_footer.has_delete_flag_page()) {
+            _delete_flag_decoder.reset(new DeleteBitmapFlagDecoder(true));
             Status::OK(); 
         }
 
@@ -173,7 +173,7 @@ Status Segment::_load_delete_index() {
 
         PageReadOptions opts;
         opts.rblock = rblock.get();
-        opts.page_pointer = PagePointer(_footer.delete_index_page());
+        opts.page_pointer = PagePointer(_footer.delete_flag_page());
         opts.codec = nullptr; // delete key index page uses NO_COMPRESSION for now
         OlapReaderStatistics tmp_stats;
         opts.stats = &tmp_stats;
@@ -182,10 +182,10 @@ Status Segment::_load_delete_index() {
         PageFooterPB footer;
         RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
         DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
-        DCHECK(footer.has_delete_index_page_footer());
+        DCHECK(footer.has_delete_flag_page_footer());
 
-        _delete_index_decoder.reset(new DeleteBitmapIndexDecoder());
-        return _delete_index_decoder->parse(body, footer.delete_index_page_footer());
+        _delete_flag_decoder.reset(new DeleteBitmapFlagDecoder());
+        return _delete_flag_decoder->parse(body, footer.delete_flag_page_footer());
     });
 }
 

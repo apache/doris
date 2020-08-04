@@ -77,7 +77,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         _column_writers.push_back(std::move(writer));
     }
     _index_builder.reset(new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
-    _delete_bitmap_builder.reset(new DeleteBitmapIndexBuilder());
+    _delete_bitmap_builder.reset(new DeleteBitmapFlagBuilder());
     return Status::OK();
 }
 
@@ -190,7 +190,7 @@ Status SegmentWriter::_write_delete_index() {
     PagePointer pp;
     // delete index page is not compressed right now
     RETURN_IF_ERROR(PageIO::write_page(_wblock, body, footer, &pp));
-    pp.to_proto(_footer.mutable_delete_index_page());
+    pp.to_proto(_footer.mutable_delete_flag_page());
     return Status::OK();
 }
 

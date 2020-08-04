@@ -46,13 +46,15 @@ RowBlock::RowBlock(const TabletSchema* schema, MemTracker* parent_tracker) :
 
 RowBlock::~RowBlock() {
     delete[] _mem_buf;
+    delete[] _delete_bitmap;
 }
 
 OLAPStatus RowBlock::init(const RowBlockInfo& block_info) {
     _info = block_info;
     _null_supported = block_info.null_supported;
     _capacity = _info.row_num;
-    _delete_bitmap = std::unique_ptr<Roaring>(new Roaring());
+    auto bitmap_size = BitmapSize(_capacity);
+    _delete_bitmap = new uint8_t[bitmap_size];
     _compute_layout();
     _mem_buf = new char[_mem_buf_bytes];
     return OLAP_SUCCESS;
@@ -76,7 +78,6 @@ void RowBlock::clear() {
     _pos = 0;
     _limit = 0;
     _mem_pool->clear();
-    _delete_bitmap.reset();
 }
 
 void RowBlock::_compute_layout() {
