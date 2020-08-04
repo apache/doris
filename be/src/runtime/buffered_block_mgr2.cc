@@ -1105,7 +1105,7 @@ Status BufferedBlockMgr2::find_buffer(
             return add_exec_msg("Spilling has been disabled for plans,"
                     "current memory usage has reached the bottleneck. "
                     "You can avoid the behavior via increasing the mem limit "
-                    "by session variable exec_mem_limior or enable spilling.");
+                    "by session variable exec_mem_limit or enable spilling.");
         }
 
         // Third, this block needs to use a buffer that was unpinned from another block.
