@@ -230,7 +230,7 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     if (batch != nullptr) {
         butil::IOBuf& io_buf = _closure->cntl.request_attachment();
         io_buf.append(batch->tuple_data());
-        batch->mutable_tuple_data(); // to padding the required tuple_data field in PB
+        batch->set_tuple_data(""); // to padding the required tuple_data field in PB
         _brpc_request.set_allocated_row_batch(batch);
     }
     _brpc_request.set_packet_seq(_packet_seq++);
