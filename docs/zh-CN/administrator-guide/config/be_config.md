@@ -436,6 +436,22 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `streaming_load_max_mb`
 
+* 类型：int64
+* 描述：用于限制一次 Stream load 导入中，允许的最大数据量。单位 MB。
+* 默认值： 10240
+* 可动态修改：是
+
+Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大的数据。
+
+### `streaming_load_max_batch_size_mb`
+
+* 类型：int64
+* 描述：对于某些数据格式，如 JSON，用于限制一次 Stream load 导入中，允许的最大数据量。单位 MB。
+* 默认值： 100
+* 可动态修改：是
+
+一些数据格式，如 JSON，无法进行拆分处理，必须读取全部数据到内存后才能开始解析，因此，这个值用于限制此类格式数据单次导入最大数据量。
+
 ### `streaming_load_rpc_max_alive_time_sec`
 
 ### `sync_tablet_meta`

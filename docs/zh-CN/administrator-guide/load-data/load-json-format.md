@@ -185,6 +185,124 @@ Doris 支持通过 Json Path 抽取 Json 中指定的数据。
     
     则会导致完全匹配失败，则该行会标记为错误行，而不是产出 `null, null`。
 
+## Json Path 和 Columns
+
+Json Path 用于指定如何对 JSON 格式中的数据进行抽取，而 Columns 指定列的映射和转换关系。两者可以配合使用，举例如下。
+
+数据内容：
+
+```
+{"k1" : 1, "k2": 2}
+```
+
+表结构：
+
+`k2 int, k1 int`
+
+导入语句1（以 Stream Load 为例）：
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+导入语句1中，仅指定了 Json Path，没有指定 Columns。其中 Json Path 的作用是将 Json 数据按照 Json Path 中字段的顺序进行抽取，之后会按照表结构的顺序进行写入。最终导入的数据结果如下：
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    2 |    1 |
++------+------+
+```
+
+会看到，实际的 k1 列导入了 Json 数据中的 "k2" 列的值。这是因为，Json 中字段名称并不等同于表结构中字段的名称。我们需要显式的指定这两者之间的映射关系。
+
+导入语句2：
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -H "columns: k2, k1" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+相比如导入语句1，这里增加了 Columns 字段，用于描述列的映射关系，按 `k2, k1` 的顺序。即按Json Path 中字段的顺序抽取后，指定第一列为表中 k2 列的值，而第二列为表中 k1 列的值。最终导入的数据结果如下：
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    2 |
++------+------+
+```
+
+当然，如其他导入一样，可以在 Columns 中进行列的转换操作。示例如下：
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -H "columns: k2, tmp_k1, k1 = tmp_k1 * 100" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+上述示例会将 k1 的值乘以 100 后导入。最终导入的数据结果如下：
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|  100 |    2 |
++------+------+
+```
+
+## NULL 和 Default 值
+
+示例数据如下：
+
+```
+[
+    {"k1": 1, "k2": "a"},
+    {"k1": 2},
+    {"k1": 3, "k2": "c"},
+]
+```
+
+表结构为：`k1 int null, k2 varchar(32) null default "x"`
+
+导入语句如下：
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+用户可能期望的导入结果如下，即对于缺失的列，填写默认值。
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    a |
++------+------+
+|    2 |    x |
++------+------+
+|    3 |    c |
++------+------+
+```
+
+但实际的导入结果如下，即对于缺失的列，补上了 NULL。
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    a |
++------+------+
+|    2 | NULL |
++------+------+
+|    3 |    c |
++------+------+
+```
+
+这是因为通过导入语句中的信息，Doris 并不知道 “缺失的列是表中的 k2 列”。
+如果要对以上数据按照期望结果导入，则导入语句如下：
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -H "jsonpaths: [\"$.k1\", \"$.k2\"]" -H "columns: k1, tmp_k2, k2 = ifnull(tmp_k2, 'x')" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
 
 ## 应用示例
 

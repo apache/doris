@@ -326,7 +326,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
+            if (fill_dest_tuple(tuple, tuple_pool)) {
                 break; // get one line, break from while
             } // else skip this line and continue get_next to return
         }

@@ -59,7 +59,7 @@ public:
 
     // Close this scanner
     virtual void close() = 0;
-    bool fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool* mem_pool);
+    bool fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 
     void fill_slots_of_columns_from_path(int start, const std::vector<std::string>& columns_from_path);
 
