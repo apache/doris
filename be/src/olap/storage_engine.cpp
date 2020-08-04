@@ -832,16 +832,6 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
     return _tablet_manager->create_tablet(request, stores);
 }
 
-OLAPStatus StorageEngine::recover_tablet_until_specfic_version(
-        const TRecoverTabletReq& recover_tablet_req) {
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(recover_tablet_req.tablet_id,
-                                   recover_tablet_req.schema_hash);
-    if (tablet == nullptr) { return OLAP_ERR_TABLE_NOT_FOUND; }
-    RETURN_NOT_OK(tablet->recover_tablet_until_specfic_version(recover_tablet_req.version,
-                                                        recover_tablet_req.version_hash));
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus StorageEngine::obtain_shard_path(
         TStorageMedium::type storage_medium, std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;

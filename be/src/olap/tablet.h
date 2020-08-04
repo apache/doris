@@ -179,11 +179,6 @@ public:
             uint64_t request_block_row_count,
             vector<OlapTuple>* ranges);
 
-    // operation for recover tablet
-    // Deprected, remove it later
-    OLAPStatus recover_tablet_until_specfic_version(const int64_t& spec_version,
-                                                    const int64_t& version_hash);
-
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
