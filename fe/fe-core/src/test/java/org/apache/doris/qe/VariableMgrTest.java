@@ -111,7 +111,8 @@ public class VariableMgrTest {
         VariableMgr.setVar(var, setVar3);
         Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
         var = VariableMgr.newSessionVariable();
-        Assert.assertEquals("CST", var.getTimeZone());
+	// CST is alias to Asia/Shanghai
+        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
 
         // Set session variable
         setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
