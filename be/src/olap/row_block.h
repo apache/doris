@@ -148,6 +148,7 @@ private:
     std::unique_ptr<MemPool> _mem_pool;
     // delete bitmap which records deleted rows
     uint8_t* _delete_bitmap;
+
     // 由于内部持有内存资源，所以这里禁止拷贝和赋值
     DISALLOW_COPY_AND_ASSIGN(RowBlock);
 };

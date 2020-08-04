@@ -96,7 +96,6 @@ public:
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder->upper_bound(key);
     }
-
     DeleteBitmapFlagIterator delete_flag_iterator() const { 
         DCHECK(_delete_index_once.has_called() && _delete_index_once.stored_result().ok());
         return {_delete_flag_decoder.get()};

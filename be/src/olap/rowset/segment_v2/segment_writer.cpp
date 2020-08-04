@@ -78,6 +78,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
     }
     _index_builder.reset(new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
     _delete_bitmap_builder.reset(new DeleteBitmapFlagBuilder());
+
     return Status::OK();
 }
 
@@ -99,7 +100,23 @@ Status SegmentWriter::append_row(const RowType& row) {
 }
 
 template Status SegmentWriter::append_row(const RowCursor& row);
-template Status SegmentWriter::append_row(const ContiguousRow& row);
+template<> Status SegmentWriter::append_row(const ContiguousRow& row) {
+    for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
+        auto cell = row.cell(cid);
+        RETURN_IF_ERROR(_column_writers[cid]->append(cell));
+    }
+
+    // At the begin of one block, so add a short key index entry
+    if ((_row_count % _opts.num_rows_per_block) == 0) {
+        std::string encoded_key;
+        encode_key(&encoded_key, row, _tablet_schema->num_short_key_columns());
+        RETURN_IF_ERROR(_index_builder->add_item(encoded_key));
+    }
+    RETURN_IF_ERROR(_delete_bitmap_builder->add_delete_item(row.is_delete(), 1));
+    
+    ++_row_count;
+    return Status::OK();
+}
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.
@@ -191,6 +208,7 @@ Status SegmentWriter::_write_delete_index() {
     // delete index page is not compressed right now
     RETURN_IF_ERROR(PageIO::write_page(_wblock, body, footer, &pp));
     pp.to_proto(_footer.mutable_delete_flag_page());
+
     return Status::OK();
 }
 

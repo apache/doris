@@ -33,6 +33,7 @@ class RowBlock;
 class RowCursor;
 class TabletSchema;
 class ShortKeyIndexBuilder;
+class DeleteBitmapIndexBuilder;
 
 namespace fs {
 class WritableBlock;
@@ -90,7 +91,9 @@ private:
 
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
+
     std::unique_ptr<DeleteBitmapFlagBuilder> _delete_bitmap_builder;
+
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     uint32_t _row_count = 0;
 };

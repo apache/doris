@@ -568,7 +568,6 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 
         // fetch delete index
         auto iter = _segment->delete_flag_iterator();
-
         const uint16_t* sv = block->selection_vector();
         const uint16_t sv_size = block->selected_size();
         uint16_t i = 0;

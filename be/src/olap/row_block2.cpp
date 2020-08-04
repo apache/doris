@@ -85,8 +85,10 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
             }
         }
     }
+
     auto bitmap_size = BitmapSize(_capacity);
     memcpy(dst->get_delete_bitmap(), _delete_bitmap, bitmap_size);
+
     // swap MemPool to copy string content
     dst->mem_pool()->exchange_data(_pool.get());
     dst->set_pos(0);
