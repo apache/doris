@@ -61,6 +61,7 @@ public class LogController {
         // get parameters
         addVerboseName = request.getParameter("add_verbose");
         delVerboseName = request.getParameter("del_verbose");
+//        System.out.println(delVerboseName.length());
         LOG.info("add verbose name: {}, del verbose name: {}", addVerboseName, delVerboseName);
         appendLogConf(map);
         appendLogInfo(map);

@@ -81,6 +81,7 @@ public class BaseController {
             ctx.setCatalog(Catalog.getCurrentCatalog());
             ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
+            request.getSession().setAttribute("ctx",ctx);
             LOG.debug("check auth without cookie success for user: {}, thread: {}",
                     currentUser, Thread.currentThread().getId());
             return true;
@@ -123,6 +124,7 @@ public class BaseController {
                 ctx.setCatalog(Catalog.getCurrentCatalog());
                 ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
                 ctx.setThreadLocalInfo();
+                request.getSession().setAttribute("ctx",ctx);
                 LOG.debug("check cookie success for user: {}, thread: {}",
                         sessionValue.currentUser, Thread.currentThread().getId());
                 return true;

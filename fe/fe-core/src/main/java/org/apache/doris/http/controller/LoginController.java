@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.controller;
 
+import org.apache.doris.http.HttpAuthManager;
 import org.json.JSONObject;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -54,4 +56,5 @@ public class LoginController extends BaseController {
         }
         return msg;
     }
+
 }

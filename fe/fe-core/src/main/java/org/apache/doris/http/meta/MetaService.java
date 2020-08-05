@@ -68,6 +68,7 @@ public class MetaService extends RestBaseController {
         return true;
     }
 
+
     private void checkFromValidFe(HttpServletRequest request)
             throws InvalidClientException {
         if (!isFromValidFe(request)) {
@@ -224,8 +225,6 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
     public Object dump(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        executeCheckPassword(request, response);
-
         /*
          * Before dump, we acquired the catalog read lock and all databases' read lock and all
          * the jobs' read lock. This will guarantee the consistency of database and job queues.

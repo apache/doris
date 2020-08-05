@@ -51,9 +51,10 @@ import javax.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/rest/v1")
-public class SystemController {
+public class SystemController extends BaseController{
 
     private static final Logger LOG = LogManager.getLogger(SystemController.class);
+
 
     @RequestMapping(path = "/system", method = RequestMethod.GET)
     public Object system(HttpServletRequest request) {
@@ -62,7 +63,7 @@ public class SystemController {
             currentPath = "/";
         }
         LOG.debug("get /system requset, thread id: {}", Thread.currentThread().getId());
-        ResponseEntity entity = appendSystemInfo(currentPath, currentPath);
+        ResponseEntity entity = appendSystemInfo(currentPath, currentPath,request);
         return entity;
     }
 
@@ -82,7 +83,7 @@ public class SystemController {
         return node;
     }
 
-    private ResponseEntity appendSystemInfo(String procPath, String path) {
+    private ResponseEntity appendSystemInfo(String procPath, String path,HttpServletRequest request) {
         List<Map<String, String>> list = new ArrayList<>();
         Map<String, Object> map = new HashMap<>();
 
@@ -95,10 +96,13 @@ public class SystemController {
         List<String> columnNames = null;
         List<List<String>> rows = null;
         if (!Catalog.getCurrentCatalog().isMaster()) {
+
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
+            ConnectContext ctx = (ConnectContext)request.getSession().getAttribute("ctx");
+
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),
-                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC);
+                    ctx, RedirectStatus.FORWARD_NO_SYNC);
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {
