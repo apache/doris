@@ -30,27 +30,17 @@ under the License.
 
 JDK1.8+  , Intellj IDEA
 
-1.linux上编译好fe前端代码，主要目的是获取自动生成的代码，加入到前段工程里面去用于在idea中编译fe工程
-
-在linux下，进入到源码目录，执行下面的命令：
-
+1. 从 https://github.com/apache/incubator-doris.git 下载源码到本地
+2. 使用Intellj IDEA 打开代码根目录
+3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
+4. 如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：
 ```
-$ sh build.sh --clean --fe
+cd fe
+mvn  generate-sources
 ```
-
-然后将 gensrc目录打包，拿出来，如下图
-
-![](/images/DEBUG1.png)
-
-2.在windows下解压gensrc.tar.gz,解压后的目录如下图：
-
-![](/images/DEBUG2.png)
-
-3.进入build/java,将红色框出的部分整个拷贝到源码的fe/src/main/java目录下
-
-
-
-![](/images/DEBUG3.png)
+或者通过图形界面运行运行maven 命令生成
+![](/images/gen_code.png)
+如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
 ## 2.调试
 
