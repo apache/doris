@@ -21,6 +21,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.base64.Base64;
 import io.netty.util.CharsetUtil;
+
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
@@ -42,9 +43,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import javax.servlet.http.Cookie;
@@ -59,44 +58,32 @@ public class BaseController {
     private static final int PALO_SESSION_EXPIRED_TIME = 3600 * 24; // one day
 
     // We first check cookie, if not admin, we check http's authority header
-    public boolean checkAuthWithCookie(HttpServletRequest request, HttpServletResponse response) {
-        if (!needPassword()) {
-            return true;
-        }
+    public void checkAuthWithCookie(HttpServletRequest request, HttpServletResponse response) {
         if (checkCookie(request, response)) {
-            return true;
+            return;
         }
-        // cookie is invalid.
-        ActionAuthorizationInfo authInfo;
-        try {
-            authInfo = getAuthorizationInfo(request);
-            UserIdentity currentUser = checkPassword(authInfo);
-            if (needAdmin()) {
-                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
-            }
-            SessionValue value = new SessionValue();
-            value.currentUser = currentUser;
-            addSession(request, response, value);
 
-            ConnectContext ctx = new ConnectContext(null);
-            ctx.setQualifiedUser(authInfo.fullUserName);
-            ctx.setRemoteIP(authInfo.remoteIp);
-            ctx.setCurrentUserIdentity(currentUser);
-            ctx.setCatalog(Catalog.getCurrentCatalog());
-            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            ctx.setThreadLocalInfo();
-            request.getSession().setAttribute("ctx",ctx);
-            LOG.debug("check auth without cookie success for user: {}, thread: {}",
-                    currentUser, Thread.currentThread().getId());
-            return true;
-        } catch (UnauthorizedException e) {
-            //response.appendContent("Authentication Failed. <br/> " + e.getMessage());
-            Map<String, Object> map = new HashMap<>();
-            map.put("code", 500);
-            map.put("msg", "Authentication Failed.");
-            return false;
-        }
+        // cookie is invalid. check auth info in request
+        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+        UserIdentity currentUser = checkPassword(authInfo);
+        // we need admin priv
+        checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+
+        SessionValue value = new SessionValue();
+        value.currentUser = currentUser;
+        addSession(request, response, value);
+
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setQualifiedUser(authInfo.fullUserName);
+        ctx.setRemoteIP(authInfo.remoteIp);
+        ctx.setCurrentUserIdentity(currentUser);
+        ctx.setCatalog(Catalog.getCurrentCatalog());
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        ctx.setThreadLocalInfo();
+        LOG.debug("check auth without cookie success for user: {}, thread: {}",
+                currentUser, Thread.currentThread().getId());
+        return;
     }
 
     protected void addSession(HttpServletRequest request, HttpServletResponse response, SessionValue value) {
@@ -106,7 +93,6 @@ public class BaseController {
         response.addCookie(cookie);
         HttpAuthManager.getInstance().addSessionValue(key, value);
     }
-
 
     private boolean checkCookie(HttpServletRequest request, HttpServletResponse response) {
         String sessionId = getCookieValue(request, PALO_SESSION_ID, response);
@@ -129,7 +115,6 @@ public class BaseController {
                 ctx.setCatalog(Catalog.getCurrentCatalog());
                 ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
                 ctx.setThreadLocalInfo();
-                request.getSession().setAttribute("ctx",ctx);
                 LOG.debug("check cookie success for user: {}, thread: {}",
                         sessionValue.currentUser, Thread.currentThread().getId());
                 return true;
@@ -160,18 +145,6 @@ public class BaseController {
             }
         }
 
-    }
-
-    // return true if this Action need to check password.
-    // Currently, all sub actions need to check password except for MetaBaseAction.
-    // if needPassword() is false, then needAdmin() should also return false
-    public boolean needPassword() {
-        return true;
-    }
-
-    // return true if this Action need Admin privilege.
-    public boolean needAdmin() {
-        return true;
     }
 
     public static class ActionAuthorizationInfo {

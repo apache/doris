@@ -96,13 +96,11 @@ public class SystemController extends BaseController{
         List<String> columnNames = null;
         List<List<String>> rows = null;
         if (!Catalog.getCurrentCatalog().isMaster()) {
-
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
-            ConnectContext ctx = (ConnectContext)request.getSession().getAttribute("ctx");
 
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),
-                    ctx, RedirectStatus.FORWARD_NO_SYNC);
+                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC);
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {
