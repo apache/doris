@@ -105,6 +105,9 @@ public class Log4jConfig extends XmlConfiguration {
             "    <Logger name=\"org.apache.doris.thrift\" level=\"DEBUG\"> \n" +
             "      <AppenderRef ref=\"Sys\"/>\n" +
             "    </Logger>\n" +
+            "    <Logger name=\"org.apache.doris.http\" level=\"DEBUG\"> \n" +
+            "      <AppenderRef ref=\"Sys\"/>\n" +
+            "    </Logger>\n" +
             "    <!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->\n" +
             "  </Loggers>\n" +
             "</Configuration>";

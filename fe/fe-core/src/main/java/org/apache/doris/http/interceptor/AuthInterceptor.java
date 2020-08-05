@@ -23,6 +23,7 @@ import org.apache.doris.http.controller.BaseController;
 
 import com.google.common.base.Strings;
 
+import org.apache.doris.qe.ConnectContext;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +39,6 @@ import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-@Component
 public class AuthInterceptor extends BaseController implements HandlerInterceptor {
     private Logger logger = LoggerFactory.getLogger(AuthInterceptor.class);
 

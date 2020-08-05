@@ -18,6 +18,7 @@
 package org.apache.doris.http.controller;
 
 import org.apache.doris.http.HttpAuthManager;
+import org.apache.doris.qe.ConnectContext;
 import org.json.JSONObject;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,9 +38,12 @@ public class LoginController extends BaseController {
 
     @RequestMapping(path = "/login", method = RequestMethod.POST)
     public Object login(HttpServletRequest request, HttpServletResponse response) {
+
         Map<String, Object> msg = new HashMap<>();
         try {
             if (checkAuthWithCookie(request, response)) {
+                System.out.println("LoginController ConnectContext : " + ConnectContext.get());
+
                 msg.put("code", 200);
                 msg.put("msg", "Login success!");
             } else {
