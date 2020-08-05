@@ -17,69 +17,98 @@
 
 <template>
   <div class="login">
-    <el-form label-position="left" :model="loginForm" :rules="rules" ref="loginForm" label-width="0px" class="demo-loginForm login-container">
+    <el-form
+      label-position="left"
+      :model="loginForm"
+      :rules="rules"
+      ref="loginForm"
+      label-width="0px"
+      class="demo-loginForm login-container"
+    >
       <h3 class="title">Apache Doris</h3>
       <el-form-item prop="username">
-        <el-input type="text" v-model="loginForm.username" auto-complete="off" placeholder="username"></el-input>
+        <el-input
+          type="text"
+          v-model="loginForm.username"
+          auto-complete="off"
+          placeholder="username"
+        ></el-input>
       </el-form-item>
       <el-form-item prop="password">
-        <el-input type="password" v-model="loginForm.password" auto-complete="off" placeholder="password"></el-input>
+        <el-input
+          type="password"
+          v-model="loginForm.password"
+          auto-complete="off"
+          placeholder="password"
+        ></el-input>
       </el-form-item>
       <el-form-item style="width:100%;">
-        <el-button type="primary" style="width:100%;" @click="submitForm('loginForm')" :loading="logining">Login</el-button>
+        <el-button
+          type="primary"
+          style="width:100%;"
+          @click="submitForm('loginForm')"
+          :loading="logining"
+        >Login</el-button>
       </el-form-item>
     </el-form>
   </div>
 </template>
 <script type="text/ecmascript-6">
-import axios from 'axios';
-import { setCookie, getCookie, delCookie } from '../utils/util'
-import md5 from 'js-md5'
-import Cookies from 'js-cookie'
+import axios from "axios";
+import { login} from '../api/doris'
+
+import { setCookie, getCookie, delCookie } from "../utils/util";
+import md5 from "js-md5";
+import Cookies from "js-cookie";
 
 export default {
-  name: 'login',
+  name: "login",
   data() {
     return {
       logining: false,
       rememberpwd: false,
       loginForm: {
-        username: '',
-        password: ''
+        username: "",
+        password: "",
+        authorization: "",
       },
       rules: {
-        username: [{ required: true, message: 'please enter username', trigger: 'blur' }]
-      }
-    }
+        username: [
+          { required: true, message: "please enter username", trigger: "blur" },
+        ],
+      },
+    };
   },
   created() {
-    self=this
+    
   },
   methods: {
     getuserpwd() {
-      if (getCookie('user') != '' && getCookie('pwd') != '') {
-        this.loginForm.username = getCookie('user')
-        this.loginForm.password = getCookie('pwd')
-        this.rememberpwd = true
+      if (getCookie("user") != "" && getCookie("pwd") != "") {
+        this.loginForm.username = getCookie("user");
+        this.loginForm.password = getCookie("pwd");
+        this.rememberpwd = true;
       }
     },
     submitForm(formName) {
-      axios.post(this.baseurl+'rest/v1/login', {
-        username: this.loginForm.username,
-        password: this.loginForm.password
+      let userNameAndPassword = this.loginForm.username + ":" + this.loginForm.password;
+      let encodedData = window.btoa(userNameAndPassword);
+      login(encodedData)
+        .then(res => {
+          if (res.code  === 200) {
+           Cookies.set("userName",this.loginForm.username)
+           this.$router.push({ path: '/home/home' })
+          } else {
+              this.$message.error('Login Fail！')
+          }
         })
-        .then(function (response) {
-        if(response.data.code === 200){
-          Cookies.set("userName",self.loginForm.username)
-          self.$router.push({ path: '/home/home' })
-        } else if(response.data.code === 401){
-          self.$router.push({ path: '/login' });
-        }
-        console.log(response);
+        .catch(err => {
+          this.$message.error('Login Fail！')
         })
+
     },
-  }
-}
+  },
+};
 </script>
 
 <style scoped>

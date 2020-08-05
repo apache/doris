@@ -36,11 +36,7 @@ import javax.servlet.http.HttpServletResponse;
 public class LoginController extends BaseController {
 
     @RequestMapping(path = "/login", method = RequestMethod.POST)
-    public Object login(HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
-        JSONObject root = new JSONObject(body);
-        Map<String, Object> result = root.toMap();
-        String auth = result.get("username") + ":" + result.get("password").toString();
-        request.setAttribute("Authorization", auth);
+    public Object login(HttpServletRequest request, HttpServletResponse response) {
         Map<String, Object> msg = new HashMap<>();
         try {
             if (checkAuthWithCookie(request, response)) {

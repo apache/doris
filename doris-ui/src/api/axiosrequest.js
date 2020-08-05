@@ -22,7 +22,7 @@ const req = (method, url, params) => {
         url: url,
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            token: localStorage.getItem('logintoken')
+            Authorization: localStorage.getItem('logintoken')
         },
         data: params,
         traditional: true,
@@ -42,6 +42,33 @@ const req = (method, url, params) => {
     }).then(res => res.data);
 };
 
+
+const loginReq = (method, url, params) => {
+    return axios({
+        method: method,
+        url: url,
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': "Basic " + params
+        },
+        traditional: true,
+        transformRequest: [
+            function(data) {
+                let ret = ''
+                for (let it in data) {
+                    ret +=
+                        encodeURIComponent(it) +
+                        '=' +
+                        encodeURIComponent(data[it]) +
+                        '&'
+                }
+                return ret
+            }
+        ]
+    }).then(res => res.data);
+};
+
 export {
-    req
+    req,
+    loginReq
 }

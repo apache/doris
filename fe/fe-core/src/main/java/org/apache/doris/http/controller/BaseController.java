@@ -17,6 +17,10 @@
 
 package org.apache.doris.http.controller;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.base64.Base64;
+import io.netty.util.CharsetUtil;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
@@ -37,6 +41,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -225,30 +230,58 @@ public class BaseController {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
             LOG.info("parse auth info failed, Authorization header {}, url {}",
-                    request.getHeaders("Authorization"), request.getRequestURI());
+                    request.getHeader("Authorization"), request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
-
         }
         LOG.debug("get auth info: {}", authInfo);
         return authInfo;
     }
 
     private boolean parseAuthInfo(HttpServletRequest request, ActionAuthorizationInfo authInfo) {
-        String encodedAuthString = request.getAttribute("Authorization").toString();
-        int index = encodedAuthString.indexOf(":");
-        authInfo.fullUserName = encodedAuthString.substring(0, index);
-        final String[] elements = authInfo.fullUserName.split("@");
-        if (elements != null && elements.length < 2) {
-            authInfo.fullUserName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER,
-                    authInfo.fullUserName);
-            authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
-        } else if (elements != null && elements.length == 2) {
-            authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);
-            authInfo.cluster = elements[1];
+        String encodedAuthString = request.getHeader("Authorization");
+        if (Strings.isNullOrEmpty(encodedAuthString)) {
+            return false;
         }
-        authInfo.password = encodedAuthString.substring(index + 1);
-        authInfo.remoteIp = request.getRemoteHost();
+        String[] parts = encodedAuthString.split(" ");
+        if (parts.length != 2) {
+            return false;
+        }
+        encodedAuthString = parts[1];
+        ByteBuf buf = null;
+        ByteBuf decodeBuf = null;
+        try {
+            buf = Unpooled.copiedBuffer(ByteBuffer.wrap(encodedAuthString.getBytes()));
 
+            // The authString is a string connecting user-name and password with
+            // a colon(':')
+            decodeBuf = Base64.decode(buf);
+            String authString = decodeBuf.toString(CharsetUtil.UTF_8);
+            // Note that password may contain colon, so can not simply use a
+            // colon to split.
+            int index = authString.indexOf(":");
+            authInfo.fullUserName = authString.substring(0, index);
+            final String[] elements = authInfo.fullUserName.split("@");
+            if (elements != null && elements.length < 2) {
+                authInfo.fullUserName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER,
+                        authInfo.fullUserName);
+                authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
+            } else if (elements != null && elements.length == 2) {
+                authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);
+                authInfo.cluster = elements[1];
+            }
+            authInfo.password = authString.substring(index + 1);
+            authInfo.remoteIp = request.getRemoteAddr();
+        } finally {
+            // release the buf and decode buf after using Unpooled.copiedBuffer
+            // or it will get memory leak
+            if (buf != null) {
+                buf.release();
+            }
+
+            if (decodeBuf != null) {
+                decodeBuf.release();
+            }
+        }
         return true;
     }
 

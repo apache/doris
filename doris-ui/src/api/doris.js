@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { req } from './axiosrequest';
+import { req,loginReq } from './axiosrequest';
 const baseurl='/';
-export const login = (params) => { return req("get", baseurl + "rest/v1/system?path=//frontends", params) };
+export const login = (params) => { return loginReq("post", baseurl + "rest/v1/login",params)};
 
 // system-frontend
 export const frontendList = (params) => { return req("get", baseurl + "rest/v1/system?path=//frontends", params) };
