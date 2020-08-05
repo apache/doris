@@ -111,11 +111,11 @@ For each column, a sparse index of row numbers is established according to page 
 
 We generate a sparse index of short key every N rows (configurable) with the contents of short key - > line number (ordinal)
 
-### Column's other indexes###
+### Column's other indexes ###
 
 The format design supports the subsequent expansion of other index information, such as bitmap index, spatial index, etc. It only needs to write the required data to the existing column data, and add the corresponding metadata fields to FileFooterPB.
 
-### Metadata Definition###
+### Metadata Definition ###
 FileFooterPB is defined as:
 
 ```
@@ -179,7 +179,7 @@ message FileFooterPB {
 
 ```
 
-## Read-write logic##
+## Read-write logic ##
 
 ### Write ###
 
@@ -203,7 +203,7 @@ Relevant issues:
 	- rle
 	- bshuf
 
-### Read###
+### Read ###
 
 1. Read the magic of the file and judge the type and version of the file.
 2. Read FileFooterPB and check sum
@@ -220,11 +220,11 @@ Relevant issues:
 2. How to achieve efficient block reading? Consider merging adjacent blocks while they are being read, one-time reading?
 This requires judging whether the block is continuous at the time of reading, and if it is continuous, reading it once.
 
-## Coding##
+## Coding ##
 
 In the existing Doris storage, plain encoding is adopted for string type encoding, which is inefficient. After comparison, it is found that in Baidu statistics scenario, data will expand more than twice because of string type coding. Therefore, it is planned to introduce dictionary-based coding compression.
 
-## Compression##
+## Compression ##
 
 It implements a scalable compression framework, supports a variety of compression algorithms, facilitates the subsequent addition of new compression algorithms, and plans to introduce zstd compression.
 
