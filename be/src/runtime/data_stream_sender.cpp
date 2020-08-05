@@ -164,7 +164,7 @@ private:
     int64_t _packet_seq;
 
     // we're accumulating rows into this batch
-    boost::scoped_ptr<RowBatch> _batch;
+    std::unique_ptr<RowBatch> _batch;
 
     bool _need_close;
     int _be_number;
@@ -228,6 +228,9 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 
     _brpc_request.set_eos(eos);
     if (batch != nullptr) {
+        butil::IOBuf& io_buf = _closure->cntl.request_attachment();
+        io_buf.append(batch->tuple_data());
+        batch->set_tuple_data(""); // to padding the required tuple_data field in PB
         _brpc_request.set_allocated_row_batch(batch);
     }
     _brpc_request.set_packet_seq(_packet_seq++);
@@ -270,12 +273,7 @@ Status DataStreamSender::Channel::add_row(TupleRow* row) {
 }
 
 Status DataStreamSender::Channel::send_current_batch(bool eos) {
-    {
-        SCOPED_TIMER(_parent->_serialize_batch_timer);
-        int uncompressed_bytes = _batch->serialize(&_pb_batch);
-        COUNTER_UPDATE(_parent->_bytes_sent_counter, RowBatch::get_batch_size(_pb_batch));
-        COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes);
-    }
+    _parent->serialize_batch(_batch.get(), &_pb_batch, 1);
     _batch->reset();
     RETURN_IF_ERROR(send_batch(&_pb_batch, eos));
     return Status::OK();
