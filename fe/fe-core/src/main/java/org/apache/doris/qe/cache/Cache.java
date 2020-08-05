@@ -28,7 +28,7 @@ import org.apache.logging.log4j.Logger;
 public abstract class Cache {
     private static final Logger LOG = LogManager.getLogger(Cache.class);
 
-    public enum HitRange{
+    public enum HitRange {
         None,
         Full,
         Left,
@@ -57,18 +57,18 @@ public abstract class Cache {
     }
 
     /**
-    * Get the rewritten SQL that needs to get data from BE
-    */ 
+     * Get the rewritten SQL that needs to get data from BE
+     */
     public abstract SelectStmt getRewriteStmt();
 
     /**
-    * Copy the data that needs to be updated to the Cache from the queried Rowset
-    */ 
+     * Copy the data that needs to be updated to the Cache from the queried Rowset
+     */
     public abstract void copyRowBatch(RowBatch rowBatch);
 
     /**
-    * Update rowset to cache of be
-    */ 
+     * Update rowset to cache of be
+     */
     public abstract void updateCache();
 
     protected boolean checkRowLimit() {
@@ -83,6 +83,6 @@ public abstract class Cache {
         } else {
             return true;
         }*/
-        return false;   
+        return false;
     }
 }

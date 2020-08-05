@@ -37,11 +37,14 @@ import java.security.MessageDigest;
 import java.util.List;
 
 /**
- * It encapsulates the request and response parameters and methods, 
+ * It encapsulates the request and response parameters and methods,
  * Based on this abstract class, the cache can be placed in FE/BE  and other places such as redis
  */
 public abstract class CacheProxy {
     private static final Logger LOG = LogManager.getLogger(CacheBeProxy.class);
+    public static int FETCH_TIMEOUT = 10000;
+    public static int UPDATE_TIMEOUT = 10000;
+    public static int CLEAR_TIMEOUT = 30000;
 
     public static class CacheParam extends PCacheParam {
         public CacheParam(PCacheParam param) {
@@ -56,7 +59,7 @@ public abstract class CacheProxy {
             last_version_time = lastVersionTime;
         }
 
-        public PCacheParam getRParam() {
+        public PCacheParam getParam() {
             PCacheParam param = new PCacheParam();
             param.partition_key = partition_key;
             param.last_version = last_version;
@@ -64,7 +67,7 @@ public abstract class CacheProxy {
             return param;
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.info("cache param, part key {}, version {}, time {}",
                     partition_key, last_version, last_version_time);
         }
@@ -76,7 +79,7 @@ public abstract class CacheProxy {
 
         public CacheValue() {
             param = null;
-            row = Lists.newArrayList();
+            rows = Lists.newArrayList();
             data_size = 0;
             resultBatch = new TResultBatch();
         }
@@ -84,11 +87,11 @@ public abstract class CacheProxy {
         public void addRpcResult(PCacheValue value) {
             param = new CacheParam(value.param);
             data_size += value.data_size;
-            row.addAll(value.row);
+            rows.addAll(value.rows);
         }
 
         public RowBatch getRowBatch() {
-            for (byte[] one : row) {
+            for (byte[] one : rows) {
                 resultBatch.addToRows(ByteBuffer.wrap(one));
             }
             RowBatch batch = new RowBatch();
@@ -103,25 +106,25 @@ public abstract class CacheProxy {
             param = new CacheParam(partitionKey, lastVersion, lastVersionTime);
             for (byte[] buf : rowList) {
                 data_size += buf.length;
-                row.add(buf);
+                rows.add(buf);
             }
         }
 
         public PCacheValue getRpcValue() {
             PCacheValue value = new PCacheValue();
-            value.param = param.getRParam();
+            value.param = param.getParam();
             value.data_size = data_size;
-            value.row = row;
+            value.rows = rows;
             return value;
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.info("cache value, partkey {}, ver:{}, time {}, row_num {}, data_size {}",
                     param.partition_key, param.last_version, param.last_version_time,
-                    row.size(),
+                    rows.size(),
                     data_size);
-            for (int i = 0; i < row.size(); i++) {
-                LOG.info("{}:{}", i, row.get(i));
+            for (int i = 0; i < rows.size(); i++) {
+                LOG.info("{}:{}", i, rows.get(i));
             }
         }
     }
@@ -152,21 +155,21 @@ public abstract class CacheProxy {
         public PUpdateCacheRequest getRpcRequest() {
             value_count = valueList.size();
             PUpdateCacheRequest request = new PUpdateCacheRequest();
-            request.value = Lists.newArrayList();
+            request.values = Lists.newArrayList();
             request.sql_key = sql_key;
             for (CacheValue value : valueList) {
-                request.value.add(value.getRpcValue());
-                row_count += value.row.size();
+                request.values.add(value.getRpcValue());
+                row_count += value.rows.size();
                 data_size = value.data_size;
             }
             return request;
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.info("update cache request, sql_key {}, value_size {}", DebugUtil.printId(sql_key),
                     valueList.size());
             for (CacheValue value : valueList) {
-                value.Debug();
+                value.debug();
             }
         }
     }
@@ -189,18 +192,18 @@ public abstract class CacheProxy {
 
         public PFetchCacheRequest getRpcRequest() {
             PFetchCacheRequest request = new PFetchCacheRequest();
-            request.param = Lists.newArrayList();
+            request.params = Lists.newArrayList();
             request.sql_key = sql_key;
             for (CacheParam param : paramList) {
-                request.param.add(param.getRParam());
+                request.params.add(param.getParam());
             }
             return request;
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.info("fetch cache request, sql_key {}, param count {}", DebugUtil.printId(sql_key), paramList.size());
             for (CacheParam param : paramList) {
-                param.Debug();
+                param.debug();
             }
         }
     }
@@ -225,21 +228,21 @@ public abstract class CacheProxy {
         }
 
         public void setResult(PFetchCacheResult rpcResult) {
-            value_count = rpcResult.value.size();
-            for (int i = 0; i < rpcResult.value.size(); i++) {
-                PCacheValue rpcValue = rpcResult.value.get(i);
+            value_count = rpcResult.values.size();
+            for (int i = 0; i < rpcResult.values.size(); i++) {
+                PCacheValue rpcValue = rpcResult.values.get(i);
                 CacheValue value = new CacheValue();
                 value.addRpcResult(rpcValue);
                 valueList.add(value);
-                row_count += value.row.size();
+                row_count += value.rows.size();
                 data_size += value.data_size;
             }
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.info("fetch cache result, value size {}", valueList.size());
             for (CacheValue value : valueList) {
-                value.Debug();
+                value.debug();
             }
         }
     }
@@ -250,7 +253,7 @@ public abstract class CacheProxy {
         OUTER
     }
 
-    protected CacheProxy(){
+    protected CacheProxy() {
     }
 
     public static CacheProxy getCacheProxy(CacheProxyType type) {
@@ -264,7 +267,7 @@ public abstract class CacheProxy {
         return null;
     }
 
-    public abstract void updateCache(UpdateCacheRequest request, Status status);
+    public abstract void updateCache(UpdateCacheRequest request, int timeoutMs, Status status);
 
     public abstract FetchCacheResult fetchCache(FetchCacheRequest request, int timeoutMs, Status status);
 
@@ -281,12 +284,12 @@ public abstract class CacheProxy {
         }
         final byte[] digest = msgDigest.digest(str.getBytes());
         PUniqueId key = new PUniqueId();
-        key.lo = getLong(digest, 0);//64 bit
-        key.hi = getLong(digest, 8);//64 bit
+        key.lo = getLongFromByte(digest, 0);//64 bit
+        key.hi = getLongFromByte(digest, 8);//64 bit
         return key;
     }
 
-    public static final long getLong(final byte[] array, final int offset) {
+    public static final long getLongFromByte(final byte[] array, final int offset) {
         long value = 0;
         for (int i = 0; i < 8; i++) {
             value = ((value << 8) | (array[offset + i] & 0xFF));

@@ -43,12 +43,12 @@ import java.util.concurrent.TimeoutException;
 import java.util.List;
 
 /**
- * Encapsulates access to BE, including network and other exception handlin
+ * Encapsulates access to BE, including network and other exception handling
  */
 public class CacheBeProxy extends CacheProxy {
     private static final Logger LOG = LogManager.getLogger(CacheBeProxy.class);
 
-    public void updateCache(UpdateCacheRequest request, Status status) {
+    public void updateCache(UpdateCacheRequest request, int timeoutMs, Status status) {
         PUniqueId sqlKey = request.sql_key;
         Backend backend = CacheCoordinator.getInstance().findBackend(sqlKey);
         if (backend == null) {
@@ -59,18 +59,16 @@ public class CacheBeProxy extends CacheProxy {
         try {
             PUpdateCacheRequest updateRequest = request.getRpcRequest();
             Future<PCacheResponse> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
-            PCacheResponse response = future.get(10000,TimeUnit.MICROSECONDS);
-            if( response.status == PCacheStatus.CACHE_OK) {
+            PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
+            if (response.status == PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
-            }else {
+            } else {
                 status.setStatus(response.status.toString());
             }
         } catch (Exception e) {
             LOG.warn("update cache exception, sqlKey {}, e {}", sqlKey, e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId());
-        } finally {
-            //do nothing
         }
     }
 
@@ -130,11 +128,11 @@ public class CacheBeProxy extends CacheProxy {
         Status status = new Status();
         for (Backend backend : beList) {
             retry = 1;
-            while (retry < 3 && !this.clearCache(request, backend, status)) {
+            while (retry < 3 && !this.clearCache(request, backend, CLEAR_TIMEOUT, status)) {
                 retry++;
                 try {
                     Thread.sleep(1000); //sleep 1 second
-                } catch (Exception e){
+                } catch (Exception e) {
                 }
             }
             if (retry >= 3) {
@@ -144,13 +142,13 @@ public class CacheBeProxy extends CacheProxy {
         }
     }
 
-    protected boolean clearCache(PClearCacheRequest request, Backend backend, Status status) {
+    protected boolean clearCache(PClearCacheRequest request, Backend backend, int timeoutMs, Status status) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             request.clear_type = PClearType.CLEAR_ALL;
             LOG.info("clear all backend cache, backendId {}", backend.getId());
             Future<PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
-            PCacheResponse response = future.get(10000, TimeUnit.MICROSECONDS);
+            PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
             if (response.status == PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
                 return true;

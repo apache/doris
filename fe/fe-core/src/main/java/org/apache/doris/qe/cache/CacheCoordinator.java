@@ -68,7 +68,7 @@ public class CacheCoordinator {
      * @return Backend
      */
     public Backend findBackend(PUniqueId sqlKey) {
-        checkBackend();
+        resetBackend();
         Backend virtualNode = null;
         try {
             belock.lock();
@@ -101,7 +101,7 @@ public class CacheCoordinator {
         return virtualNode;
     }
 
-    public void checkBackend() {
+    public void resetBackend() {
         if (System.currentTimeMillis() - this.lastRefreshTime < REFRESH_NODE_TIME) {
             return;
         }
