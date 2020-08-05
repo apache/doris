@@ -812,8 +812,10 @@ void Tablet::calculate_cumulative_point() {
             // There is a hole, do not continue
             break;
         }
+
+        bool is_delete = version_for_delete_predicate(rs->version());
         // break the loop if segments in this rowset is overlapping, or is a singleton.
-        if (rs->is_segments_overlapping() || rs->is_singleton_delta()) {
+        if (rs->is_segments_overlapping() || (rs->is_singleton_delta() && !is_delete)) {
             _cumulative_point = rs->version().first;
             break;
         }
