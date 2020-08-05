@@ -131,6 +131,7 @@ message ColumnPB {
     optional bool is_nullable = 11 [default=false]; // Whether column is allowed to assgin null
     optional bool is_bf_column = 15 [default=false]; // Whether column has bloom filter index
 	  optional bool is_bitmap_column = 16 [default=false]; // Whether column has bitmap index
+    optional bool is_delete_column = 17 [default=false]; // Whether column is delete column
 }
 
 // page偏移
@@ -175,7 +176,6 @@ message SegmentFooterPB {
   optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // Compression type
   repeated ColumnMetaPB column_metas = 10; // Column metadata
 	optional PagePointerPB key_index_page = 11; // short key index page
-  optional PagePointerPB delete_index_page = 12; // delete index index page
 }
 
 ```
