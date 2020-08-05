@@ -16,7 +16,7 @@
 // under the License.
 
 import { req,loginReq } from './axiosrequest';
-const baseurl='/';
+const baseurl='http://localhost:8030/';
 export const login = (params) => { return loginReq("post", baseurl + "rest/v1/login",params)};
 
 // system-frontend

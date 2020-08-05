@@ -135,7 +135,7 @@ export default {
         .then(res => {
           this.loading = false
           if (res.success == false) {
-            this.$message({
+  this.$message({
               type: 'info',
               message: res.msg
             })
@@ -156,7 +156,9 @@ export default {
         })
         .catch(err => {
           this.loading = false
-          this.$message.error('菜单加载失败，请稍后再试！')
+          this.$message.error('Authentication failed, Please login again')
+          this.$router.push({ path: '/' })
+
         })
     },
     // 分页插件事件

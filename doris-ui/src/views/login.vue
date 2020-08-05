@@ -99,11 +99,12 @@ export default {
            Cookies.set("userName",this.loginForm.username)
            this.$router.push({ path: '/home/home' })
           } else {
-              this.$message.error('Login Fail！')
+    this.$message.error('Login Fail！')
           }
         })
         .catch(err => {
-          this.$message.error('Login Fail！')
+this.$message
+.error('Login Fail！')
         })
 
     },

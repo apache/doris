@@ -17,7 +17,7 @@
 
 /**
 * 头部菜单
-*/ 
+*/
 <template>
   <el-menu class="el-menu-demo" mode="horizontal" background-color="#334157" text-color="#fff" active-text-color="#fff">
     <el-button class="buttonimg">
@@ -76,7 +76,7 @@ export default {
       this.collapsed = !showtype
       this.$root.Bus.$emit('toggle', this.collapsed)
     },
-    
+
   }
 }
 </script>
