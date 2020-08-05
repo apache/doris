@@ -22,18 +22,14 @@ THRIFT = ${DORIS_THIRDPARTY}/installed/bin/thrift
 
 SOURCES = $(shell find ${CURDIR} -name "*.thrift")
 OBJECTS = $(patsubst ${CURDIR}/%.thrift, ${BUILD_DIR}/gen_cpp/%_types.cpp, ${SOURCES})
-# It doesn't exist really, just use this to compile all thrift to generate java file
-JAVA_OBJECTS = $(patsubst ${CURDIR}/%.thrift, ${BUILD_DIR}/java/.%.tm, ${SOURCES})
 
 GEN_SOURCES = $(shell find ${THRIFT} -name "*.thrift")
 GEN_OBJECTS = $(patsubst ${BUILD_DIR}/thrift/%.thrift, ${BUILD_DIR}/gen_cpp/%_types.cpp, ${GEN_SOURCES})
-GEN_JAVA_OBJECTS = $(patsubst ${BUILD_DIR}/thrift/%.thrift, ${BUILD_DIR}/java/.%.tm, ${GEN_SOURCES})
 
-all: ${GEN_OBJECTS} ${OBJECTS} ${GEN_JAVA_OBJECTS} ${JAVA_OBJECTS}
+all: ${GEN_OBJECTS} ${OBJECTS}
 .PHONY: all
 
 THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp -out ${BUILD_DIR}/gen_cpp
-THRIFT_JAVA_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen java -out ${BUILD_DIR}/java
 
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@
@@ -43,14 +39,3 @@ ${BUILD_DIR}/gen_cpp/%_types.cpp: ${CURDIR}/%.thrift | ${BUILD_DIR}/gen_cpp
 # generated thrift
 ${BUILD_DIR}/gen_cpp/%_types.cpp: ${BUILD_DIR}/thrift/%.thrift | ${BUILD_DIR}/gen_cpp
 	${THRIFT} ${THRIFT_CPP_ARGS} $<
-
-# generate java object
-# TODO(zhaochun): make depends generated java 
-# handwrite thrift
-${BUILD_DIR}/java/.%.tm: ${CURDIR}/%.thrift | ${BUILD_DIR}/java
-	${THRIFT} ${THRIFT_JAVA_ARGS} $<
-	touch $@
-# generated thrift
-${BUILD_DIR}/java/.%.tm: ${BUILD_DIR}/thrift/%.thrift | ${BUILD_DIR}/java
-	${THRIFT} ${THRIFT_JAVA_ARGS} $<
-	touch $@
