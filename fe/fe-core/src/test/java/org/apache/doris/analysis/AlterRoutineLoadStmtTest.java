@@ -139,7 +139,7 @@ public class AlterRoutineLoadStmtTest {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Do not support modify kafka custom property: kafka_topic"));
+                Assert.assertTrue(e.getMessage().contains("kafka_topic is invalid kafka custom property"));
             } catch (UserException e) {
                 Assert.fail();
             }
@@ -159,7 +159,7 @@ public class AlterRoutineLoadStmtTest {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Must also specify partition offset"));
+                Assert.assertTrue(e.getMessage().contains("Partition and offset must be specified at the same time"));
             } catch (UserException e) {
                 Assert.fail();
             }
@@ -200,7 +200,7 @@ public class AlterRoutineLoadStmtTest {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Must also specify kafka partition"));
+                Assert.assertTrue(e.getMessage().contains("Missing kafka partition info"));
             } catch (UserException e) {
                 Assert.fail();
             }
