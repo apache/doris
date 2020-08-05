@@ -25,6 +25,7 @@ import './assets/icon/iconfont.css'
 import axios from 'axios';
 Vue.prototype.$axios = axios;
 
+
 Vue.config.productionTip = false;
 
 Vue.use(ElementUI);

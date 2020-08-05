@@ -93,18 +93,16 @@ export default {
     submitForm(formName) {
       let userNameAndPassword = this.loginForm.username + ":" + this.loginForm.password;
       let encodedData = window.btoa(userNameAndPassword);
-      login(encodedData)
-        .then(res => {
+      login(encodedData).then(res => {
           if (res.code  === 200) {
            Cookies.set("userName",this.loginForm.username)
            this.$router.push({ path: '/home/home' })
           } else {
-    this.$message.error('Login Fail！')
+             this.$message.error('Login Fail！')
           }
         })
         .catch(err => {
-this.$message
-.error('Login Fail！')
+            this.$message.error('Login Fail！')
         })
 
     },

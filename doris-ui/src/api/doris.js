@@ -18,6 +18,8 @@
 import { req,loginReq } from './axiosrequest';
 const baseurl='http://localhost:8030/';
 export const login = (params) => { return loginReq("post", baseurl + "rest/v1/login",params)};
+export const logout = () => { return loginReq("get", baseurl + "rest/v1/logout")};
+
 
 // system-frontend
 export const frontendList = (params) => { return req("get", baseurl + "rest/v1/system?path=//frontends", params) };

@@ -57,6 +57,12 @@ public final class HttpAuthManager {
         }
         return null;
     }
+    public void removeSession(String sessionId){
+        if (!Strings.isNullOrEmpty(sessionId)) {
+            authSessions.invalidate(sessionId);
+//            authSessions.put(sessionId,null);
+        }
+    }
 
     public void addSessionValue(String key, SessionValue value) {
         authSessions.put(key, value);

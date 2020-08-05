@@ -31,7 +31,7 @@
 </template>
 <script>
 import Cookies from 'js-cookie'
-import { loginout } from '../api/doris'
+import { logout } from '../api/doris'
 export default {
   name: 'navcon',
   data() {
@@ -48,28 +48,28 @@ export default {
     console.log("userName=" + this.userName)
   },
   methods: {
+
+   
     exit() {
-      this.$confirm('退出登录, 是否继续?', '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+      this.$confirm('Sign out, continue?', 'prompt', {
+        confirmButtonText: 'OK',
+        cancelButtonText: 'Cancel',
         type: 'warning'
-      })
-        .then(() => {
-          setTimeout(() => {
-            this.$store.commit('logout', 'false')
-            this.$router.push({ path: '/login' })
-            this.$message({
-              type: 'success',
-              message: '已退出登录!'
+      }).then(() => {
+           logout().then(res => {
+              if (res.code  === 200) {
+              Cookies.remove("userName")
+              this.$router.push({ path: '/login' })
+              this.$message({
+                type: 'success',
+                message: 'Logout success!'
             })
-          }, 1000)
+           } 
         })
-        .catch(() => {
-          this.$message({
-            type: 'info',
-            message: '已取消'
-          })
+        .catch(err => {
+                
         })
+      })
     },
     // 切换显示
     toggle(showtype) {
