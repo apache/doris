@@ -118,6 +118,15 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         }
     }
 
+    public Column getColumnByName(String columnName) {
+        for (Column column : schema) {
+            if (column.getName().equals(columnName)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof MaterializedIndexMeta)) {
