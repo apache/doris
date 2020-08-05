@@ -515,7 +515,7 @@ public class EditLog {
                 case OperationType.OP_META_VERSION: {
                     String versionString = ((Text) journal.getData()).toString();
                     int version = Integer.parseInt(versionString);
-                    if (MetaContext.get().getMetaVersion() > FeConstants.meta_version) {
+                    if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
                                         + "please update FeConstants.meta_version and restart.",
                                 MetaContext.get().getMetaVersion(), FeConstants.meta_version);
