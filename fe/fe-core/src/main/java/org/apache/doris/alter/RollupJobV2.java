@@ -17,8 +17,10 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -45,8 +47,10 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -731,11 +735,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.jobState = jobState;
     }
 
-    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) {
-        for (Entry<String, Expr> entry : columnNameToDefineExpr.entrySet()) {
+    private void setColumnsDefineExpr(List<MVColumnItem> mvColumnItemList) {
+        for (MVColumnItem mvColumnItem : mvColumnItemList) {
             for (Column column : rollupSchema) {
-                if (column.getName().equals(entry.getKey())) {
-                    column.setDefineExpr(entry.getValue());
+                if (column.getName().equals(mvColumnItem.getName())) {
+                    column.setDefineExpr(mvColumnItem.getDefineExpr());
                     break;
                 }
             }
@@ -805,16 +809,25 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         if (origStmt == null) {
             return;
         }
+
+        if (jobState != JobState.PENDING) {
+            return;
+        }
         // parse the define stmt to schema
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                SqlModeHelper.MODE_DEFAULT));
-        CreateMaterializedViewStmt stmt;
+                                                        SqlModeHelper.MODE_DEFAULT));
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        connectContext.setDatabase(Catalog.getCurrentCatalog().getDb(dbId).getFullName());
+        Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
+        CreateMaterializedViewStmt stmt = null;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
-            setColumnsDefineExpr(columnNameToDefineExpr);
+            stmt.analyze(analyzer);
         } catch (Exception e) {
-            throw new IOException("error happens when parsing create materialized view stmt: " + origStmt, e);
+            // Under normal circumstances, the stmt will not fail to analyze.
+            throw new IOException("error happens when parsing create materialized view stmt: " + stmt, e);
         }
+        setColumnsDefineExpr(stmt.getMVColumnItemList());
     }
 }
