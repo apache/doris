@@ -101,6 +101,11 @@ void mem_usage_handler(const std::shared_ptr<MemTracker>& mem_tracker,
 #endif
 }
 
+void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
+    TabletsInfoAction tablet_info_action;
+    (*ej) = tablet_info_action.get_tablets_info();
+}
+
 void add_default_path_handlers(WebPageHandler* web_page_handler,
                                const std::shared_ptr<MemTracker>& process_mem_tracker) {
     // TODO(yingchun): logs_handler is not implemented yet, so not show it on navigate bar
@@ -110,6 +115,7 @@ void add_default_path_handlers(WebPageHandler* web_page_handler,
             "/memz", "Memory", boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2),
             true /* is_on_nav_bar */);
     register_thread_display_page(web_page_handler);
+    web_page_handler->register_template_page("/tablets_page", "Tablets", boost::bind<void>(&display_tablets_callback, _1, _2), true /* is_on_nav_bar */);
 }
 
 } // namespace doris
