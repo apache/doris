@@ -24,35 +24,29 @@
 
 namespace doris {
 
-UniversalCumulativeCompactionPolicy::UniversalCumulativeCompactionPolicy(
-        Tablet* tablet, int64_t universal_promotion_size, double universal_promotion_ratio,
-        int64_t universal_promotion_min_size, int64_t universal_compaction_lower_bound_size)
+SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
+        std::shared_ptr<Tablet> tablet, int64_t size_based_promotion_size, double size_based_promotion_ratio,
+        int64_t size_based_promotion_min_size, int64_t size_based_compaction_lower_bound_size)
         : CumulativeCompactionPolicy(tablet),
-          _universal_promotion_size(universal_promotion_size),
-          _universal_promotion_ratio(universal_promotion_ratio),
-          _universal_promotion_min_size(universal_promotion_min_size),
-          _universal_compaction_lower_bound_size(universal_compaction_lower_bound_size) {
+          _size_based_promotion_size(size_based_promotion_size),
+          _size_based_promotion_ratio(size_based_promotion_ratio),
+          _size_based_promotion_min_size(size_based_promotion_min_size),
+          _size_based_compaction_lower_bound_size(size_based_compaction_lower_bound_size) {
 
-    // check universal_promotion_size must be greater than universal_promotion_min_size
-    CHECK(universal_promotion_size >= universal_promotion_min_size);
-    // check universal_promotion_size must be greater than universal_compaction_lower_bound_size twice 
-    CHECK(universal_promotion_size >= 2 * universal_compaction_lower_bound_size);
+    // init _levels by divide 2 between size_based_promotion_size and size_based_compaction_lower_bound_size
+    int64_t i_size = size_based_promotion_size / 2;
 
-    // init _levels by divide 2 between universal_promotion_size and universal_compaction_lower_bound_size
-    int64_t i_size = universal_promotion_size / 2;
-
-    while (i_size >= universal_compaction_lower_bound_size) {
+    while (i_size >= size_based_compaction_lower_bound_size) {
         _levels.push_back(i_size);
         i_size /= 2;
     }
 }
 
-void UniversalCumulativeCompactionPolicy::calculate_cumulative_point(
-        const std::vector<RowsetMetaSharedPtr>& all_metas, const int64_t kInvalidCumulativePoint,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
-
-    *ret_cumulative_point = kInvalidCumulativePoint;
-    if (current_cumulative_point != kInvalidCumulativePoint) {
+void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
+        const std::vector<RowsetMetaSharedPtr>& all_metas, int64_t current_cumulative_point,
+        int64_t* ret_cumulative_point) {
+    *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
+    if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
         // after that, cumulative point will be updated along with compaction process.
         return;
@@ -75,6 +69,9 @@ void UniversalCumulativeCompactionPolicy::calculate_cumulative_point(
 
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
+    // check base rowset frist version must be zero
+    CHECK((*base_rowset_meta)->start_version() == 0);
+
     int64_t promotion_size = 0;
     _calc_promotion_size(*base_rowset_meta, &promotion_size);
 
@@ -102,32 +99,32 @@ void UniversalCumulativeCompactionPolicy::calculate_cumulative_point(
         prev_version = rs->version().second;
         *ret_cumulative_point = prev_version + 1;
     }
-    LOG(INFO) << "cumulative compaction universal policy, calculate cumulative point value = "
+    VLOG(3) << "cumulative compaction size_based policy, calculate cumulative point value = "
               << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
               << " tablet = " << _tablet->full_name();
 }
 
-void UniversalCumulativeCompactionPolicy::_calc_promotion_size(RowsetMetaSharedPtr base_rowset_meta,
+void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(RowsetMetaSharedPtr base_rowset_meta,
                                                                int64_t* promotion_size) {
     int64_t base_size = base_rowset_meta->total_disk_size();
-    *promotion_size = base_size * _universal_promotion_ratio;
+    *promotion_size = base_size * _size_based_promotion_ratio;
 
-    // promotion_size is between _universal_promotion_size and _universal_promotion_min_size
-    if (*promotion_size >= _universal_promotion_size) {
-        *promotion_size = _universal_promotion_size;
-    } else if (*promotion_size <= _universal_promotion_min_size) {
-        *promotion_size = _universal_promotion_min_size;
+    // promotion_size is between _size_based_promotion_size and _size_based_promotion_min_size
+    if (*promotion_size >= _size_based_promotion_size) {
+        *promotion_size = _size_based_promotion_size;
+    } else if (*promotion_size <= _size_based_promotion_min_size) {
+        *promotion_size = _size_based_promotion_min_size;
     }
-    _refresh_tablet_universal_promotion_size(*promotion_size);
+    _refresh_tablet_size_based_promotion_size(*promotion_size);
 }
 
-void UniversalCumulativeCompactionPolicy::_refresh_tablet_universal_promotion_size(
+void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_size_based_promotion_size(
         int64_t promotion_size) {
-    _tablet_universal_promotion_size = promotion_size;
+    _tablet_size_based_promotion_size = promotion_size;
 }
 
-void UniversalCumulativeCompactionPolicy::update_cumulative_point(
-        std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr output_rowset,
+void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
+        const std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr output_rowset,
         Version& last_delete_version) {
 
     // if rowsets have delete version, move to the last directly
@@ -137,13 +134,13 @@ void UniversalCumulativeCompactionPolicy::update_cumulative_point(
         // if rowsets have not delete version, check output_rowset total disk size 
         // satisfies promotion size.
         size_t total_size = output_rowset->rowset_meta()->total_disk_size();
-        if (total_size >= _tablet_universal_promotion_size) {
+        if (total_size >= _tablet_size_based_promotion_size) {
             _tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
         }
     }
 }
 
-void UniversalCumulativeCompactionPolicy::calc_cumulative_compaction_score(
+void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         const std::vector<RowsetMetaSharedPtr>& all_metas, int64_t current_cumulative_point,
         uint32_t* score) {
 
@@ -163,7 +160,7 @@ void UniversalCumulativeCompactionPolicy::calc_cumulative_compaction_score(
             base_rowset_exist = true;
             _calc_promotion_size(rs_meta, &promotion_size);
         }
-        if (rs_meta->start_version() < point) {
+        if (rs_meta->end_version() < point) {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
             continue;
         } else {
@@ -203,11 +200,11 @@ void UniversalCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     }
 }
 
-int UniversalCumulativeCompactionPolicy::pick_input_rowsets(
-        std::vector<RowsetSharedPtr>& candidate_rowsets, const int64_t max_compaction_score,
+int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
+        const std::vector<RowsetSharedPtr>& candidate_rowsets, const int64_t max_compaction_score,
         const int64_t min_compaction_score, std::vector<RowsetSharedPtr>* input_rowsets,
         Version* last_delete_version, size_t* compaction_score) {
-    size_t promotion_size = _tablet_universal_promotion_size;
+    size_t promotion_size = _tablet_size_based_promotion_size;
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
@@ -273,7 +270,7 @@ int UniversalCumulativeCompactionPolicy::pick_input_rowsets(
         rs_iter = input_rowsets->erase(rs_iter);
     }
 
-    LOG(INFO) << "cumulative compaction universal policy, compaction_score = " << *compaction_score
+    LOG(INFO) << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
               << ", total_size = " << total_size
               << ", calc promotion size value = " << promotion_size
               << ", tablet = " << _tablet->full_name() << ", input_rowset size "
@@ -286,10 +283,10 @@ int UniversalCumulativeCompactionPolicy::pick_input_rowsets(
 
     // if we have a sufficient number of segments, we should process the compaction.
     // otherwise, we check number of segments and total_size whether can do compaction.
-    if (total_size < _universal_compaction_lower_bound_size && *compaction_score < min_compaction_score) {
+    if (total_size < _size_based_compaction_lower_bound_size && *compaction_score < min_compaction_score) {
         input_rowsets->clear();
         *compaction_score = 0;
-    } else if (total_size >= _universal_compaction_lower_bound_size &&
+    } else if (total_size >= _size_based_compaction_lower_bound_size &&
                    input_rowsets->size() == 1) {
         auto rs_meta = input_rowsets->front()->rowset_meta();
         // if there is only one rowset and not overlapping, 
@@ -302,7 +299,7 @@ int UniversalCumulativeCompactionPolicy::pick_input_rowsets(
     return transient_size;
 }
 
-int UniversalCumulativeCompactionPolicy::_level_size(const int64_t size) {
+int SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
 
     for (auto &i : _levels) {
         if (size >= i) {
@@ -312,16 +309,16 @@ int UniversalCumulativeCompactionPolicy::_level_size(const int64_t size) {
     return 0;
 }
 
-void OriginalCumulativeCompactionPolicy::update_cumulative_point(
-        std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr _output_rowset,
+void NumBasedCumulativeCompactionPolicy::update_cumulative_point(
+        const std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr _output_rowset,
         Version& last_delete_version) {
     // use the version after end version of the last input rowsets to update cumulative point
     int64_t cumulative_point = input_rowsets.back()->end_version() + 1;
     _tablet->set_cumulative_layer_point(cumulative_point);
 }
 
-int OriginalCumulativeCompactionPolicy::pick_input_rowsets(
-        std::vector<RowsetSharedPtr>& candidate_rowsets, const int64_t max_compaction_score,
+int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
+        const std::vector<RowsetSharedPtr>& candidate_rowsets, const int64_t max_compaction_score,
         const int64_t min_compaction_score, std::vector<RowsetSharedPtr>* input_rowsets,
         Version* last_delete_version, size_t* compaction_score) {
     *compaction_score = 0;
@@ -364,7 +361,7 @@ int OriginalCumulativeCompactionPolicy::pick_input_rowsets(
     return transient_size;
 }
 
-void OriginalCumulativeCompactionPolicy::calc_cumulative_compaction_score(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           const int64_t current_cumulative_point,
                                           uint32_t* score) {
     bool base_rowset_exist = false;
@@ -387,11 +384,11 @@ void OriginalCumulativeCompactionPolicy::calc_cumulative_compaction_score(const 
     }
 }
 
-void OriginalCumulativeCompactionPolicy::calculate_cumulative_point(const std::vector<RowsetMetaSharedPtr>& all_metas, 
-        const int64_t kInvalidCumulativePoint, int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
+void NumBasedCumulativeCompactionPolicy::calculate_cumulative_point(const std::vector<RowsetMetaSharedPtr>& all_metas, 
+        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
 
-    *ret_cumulative_point = kInvalidCumulativePoint;
-    if (current_cumulative_point != kInvalidCumulativePoint) {
+    *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
+    if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
         // after that, cumulative point will be updated along with compaction process.
         return;
@@ -426,7 +423,7 @@ void OriginalCumulativeCompactionPolicy::calculate_cumulative_point(const std::v
 }
 
 void CumulativeCompactionPolicy::pick_candicate_rowsets(int64_t skip_window_sec, 
-        std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
+        const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
         int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets) {
 
     int64_t now = UnixSeconds();
@@ -440,30 +437,30 @@ void CumulativeCompactionPolicy::pick_candicate_rowsets(int64_t skip_window_sec,
 
 }
 
-std::shared_ptr<CumulativeCompactionPolicy> CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(std::string type,
-                            Tablet* tablet) {
+std::unique_ptr<CumulativeCompactionPolicy> CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(std::string type,
+                            std::shared_ptr<Tablet> tablet) {
 
     CompactionPolicyType policy_type;
     _parse_cumulative_compaction_policy(type, &policy_type);
 
-    if (policy_type == CUMULATIVE_ORIGINAL_POLICY) {
-        return std::shared_ptr<CumulativeCompactionPolicy>(new OriginalCumulativeCompactionPolicy(tablet));
+    if (policy_type == CUMULATIVE_NUM_BASED_POLICY) {
+        return std::unique_ptr<CumulativeCompactionPolicy>(new NumBasedCumulativeCompactionPolicy(tablet));
     }
-    else if(policy_type == CUMULATIVE_UNIVERSAL_POLICY) {
-        return std::shared_ptr<CumulativeCompactionPolicy>(new UniversalCumulativeCompactionPolicy(tablet));
+    else if(policy_type == CUMULATIVE_SIZE_BASED_POLICY) {
+        return std::unique_ptr<CumulativeCompactionPolicy>(new SizeBasedCumulativeCompactionPolicy(tablet));
     }
 
-    return std::shared_ptr<CumulativeCompactionPolicy>(new OriginalCumulativeCompactionPolicy(tablet));
+    return std::unique_ptr<CumulativeCompactionPolicy>(new NumBasedCumulativeCompactionPolicy(tablet));
 }
 
 void CumulativeCompactionPolicyFactory::_parse_cumulative_compaction_policy(std::string type, CompactionPolicyType *policy_type) {
 
     boost::to_upper(type);
-    if (type == CUMULATIVE_ORIGINAL_POLICY_TYPE) {
-        *policy_type = CUMULATIVE_ORIGINAL_POLICY;
+    if (type == CUMULATIVE_NUM_BASED_POLICY_TYPE) {
+        *policy_type = CUMULATIVE_NUM_BASED_POLICY;
     }
-    else if (type == CUMULATIVE_UNIVERSAL_POLICY_TYPE) {
-        *policy_type = CUMULATIVE_UNIVERSAL_POLICY;
+    else if (type == CUMULATIVE_SIZE_BASED_POLICY_TYPE) {
+        *policy_type = CUMULATIVE_SIZE_BASED_POLICY;
     } else {
         LOG(FATAL) << "parse cumulative compaction policy error " << type;
     }

@@ -25,6 +25,7 @@
 #include <string>
 
 #include <gperftools/profiler.h>
+#include <boost/algorithm/string.hpp>
 
 #include "common/status.h"
 #include "olap/cumulative_compaction.h"
@@ -76,6 +77,7 @@ Status StorageEngine::start_bg_threads() {
     _disk_stat_monitor_thread.detach();
     LOG(INFO) << "disk stat monitor thread started";
 
+    
     // convert store map to vector
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
@@ -83,7 +85,8 @@ Status StorageEngine::start_bg_threads() {
     }
     int32_t data_dir_num = data_dirs.size();
 
-    
+    // check cumulative compaction config
+    _check_cumulative_compaction_config();
     // base and cumulative compaction threads
     int32_t base_compaction_num_threads_per_disk = std::max<int32_t>(1, config::base_compaction_num_threads_per_disk);
     int32_t cumulative_compaction_num_threads_per_disk = std::max<int32_t>(1, config::cumulative_compaction_num_threads_per_disk);
@@ -283,6 +286,27 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
     return nullptr;
 }
 
+void StorageEngine::_check_cumulative_compaction_config() {
+
+    std::string cumulative_compaction_type = config::cumulative_compaction_policy;
+    boost::to_upper(cumulative_compaction_type);
+
+    // if size_based policy is used, check size_based policy configs
+    if (cumulative_compaction_type == CUMULATIVE_SIZE_BASED_POLICY_TYPE) {
+        int64_t size_based_promotion_size =
+                config::cumulative_compaction_size_based_promotion_size_mbytes;
+        int64_t size_based_promotion_min_size =
+                config::cumulative_compaction_size_based_promotion_min_size_mbytes;
+        int64_t size_based_compaction_lower_bound_size =
+                config::cumulative_compaction_size_based_compaction_lower_bound_size_mbytes;
+
+        // check size_based_promotion_size must be greater than size_based_promotion_min_size
+        CHECK(size_based_promotion_size >= size_based_promotion_min_size);
+        // check size_based_promotion_size must be greater than size_based compaction_lower_bound_size twice 
+        CHECK(size_based_promotion_size >= 2 * size_based_compaction_lower_bound_size);
+    }
+}
+
 void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* data_dir) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
@@ -290,7 +314,6 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* 
     LOG(INFO) << "try to start cumulative compaction process!";
 
     while (!_stop_bg_worker) {
-
         if (!config::disable_auto_compaction) {
             // must be here, because this thread is start on start and
             // cgroup is not initialized at this time

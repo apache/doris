@@ -54,7 +54,7 @@ public:
                                                    DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-           std::string cumulative_compaction_type = config::cumulative_compaction_policy);
+           const std::string& cumulative_compaction_type = config::cumulative_compaction_policy);
 
     OLAPStatus init();
     inline bool init_succeeded();
@@ -76,7 +76,7 @@ public:
     inline size_t num_rows();
     inline int version_count() const;
     inline Version max_version() const;
-    inline std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy();
+    inline CumulativeCompactionPolicy* cumulative_compaction_policy();
 
     // propreties encapsulated in TabletSchema
     inline KeysType keys_type() const;
@@ -252,9 +252,10 @@ private:
     OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
                                                     vector<RowsetSharedPtr>* rowsets) const;
 
-private:
-    static const int64_t kInvalidCumulativePoint = -1;
+public:
+    static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
+private:
     TimestampedVersionTracker _timestamped_version_tracker;
     
     DorisCallOnce<OLAPStatus> _init_once;
@@ -301,13 +302,13 @@ private:
     std::atomic<int64_t> _last_checkpoint_time;
 
     // cumulative compaction policy
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
-inline std::shared_ptr<CumulativeCompactionPolicy> Tablet::cumulative_compaction_policy() {
-    return _cumulative_compaction_policy;
+inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {
+    return _cumulative_compaction_policy.get();
 }
 
 inline bool Tablet::init_succeeded() {

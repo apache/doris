@@ -159,39 +159,39 @@ Similar to `base_compaction_trace_threshold`.
 ### `cumulative_compaction_policy`
 
 * Type: string
-* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, ordinary and universal.
-* Default value: universal
+* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
+* Default value: size_based
 
-In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The universal policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satifies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
+In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satifies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
 
-### `cumulative_compaction_universal_promotion_size_mbytes`
+### `cumulative_compaction_size_based_promotion_size_mbytes`
 
 * Type: int64
-* Description: Under the universal policy, the total disk size of the output rowset of cumulative compaction exceeds this configuration size, and the rowset will be used for base compaction. The unit is m bytes.
+* Description: Under the size_based policy, the total disk size of the output rowset of cumulative compaction exceeds this configuration size, and the rowset will be used for base compaction. The unit is m bytes.
 * Default value: 1024
 
-一般情况下，配置在2G以内，为了防止cumulative compaction时间过长，导致版本积压。
+In general, if the configuration is less than 2G, in order to prevent the cumulative compression time from being too long, resulting in the version backlog.
 
-### `cumulative_compaction_universal_promotion_ratio`
+### `cumulative_compaction_size_based_promotion_ratio`
 
 * Type: double
-* Description: Under the universal policy, when the total disk size of the cumulative compaction output rowset exceeds the configuration ratio of the base version rowset, the rowset will be used for base compaction.
+* Description: Under the size_based policy, when the total disk size of the cumulative compaction output rowset exceeds the configuration ratio of the base version rowset, the rowset will be used for base compaction.
 * Default value: 0.05
 
 Generally, it is recommended that the configuration should not be higher than 0.1 and lower than 0.02.
 
-### `cumulative_compaction_universal_promotion_min_size_mbytes`
+### `cumulative_compaction_size_based_promotion_min_size_mbytes`
 
 * Type: int64
-* Description: Under the universal strategy, if the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
+* Description: Under the size_based strategy, if the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
 * Default value: 64
 
 Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
 
-### `cumulative_compaction_universal_compaction_lower_bound_size_mbytes`
+### `cumulative_compaction_size_based_compaction_lower_bound_size_mbytes`
 
 * Type: int64
-* Description: Under the universal strategy, when the cumulative compaction is merged, the selected rowsets to be merged have a larger disk size than this configuration, then they are divided and merged according to the level policy. When it is smaller than this configuration, merge directly. The unit is m bytes.
+* Description: Under the size_based strategy, when the cumulative compaction is merged, the selected rowsets to be merged have a larger disk size than this configuration, then they are divided and merged according to the level policy. When it is smaller than this configuration, merge directly. The unit is m bytes.
 * Default value: 64
 
 Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.

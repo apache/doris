@@ -24,10 +24,10 @@
 
 namespace doris {
 
-class TestOriginalCumulativeCompactionPolicy : public testing::Test {
+class TestNumBasedCumulativeCompactionPolicy : public testing::Test {
 
 public:
-    TestOriginalCumulativeCompactionPolicy() {}
+    TestNumBasedCumulativeCompactionPolicy() {}
     void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
@@ -199,7 +199,7 @@ protected:
     TabletMetaSharedPtr _tablet_meta;
 };
 
-TEST_F(TestOriginalCumulativeCompactionPolicy, calc_cumulative_compaction_score) {
+TEST_F(TestNumBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta(&rs_metas);
@@ -208,7 +208,7 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, calc_cumulative_compaction_score)
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_ORIGINAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
     _tablet->init();
 
     const uint32_t score = _tablet->calc_cumulative_compaction_score();
@@ -216,7 +216,7 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, calc_cumulative_compaction_score)
     ASSERT_EQ(15, score);
 }
 
-TEST_F(TestOriginalCumulativeCompactionPolicy, calculate_cumulative_point) {
+TEST_F(TestNumBasedCumulativeCompactionPolicy, calculate_cumulative_point) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_cal_point(&rs_metas);
@@ -225,14 +225,14 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, calculate_cumulative_point) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_ORIGINAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     
     ASSERT_EQ(4, _tablet->cumulative_layer_point());
 }
 
-TEST_F(TestOriginalCumulativeCompactionPolicy, pick_candicate_rowsets) {
+TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_candicate_rowsets) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_cal_point(&rs_metas);
@@ -241,7 +241,7 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, pick_candicate_rowsets) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_ORIGINAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -251,7 +251,7 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, pick_candicate_rowsets) {
     ASSERT_EQ(2, candidate_rowsets.size());
 }
 
-TEST_F(TestOriginalCumulativeCompactionPolicy, pick_input_rowsets_normal) {
+TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_cal_point(&rs_metas);
@@ -260,11 +260,11 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, pick_input_rowsets_normal) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_ORIGINAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    OriginalCumulativeCompactionPolicy policy(_tablet.get());
+    NumBasedCumulativeCompactionPolicy policy(_tablet.get());
     std::vector<RowsetSharedPtr> candidate_rowsets;
     
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(1000, &candidate_rowsets);
@@ -281,7 +281,7 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     ASSERT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestOriginalCumulativeCompactionPolicy, pick_input_rowsets_delete) {
+TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_delete(&rs_metas);
@@ -290,11 +290,11 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, pick_input_rowsets_delete) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_ORIGINAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    OriginalCumulativeCompactionPolicy policy(_tablet.get());
+    NumBasedCumulativeCompactionPolicy policy(_tablet.get());
     std::vector<RowsetSharedPtr> candidate_rowsets;
     
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(1000, &candidate_rowsets);
@@ -312,15 +312,15 @@ TEST_F(TestOriginalCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     ASSERT_EQ(5, last_delete_version.second);
 }
 
-class TestUniversalCumulativeCompactionPolicy : public testing::Test {
+class TestSizeBasedCumulativeCompactionPolicy : public testing::Test {
 
 public:
-    TestUniversalCumulativeCompactionPolicy() {}
+    TestSizeBasedCumulativeCompactionPolicy() {}
     void SetUp() {
-        config::cumulative_compaction_universal_promotion_size_mbytes = 1024;
-        config::cumulative_compaction_universal_promotion_ratio = 0.05;
-        config::cumulative_compaction_universal_promotion_min_size_mbytes = 64;
-        config::cumulative_compaction_universal_compaction_lower_bound_size_mbytes = 64;
+        config::cumulative_compaction_size_based_promotion_size_mbytes = 1024;
+        config::cumulative_compaction_size_based_promotion_ratio = 0.05;
+        config::cumulative_compaction_size_based_promotion_min_size_mbytes = 64;
+        config::cumulative_compaction_size_based_compaction_lower_bound_size_mbytes = 64;
 
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
@@ -643,7 +643,7 @@ protected:
     TabletMetaSharedPtr _tablet_meta;
 };
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, calc_cumulative_compaction_score) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_small_base(&rs_metas);
@@ -652,7 +652,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, calc_cumulative_compaction_score
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -661,7 +661,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, calc_cumulative_compaction_score
     ASSERT_EQ(15, score);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, calc_cumulative_compaction_score_big_base) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score_big_base) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_big_base(&rs_metas);
@@ -670,7 +670,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, calc_cumulative_compaction_score
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     const uint32_t score = _tablet->calc_cumulative_compaction_score();
@@ -678,7 +678,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, calc_cumulative_compaction_score
     ASSERT_EQ(7, score);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, calculate_cumulative_point_big_base) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, calculate_cumulative_point_big_base) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_big_base(&rs_metas);
@@ -687,14 +687,14 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, calculate_cumulative_point_big_b
         _tablet_meta->add_rs_meta(rowset);
     }
  
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     
     ASSERT_EQ(4, _tablet->cumulative_layer_point());
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, calculate_cumulative_point_overlap) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, calculate_cumulative_point_overlap) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_cal_point(&rs_metas);
@@ -703,14 +703,14 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, calculate_cumulative_point_overl
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     
     ASSERT_EQ(2, _tablet->cumulative_layer_point());
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_candicate_rowsets) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candicate_rowsets) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_cal_point(&rs_metas);
@@ -719,7 +719,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_candicate_rowsets) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -729,7 +729,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_candicate_rowsets) {
     ASSERT_EQ(3, candidate_rowsets.size());
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_candicate_rowsets_big_base) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candicate_rowsets_big_base) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_big_base(&rs_metas);
@@ -738,7 +738,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_candicate_rowsets_big_base)
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -748,7 +748,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_candicate_rowsets_big_base)
     ASSERT_EQ(3, candidate_rowsets.size());
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_normal) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_small_base(&rs_metas);
@@ -757,7 +757,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_normal) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -777,7 +777,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     ASSERT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_big_base(&rs_metas);
@@ -786,7 +786,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -806,7 +806,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
     ASSERT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_pick_promotion(&rs_metas);
@@ -815,7 +815,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -835,7 +835,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
     ASSERT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_not_same_level) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_same_level) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_pick_not_same_level(&rs_metas);
@@ -844,7 +844,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_not_same_leve
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -864,7 +864,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_not_same_leve
     ASSERT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_empty) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_pick_empty(&rs_metas);
@@ -873,7 +873,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_empty) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -893,7 +893,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_empty) {
     ASSERT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min_limit) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min_limit) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_pick_empty_not_reach_min_limit(&rs_metas);
@@ -902,7 +902,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -922,7 +922,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
     ASSERT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_delete) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_delete(&rs_metas);
@@ -931,7 +931,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_delete) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -952,7 +952,7 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     ASSERT_EQ(5, last_delete_version.second);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, _calc_promotion_size_big) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_big) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_pick_not_same_level(&rs_metas);
@@ -961,18 +961,18 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, _calc_promotion_size_big) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    UniversalCumulativeCompactionPolicy* policy =
-            dynamic_cast<UniversalCumulativeCompactionPolicy*>(
+    SizeBasedCumulativeCompactionPolicy* policy =
+            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
                     _tablet->_cumulative_compaction_policy.get());
 
-    ASSERT_EQ(1073741824, policy->_tablet_universal_promotion_size);
+    ASSERT_EQ(1073741824, policy->_tablet_size_based_promotion_size);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, _calc_promotion_size_small) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_small_base(&rs_metas);
@@ -981,17 +981,17 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, _calc_promotion_size_small) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    UniversalCumulativeCompactionPolicy* policy =
-            dynamic_cast<UniversalCumulativeCompactionPolicy*>(
+    SizeBasedCumulativeCompactionPolicy* policy =
+            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
                     _tablet->_cumulative_compaction_policy.get());
-    ASSERT_EQ(67108864, policy->_tablet_universal_promotion_size);
+    ASSERT_EQ(67108864, policy->_tablet_size_based_promotion_size);
 }
 
-TEST_F(TestUniversalCumulativeCompactionPolicy, _level_size) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_small_base(&rs_metas);
@@ -1000,11 +1000,11 @@ TEST_F(TestUniversalCumulativeCompactionPolicy, _level_size) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_UNIVERSAL_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
     _tablet->init();
 
-    UniversalCumulativeCompactionPolicy* policy =
-            dynamic_cast<UniversalCumulativeCompactionPolicy*>(
+    SizeBasedCumulativeCompactionPolicy* policy =
+            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
                     _tablet->_cumulative_compaction_policy.get());
 
     ASSERT_EQ(4, policy->_levels.size());
