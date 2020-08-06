@@ -30,12 +30,12 @@ under the License.
     This statement is used to conditionally delete data in the specified table (base index) partition.
     This action deletes the rollup index data associated with this base index at the same time.
     Grammar:
-        DELETE FROM table name [PARTITION partition name]
+        DELETE FROM table_name [PARTITION partition_name]
         WHERE
-        column_name1 op value[ AND column_name2 op value ...];
+        column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
     
     Explain:
-        1) Optional types of OP include: =,>,<,>=,<=,<=,<=,!=
+        1) Optional types of OP include: =, >, <, >=, <=, <=, <=, !=, in, not in
         2) Conditions on key columns can only be specified.
         2) When the selected key column does not exist in a rollup, delete cannot be performed.
         3) The relationship between conditions can only be "and".

@@ -389,6 +389,10 @@ The max size of allowed HTTP headers. The unit of this configuration is BYTE. De
 
 ### `max_agent_task_threads_num`
 
+### `max_allowed_in_element_num_of_delete`
+    
+This configuration is used to limit element num of InPredicate in delete statement. The default value is 1024.
+
 ### `max_allowed_packet`
 
 ### `max_backend_down_time_second`

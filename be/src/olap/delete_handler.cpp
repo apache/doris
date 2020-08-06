@@ -25,6 +25,7 @@
 #include <boost/regex.hpp>
 #include <errno.h>
 #include <thrift/protocol/TDebugProtocol.h>
+#include <json2pb/pb_to_json.h>
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
@@ -50,7 +51,7 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
         const TabletSchema& schema,
         const std::vector<TCondition>& conditions,
         DeletePredicatePB* del_pred) {
-    if (conditions.size() == 0) {
+    if (conditions.empty()) {
         LOG(WARNING) << "invalid parameters for store_cond."
                      << " condition_size=" << conditions.size();
         return OLAP_ERR_DELETE_INVALID_PARAMETERS;
@@ -66,9 +67,22 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
 
     // 存储删除条件
     for (const TCondition& condition : conditions) {
-        string condition_str = construct_sub_predicates(condition);
-        del_pred->add_sub_predicates(condition_str);
-        LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
+        if (condition.condition_values.size() > 1) {
+            InPredicatePB* in_pred = del_pred->add_in_predicates();
+            in_pred->set_column_name(condition.column_name);
+            bool is_not_in = condition.condition_op == "!*=";
+            in_pred->set_is_not_in(is_not_in);
+            for (const auto& condition_value : condition.condition_values) {
+                in_pred->add_values(condition_value);
+            }
+
+            LOG(INFO) << "store one sub-delete condition. condition name=" << in_pred->column_name()
+                      << "condition size=" << in_pred->values().size();
+        } else {
+            string condition_str = construct_sub_predicates(condition);
+            del_pred->add_sub_predicates(condition_str);
+            LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
+        }
     }
     del_pred->set_version(-1);
 
@@ -86,47 +100,20 @@ string DeleteConditionHandler::construct_sub_predicates(const TCondition& condit
     if ("IS" == op) {
         condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
     } else {
+        if (op == "*=") {
+            op = "=";
+        } else if (op == "!*=") {
+            op = "!=";
+        }
         condition_str = condition.column_name + op + condition.condition_values[0];
     }
     return condition_str;
 }
 
-OLAPStatus DeleteConditionHandler::check_condition_valid(
-        const TabletSchema& schema,
-        const TCondition& cond) {
-    // 检查指定列名的列是否存在
-    int field_index = _get_field_index(schema, cond.column_name);
-
-    if (field_index < 0) {
-        OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
-    }
-
-    // 检查指定的列是不是key，是不是float或doulbe类型
-    const TabletColumn& column = schema.column(field_index);
-
-    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
-            || column.type() == OLAP_FIELD_TYPE_DOUBLE
-            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
-        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type is float or double.";
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
-    }
-
-    // 检查删除条件中指定的过滤值是否符合每个类型自身的要求
-    // 1. 对于整数类型(int8,int16,in32,int64,uint8,uint16,uint32,uint64)，检查是否溢出
-    // 2. 对于decimal类型，检查是否超过建表时指定的精度和标度
-    // 3. 对于date和datetime类型，检查指定的过滤值是否符合日期格式以及是否指定错误的值
-    // 4. 对于string和varchar类型，检查指定的过滤值是否超过建表时指定的长度
-    if (cond.condition_values.size() != 1) {
-        OLAP_LOG_WARNING("invalid condition value size. [size=%ld]", cond.condition_values.size());
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
-    }
-    const string& value_str = cond.condition_values[0];
-
-    FieldType field_type = column.type();
+bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column, const TCondition& cond, const string& value_str) {
     bool valid_condition = false;
-
-    if ("IS" == cond.condition_op 
+    FieldType field_type = column.type();
+    if ("IS" == cond.condition_op
         && ("NULL" == value_str || "NOT NULL" == value_str)) {
         valid_condition = true;
     } else if (field_type == OLAP_FIELD_TYPE_TINYINT) {
@@ -160,54 +147,49 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     } else {
         OLAP_LOG_WARNING("unknown field type. [type=%d]", field_type);
     }
+    return valid_condition;
+}
 
-    if (valid_condition) {
-        return OLAP_SUCCESS;
-    } else {
-        LOG(WARNING) << "invalid condition value. [value=" << value_str << "]";
+OLAPStatus DeleteConditionHandler::check_condition_valid(
+        const TabletSchema& schema,
+        const TCondition& cond) {
+    // 检查指定列名的列是否存在
+    int field_index = _get_field_index(schema, cond.column_name);
+
+    if (field_index < 0) {
+        OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
-}
 
-OLAPStatus DeleteConditionHandler::_check_version_valid(std::vector<Version>* all_file_versions,
-        const int32_t filter_version) {
-    // 找到当前最大的delta文件版本号
-    int max_delta_version = -1;
-    vector<Version>::const_iterator version_iter = all_file_versions->begin();
+    // 检查指定的列是不是key，是不是float或doulbe类型
+    const TabletColumn& column = schema.column(field_index);
 
-    for (; version_iter != all_file_versions->end(); ++version_iter) {
-        if (version_iter->second > max_delta_version) {
-            max_delta_version = version_iter->second;
+    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
+            || column.type() == OLAP_FIELD_TYPE_DOUBLE
+            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type is float or double.";
+        return OLAP_ERR_DELETE_INVALID_CONDITION;
+    }
+
+    // 检查删除条件中指定的过滤值是否符合每个类型自身的要求
+    // 1. 对于整数类型(int8,int16,in32,int64,uint8,uint16,uint32,uint64)，检查是否溢出
+    // 2. 对于decimal类型，检查是否超过建表时指定的精度和标度
+    // 3. 对于date和datetime类型，检查指定的过滤值是否符合日期格式以及是否指定错误的值
+    // 4. 对于string和varchar类型，检查指定的过滤值是否超过建表时指定的长度
+    if ("*=" != cond.condition_op && "!*=" != cond.condition_op && cond.condition_values.size() != 1) {
+        OLAP_LOG_WARNING("invalid condition value size. [size=%ld]", cond.condition_values.size());
+        return OLAP_ERR_DELETE_INVALID_CONDITION;
+    }
+
+    for (int i = 0; i < cond.condition_values.size(); i++) {
+        const string& value_str = cond.condition_values[i];
+        if (!is_condition_value_valid(column, cond, value_str)) {
+            LOG(WARNING) << "invalid condition value. [value=" << value_str << "]";
+            return OLAP_ERR_DELETE_INVALID_CONDITION;
         }
     }
 
-    if (filter_version == max_delta_version || filter_version == max_delta_version + 1) {
-        return OLAP_SUCCESS;
-    } else {
-        OLAP_LOG_WARNING("invalid delete condition version. [version=%d, max_delta_version=%d]",
-                         filter_version, max_delta_version);
-        return OLAP_ERR_DELETE_INVALID_VERSION;
-    }
-}
-
-int DeleteConditionHandler::_check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version) {
-    if (delete_conditions.size() == 0) {
-        return -1;
-    }
-
-    int index = 0;
-
-    while (index != delete_conditions.size()) {
-        DeletePredicatePB temp = delete_conditions.Get(index);
-
-        if (temp.version() == cond_version) {
-            return index;
-        }
-
-        ++index;
-    }
-
-    return -1;
+    return OLAP_SUCCESS;
 }
 
 bool DeleteHandler::_parse_condition(const std::string& condition_str, TCondition* condition) {
@@ -217,7 +199,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     try {
         // Condition string format
         const char* const CONDITION_STR_PATTERN =
-                "(\\w+)\\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\\*=)|(?:IS))\\s*((?:[\\S ]+)?)";
+                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*((?:[\S ]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
@@ -234,7 +216,6 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     if (!matched) {
         return false;
     }
-
     condition->column_name = what[1].str();
     condition->condition_op = what[2].str();
     condition->condition_values.push_back(what[3].str());
@@ -268,13 +249,12 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
 
         temp.del_cond = new(std::nothrow) Conditions();
 
-        if (temp.del_cond == NULL) {
+        if (temp.del_cond == nullptr) {
             LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         temp.del_cond->set_tablet_schema(&schema);
-
         for (int i = 0; i != it->sub_predicates_size(); ++i) {
             TCondition condition;
             if (!_parse_condition(it->sub_predicates(i), &condition)) {
@@ -283,6 +263,25 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
                 return OLAP_ERR_DELETE_INVALID_PARAMETERS;
             }
 
+            OLAPStatus res = temp.del_cond->append_condition(condition);
+            if (OLAP_SUCCESS != res) {
+                OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);
+                return res;
+            }
+        }
+
+        for (int i = 0; i != it->in_predicates_size(); ++i) {
+            TCondition condition;
+            const InPredicatePB& in_predicate = it->in_predicates(i);
+            condition.__set_column_name(in_predicate.column_name());
+            if (in_predicate.is_not_in()) {
+                condition.__set_condition_op("!*=");
+            } else {
+                condition.__set_condition_op("*=");
+            }
+            for (const auto& value : in_predicate.values()) {
+                condition.condition_values.push_back(value);
+            }
             OLAPStatus res = temp.del_cond->append_condition(condition);
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);
