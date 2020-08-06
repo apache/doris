@@ -49,13 +49,6 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
                                          google::protobuf::Closure* done) {
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
             << " node=" << request->node_id();
-    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    if (cntl->request_attachment().size() > 0) {
-        PRowBatch* batch = (const_cast<PTransmitDataParams*>(request))->mutable_row_batch();
-        butil::IOBuf& io_buf = cntl->request_attachment();
-        std::string* tuple_data = batch->mutable_tuple_data();
-        io_buf.copy_to(tuple_data);
-    }
     _exec_env->stream_mgr()->transmit_data(request, &done);
     if (done != nullptr) {
         done->Run();
