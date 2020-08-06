@@ -56,65 +56,37 @@ using doris::ColumnStatistics;
 
 namespace doris {
 
+#define MAX_OP_STR_LENGTH  3
+
 static CondOp parse_op_type(const string& op) {
-    if (op.size() > 2) {
+    if (op.size() > MAX_OP_STR_LENGTH) {
         return OP_NULL;
     }
 
-    CondOp op_type = OP_NULL;
-    if (op.compare("=") == 0) {
+    if (op == "=") {
         return OP_EQ;
-    }
-
-    if (0 == strcasecmp(op.c_str(), "is")) {
+    } else if (0 == strcasecmp(op.c_str(), "is")) {
         return OP_IS;
+    } else if (op == "!=") {
+        return OP_NE;
+    } else if (op == "*=") {
+        return OP_IN;
+    } else if (op == "!*=") {
+        return OP_NOT_IN;
+    } else if (op == ">=") {
+        return OP_GE;
+    } else if (op == ">>" || op == ">") {
+        return OP_GT;
+    } else if (op == "<=") {
+        return OP_LE;
+    } else if (op == "<<" || op == "<") {
+        return OP_LT;
     }
 
-    // Maybe we can just use string compare.
-    // Like:
-    //     if (op == "!=") {
-    //         op_type = OP_NE;
-    //     } else if (op == "*") {
-    //         op_type = OP_IN;
-    //     } else if (op == ">=) {
-    //     ...    
-
-    switch (op.c_str()[0]) {
-    case '!':
-        op_type = OP_NE;
-        break;
-    case '*':
-        op_type = OP_IN;
-        break;
-    case '>':
-        switch (op.c_str()[1]) {
-        case '=':
-            op_type = OP_GE;
-            break;
-        default:
-            op_type = OP_GT;
-            break;
-        }
-        break;
-    case '<':
-        switch (op.c_str()[1]) {
-        case '=':
-            op_type = OP_LE;
-            break;
-        default:
-            op_type = OP_LT;
-            break;
-        }
-        break;
-    default:
-        op_type = OP_NULL;
-        break;
-    }
-
-    return op_type;
+    return OP_NULL;
 }
 
-Cond::Cond() : op(OP_NULL), operand_field(nullptr) {
+Cond::Cond() : op(OP_NULL), operand_field(nullptr), min_value_field(nullptr), max_value_field(nullptr) {
 }
 
 Cond::~Cond() {
@@ -122,12 +94,14 @@ Cond::~Cond() {
     for (auto& it : operand_set) {
         delete it;
     }
+    min_value_field = nullptr;
+    max_value_field = nullptr;
 }
 
 OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
-    if (op == OP_NULL || (op != OP_IN && tcond.condition_values.size() != 1)) {
+    if (op == OP_NULL || (op != OP_IN && op != OP_NOT_IN && tcond.condition_values.size() != 1)) {
         OLAP_LOG_WARNING("Condition op type is invalid. [name=%s, op=%d, size=%d]",
                          tcond.column_name.c_str(), op, tcond.condition_values.size());
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -147,7 +121,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
             f->set_not_null();
         }
         operand_field = f.release();
-    } else if (op != OP_IN) {
+    } else if (op != OP_IN && op != OP_NOT_IN) {
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
@@ -176,6 +150,14 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
                                  tcond.column_name.c_str(), operand.c_str(), op);
                 return res;
             }
+            if (min_value_field == nullptr || f->cmp(min_value_field) < 0) {
+                min_value_field = f.get();
+            }
+
+            if (max_value_field == nullptr || f->cmp(max_value_field) > 0) {
+                max_value_field = f.get();
+            }
+
             auto insert_reslut = operand_set.insert(f.get());
             if (!insert_reslut.second) {
                 LOG(WARNING) << "Duplicate operand in in-predicate.[condition=" << operand << "]";
@@ -210,19 +192,19 @@ bool Cond::eval(const RowCursorCell& cell) const {
     case OP_GE:
         return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
     case OP_IN: {
-        for (const WrapperField* field : operand_set) {
-            if (field->field()->compare_cell(*field, cell) == 0) {
-                return true;
-            }
-        }
-        return false;
+        WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
+        auto ret = operand_set.find(&wrapperField) != operand_set.end();
+        wrapperField.release_field();
+        return ret;
+    }
+    case OP_NOT_IN: {
+        WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
+        auto ret = operand_set.find(&wrapperField) == operand_set.end();
+        wrapperField.release_field();
+        return ret;
     }
     case OP_IS: {
-        if (operand_field->is_null() == cell.is_null()) {
-            return true;
-        } else {
-            return false;
-        }
+        return operand_field->is_null() == cell.is_null();
     }
     default:
         // Unknown operation type, just return false
@@ -262,28 +244,16 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         return operand_field->cmp(statistic.second) <= 0;
     }
     case OP_IN: {
-        FieldSet::const_iterator it = operand_set.begin();
-        for (; it != operand_set.end(); ++it) {
-            if ((*it)->cmp(statistic.first) >= 0 
-                    && (*it)->cmp(statistic.second) <= 0) {
-                return true;
-            }
-        }
-        break;
+        return min_value_field->cmp(statistic.second) <= 0 && max_value_field->cmp(statistic.first) >= 0;
+    }
+    case OP_NOT_IN: {
+        return min_value_field->cmp(statistic.second) > 0 || max_value_field->cmp(statistic.first) < 0;
     }
     case OP_IS: {
         if (operand_field->is_null()) {
-            if (statistic.first->is_null()) {
-                return true;
-            } else {
-                return false;
-            }
+            return statistic.first->is_null();
         } else {
-            if (!statistic.second->is_null()) {
-                return true;
-            } else {
-                return false;
-            }
+            return !statistic.second->is_null();
         }
     }
     default:
@@ -378,20 +348,30 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
         return ret;
     }
     case OP_IN: {
-        FieldSet::const_iterator it = operand_set.begin();
-        for (; it != operand_set.end(); ++it) {
-            if ((*it)->cmp(stat.first) >= 0
-                && (*it)->cmp(stat.second) <= 0) {
-                if (stat.first->cmp(stat.second) == 0) {
-                    ret = DEL_SATISFIED;
-                } else {
-                    ret = DEL_PARTIAL_SATISFIED;
-                }
-                break;
+        if (stat.first->cmp(stat.second) == 0) {
+            if (operand_set.find(stat.first) != operand_set.end()) {
+                ret = DEL_SATISFIED;
+            } else {
+                ret = DEL_NOT_SATISFIED;
+            }
+        } else {
+            if (min_value_field->cmp(stat.second) <= 0 && max_value_field->cmp(stat.first) >= 0) {
+                ret = DEL_PARTIAL_SATISFIED;
             }
         }
-        if (it == operand_set.end()) {
-            ret = DEL_SATISFIED;
+        return ret;
+    }
+    case OP_NOT_IN: {
+        if (stat.first->cmp(stat.second) == 0) {
+            if (operand_set.find(stat.first) == operand_set.end()) {
+                ret = DEL_SATISFIED;
+            } else {
+                ret = DEL_NOT_SATISFIED;
+            }
+        } else {
+            if (min_value_field->cmp(stat.second) > 0 || max_value_field->cmp(stat.first) < 0) {
+                ret = DEL_PARTIAL_SATISFIED;
+            }
         }
         return ret;
     }
@@ -491,12 +471,7 @@ bool Cond::eval(const segment_v2::BloomFilter* bf) const {
     }
     case OP_IS: {
         // IS [NOT] NULL can only used in to filter IS NULL predicate.
-        if (operand_field->is_null()) {
-            return bf->test_bytes(nullptr, 0);
-        } else {
-            // is not null
-            return !bf->test_bytes(nullptr, 0);
-        }
+        return operand_field->is_null() == bf->test_bytes(nullptr, 0);
     }
     default:
         break;
@@ -705,7 +680,7 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
         // if the size of condcolumn vector is zero,
         // the delete condtion is not satisfied.
         ret = DEL_NOT_SATISFIED;
-    } else if (true == del_partial_satisfied) {
+    } else if (del_partial_satisfied) {
         ret = DEL_PARTIAL_SATISFIED;
     } else {
         ret = DEL_SATISFIED;

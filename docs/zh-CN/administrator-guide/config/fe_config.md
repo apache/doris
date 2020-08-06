@@ -387,6 +387,10 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 
 ### `max_agent_task_threads_num`
 
+### `max_allowed_in_element_num_of_delete`
+    
+该配置被用于限制delete语句中谓词in的元素数量。默认值为1024。 
+
 ### `max_allowed_packet`
 
 ### `max_backend_down_time_second`

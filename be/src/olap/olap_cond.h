@@ -38,15 +38,16 @@ class WrapperField;
 class RowCursorCell;
 
 enum CondOp {
+    OP_NULL = -1,   // invalid op
     OP_EQ = 0,      // equal
     OP_NE = 1,      // not equal
     OP_LT = 2,      // less than
     OP_LE = 3,      // less or equal
     OP_GT = 4,      // greater than
     OP_GE = 5,      // greater or equal
-    OP_IN = 6,      // IN
+    OP_IN = 6,      // in
     OP_IS = 7,      // is null or not null
-    OP_NULL = 8    // invalid OP
+    OP_NOT_IN = 8   // not in
 };
 
 // Hash functor for IN set
@@ -87,11 +88,14 @@ public:
     }
 
     CondOp op;
-    // valid when op is not OP_IN
+    // valid when op is not OP_IN and OP_NOT_IN
     WrapperField* operand_field;
-    // valid when op is OP_IN
+    // valid when op is OP_IN or OP_NOT_IN
     typedef std::unordered_set<const WrapperField*, FieldHash, FieldEqual> FieldSet;
     FieldSet operand_set;
+    // valid when op is OP_IN or OP_NOT_IN, represents the minimum or maximum value of in elements
+    WrapperField* min_value_field;
+    WrapperField* max_value_field;
 };
 
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上

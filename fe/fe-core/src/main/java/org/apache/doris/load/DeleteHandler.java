@@ -19,6 +19,7 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
@@ -164,7 +165,7 @@ public class DeleteHandler implements Writable {
                 List<String> deleteConditions = Lists.newArrayList();
 
                 // pre check
-                checkDeleteV2(olapTable, partition, conditions, deleteConditions, true);
+                checkDeleteV2(olapTable, partition, conditions, deleteConditions);
 
                 // generate label
                 String label = "delete_" + UUID.randomUUID();
@@ -450,7 +451,22 @@ public class DeleteHandler implements Writable {
         return idToDeleteJob.get(transactionId);
     }
 
-    private void checkDeleteV2(OlapTable table, Partition partition, List<Predicate> conditions, List<String> deleteConditions, boolean preCheck)
+    private SlotRef getSlotRef(Predicate condition) {
+        SlotRef slotRef = null;
+        if (condition instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
+            slotRef = (SlotRef) binaryPredicate.getChild(0);
+        } else if (condition instanceof IsNullPredicate) {
+            IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
+            slotRef = (SlotRef) isNullPredicate.getChild(0);
+        } else if (condition instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) condition;
+            slotRef = (SlotRef) inPredicate.getChild(0);
+        }
+        return slotRef;
+    }
+
+    private void checkDeleteV2(OlapTable table, Partition partition, List<Predicate> conditions, List<String> deleteConditions)
             throws DdlException {
 
         // check partition state
@@ -466,14 +482,7 @@ public class DeleteHandler implements Writable {
             nameToColumn.put(column.getName(), column);
         }
         for (Predicate condition : conditions) {
-            SlotRef slotRef = null;
-            if (condition instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                slotRef = (SlotRef) binaryPredicate.getChild(0);
-            } else if (condition instanceof IsNullPredicate) {
-                IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                slotRef = (SlotRef) isNullPredicate.getChild(0);
-            }
+            SlotRef slotRef = getSlotRef(condition);
             String columnName = slotRef.getColumnName();
             if (!nameToColumn.containsKey(columnName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
@@ -507,7 +516,18 @@ public class DeleteHandler implements Writable {
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {
                     // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
-                    throw new DdlException("Invalid column value[" + value + "]");
+                    throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
+                }
+            } else if (condition instanceof InPredicate) {
+                String value = null;
+                try {
+                    InPredicate inPredicate = (InPredicate) condition;
+                    for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
+                        value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
+                        LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                    }
+                } catch (AnalysisException e) {
+                    throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
                 }
             }
 
@@ -516,6 +536,10 @@ public class DeleteHandler implements Writable {
         }
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+            if (table.getBaseIndexId() == index.getId()) {
+                continue;
+            }
+
             // check table has condition column
             Map<String, Column> indexColNameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (Column column : indexIdToSchema.get(index.getId())) {
@@ -523,18 +547,11 @@ public class DeleteHandler implements Writable {
             }
             String indexName = table.getIndexNameById(index.getId());
             for (Predicate condition : conditions) {
-                String columnName = null;
-                if (condition instanceof BinaryPredicate) {
-                    BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                    columnName = ((SlotRef) binaryPredicate.getChild(0)).getColumnName();
-                } else if (condition instanceof IsNullPredicate) {
-                    IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                    columnName = ((SlotRef) isNullPredicate.getChild(0)).getColumnName();
-                }
+                SlotRef slotRef = getSlotRef(condition);
+                String columnName = slotRef.getColumnName();
                 Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName,
-                            table.getBaseIndexId() == index.getId()? indexName : "index[" + indexName +"]");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, "index[" + indexName +"]");
                 }
                 MaterializedIndexMeta indexMeta = table.getIndexIdToMeta().get(index.getId());
                 if (indexMeta.getKeysType() != KeysType.DUP_KEYS && !column.isKey()) {
@@ -569,6 +586,19 @@ public class DeleteHandler implements Writable {
                     sb.append(" IS NULL");
                 }
                 deleteConditions.add(sb.toString());
+            } else if (condition instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) condition;
+                SlotRef slotRef = (SlotRef) inPredicate.getChild(0);
+                String columnName = slotRef.getColumnName();
+                StringBuilder strBuilder = new StringBuilder();
+                String notStr = inPredicate.isNotIn() ? "NOT " : "";
+                strBuilder.append(columnName).append(" ").append(notStr).append("IN (");
+                for (int i = 1; i <= inPredicate.getInElementNum(); ++i) {
+                    strBuilder.append(inPredicate.getChild(i).toSql());
+                    strBuilder.append((i != inPredicate.getInElementNum()) ? ", " : "");
+                }
+                strBuilder.append(")");
+                deleteConditions.add(strBuilder.toString());
             }
         }
     }

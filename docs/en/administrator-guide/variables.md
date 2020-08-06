@@ -234,7 +234,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `lower_case_table_names`
 
     Used for compatibility with MySQL clients. Cannot be set. Table names in current Doris are case sensitive by default.
-    
+
 * `max_allowed_packet`
 
     Used for compatible JDBC connection pool C3P0. No practical effect.
