@@ -71,19 +71,19 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaType;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang3.tuple.ImmutableTriple;
-import org.apache.commons.lang3.tuple.Triple;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
-
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -604,8 +604,9 @@ public class ReportHandler extends Daemon {
                                                 tabletId, replica.getId(), backendId);
                                         BackendTabletsInfo tabletsInfo = new BackendTabletsInfo(backendId);
                                         tabletsInfo.setBad(true);
-                                        tabletsInfo.addTabletWithSchemaHash(tabletId,
-                                                olapTable.getSchemaHashByIndexId(indexId));
+                                        ReplicaPersistInfo replicaPersistInfo = ReplicaPersistInfo.createForReport(
+                                                dbId, tableId, partitionId, indexId, tabletId, backendId, replica.getId());
+                                        tabletsInfo.addReplicaInfo(replicaPersistInfo);
                                         Catalog.getCurrentCatalog().getEditLog().logBackendTabletsInfo(tabletsInfo);
                                     }
                                 }
@@ -820,7 +821,9 @@ public class ReportHandler extends Daemon {
                                 if (replica.setBad(true)) {
                                     LOG.warn("set bad for replica {} of tablet {} on backend {}",
                                             replica.getId(), tabletId, backendId);
-                                    backendTabletsInfo.addTabletWithSchemaHash(tabletId, schemaHash);
+                                    ReplicaPersistInfo replicaPersistInfo = ReplicaPersistInfo.createForReport(
+                                            dbId, tableId, partitionId, indexId, tabletId, backendId, replica.getId());
+                                    backendTabletsInfo.addReplicaInfo(replicaPersistInfo);
                                 }
                                 break;
                             }
