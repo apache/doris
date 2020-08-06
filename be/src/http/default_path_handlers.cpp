@@ -29,6 +29,7 @@
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
+#include "http/action/tablets_info_action.h"
 
 namespace doris {
 
@@ -100,6 +101,11 @@ void mem_usage_handler(MemTracker* mem_tracker, const WebPageHandler::ArgumentMa
 #endif
 }
 
+void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
+    TabletsInfoAction tablet_info_action;
+    (*ej) = tablet_info_action.get_tablets_info();
+}
+
 void add_default_path_handlers(WebPageHandler* web_page_handler, MemTracker* process_mem_tracker) {
     // TODO(yingchun): logs_handler is not implemented yet, so not show it on navigate bar
     web_page_handler->register_page("/logs", "Logs", logs_handler, false /* is_on_nav_bar */);
@@ -107,6 +113,7 @@ void add_default_path_handlers(WebPageHandler* web_page_handler, MemTracker* pro
     web_page_handler->register_page("/memz", "Memory",
         boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2), true /* is_on_nav_bar */);
     register_thread_display_page(web_page_handler);
+    web_page_handler->register_template_page("/tablets_page", "Tablets", boost::bind<void>(&display_tablets_callback, _1, _2), true /* is_on_nav_bar */);
 }
 
 } // namespace doris
