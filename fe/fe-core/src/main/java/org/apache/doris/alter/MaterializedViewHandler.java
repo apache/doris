@@ -38,6 +38,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -495,10 +496,14 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean meetValue = false;
         boolean hasKey = false;
         boolean meetReplaceValue = false;
+        boolean hasDeleteSign = false;
         KeysType keysType = olapTable.getKeysType();
         Map<String, Column> baseColumnNameToColumn = Maps.newHashMap();
         for (Column column : olapTable.getSchemaByIndexId(baseIndexId)) {
             baseColumnNameToColumn.put(column.getName(), column);
+            if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                hasDeleteSign = true;
+            }
         }
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
@@ -525,7 +530,6 @@ public class MaterializedViewHandler extends AlterHandler {
             if (!hasKey) {
                 throw new DdlException("No key column is found");
             }
-
             if (KeysType.UNIQUE_KEYS == keysType || meetReplaceValue) {
                 // rollup of unique key table or rollup with REPLACE value
                 // should have all keys of base table
@@ -535,6 +539,11 @@ public class MaterializedViewHandler extends AlterHandler {
                     } else {
                         throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
                     }
+                }
+                if (KeysType.UNIQUE_KEYS == keysType && hasDeleteSign) {
+                    rollupSchema.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT),
+                            false, null, true, "0",
+                            "doris delete flag hidden column", false));
                 }
             }
         } else if (KeysType.DUP_KEYS == keysType) {

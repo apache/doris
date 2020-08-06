@@ -53,19 +53,21 @@ public:
             }
             columns.push_back(column);
         }
-
+        _delete_sign_idx = tablet_schema.delete_sign_idx();
         _init(columns, col_ids, num_key_columns);
     }
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
-        for (const auto& c: columns) {
-            if (c.is_key()) {
+        for (size_t i = 0; i < columns.size(); ++i) {
+            if (columns[i].is_key()) {
                 ++num_key_columns;
             }
+            if (columns[i].name() == DELETE_SIGN) {
+                _delete_sign_idx = i;
+            }
         }
-
         _init(columns, col_ids, num_key_columns);
     }
 
@@ -83,6 +85,9 @@ public:
         std::vector<ColumnId> col_ids(cols.size());
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
             col_ids[cid] = cid;
+            if (cols.at(cid)->name() == DELETE_SIGN) {
+                _delete_sign_idx = cid;
+            }
         }
 
         _init(cols, col_ids, num_key_columns);
@@ -126,6 +131,7 @@ public:
     size_t num_columns() const { return _cols.size(); }
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
 
 private:
     void _init(const std::vector<TabletColumn>& cols,
@@ -149,6 +155,7 @@ private:
 
     size_t _num_key_columns;
     size_t _schema_size;
+    int32_t _delete_sign_idx = -1;
 };
 
 } // namespace doris

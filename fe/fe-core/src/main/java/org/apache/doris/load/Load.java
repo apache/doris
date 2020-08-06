@@ -981,9 +981,11 @@ public class Load {
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema();
             for (Column column : columns) {
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
-                LOG.debug("add base column {} to stream load task", column.getName());
-                copiedColumnExprs.add(columnDesc);
+                if (column.isVisible()) {
+                    ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                    LOG.debug("add base column {} to stream load task", column.getName());
+                    copiedColumnExprs.add(columnDesc);
+                }
             }
         }
         // generate a map for checking easily

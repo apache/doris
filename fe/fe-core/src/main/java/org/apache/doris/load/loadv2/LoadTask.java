@@ -30,6 +30,12 @@ import org.apache.logging.log4j.Logger;
 
 public abstract class LoadTask extends MasterTask {
 
+    public enum MergeType {
+        MERGE,
+        APPEND,
+        DELETE
+    }
+
     private static final Logger LOG = LogManager.getLogger(LoadTask.class);
 
     protected LoadTaskCallback callback;

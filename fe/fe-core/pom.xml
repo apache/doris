@@ -36,7 +36,7 @@ under the License.
 
     <properties>
         <doris.home>${basedir}/../../</doris.home>
-        <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
+        <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thridparty>${basedir}/../../thirdparty</doris.thridparty>
     </properties>
 
@@ -50,6 +50,17 @@ under the License.
             </activation>
             <properties>
                 <doris.thridparty>${env.DORIS_THIRDPARTY}</doris.thridparty>
+            </properties>
+        </profile>
+        <profile>
+            <id>ut_parallel</id>
+            <activation>
+                <property>
+                    <name>env.FE_UT_PARALLEL</name>
+                </property>
+            </activation>
+            <properties>
+                <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
             </properties>
         </profile>
     </profiles>

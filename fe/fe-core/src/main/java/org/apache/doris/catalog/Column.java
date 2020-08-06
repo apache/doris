@@ -47,6 +47,7 @@ import java.util.List;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
@@ -73,6 +74,8 @@ public class Column implements Writable {
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
     private Expr defineExpr; // use to define column in materialize view
+    @SerializedName(value = "visible")
+    private boolean visible;
 
     public Column() {
         this.name = "";
@@ -80,6 +83,7 @@ public class Column implements Writable {
         this.isAggregationTypeImplicit = false;
         this.isKey = false;
         this.stats = new ColumnStats();
+        this.visible = true;
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -101,6 +105,10 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment) {
+        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
+    }
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+                  String defaultValue, String comment, boolean visible) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -119,6 +127,7 @@ public class Column implements Writable {
         this.comment = comment;
 
         this.stats = new ColumnStats();
+        this.visible = visible;
     }
 
     public Column(Column column) {
@@ -131,6 +140,7 @@ public class Column implements Writable {
         this.defaultValue = column.getDefaultValue();
         this.comment = column.getComment();
         this.stats = column.getStats();
+        this.visible = column.visible;
     }
 
     public void setName(String newName) {
@@ -166,6 +176,10 @@ public class Column implements Writable {
 
     public boolean isKey() {
         return this.isKey;
+    }
+
+    public boolean isVisible() {
+        return visible;
     }
 
     public PrimitiveType getDataType() { return type.getPrimitiveType(); }
@@ -262,6 +276,7 @@ public class Column implements Writable {
         if (this.defineExpr != null) {
             tColumn.setDefine_expr(this.defineExpr.treeToThrift());
         }
+        tColumn.setVisible(visible);
         return tColumn;
     }
 
@@ -433,6 +448,9 @@ public class Column implements Writable {
         }
 
         if (!comment.equals(other.getComment())) {
+            return false;
+        }
+        if (!visible == other.visible) {
             return false;
         }
 

@@ -18,15 +18,28 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TBrokerScanNode;
+import org.apache.doris.thrift.TBrokerScanRangeParams;
+import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -36,6 +49,10 @@ import java.util.Map;
 
 public abstract class LoadScanNode extends ScanNode {
 
+    protected Expr deleteCondition;
+    protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+    protected int numInstances;
+
     public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
     }
@@ -44,7 +61,7 @@ public abstract class LoadScanNode extends ScanNode {
         if (whereExpr == null) {
             return;
         }
-        
+
         Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (SlotDescriptor slotDescriptor : desc.getSlots()) {
             dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
@@ -85,4 +102,84 @@ public abstract class LoadScanNode extends ScanNode {
         }
     }
 
+    protected void finalizeParams(Map<String, SlotDescriptor> slotDescByName,
+                                  Map<String, Expr> exprMap,
+                                  TBrokerScanRangeParams params,
+                                  TupleDescriptor srcTupleDesc,
+                                  boolean strictMode,
+                                  boolean negative,
+                                  Analyzer analyzer) throws UserException {
+        Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
+        for (SlotDescriptor destSlotDesc : desc.getSlots()) {
+            if (!destSlotDesc.isMaterialized()) {
+                continue;
+            }
+            Expr expr = null;
+            if (exprMap != null) {
+                expr = exprMap.get(destSlotDesc.getColumn().getName());
+            }
+            if (expr == null) {
+                SlotDescriptor srcSlotDesc = slotDescByName.get(destSlotDesc.getColumn().getName());
+                if (srcSlotDesc != null) {
+                    destSidToSrcSidWithoutTrans.put(destSlotDesc.getId().asInt(), srcSlotDesc.getId().asInt());
+                    // If dest is allow null, we set source to nullable
+                    if (destSlotDesc.getColumn().isAllowNull()) {
+                        srcSlotDesc.setIsNullable(true);
+                    }
+                    expr = new SlotRef(srcSlotDesc);
+                } else {
+                    Column column = destSlotDesc.getColumn();
+                    if (column.getDefaultValue() != null) {
+                        expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
+                    } else {
+                        if (column.isAllowNull()) {
+                            expr = NullLiteral.create(column.getType());
+                        } else {
+                            throw new AnalysisException("column has no source field, column=" + column.getName());
+                        }
+                    }
+                }
+            }
+
+            // check hll_hash
+            if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
+                if (!(expr instanceof FunctionCallExpr)) {
+                    throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                            + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH + "(xxx)");
+                }
+                FunctionCallExpr fn = (FunctionCallExpr) expr;
+                if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)
+                        && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
+                    throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                            + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH
+                            + "(xxx) or " + destSlotDesc.getColumn().getName() + "=hll_empty()");
+                }
+                expr.setType(Type.HLL);
+            }
+
+            checkBitmapCompatibility(analyzer, destSlotDesc, expr);
+
+            if (negative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
+                expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
+                expr.analyze(analyzer);
+            }
+            expr = castToSlot(destSlotDesc, expr);
+            params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
+        }
+        params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
+        params.setDest_tuple_id(desc.getId().asInt());
+        params.setStrict_mode(strictMode);
+        params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
+        // LOG.info("brokerScanRange is {}", brokerScanRange);
+
+        // Need re compute memory layout after set some slot descriptor to nullable
+        srcTupleDesc.computeMemLayout();
+    }
+
+    @Override
+    protected void toThrift(TPlanNode planNode) {
+        planNode.setNode_type(TPlanNodeType.BROKER_SCAN_NODE);
+        TBrokerScanNode brokerScanNode = new TBrokerScanNode(desc.getId().asInt());
+        planNode.setBroker_scan_node(brokerScanNode);
+    }
 }

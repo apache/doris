@@ -3912,6 +3912,10 @@ public class Catalog {
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
         for (Column column : table.getBaseSchema()) {
+            // hidden columns should not print to show create table statement
+            if (!column.isVisible()) {
+                continue;
+            }
             if (idx++ != 0) {
                 sb.append(",\n");
             }

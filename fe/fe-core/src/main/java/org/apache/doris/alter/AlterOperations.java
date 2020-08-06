@@ -95,6 +95,9 @@ public class AlterOperations {
 
         currentOps.add(opType);
     }
+    public boolean hasEnableFeatureOP() {
+        return currentOps.contains(AlterOpType.ENABLE_FEATURE);
+    }
 
     @Override
     public String toString() {

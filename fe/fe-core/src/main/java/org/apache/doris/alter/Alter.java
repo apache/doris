@@ -160,17 +160,7 @@ public class Alter {
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-
-        // check conflict alter ops first
-        List<AlterClause> alterClauses = stmt.getOps();
-        AlterOperations currentAlterOps = new AlterOperations();
-        currentAlterOps.checkConflict(alterClauses);
-
-        // check cluster capacity and db quota, only need to check once.
-        if (currentAlterOps.needCheckCapacity()) {
-            Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
-            db.checkQuota();
-        }
+        List<AlterClause> alterClauses;
 
         // some operations will take long time to process, need to be done outside the databse lock
         boolean needProcessOutsideDatabaseLock = false;
@@ -186,6 +176,18 @@ public class Alter {
                 throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
             }
             OlapTable olapTable = (OlapTable) table;
+            stmt.rewriteAlterClause(olapTable);
+
+            // check conflict alter ops first
+            alterClauses = stmt.getOps();
+            AlterOperations currentAlterOps = new AlterOperations();
+            currentAlterOps.checkConflict(alterClauses);
+
+            // check cluster capacity and db quota, only need to check once.
+            if (currentAlterOps.needCheckCapacity()) {
+                Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
+                db.checkQuota();
+            }
 
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException(
@@ -227,7 +229,7 @@ public class Alter {
                 } else if (alterClause instanceof AddPartitionClause) {
                     needProcessOutsideDatabaseLock = true;
                 } else {
-                    throw new DdlException("Invalid alter opertion: " + alterClause.getOpType());
+                    throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
                 }
             } else if (currentAlterOps.hasRenameOp()) {
                 processRename(db, olapTable, alterClauses);
@@ -271,7 +273,7 @@ public class Alter {
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableInMemoryMeta(db, tableName, properties);
             } else {
-                throw new DdlException("Invalid alter opertion: " + alterClause.getOpType());
+                throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
             }
         }
     }

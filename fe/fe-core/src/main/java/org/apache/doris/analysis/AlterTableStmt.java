@@ -18,12 +18,19 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.ArrayList;
 import java.util.List;
 
 // Alter table statement.
@@ -69,6 +76,60 @@ public class AlterTableStmt extends DdlStmt {
             op.analyze(analyzer);
         }
     }
+
+    public void rewriteAlterClause(OlapTable table) throws UserException {
+        List<AlterClause> clauses = new ArrayList<>();
+        for (AlterClause alterClause : ops) {
+            if (alterClause instanceof EnableFeatureClause
+                    && ((EnableFeatureClause) alterClause).getFeature() == EnableFeatureClause.Features.BATCH_DELETE) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                    throw new AnalysisException("Batch delete only support in unique tables.");
+                }
+                // has rollup table
+                if (table.getVisibleIndex().size() > 1) {
+                    for (MaterializedIndex idx : table.getVisibleIndex()) {
+                        if (idx.getId() == table.getBaseIndexId()) {
+                            continue;
+                        }
+                        ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN,
+                                TypeDef.create(PrimitiveType.TINYINT),
+                                false, null, false,
+                                new ColumnDef.DefaultValue(true, "0"),
+                                "doris delete flag hidden column", false);
+                        AddColumnClause addColumnClause = new AddColumnClause(columnDef, null,
+                                table.getIndexNameById(idx.getId()), null);
+                        addColumnClause.analyze(analyzer);
+                        clauses.add(addColumnClause);
+                    }
+                } else {
+                    // no rollup tables
+                    ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN,
+                            TypeDef.create(PrimitiveType.TINYINT),
+                            false, null, false,
+                            new ColumnDef.DefaultValue(true, "0"),
+                            "doris delete flag hidden column", false);
+                    AddColumnClause addColumnClause = new AddColumnClause(columnDef, null,
+                            table.getIndexNameById(table.getBaseIndexId()), null);
+                    addColumnClause.analyze(analyzer);
+                    clauses.add(addColumnClause);
+                }
+            // add hidden column to rollup table
+            } else if (alterClause instanceof AddRollupClause && table.getKeysType() == KeysType.UNIQUE_KEYS
+                    && table.getColumn(Column.DELETE_SIGN) != null) {
+                if (!((AddRollupClause) alterClause).getColumnNames()
+                        .stream()
+                        .anyMatch(x -> x.equalsIgnoreCase(Column.DELETE_SIGN))) {
+                    ((AddRollupClause) alterClause).getColumnNames().add(Column.DELETE_SIGN);
+                    alterClause.analyze(analyzer);
+                }
+                clauses.add(alterClause);
+            } else {
+                clauses.add(alterClause);
+            }
+        }
+        ops = clauses;
+    }
+
 
     @Override
 

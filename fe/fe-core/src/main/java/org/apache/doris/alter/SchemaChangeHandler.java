@@ -504,7 +504,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String colName : orderedColNames) {
             Column oneCol = null;
             for (Column column : targetIndexSchema) {
-                if (column.getName().equalsIgnoreCase(colName)) {
+                if (column.getName().equalsIgnoreCase(colName) && column.isVisible()) {
                     oneCol = column;
                     break;
                 }
@@ -517,6 +517,13 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Reduplicative column[" + colName + "]");
             } else {
                 colNameSet.add(colName);
+            }
+        }
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            for (Column column : targetIndexSchema) {
+                if (!column.isVisible()) {
+                    newSchema.add(column);
+                }
             }
         }
         if (newSchema.size() != targetIndexSchema.size()) {
@@ -670,6 +677,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
             Set<String> newColNameSet, boolean isBaseIndex) throws DdlException {
         int posIndex = -1;
+        int lastVisibleIdx = -1;
         String newColName = newColumn.getName();
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
         for (int i = 0; i < modIndexSchema.size(); i++) {
@@ -688,6 +696,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 // column already exist, return
                 return;
+            }
+            if (col.isVisible()) {
+                lastVisibleIdx = i;
             }
 
             if (hasPos) {
@@ -716,14 +727,15 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (hasPos) {
             modIndexSchema.add(posIndex + 1, newColumn);
+        } else if (newColumn.isKey()) {
+            // key
+            modIndexSchema.add(posIndex + 1, newColumn);
+        } else if (lastVisibleIdx != -1 && lastVisibleIdx < modIndexSchema.size() - 1) {
+            // has hidden columns
+            modIndexSchema.add(lastVisibleIdx + 1, newColumn);
         } else {
-            if (newColumn.isKey()) {
-                // key
-                modIndexSchema.add(posIndex + 1, newColumn);
-            } else {
-                // value
-                modIndexSchema.add(newColumn);
-            }
+            // value
+            modIndexSchema.add(newColumn);
         }
 
         checkRowLength(modIndexSchema);
