@@ -20,6 +20,7 @@
 #include "http/action/checksum_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/health_action.h"
+#include "http/action/tablets_info_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/mini_load.h"
@@ -84,6 +85,10 @@ Status HttpService::start() {
     // Register BE health action
     HealthAction* health_action = new HealthAction(_env);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
+
+    // Register Tablets Info action
+    TabletsInfoAction* tablets_info_action = new TabletsInfoAction();
+    _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get());
