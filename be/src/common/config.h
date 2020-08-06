@@ -269,8 +269,8 @@ namespace config {
     CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
     // config the cumulative compaction policy
-    // Valid configs: num_base_policy, size_based
-    // num_based_policy policy, the original version of cumulative compaction, cumulative version compaction once.
+    // Valid configs: num_base, size_based
+    // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
     // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring 
     // lower write amplification, trading off read amplification and space amplification.
     CONF_String(cumulative_compaction_policy, "num_based");
