@@ -122,7 +122,7 @@ protected:
 /// Original cumulative compcation policy implemention. Original policy which derives CumulativeCompactionPolicy is early 
 /// basic algorithm. This policy uses linear structure to compact rowsets. The cumulative rowsets compact only once and 
 /// then the output will do base compaction. It can make segments of rowsets in order and compact small rowsets to a bigger one.
-class OriginalCumulativeCompactionPolicy : public CumulativeCompactionPolicy {
+class OriginalCumulativeCompactionPolicy final : public CumulativeCompactionPolicy {
     
 public:
     /// Constructor function of OriginalCumulativeCompactionPolicy, 
@@ -171,7 +171,7 @@ public:
 /// can do compaction when they are in same level size. And when output rowset exceeds the promotion radio of base size or min promotion
 /// size, it will do base compaction. This policy is targeting the use cases requiring lower write amplification, trading off read 
 /// amplification and space amplification.
-class UniversalCumulativeCompactionPolicy : public CumulativeCompactionPolicy {
+class UniversalCumulativeCompactionPolicy final : public CumulativeCompactionPolicy {
 
 public:
     /// Constructor function of UniversalCumulativeCompactionPolicy, 
