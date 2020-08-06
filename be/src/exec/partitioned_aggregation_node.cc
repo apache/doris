@@ -510,9 +510,6 @@ Status PartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
     // DCHECK_EQ(_conjunct_ctxs.size(), _conjuncts.size());
     if (ExecNode::eval_conjuncts(_conjunct_ctxs.data(), _conjunct_ctxs.size(), row)) {
       row_batch->commit_last_row();
-      if (UNLIKELY(VLOG_ROW_IS_ON)) {
-        VLOG_ROW << "output row: " << row->to_string(*intermediate_row_desc_);
-      }
       ++_num_rows_returned;
       if (reached_limit() || row_batch->at_capacity()) {
         break;
@@ -1057,7 +1054,7 @@ Tuple* PartitionedAggregationNode::GetOutputTuple(
   DCHECK(tuple != NULL || agg_fn_evals.empty()) << tuple;
   Tuple* dst = tuple;
   if (needs_finalize_ && intermediate_tuple_id_ != output_tuple_id_) {
-    dst = Tuple::create(a->byte_size(), pool);
+    dst = Tuple::create(output_tuple_desc_->byte_size(), pool);
   }
   if (needs_finalize_) {
     NewAggFnEvaluator::Finalize(agg_fn_evals, tuple, dst);
