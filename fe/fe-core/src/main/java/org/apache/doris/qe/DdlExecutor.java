@@ -25,6 +25,7 @@ import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -73,7 +74,6 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
-import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
@@ -146,7 +146,9 @@ public class DdlExecutor {
             catalog.getRoutineLoadManager().resumeRoutineLoadJob((ResumeRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof StopRoutineLoadStmt) {
             catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
-        }  else if (ddlStmt instanceof DeleteStmt) {
+        } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof DeleteStmt) {
             catalog.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
