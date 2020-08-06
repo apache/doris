@@ -704,7 +704,9 @@ public final class AggregateInfo extends AggregateInfoBase {
             }
             List<SlotRef> slots = new ArrayList<>();
             functionCallExpr.collect(SlotRef.class, slots);
-            Preconditions.checkArgument(slots.size() == 1);
+            if (slots.size() != 1) {
+                return;
+            }
             SlotRef slotRef = slots.get(0);
             if (slotRef.getDesc() == null) {
                 return;
