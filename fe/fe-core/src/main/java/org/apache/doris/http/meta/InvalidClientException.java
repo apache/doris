@@ -17,9 +17,7 @@
 
 package org.apache.doris.http.meta;
 
-import org.apache.doris.common.DdlException;
-
-public class InvalidClientException extends DdlException {
+public class InvalidClientException extends RuntimeException {
     public InvalidClientException(String msg) {
         super(msg);
     }

@@ -17,12 +17,12 @@
 
 package org.apache.doris.common;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.FileReader;
 import java.lang.annotation.Retention;
@@ -38,18 +38,21 @@ import java.util.regex.Pattern;
 
 public class ConfigBase {
     private static final Logger LOG = LogManager.getLogger(ConfigBase.class);
-    
+
     @Retention(RetentionPolicy.RUNTIME)
     public static @interface ConfField {
         String value() default "";
+
         boolean mutable() default false;
+
         boolean masterOnly() default false;
+
         String comment() default "";
-    }   
-    
+    }
+
     public static Properties props;
     public static Class<? extends ConfigBase> confClass;
-    
+
     public void init(String propfile) throws Exception {
         props = new Properties();
         confClass = this.getClass();
@@ -57,10 +60,10 @@ public class ConfigBase {
         replacedByEnv();
         setFields();
     }
-    
-    public static HashMap<String, String> dump() throws Exception { 
+
+    public static HashMap<String, String> dump() throws Exception {
         HashMap<String, String> map = new HashMap<String, String>();
-        Field[] fields = confClass.getFields();     
+        Field[] fields = confClass.getFields();
         for (Field f : fields) {
             if (f.getAnnotation(ConfField.class) == null) {
                 continue;
@@ -87,16 +90,16 @@ public class ConfigBase {
                         break;
                     default:
                         throw new Exception("unknown type: " + f.getType().getSimpleName());
-                }               
+                }
             } else {
                 map.put(f.getName(), f.get(null).toString());
             }
         }
         return map;
     }
-    
+
     private static void replacedByEnv() throws Exception {
-        Pattern pattern = Pattern.compile("\\$\\{([^\\}]*)\\}");    
+        Pattern pattern = Pattern.compile("\\$\\{([^\\}]*)\\}");
         for (String key : props.stringPropertyNames()) {
             String value = props.getProperty(key);
             Matcher m = pattern.matcher(value);
@@ -109,28 +112,28 @@ public class ConfigBase {
                     throw new Exception("no such env variable: " + m.group(1));
                 }
             }
-            props.setProperty(key, value);      
+            props.setProperty(key, value);
         }
     }
-    
-    private static void setFields() throws Exception {      
-        Field[] fields = confClass.getFields();     
+
+    private static void setFields() throws Exception {
+        Field[] fields = confClass.getFields();
         for (Field f : fields) {
             // ensure that field has "@ConfField" annotation
             ConfField anno = f.getAnnotation(ConfField.class);
             if (anno == null) {
                 continue;
             }
-            
+
             // ensure that field has property string
             String confKey = anno.value().equals("") ? f.getName() : anno.value();
             String confVal = props.getProperty(confKey);
             if (Strings.isNullOrEmpty(confVal)) {
                 continue;
             }
-            
+
             setConfigField(f, confVal);
-        }       
+        }
     }
 
     public static void setConfigField(Field f, String confVal) throws IllegalAccessException, Exception {
@@ -233,7 +236,7 @@ public class ConfigBase {
         } catch (Exception e) {
             throw new DdlException("Failed to set config '" + key + "'. err: " + e.getMessage());
         }
-        
+
         LOG.info("set config {} to {}", key, value);
     }
 
@@ -254,10 +257,13 @@ public class ConfigBase {
             String confVal;
             try {
                 confVal = String.valueOf(f.get(null));
+                if (f.getType() == String[].class) {
+                    confVal = Arrays.toString((String[]) f.get(null));
+                }
             } catch (IllegalArgumentException | IllegalAccessException e) {
                 throw new DdlException("Failed to get config '" + confKey + "'. err: " + e.getMessage());
             }
-            
+
             config.add(confKey);
             config.add(Strings.nullToEmpty(confVal));
             config.add(f.getType().getSimpleName());

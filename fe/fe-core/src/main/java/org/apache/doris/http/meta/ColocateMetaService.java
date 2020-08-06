@@ -22,62 +22,61 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.http.rest.RestBaseAction;
-import org.apache.doris.http.rest.RestBaseResult;
-import org.apache.doris.http.rest.RestResult;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
+import org.apache.doris.http.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
+
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.lang.reflect.Type;
 import java.util.List;
-
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
 
 /*
  * the colocate meta define in {@link ColocateTableIndex}
  * The actions in ColocateMetaService is for modifying or showing colocate group info manually.
- * 
+ *
  * ColocateMetaAction:
  *  get all information in ColocateTableIndex, as a json string
  *      eg:
  *          GET /api/colocate
  *      return:
  *          {"colocate_meta":{"groupName2Id":{...},"group2Tables":{}, ...},"status":"OK"}
- * 
+ *
  *      eg:
  *          POST    /api/colocate/group_stable?db_id=123&group_id=456  (mark group[123.456] as unstable)
  *          DELETE  /api/colocate/group_stable?db_id=123&group_id=456  (mark group[123.456] as stable)
- *          
+ *
  * BucketSeqAction:
  *  change the backends per bucket sequence of a group
  *      eg:
  *          POST    /api/colocate/bucketseq?db_id=123&group_id=456
  */
-public class ColocateMetaService {
+
+@RestController
+public class ColocateMetaService extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(ColocateMetaService.class);
     private static final String GROUP_ID = "group_id";
-    private static final String TABLE_ID = "table_id";
     private static final String DB_ID = "db_id";
 
     private static ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
 
-    private static GroupId checkAndGetGroupId(BaseRequest request) throws DdlException {
-        long grpId = Long.valueOf(request.getSingleParameter(GROUP_ID).trim());
-        long dbId = Long.valueOf(request.getSingleParameter(DB_ID).trim());
+    private static GroupId checkAndGetGroupId(HttpServletRequest request) throws DdlException {
+        long grpId = Long.valueOf(request.getParameter(GROUP_ID).trim());
+        long dbId = Long.valueOf(request.getParameter(DB_ID).trim());
         GroupId groupId = new GroupId(dbId, grpId);
 
         if (!colocateIndex.isGroupExist(groupId)) {
@@ -86,141 +85,84 @@ public class ColocateMetaService {
         return groupId;
     }
 
-    public static class ColocateMetaBaseAction extends RestBaseAction {
-        ColocateMetaBaseAction(ActionController controller) {
-            super(controller);
+    public Object executeWithoutPassword(HttpServletRequest request, HttpServletResponse response)
+            throws DdlException {
+        executeCheckPassword(request, response);
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
-
-        @Override
-        public void executeWithoutPassword(BaseRequest request, BaseResponse response)
-                throws DdlException {
-            if (redirectToMaster(request, response)) {
-                return;
-            }
-            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
-            executeInMasterWithAdmin(request, response);
-        }
-
-        // implement in derived classes
-        protected void executeInMasterWithAdmin(BaseRequest request, BaseResponse response)
-                throws DdlException {
-            throw new DdlException("Not implemented");
-        }
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        return null;
     }
 
-    // get all colocate meta
-    public static class ColocateMetaAction extends ColocateMetaBaseAction {
-        ColocateMetaAction(ActionController controller) {
-            super(controller);
-        }
-
-        public static void registerAction(ActionController controller) throws IllegalArgException {
-            ColocateMetaAction action = new ColocateMetaAction(controller);
-            controller.registerHandler(HttpMethod.GET, "/api/colocate", action);
-        }
-
-        @Override
-        public void executeInMasterWithAdmin(BaseRequest request, BaseResponse response)
-                throws DdlException {
-            response.setContentType("application/json");
-            RestResult result = new RestResult();
-            result.addResultEntry("colocate_meta", Catalog.getCurrentColocateIndex());
-            sendResult(request, response, result);
-        }
+    @RequestMapping(path = "/api/colocate", method = RequestMethod.GET)
+    public Object colocate(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        executeWithoutPassword(request, response);
+        return ResponseEntityBuilder.ok(Catalog.getCurrentColocateIndex());
     }
 
-    // mark a colocate group as stable or unstable
-    public static class MarkGroupStableAction extends ColocateMetaBaseAction {
-        MarkGroupStableAction(ActionController controller) {
-            super(controller);
+    @RequestMapping(path = "/api/colocate/group_stable", method = {RequestMethod.POST, RequestMethod.DELETE})
+    public Object group_stable(HttpServletRequest request, HttpServletResponse response)
+            throws DdlException {
+        executeWithoutPassword(request, response);
+        GroupId groupId = checkAndGetGroupId(request);
+
+        String method = request.getMethod();
+        if ("POST".equalsIgnoreCase(method)) {
+            colocateIndex.markGroupUnstable(groupId, true);
+        } else if ("DELETE".equalsIgnoreCase(method)) {
+            colocateIndex.markGroupStable(groupId, true);
         }
-
-        public static void registerAction(ActionController controller) throws IllegalArgException {
-            MarkGroupStableAction action = new MarkGroupStableAction(controller);
-            controller.registerHandler(HttpMethod.POST, "/api/colocate/group_stable", action);
-            controller.registerHandler(HttpMethod.DELETE, "/api/colocate/group_stable", action);
-        }
-
-        @Override
-        public void executeInMasterWithAdmin(BaseRequest request, BaseResponse response)
-                throws DdlException {
-            GroupId groupId = checkAndGetGroupId(request);
-
-            HttpMethod method = request.getRequest().method();
-            if (method.equals(HttpMethod.POST)) {
-                colocateIndex.markGroupUnstable(groupId, true);
-            } else if (method.equals(HttpMethod.DELETE)) {
-                colocateIndex.markGroupStable(groupId, true);
-            } else {
-                response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
-                writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
-            }
-
-            sendResult(request, response);
-        }
+        return ResponseEntityBuilder.ok();
     }
 
-    // update a backendsPerBucketSeq meta for a colocate group
-    public static class BucketSeqAction extends ColocateMetaBaseAction {
-        private static final Logger LOG = LogManager.getLogger(BucketSeqAction.class);
+    @RequestMapping(path = "/api/colocate/bucketseq", method = RequestMethod.POST)
+    public Object bucketseq(HttpServletRequest request, HttpServletResponse response, @RequestBody String meta)
+            throws DdlException {
+        executeWithoutPassword(request, response);
+        final String clusterName = ConnectContext.get().getClusterName();
+        GroupId groupId = checkAndGetGroupId(request);
 
-        BucketSeqAction(ActionController controller) {
-            super(controller);
+        Type type = new TypeToken<List<List<Long>>>() {
+        }.getType();
+        List<List<Long>> backendsPerBucketSeq = new Gson().fromJson(meta, type);
+        LOG.info("get buckets sequence: {}", backendsPerBucketSeq);
+
+        ColocateGroupSchema groupSchema = Catalog.getCurrentColocateIndex().getGroupSchema(groupId);
+        if (backendsPerBucketSeq.size() != groupSchema.getBucketsNum()) {
+            return ResponseEntityBuilder.okWithCommonError("Invalid bucket num. expected: "
+                    + groupSchema.getBucketsNum() + ", actual: " + backendsPerBucketSeq.size());
         }
 
-        public static void registerAction(ActionController controller) throws IllegalArgException {
-            BucketSeqAction action = new BucketSeqAction(controller);
-            controller.registerHandler(HttpMethod.POST, "/api/colocate/bucketseq", action);
-        }
-
-        @Override
-        public void executeInMasterWithAdmin(BaseRequest request, BaseResponse response)
-                throws DdlException {
-            final String clusterName = ConnectContext.get().getClusterName();
-            if (Strings.isNullOrEmpty(clusterName)) {
-                throw new DdlException("No cluster selected.");
+        List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
+        //check the Backend id
+        for (List<Long> backendIds : backendsPerBucketSeq) {
+            if (backendIds.size() != groupSchema.getReplicationNum()) {
+                return ResponseEntityBuilder.okWithCommonError("Invalid backend num per bucket. expected: "
+                        + groupSchema.getReplicationNum() + ", actual: " + backendIds.size());
             }
-            GroupId groupId = checkAndGetGroupId(request);
-
-            String meta = request.getContent();
-            Type type = new TypeToken<List<List<Long>>>() {}.getType();
-            List<List<Long>> backendsPerBucketSeq = new Gson().fromJson(meta, type);
-            LOG.info("get buckets sequence: {}", backendsPerBucketSeq);
-
-            ColocateGroupSchema groupSchema = Catalog.getCurrentColocateIndex().getGroupSchema(groupId);
-            if (backendsPerBucketSeq.size() != groupSchema.getBucketsNum()) {
-                throw new DdlException("Invalid bucket num. expected: " + groupSchema.getBucketsNum() + ", actual: "
-                        + backendsPerBucketSeq.size());
-            }
-
-            List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
-            //check the Backend id
-            for (List<Long> backendIds : backendsPerBucketSeq) {
-                if (backendIds.size() != groupSchema.getReplicationNum()) {
-                    throw new DdlException("Invalid backend num per bucket. expected: "
-                            + groupSchema.getReplicationNum() + ", actual: " + backendIds.size());
-                }
-                for (Long beId : backendIds) {
-                    if (!clusterBackendIds.contains(beId)) {
-                        throw new DdlException("The backend " + beId + " does not exist or not available");
-                    }
+            for (Long beId : backendIds) {
+                if (!clusterBackendIds.contains(beId)) {
+                    return ResponseEntityBuilder.okWithCommonError("The backend " + beId
+                            + " does not exist or not available");
                 }
             }
-
-            int bucketsNum = colocateIndex.getBackendsPerBucketSeq(groupId).size();
-            Preconditions.checkState(backendsPerBucketSeq.size() == bucketsNum,
-                    backendsPerBucketSeq.size() + " vs. " + bucketsNum);
-            updateBackendPerBucketSeq(groupId, backendsPerBucketSeq);
-            LOG.info("the group {} backendsPerBucketSeq meta has been changed to {}", groupId, backendsPerBucketSeq);
-
-            sendResult(request, response);
         }
 
-        private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
-            colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info2);
-        }
+        int bucketsNum = colocateIndex.getBackendsPerBucketSeq(groupId).size();
+        Preconditions.checkState(backendsPerBucketSeq.size() == bucketsNum,
+                backendsPerBucketSeq.size() + " vs. " + bucketsNum);
+        updateBackendPerBucketSeq(groupId, backendsPerBucketSeq);
+        LOG.info("the group {} backendsPerBucketSeq meta has been changed to {}", groupId, backendsPerBucketSeq);
+        return ResponseEntityBuilder.ok();
     }
+
+    private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
+        colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+        ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+        Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info2);
+    }
+
 
 }

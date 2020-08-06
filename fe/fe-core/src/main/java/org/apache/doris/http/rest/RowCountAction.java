@@ -27,68 +27,61 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
-import org.codehaus.jackson.map.ObjectMapper;
-
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.Map;
-
-import io.netty.handler.codec.http.HttpMethod;
 
 /*
  * calc row count from replica to table
  * fe_host:fe_http_port/api/rowcount?db=dbname&table=tablename
  */
-public class RowCountAction extends RestBaseAction {
+@RestController
+public class RowCountAction extends RestBaseController {
 
-    public RowCountAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/rowcount", new RowCountAction(controller));
-    }
-
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/api/rowcount", method = RequestMethod.GET)
+    protected Object rowcount(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        String dbName = request.getSingleParameter(DB_KEY);
+        String dbName = request.getParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
-            throw new DdlException("No database selected.");
+            return ResponseEntityBuilder.badRequest("No database selected");
         }
 
-        String tableName = request.getSingleParameter(TABLE_KEY);
+        String tableName = request.getParameter(TABLE_KEY);
         if (Strings.isNullOrEmpty(tableName)) {
-            throw new DdlException("No table selected.");
+            return ResponseEntityBuilder.badRequest("No table selected");
         }
 
+        String fullDbName = getFullDbName(dbName);
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(dbName);
+        Database db = catalog.getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
+            return ResponseEntityBuilder.okWithCommonError("Database[" + fullDbName + "] does not exist");
         }
         db.writeLock();
         try {
             Table table = db.getTable(tableName);
             if (table == null) {
-                throw new DdlException("Table[" + tableName + "] does not exist");
+                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
             }
-            
+
             if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Table[" + tableName + "] is not OLAP table");
+                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] is not OLAP table");
             }
-            
+
             OlapTable olapTable = (OlapTable) table;
             for (Partition partition : olapTable.getAllPartitions()) {
                 long version = partition.getVisibleVersion();
@@ -108,23 +101,10 @@ public class RowCountAction extends RestBaseAction {
                     index.setRowCount(indexRowCount);
                     indexRowCountMap.put(olapTable.getIndexNameById(index.getId()), indexRowCount);
                 } // end for indices
-            } // end for partitions            
+            } // end for partitions
         } finally {
             db.writeUnlock();
         }
-
-        // to json response
-        String result = "";
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            result = mapper.writeValueAsString(indexRowCountMap);
-        } catch (Exception e) {
-            //  do nothing
-        }
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
+        return ResponseEntityBuilder.ok(indexRowCountMap);
     }
 }

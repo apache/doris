@@ -17,46 +17,58 @@
 
 package org.apache.doris.http.rest;
 
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 // This class is used to get current query_id of connection_id.
 // Every connection holds at most one query at every point.
 // Some we can get query_id firstly, and get query by query_id.
-public class ConnectionAction extends RestBaseAction {
-    public ConnectionAction(ActionController controller) {
-        super(controller);
-    }
+@RestController
+public class ConnectionAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(ConnectionAction.class);
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/connection", new ConnectionAction(controller));
-    }
+    @RequestMapping(path = "/api/connection", method = RequestMethod.GET)
+    protected Object connection(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-    @Override
-    public void execute(BaseRequest request, BaseResponse response) {
-        String connStr = request.getSingleParameter("connection_id");
-        if (connStr == null) {
-            response.getContent().append("not valid parameter");
-            sendResult(request, response, HttpResponseStatus.BAD_REQUEST);
-            return;
+        String connStr = request.getParameter("connection_id");
+        if (Strings.isNullOrEmpty(connStr)) {
+            return ResponseEntityBuilder.badRequest("Missing connection_id");
         }
-        long connectionId = Long.valueOf(connStr.trim());
+
+        long connectionId = -1;
+        try {
+            connectionId = Long.valueOf(connStr.trim());
+        } catch (NumberFormatException e) {
+            return ResponseEntityBuilder.badRequest("Invalid connection id: " + e.getMessage());
+        }
+
         ConnectContext context = ExecuteEnv.getInstance().getScheduler().getContext(connectionId);
         if (context == null || context.queryId() == null) {
-            response.getContent().append("connection id " + connectionId + " not found.");
-            sendResult(request, response, HttpResponseStatus.NOT_FOUND);
-            return;
+            return ResponseEntityBuilder.okWithCommonError("connection id " + connectionId + " not found.");
         }
         String queryId = DebugUtil.printId(context.queryId());
-        response.setContentType("application/json");
-        response.getContent().append("{\"query_id\" : \"" + queryId + "\"}");
-        sendResult(request, response);
+
+        Map<String, String> result = Maps.newHashMap();
+        result.put("query_id", queryId);
+        return ResponseEntityBuilder.ok(result);
     }
 }

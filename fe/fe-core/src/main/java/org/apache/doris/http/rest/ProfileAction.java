@@ -18,43 +18,49 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 // This class is a RESTFUL interface to get query profile.
 // It will be used in query monitor to collect profiles.   
 // Usage:
 //      wget http://fe_host:fe_http_port/api/profile?query_id=123456
-public class ProfileAction extends RestBaseAction {
+@RestController
+public class ProfileAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(ProfileAction.class);
 
-    public ProfileAction(ActionController controller) {
-        super(controller);
-    }
+    @RequestMapping(path = "/api/profile", method = RequestMethod.GET)
+    protected Object profile(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/profile", new ProfileAction(controller));
-    }
-
-    @Override
-    public void execute(BaseRequest request, BaseResponse response) {
-        String queryId = request.getSingleParameter("query_id");
-        if (queryId == null) {
-            response.getContent().append("not valid parameter");
-            sendResult(request, response, HttpResponseStatus.BAD_REQUEST);
-            return;
+        String queryId = request.getParameter("query_id");
+        if (Strings.isNullOrEmpty(queryId)) {
+            return ResponseEntityBuilder.badRequest("Missing query_id");
         }
+
         String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
-        if (queryProfileStr != null) {
-            response.getContent().append(queryProfileStr);
-            sendResult(request, response);
-        } else {
-            response.getContent().append("query id " + queryId + " not found.");
-            sendResult(request, response, HttpResponseStatus.NOT_FOUND);
+        if (queryProfileStr == null) {
+            return ResponseEntityBuilder.okWithCommonError("query id " + queryId + " not found.");
         }
+
+        Map<String, String> result = Maps.newHashMap();
+        result.put("profile", queryProfileStr);
+        return ResponseEntityBuilder.ok(result);
     }
 }

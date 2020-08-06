@@ -25,97 +25,77 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
-import org.codehaus.jackson.map.ObjectMapper;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * Get table schema for specified cluster.database.table with privilege checking
  */
-public class TableSchemaAction extends RestBaseAction {
+@RestController
+public class TableSchemaAction extends RestBaseController {
 
-    public TableSchemaAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        // the extra `/api` path is so disgusting
-        controller.registerHandler(HttpMethod.GET,
-                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema", new TableSchemaAction
-                                           (controller));
-    }
-
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema", method = RequestMethod.GET)
+    protected Object schema(
+            @PathVariable(value = DB_KEY) final String dbName,
+            @PathVariable(value = TABLE_KEY) final String tblName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
-        String dbName = request.getSingleParameter(DB_KEY);
-        String tableName = request.getSingleParameter(TABLE_KEY);
+
         try {
-            if (Strings.isNullOrEmpty(dbName)
-                    || Strings.isNullOrEmpty(tableName)) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "No database or table selected.");
-            }
-            String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
+            String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
-                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
+                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
             db.readLock();
             try {
-                Table table = db.getTable(tableName);
+                Table table = db.getTable(tblName);
                 if (table == null) {
-                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
                 }
                 // just only support OlapTable, ignore others such as ESTable
                 if (!(table instanceof OlapTable)) {
-                    // Forbidden
-                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] "
                             + "is not a OlapTable, only support OlapTable currently");
                 }
-                try {
-                    List<Column> columns = table.getBaseSchema();
-                    List<Map<String, String>> propList = new ArrayList(columns.size());
-                    for (Column column : columns) {
-                        Map<String, String> baseInfo = new HashMap<>(2);
-                        Type colType = column.getOriginType();
-                        PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
-                            ScalarType scalarType = (ScalarType) colType;
-                            baseInfo.put("precision", scalarType.getPrecision() + "");
-                            baseInfo.put("scale", scalarType.getScalarScale() + "");
-                        }
-                        baseInfo.put("type", primitiveType.toString());
-                        baseInfo.put("comment", column.getComment());
-                        baseInfo.put("name", column.getName());
-                        propList.add(baseInfo);
+
+                List<Column> columns = table.getBaseSchema();
+                List<Map<String, String>> propList = new ArrayList(columns.size());
+                for (Column column : columns) {
+                    Map<String, String> baseInfo = new HashMap<>(2);
+                    Type colType = column.getOriginType();
+                    PrimitiveType primitiveType = colType.getPrimitiveType();
+                    if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
+                        ScalarType scalarType = (ScalarType) colType;
+                        baseInfo.put("precision", scalarType.getPrecision() + "");
+                        baseInfo.put("scale", scalarType.getScalarScale() + "");
                     }
-                    resultMap.put("status", 200);
-                    resultMap.put("properties", propList);
-                } catch (Exception e) {
-                    // Transform the general Exception to custom DorisHttpException
-                    throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, e.getMessage() == null ? "Null Pointer Exception" : e.getMessage());
+                    baseInfo.put("type", primitiveType.toString());
+                    baseInfo.put("comment", column.getComment());
+                    baseInfo.put("name", column.getName());
+                    propList.add(baseInfo);
                 }
+                resultMap.put("status", 200);
+                resultMap.put("properties", propList);
             } finally {
                 db.readUnlock();
             }
@@ -124,17 +104,7 @@ public class TableSchemaAction extends RestBaseAction {
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
         }
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            String result = mapper.writeValueAsString(resultMap);
-            // send result with extra information
-            response.setContentType("application/json");
-            response.getContent().append(result);
-            sendResult(request, response, HttpResponseStatus.valueOf(Integer.parseInt(String.valueOf(resultMap.get("status")))));
-        } catch (Exception e) {
-            // may be this never happen
-            response.getContent().append(e.getMessage());
-            sendResult(request, response, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-        }
+
+        return ResponseEntityBuilder.ok(resultMap);
     }
 }

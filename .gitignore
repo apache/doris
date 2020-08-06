@@ -29,7 +29,8 @@ fe_plugins/output
 fe/mocked
 fe/*/target
 dependency-reduced-pom.xml
-
+fe/fe-core/src/main/resources/static/
+nohup.out
 
 #ignore eclipse project file & idea  project file
 .cproject

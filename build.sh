@@ -50,13 +50,13 @@ Usage: $0 <options>
   Optional options:
      --be               build Backend
      --fe               build Frontend and Spark Dpp application
+     --fe-ui            build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
      --clean            clean and build target
      --with-mysql       enable MySQL support(default)
      --without-mysql    disable MySQL support
      --with-lzo         enable LZO compress support(default)
      --without-lzo      disable LZO compress  support
-
   Eg.
     $0                                      build all
     $0 --be                                 build Backend without clean
@@ -65,6 +65,7 @@ Usage: $0 <options>
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
+    $0 --fe --fe-ui                         build Frontend web ui with npm
   "
   exit 1
 }
@@ -75,6 +76,7 @@ OPTS=$(getopt \
   -o 'h' \
   -l 'be' \
   -l 'fe' \
+  -l 'fe-ui' \
   -l 'spark-dpp' \
   -l 'clean' \
   -l 'with-mysql' \
@@ -92,6 +94,7 @@ eval set -- "$OPTS"
 
 BUILD_BE=
 BUILD_FE=
+BUILD_FE_UI=
 BUILD_SPARK_DPP=
 CLEAN=
 RUN_UT=
@@ -102,12 +105,14 @@ if [ $# == 1 ] ; then
     # default
     BUILD_BE=1
     BUILD_FE=1
+    BUILD_FE_UI=1
     BUILD_SPARK_DPP=1
     CLEAN=0
     RUN_UT=0
 else
     BUILD_BE=0
     BUILD_FE=0
+    BUILD_FE_UI=0
     BUILD_SPARK_DPP=0
     CLEAN=0
     RUN_UT=0
@@ -115,6 +120,7 @@ else
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
+            --fe-ui) BUILD_FE_UI=1; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             --ut) RUN_UT=1   ; shift ;;
@@ -143,6 +149,7 @@ fi
 echo "Get params:
     BUILD_BE            -- $BUILD_BE
     BUILD_FE            -- $BUILD_FE
+    BUILD_FE_UI         -- $BUILD_FE_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     CLEAN               -- $CLEAN
     RUN_UT              -- $RUN_UT
@@ -184,6 +191,29 @@ cd ${DORIS_HOME}/docs
 ./build_help_zip.sh
 cd ${DORIS_HOME}
 
+function build_ui() {
+    # check NPM env here, not in env.sh.
+    # Because UI should be considered a non-essential component at runtime.
+    # Only when the compilation is required, check the relevant compilation environment.
+    NPM=npm    
+    if ! ${NPM} --version; then
+        echo "Error: npm is not found"
+        exit 1
+    fi
+    if [[ ! -z ${CUSTOM_NPM_REGISTRY} ]]; then
+        ${NPM} config set registry ${CUSTOM_NPM_REGISTRY}
+        npm_reg=`${NPM} get registry`
+        echo "NPM version: npm_reg"
+    fi
+    echo "Build Frontend UI"
+    cd ${DORIS_HOME}/doris-ui
+    ${NPM} install
+    $NPM run build
+    rm -rf ${DORIS_HOME}/fe/fe-core/src/main/resources/static/
+    mkdir -p ${DORIS_HOME}/fe/fe-core/src/main/resources/static
+    cp -r ${DORIS_HOME}/doris-ui/dist/* ${DORIS_HOME}/fe/fe-core/src/main/resources/static
+}
+
 # Assesmble FE modules
 FE_MODULES=
 if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
@@ -193,6 +223,11 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
     if [ ${BUILD_FE} -eq 1 ]; then
         FE_MODULES="fe-common,spark-dpp,fe-core"
     fi
+fi
+
+# FE UI must be built before building FE
+if [ ${BUILD_FE_UI} -eq 1 ] ; then 
+    build_ui
 fi
 
 # Clean and build Frontend

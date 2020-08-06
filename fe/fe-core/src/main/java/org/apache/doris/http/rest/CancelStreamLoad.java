@@ -19,68 +19,69 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
+import org.apache.doris.http.exception.UnauthorizedException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
-public class CancelStreamLoad extends RestBaseAction {
-    public CancelStreamLoad(ActionController controller) {
-        super(controller);
-    }
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-    public static void registerAction(ActionController controller)
-            throws IllegalArgException {
-        CancelStreamLoad action = new CancelStreamLoad(controller);
-        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/{" + LABEL_KEY + "}/_cancel", action);
-    }
+/**
+ * To cancel a load transaction with given load label
+ */
+@RestController
+public class CancelStreamLoad extends RestBaseController {
 
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_cancel", method = RequestMethod.POST)
+    public Object execute(@PathVariable(value = DB_KEY) final String dbName,
+                          HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
 
-        if (redirectToMaster(request, response)) {
-            return;
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
-        final String clusterName = ConnectContext.get().getClusterName();
-        if (Strings.isNullOrEmpty(clusterName)) {
-            throw new DdlException("No cluster selected.");
-        }
-
-        String dbName = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
-            throw new DdlException("No database selected.");
+            return ResponseEntityBuilder.badRequest("No database selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
+        String fullDbName = getFullDbName(dbName);
 
-        String label = request.getSingleParameter(LABEL_KEY);
+        String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            throw new DdlException("No label selected.");
+            return ResponseEntityBuilder.badRequest("No label specified");
         }
-
-        // FIXME(cmy)
-        // checkWritePriv(authInfo.fullUserName, fullDbName);
 
         Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("unknown database, database=" + dbName);
+            return ResponseEntityBuilder.okWithCommonError("unknown database, database=" + dbName);
+        }
+
+        // TODO(cmy): Currently we only check priv in db level.
+        // Should check priv in table level.
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullDbName, PrivPredicate.LOAD)) {
+            throw new UnauthorizedException("Access denied for user '" + ConnectContext.get().getQualifiedUser()
+                    + "' to database '" + fullDbName + "'");
         }
 
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), label, "user cancel");
         } catch (UserException e) {
-            throw new DdlException(e.getMessage());
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
-        sendResult(request, response, new RestBaseResult());
+        return ResponseEntityBuilder.ok();
     }
+
 }

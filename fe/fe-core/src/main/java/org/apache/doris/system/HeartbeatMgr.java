@@ -96,7 +96,7 @@ public class HeartbeatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
-        
+
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend);
@@ -190,7 +190,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(
                         hbResponse.getName(), hbResponse.getHost(), hbResponse.getPort());
                 if (broker != null) {
-                    boolean isChanged =  broker.handleHbResponse(hbResponse);
+                    boolean isChanged = broker.handleHbResponse(hbResponse);
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
                         ClientPool.brokerPool.clearPool(new TNetworkAddress(broker.ip, broker.port));
@@ -292,20 +292,44 @@ public class HeartbeatMgr extends MasterDaemon {
             try {
                 String result = Util.getResultForUrl(url, null, 2000, 2000);
                 /*
-                 * return:
+                 * Old return:
                  * {"replayedJournalId":191224,"queryPort":9131,"rpcPort":9121,"status":"OK","msg":"Success"}
                  * {"replayedJournalId":0,"queryPort":0,"rpcPort":0,"status":"FAILED","msg":"not ready"}
+                 *
+                 * New Reture:
+                 * {"msg":"success","code":0,"data":{"queryPort":9333,"rpcPort":9222,"replayedJournalId":197},"count":0}
+                 * {"msg":"not ready","code":1,"data":null,"count":0}
+                 *
+                 * We need to be compatible with both return values
                  */
                 JSONObject root = new JSONObject(result);
-                String status = root.getString("status");
-                if (!"OK".equals(status)) {
-                    return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
+                if (root.has("status")) {
+                    // old return
+                    String status = root.getString("status");
+                    if (!"OK".equals(status)) {
+                        return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
+                    } else {
+                        long replayedJournalId = root.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
+                        int queryPort = root.getInt(BootstrapFinishAction.QUERY_PORT);
+                        int rpcPort = root.getInt(BootstrapFinishAction.RPC_PORT);
+                        return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
+                                System.currentTimeMillis());
+                    }
+                } else if (root.has("code")) {
+                    // new return
+                    int code = root.getInt("code");
+                    if (code != 0) {
+                        return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
+                    } else {
+                        JSONObject dataObj = root.getJSONObject("data");
+                        long replayedJournalId = dataObj.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
+                        int queryPort = dataObj.getInt(BootstrapFinishAction.QUERY_PORT);
+                        int rpcPort = dataObj.getInt(BootstrapFinishAction.RPC_PORT);
+                        return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
+                                System.currentTimeMillis());
+                    }
                 } else {
-                    long replayedJournalId = root.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
-                    int queryPort = root.getInt(BootstrapFinishAction.QUERY_PORT);
-                    int rpcPort = root.getInt(BootstrapFinishAction.RPC_PORT);
-                    return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                            System.currentTimeMillis());
+                    throw new Exception("invalid return value: " + result);
                 }
             } catch (Exception e) {
                 return new FrontendHbResponse(fe.getNodeName(),

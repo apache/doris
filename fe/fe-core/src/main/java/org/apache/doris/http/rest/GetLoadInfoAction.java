@@ -17,50 +17,56 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
+
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 // Get load information of one load job
-public class GetLoadInfoAction extends RestBaseAction {
-    public GetLoadInfoAction(ActionController controller, boolean isStreamLoad) {
-        super(controller);
-    }
+@RestController
+public class GetLoadInfoAction extends RestBaseController {
 
-    public static void registerAction(ActionController controller)
-            throws IllegalArgException {
-        GetLoadInfoAction action = new GetLoadInfoAction(controller, false);
-        controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/_load_info", action);
-    }
+    protected Catalog catalog;
 
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
-            throws DdlException {
-        Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
-                                             request.getSingleParameter(LABEL_KEY),
-                                             ConnectContext.get().getClusterName());
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info", method = RequestMethod.GET)
+    public Object execute(
+            @PathVariable(value = DB_KEY) final String dbName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+
+        this.catalog = Catalog.getCurrentCatalog();
+        String fullDbName = getFullDbName(dbName);
+
+        Load.JobInfo info = new Load.JobInfo(fullDbName,
+                request.getParameter(LABEL_KEY),
+                ConnectContext.get().getClusterName());
         if (Strings.isNullOrEmpty(info.dbName)) {
-            throw new DdlException("No database selected");
+            return ResponseEntityBuilder.badRequest("No database selected");
         }
         if (Strings.isNullOrEmpty(info.label)) {
-            throw new DdlException("No label selected");
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
         if (Strings.isNullOrEmpty(info.clusterName)) {
-            throw new DdlException("No cluster name selected");
+            return ResponseEntityBuilder.badRequest("No cluster selected");
         }
 
-        if (redirectToMaster(request, response)) {
-            return;
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
         try {
@@ -74,15 +80,12 @@ public class GetLoadInfoAction extends RestBaseAction {
                 }
             }
         } catch (DdlException | MetaNotFoundException e) {
-            catalog.getLoadManager().getLoadJobInfo(info);
+            try {
+                catalog.getLoadManager().getLoadJobInfo(info);
+            } catch (DdlException e1) {
+                return ResponseEntityBuilder.okWithCommonError(e1.getMessage());
+            }
         }
-        sendResult(request, response, new Result(info));
-    }
-
-    private static class Result extends RestBaseResult {
-        private Load.JobInfo jobInfo;
-        public Result(Load.JobInfo info) {
-            jobInfo = info;
-        }
+        return ResponseEntityBuilder.ok(info);
     }
 }

@@ -19,71 +19,45 @@ package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
-public class GetStreamLoadState extends RestBaseAction {
-    public GetStreamLoadState(ActionController controller) {
-        super(controller);
-    }
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-    public static void registerAction(ActionController controller)
-            throws IllegalArgException {
-        GetStreamLoadState action = new GetStreamLoadState(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/{" + DB_KEY + "}/get_load_state", action);
-    }
+@RestController
+public class GetStreamLoadState extends RestBaseController {
 
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
-            throws DdlException {
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/get_load_state", method = RequestMethod.GET)
+    public Object execute(@PathVariable(value = DB_KEY) final String dbName,
+                          HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
 
-        if (redirectToMaster(request, response)) {
-            return;
+        RedirectView redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
-        final String clusterName = ConnectContext.get().getClusterName();
-        if (Strings.isNullOrEmpty(clusterName)) {
-            throw new DdlException("No cluster selected.");
-        }
-
-        String dbName = request.getSingleParameter(DB_KEY);
-        if (Strings.isNullOrEmpty(dbName)) {
-            throw new DdlException("No database selected.");
-        }
-
-        String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
-
-        String label = request.getSingleParameter(LABEL_KEY);
+        String label = request.getParameter(LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            throw new DdlException("No label selected.");
+            return ResponseEntityBuilder.badRequest("No label selected");
         }
 
-        // FIXME(cmy)
-        // checkReadPriv(authInfo.fullUserName, fullDbName);
+        final String fullDbName = getFullDbName(dbName);
 
         Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("unknown database, database=" + dbName);
+            return ResponseEntityBuilder.okWithCommonError("unknown database, database=" + dbName);
         }
 
         String state = Catalog.getCurrentGlobalTransactionMgr().getLabelState(db.getId(), label).toString();
-
-        sendResult(request, response, new Result(state));
-    }
-
-    private static class Result extends RestBaseResult {
-        private String state;
-        public Result(String state) {
-            this.state = state;
-        }
+        return ResponseEntityBuilder.ok(state);
     }
 }

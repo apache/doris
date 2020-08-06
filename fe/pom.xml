@@ -8,9 +8,7 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
-
   http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -36,6 +34,12 @@ under the License.
 
     <name>doris-fe</name>
     <url>https://github.com/apache/incubator-doris</url>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.2.0.RELEASE</version>
+    </parent>
 
     <properties>
         <doris.home>${basedir}/../</doris.home>
@@ -99,7 +103,6 @@ under the License.
             </repositories>
 
             <pluginRepositories>
-                <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>spring-plugins</id>
                     <url>https://repo.spring.io/plugins-release/</url>

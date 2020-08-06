@@ -21,20 +21,24 @@ import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
-import java.util.List;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
-import io.netty.handler.codec.http.HttpMethod;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  * calc row count from replica to table
@@ -43,30 +47,25 @@ import io.netty.handler.codec.http.HttpMethod;
  * {"status":"OK","msg":"Success"}
  * {"status":"FAILED","msg":"err info..."}
  */
-public class CheckDecommissionAction extends RestBaseAction {
+@RestController
+public class CheckDecommissionAction extends RestBaseController {
+
     public static final String HOST_PORTS = "host_ports";
 
-    public CheckDecommissionAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/check_decommission", new CheckDecommissionAction(controller));
-    }
-
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
-            throws DdlException {
+    @RequestMapping(path = "/api/check_decommission", method = RequestMethod.GET)
+    public Object execute(HttpServletRequest request, HttpServletResponse response) {
+        //check user auth
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
-        String hostPorts = request.getSingleParameter(HOST_PORTS);
+        String hostPorts = request.getParameter(HOST_PORTS);
         if (Strings.isNullOrEmpty(hostPorts)) {
-            throw new DdlException("No host:port specified.");
+            return ResponseEntityBuilder.badRequest("No host:port specified");
         }
 
         String[] hostPortArr = hostPorts.split(",");
         if (hostPortArr.length == 0) {
-            throw new DdlException("No host:port specified.");
+            return ResponseEntityBuilder.badRequest("No host:port specified");
         }
 
         List<Pair<String, Integer>> hostPortPairs = Lists.newArrayList();
@@ -75,19 +74,17 @@ public class CheckDecommissionAction extends RestBaseAction {
             try {
                 pair = SystemInfoService.validateHostAndPort(hostPort);
             } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
+                return ResponseEntityBuilder.badRequest(e.getMessage());
             }
             hostPortPairs.add(pair);
         }
 
-        SystemHandler.checkDecommission(hostPortPairs);
-
-        // to json response
-        RestBaseResult result = new RestBaseResult();
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result.toJson());
-        sendResult(request, response);
+        try {
+            List<Backend> backends = SystemHandler.checkDecommission(hostPortPairs);
+            List<String> backendsList = backends.stream().map(b -> b.getHost() + ":" + b.getHeartbeatPort()).collect(Collectors.toList());
+            return ResponseEntityBuilder.ok(backendsList);
+        } catch (DdlException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
     }
 }

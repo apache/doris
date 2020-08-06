@@ -17,49 +17,46 @@
 
 package org.apache.doris.http.rest;
 
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
-import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 //fehost:port/metrics
 //fehost:port/metrics?type=core
-//fehost:port/metrics?type=json
-public class MetricsAction extends RestBaseAction {
+@RestController
+public class MetricsAction {
 
     private static final String TYPE_PARAM = "type";
 
-    public MetricsAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/metrics", new MetricsAction(controller));
-    }
-
-    @Override
-    public void execute(BaseRequest request, BaseResponse response) {
-        String type = request.getSingleParameter(TYPE_PARAM);
+    @RequestMapping(path = "/metrics")
+    public void execute(HttpServletRequest request, HttpServletResponse response) {
+        String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
             visitor = new SimpleCoreMetricVisitor("doris_fe");
-        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("json")) {
+        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("agent")) {
             visitor = new JsonMetricVisitor("doris_fe");
         } else {
             visitor = new PrometheusMetricVisitor("doris_fe");
         }
-
         response.setContentType("text/plain");
-        response.getContent().append(MetricRepo.getMetric(visitor));
-        sendResult(request, response);
+        try {
+            response.getWriter().write(MetricRepo.getMetric(visitor));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
     }
 }

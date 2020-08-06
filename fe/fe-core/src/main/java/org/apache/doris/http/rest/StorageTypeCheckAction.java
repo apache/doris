@@ -17,56 +17,49 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageType;
 
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
-import org.json.JSONObject;
-
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
 
-import io.netty.handler.codec.http.HttpMethod;
+@RestController
+public class StorageTypeCheckAction extends RestBaseController {
 
-public class StorageTypeCheckAction extends RestBaseAction {
-    public StorageTypeCheckAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        StorageTypeCheckAction action = new StorageTypeCheckAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/_check_storagetype", action);
-    }
-
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
+    @RequestMapping(path = "/api/_check_storagetype", method = RequestMethod.GET)
+    protected Object check_storagetype(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        String dbName = request.getSingleParameter(DB_KEY);
+        String dbName = request.getParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
-            throw new DdlException("Parameter db is missing");
+            return ResponseEntityBuilder.badRequest("No database selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
-        Database db = catalog.getDb(fullDbName);
+        String fullDbName = getFullDbName(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
+            return ResponseEntityBuilder.badRequest("Database " + dbName + " does not exist");
         }
 
-        JSONObject root = new JSONObject();
+        Map<String, Map<String, String>> result = Maps.newHashMap();
         db.readLock();
         try {
             List<Table> tbls = db.getTables();
@@ -76,25 +69,18 @@ public class StorageTypeCheckAction extends RestBaseAction {
                 }
 
                 OlapTable olapTbl = (OlapTable) tbl;
-                JSONObject indexObj = new JSONObject();
+                Map<String, String> indexMap = Maps.newHashMap();
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTbl.getIndexIdToMeta().entrySet()) {
                     MaterializedIndexMeta indexMeta = entry.getValue();
                     if (indexMeta.getStorageType() == TStorageType.ROW) {
-                        indexObj.put(olapTbl.getIndexNameById(entry.getKey()), indexMeta.getStorageType().name());
+                        indexMap.put(olapTbl.getIndexNameById(entry.getKey()), indexMeta.getStorageType().name());
                     }
                 }
-                root.put(tbl.getName(), indexObj);
+                result.put(tbl.getName(), indexMap);
             }
         } finally {
             db.readUnlock();
         }
-
-        // to json response
-        String result = root.toString();
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
+        return ResponseEntityBuilder.ok(result);
     }
 }

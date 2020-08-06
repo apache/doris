@@ -20,11 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -34,47 +30,42 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
 
-import io.netty.handler.codec.http.HttpMethod;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  * used to get a table's ddl stmt
  * eg:
  *  fe_host:http_port/api/_get_ddl?db=xxx&tbl=yyy
  */
-public class GetDdlStmtAction extends RestBaseAction {
+@RestController
+public class GetDdlStmtAction extends RestBaseController {
+
     private static final Logger LOG = LogManager.getLogger(GetDdlStmtAction.class);
-    private static final String DB_PARAM = "db";
-    private static final String TABLE_PARAM = "tbl";
 
-    public GetDdlStmtAction(ActionController controller) {
-        super(controller);
-    }
-
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        GetDdlStmtAction action = new GetDdlStmtAction(controller);
-        controller.registerHandler(HttpMethod.GET, "/api/_get_ddl", action);
-    }
-
-    @Override
-    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
-            throws DdlException {
+    @RequestMapping(path = "/api/_get_ddl", method = RequestMethod.GET)
+    public Object execute(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        String dbName = request.getSingleParameter(DB_PARAM);
-        String tableName = request.getSingleParameter(TABLE_PARAM);
+        String dbName = request.getParameter(DB_KEY);
+        String tableName = request.getParameter(TABLE_KEY);
 
         if (Strings.isNullOrEmpty(dbName) || Strings.isNullOrEmpty(tableName)) {
-            throw new DdlException("Missing params. Need database name and Table name");
+            return ResponseEntityBuilder.badRequest("Missing params. Need database name and Table name");
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        String fullDbName = getFullDbName(dbName);
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
+            return ResponseEntityBuilder.okWithCommonError("Database[" + dbName + "] does not exist");
         }
 
         List<String> createTableStmt = Lists.newArrayList();
@@ -85,32 +76,19 @@ public class GetDdlStmtAction extends RestBaseAction {
         try {
             Table table = db.getTable(tableName);
             if (table == null) {
-                throw new DdlException("Table[" + tableName + "] does not exist");
+                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
             }
 
             Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, false /* show password */);
-
         } finally {
             db.readUnlock();
         }
 
         Map<String, List<String>> results = Maps.newHashMap();
-        results.put("TABLE", createTableStmt);
-        results.put("PARTITION", addPartitionStmt);
-        results.put("ROLLUP", createRollupStmt);
+        results.put("create_table", createTableStmt);
+        results.put("create_partition", addPartitionStmt);
+        results.put("create_rollup", createRollupStmt);
 
-        // to json response
-        String result = "";
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            result = mapper.writeValueAsString(results);
-        } catch (Exception e) {
-            //  do nothing
-        }
-
-        // send result
-        response.setContentType("application/json");
-        response.getContent().append(result);
-        sendResult(request, response);
+        return ResponseEntityBuilder.ok(results);
     }
 }

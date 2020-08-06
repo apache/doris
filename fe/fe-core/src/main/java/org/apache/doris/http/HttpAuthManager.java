@@ -19,6 +19,7 @@ package org.apache.doris.http;
 
 import org.apache.doris.analysis.UserIdentity;
 
+import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 
@@ -51,7 +52,16 @@ public final class HttpAuthManager {
     }
 
     public SessionValue getSessionValue(String sessionId) {
-        return authSessions.getIfPresent(sessionId);
+        if (!Strings.isNullOrEmpty(sessionId)) {
+            return authSessions.getIfPresent(sessionId);
+        }
+        return null;
+    }
+    public void removeSession(String sessionId){
+        if (!Strings.isNullOrEmpty(sessionId)) {
+            authSessions.invalidate(sessionId);
+//            authSessions.put(sessionId,null);
+        }
     }
 
     public void addSessionValue(String key, SessionValue value) {
@@ -62,3 +72,4 @@ public final class HttpAuthManager {
         return authSessions;
     }
 }
+

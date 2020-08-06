@@ -52,11 +52,8 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.Lists;
 
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -79,8 +76,6 @@ abstract public class DorisHttpTestCase {
             .build();
 
     public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-
-    private static HttpServer httpServer;
 
     public static final String CLUSTER_NAME = "default_cluster";
     public static final String DB_NAME = "testDb";
@@ -272,36 +267,6 @@ abstract public class DorisHttpTestCase {
         Catalog.getCurrentSystemInfo().addBackend(backend3);
     }
 
-    @BeforeClass
-    public static void initHttpServer() throws IllegalArgException, InterruptedException {
-        ServerSocket socket = null;
-        try {
-            socket = new ServerSocket(0);
-            socket.setReuseAddress(true);
-            HTTP_PORT = socket.getLocalPort();
-            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (Exception e) {
-                }
-            }
-        }
-
-        httpServer = new HttpServer(HTTP_PORT);
-        httpServer.setup();
-        httpServer.start();
-        // must ensure the http server started before any unit test
-        while (!httpServer.isStarted()) {
-            Thread.sleep(500);
-        }
-    }
-
-
-
     @Before
     public void setUp() {
         Catalog catalog = newDelegateCatalog();
@@ -335,11 +300,6 @@ abstract public class DorisHttpTestCase {
 
     @After
     public void tearDown() {
-    }
-
-    @AfterClass
-    public static void closeHttpServer() {
-        httpServer.shutDown();
     }
 
     public void doSetUp() {

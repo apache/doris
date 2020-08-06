@@ -18,30 +18,23 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 
-import io.netty.handler.codec.http.HttpMethod;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
-public class HealthAction extends RestBaseAction {
-    public HealthAction(ActionController controller) {
-        super(controller);
-    }
+import java.util.HashMap;
+import java.util.Map;
 
-    public static void registerAction (ActionController controller)
-            throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/health", new HealthAction(controller));
-    }
+@RestController
+public class HealthAction extends RestBaseController {
 
-    @Override
-    public void execute(BaseRequest request, BaseResponse response) {
-        response.setContentType("application/json");
-
-        RestResult result = new RestResult();
-        result.addResultEntry("total_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(false).size());
-        result.addResultEntry("online_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(true).size());
-        sendResult(request, response, result);
+    @RequestMapping(path = "/api/health", method = RequestMethod.GET)
+    public Object execute() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("total_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(false).size());
+        result.put("online_backend_num", Catalog.getCurrentSystemInfo().getBackendIds(true).size());
+        return ResponseEntityBuilder.ok(result);
     }
 }

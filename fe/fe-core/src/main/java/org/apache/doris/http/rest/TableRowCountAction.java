@@ -21,25 +21,21 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.BaseRequest;
-import org.apache.doris.http.BaseResponse;
-import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.http.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
-import org.codehaus.jackson.map.ObjectMapper;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * This class is responsible for fetch the approximate row count of the specified table from cluster-meta data,
@@ -49,46 +45,34 @@ import io.netty.handler.codec.http.HttpResponseStatus;
  * This API is not intended to compute the exact row count of the specified table, if you need the exact row count,
  * please consider using the sql syntax `select count(*) from {table}`
  */
-public class TableRowCountAction extends RestBaseAction {
-    public TableRowCountAction(ActionController controller) {
-        super(controller);
-    }
+@RestController
+public class TableRowCountAction extends RestBaseController {
 
-    public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET,
-                                   "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count",
-                                   new TableRowCountAction(controller));
-    }
-
-    @Override
-    protected void executeWithoutPassword(BaseRequest request, BaseResponse response)
-            throws DdlException {
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count", method = RequestMethod.GET)
+    public Object count(
+            @PathVariable(value = DB_KEY) final String dbName,
+            @PathVariable(value = TABLE_KEY) final String tblName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
-        String dbName = request.getSingleParameter(DB_KEY);
-        String tableName = request.getSingleParameter(TABLE_KEY);
         try {
-            if (Strings.isNullOrEmpty(dbName)
-                    || Strings.isNullOrEmpty(tableName)) {
-                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "{database}/{table} must be selected");
-            }
-            String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
+            String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
-                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
+                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
             db.writeLock();
             try {
-                Table table = db.getTable(tableName);
+                Table table = db.getTable(tblName);
                 if (table == null) {
-                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
                 }
                 // just only support OlapTable, ignore others such as ESTable
                 if (!(table instanceof OlapTable)) {
-                    // Forbidden
-                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
+                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] "
                             + "is not a OlapTable, only support OlapTable currently");
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -102,17 +86,7 @@ public class TableRowCountAction extends RestBaseAction {
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
         }
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            String result = mapper.writeValueAsString(resultMap);
-            // send result with extra information
-            response.setContentType("application/json");
-            response.getContent().append(result);
-            sendResult(request, response, HttpResponseStatus.valueOf(Integer.parseInt(String.valueOf(resultMap.get("status")))));
-        } catch (Exception e) {
-            // may be this never happen
-            response.getContent().append(e.getMessage());
-            sendResult(request, response, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-        }
+
+        return ResponseEntityBuilder.ok(resultMap);
     }
 }
