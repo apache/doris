@@ -20,8 +20,9 @@
 # This script is used to run unit test of Doris Backend
 # Usage: $0 <options>
 #  Optional options:
-#     --clean    clean and build ut
-#     --run      build and run ut
+#     --clean      clean and build ut
+#     --run        build and run all ut
+#     --run xx     build and run specified ut
 #
 # All BE tests must use "_test" as the file suffix, and use
 # ADD_BE_TEST() to declared in the corresponding CMakeLists.txt file.
@@ -46,13 +47,15 @@ usage() {
 Usage: $0 <options>
   Optional options:
      --clean    clean and build ut
-     --run      build and run ut
+     --run      build and run all ut
+     --run xx   build and run specified ut
 
   Eg.
     $0                          build ut
-    $0 --run                    build and run ut
+    $0 --run                    build and run all ut
+    $0 --run test               build and run "test" ut
     $0 --clean                  clean and build ut
-    $0 --clean --run            clean, build and run ut
+    $0 --clean --run            clean, build and run all ut
   "
   exit 1
 }
@@ -146,13 +149,23 @@ cp -r ${DORIS_HOME}/be/test/plugin/plugin_test ${DORIS_TEST_BINARY_DIR}/plugin/
 # find all executable test files
 test_files=`find ${DORIS_TEST_BINARY_DIR} -type f -perm -111 -name "*test"`
 
-# run all ut
-echo "=== Running All tests ==="
+# get specified ut file if set
+RUN_FILE=
+if [ $# == 1 ]; then
+    RUN_FILE=$1
+    echo "=== Run test: $RUN_FILE ==="
+else
+    # run all ut
+    echo "=== Running All tests ==="
+fi
+
 for test in ${test_files[@]}
 do
     file_name=${test##*/}
-    echo "=== Run $file_name ==="
-    $test --gtest_output=xml:${GTEST_OUTPUT_DIR}/${file_name}.xml
+    if [ -z $RUN_FILE ] || [ $file_name == $RUN_FILE ]; then
+        echo "=== Run $file_name ==="
+        $test --gtest_output=xml:${GTEST_OUTPUT_DIR}/${file_name}.xml
+    fi
 done
 
 echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
