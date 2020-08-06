@@ -405,6 +405,7 @@ module.exports = [
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
+              "alter-routine-load",
               "PAUSE ROUTINE LOAD",
               "RESTORE TABLET",
               "RESUME ROUTINE LOAD",

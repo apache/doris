@@ -97,9 +97,9 @@ else
         # eg:
         # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
         # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
-        ${MVN_CMD} test -D test=$1
+        ${MVN_CMD} test -DfailIfNoTests=false -D test=$1
     else    
         echo "Run Frontend UT"
-        ${MVN_CMD} test   
+        ${MVN_CMD} test -DfailIfNoTests=false 
     fi 
 fi
