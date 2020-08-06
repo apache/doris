@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 
@@ -105,6 +106,21 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
+
+    // modify the partition offset of this progess.
+    // throw exception is the specified partition does not exist in progress.
+    public void modifyOffset(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws DdlException {
+        for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+            if (!partitionIdToOffset.containsKey(pair.first)) {
+                throw new DdlException("The specified partition " + pair.first + " is not in the consumed partitions");
+            }
+        }
+
+        for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+            partitionIdToOffset.put(pair.first, pair.second);
+        }
+    }
+
     @Override
     public String toString() {
         Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
@@ -147,4 +163,5 @@ public class KafkaProgress extends RoutineLoadProgress {
             partitionIdToOffset.put(in.readInt(), in.readLong());
         }
     }
+
 }

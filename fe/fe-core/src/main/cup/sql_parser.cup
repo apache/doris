@@ -473,11 +473,13 @@ nonterminal Boolean opt_verbose;
 nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
+nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
 precedence nonassoc KW_COLUMNS;
 precedence nonassoc KW_WITH;
+
 precedence left KW_FULL, KW_MERGE;
 precedence left DOT;
 precedence left SET_VAR;
@@ -728,10 +730,25 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.REPLICA, String.valueOf(number));
     :}
-
     | KW_ALTER KW_DATABASE ident:dbName KW_RENAME ident:newDbName
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
+    :}
+    | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
+      opt_datasource_properties:datasourceProperties
+    {:
+        RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
+    :}
+    ;
+
+opt_datasource_properties ::=
+    // empty
+    {:
+        RESULT = new RoutineLoadDataSourceProperties();
+    :}
+    | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
+    {:
+        RESULT = new RoutineLoadDataSourceProperties(type, customProperties);
     :}
     ;
 
