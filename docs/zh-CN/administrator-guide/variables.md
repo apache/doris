@@ -233,7 +233,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `lower_case_table_names`
 
     用于兼容 MySQL 客户端。不可设置。当前 Doris 中的表名默认为大小写敏感。
-    
+
 * `max_allowed_packet`
 
     用于兼容 JDBC 连接池 C3P0。 无实际作用。
