@@ -22,7 +22,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -235,9 +234,6 @@ public class AggregationNode extends PlanNode {
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
         for (FunctionCallExpr e: aggInfo.getMaterializedAggregateExprs()) {
-            if(e.getChild(0) !=null && e.getChild(0).getChild(0)!=null && e.getChild(0).getChild(0).getType() == Type.FLOAT) {
-                e.getChild(0).getChild(0).setType(Type.DOUBLE);
-            }
             aggregateFunctions.add(e.treeToThrift());
         }
         msg.agg_node =

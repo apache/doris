@@ -807,6 +807,7 @@ public class SingleNodePlanner {
                 // if the new selected index id is different from the old one, scan node will be updated.
                 olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
                         bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+                selectStmt.getAggInfo().updateTypeOfAggregateExprs();
             }
 
         } else {

@@ -686,6 +686,36 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     /**
+     * Changing type of slot ref which is same as the type of slot desc.
+     * Putting this logic in here is helpless.
+     * If Doris could analyze mv column in the future, please move this logic before reanalyze.
+     * <p>
+     * - The parameters of the sum function may involve the columns of a materialized view.
+     * - The type of this column may happen to be inconsistent with the column type of the base table.
+     * - In order to ensure the correctness of the result,
+     *   the parameter type needs to be changed to the type of the materialized view column
+     *   to ensure the correctness of the result.
+     * - Currently only the sum function will involve this problem.
+     */
+    public void updateTypeOfAggregateExprs() {
+        for (FunctionCallExpr functionCallExpr : aggregateExprs_) {
+            if (!functionCallExpr.getFnName().getFunction().equalsIgnoreCase("sum")) {
+                break;
+            }
+            List<SlotRef> slots = new ArrayList<>();
+            functionCallExpr.collect(SlotRef.class, slots);
+            Preconditions.checkArgument(slots.size() == 1);
+            SlotRef slotRef = slots.get(0);
+            if (slotRef.getDesc() == null) {
+                return;
+            }
+            if (slotRef.getType() != slotRef.getDesc().getType()) {
+                slotRef.setType(slotRef.getDesc().getType());
+            }
+        }
+    }
+
+    /**
      * Mark slots required for this aggregation as materialized:
      * - all grouping output slots as well as grouping exprs
      * - for non-distinct aggregation: the aggregate exprs of materialized aggregate slots;
