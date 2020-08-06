@@ -134,7 +134,9 @@ private:
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
+
     int32_t _delete_sign_idx = -1;
+
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

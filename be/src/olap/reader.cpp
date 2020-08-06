@@ -92,7 +92,7 @@ private:
         }
 
         const RowCursor* current_row(bool* delete_flag) const {
-            *delete_flag = _is_delete;
+            *delete_flag = _is_delete || _current_row->is_delete();
             return _current_row;
         }
 
@@ -109,6 +109,9 @@ private:
             auto res = _refresh_current_row();
             *row = _current_row;
             *delete_flag = _is_delete;
+            if (_current_row!= nullptr) {
+                *delete_flag = _is_delete || _current_row->is_delete();
+            };
             return res;
         }
 
@@ -411,13 +414,13 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             *eof = true;
             return OLAP_SUCCESS;
         }
-
         cur_delete_flag = _next_delete_flag;
         // the verion is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
         agg_finalize_row(_value_cids, row_cursor, mem_pool);
+
         // skip the lower version rows;
         while (nullptr != _next_key) {
             auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
@@ -427,14 +430,15 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
                 }
                 break;
             }
-
+            
             // break while can NOT doing aggregation
             if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
                 break;
             }
             ++merged_count;
         }
-        if (!cur_delete_flag) {
+
+        if (!(cur_delete_flag && _filter_delete)) {
             break;
         }
         _stats.rows_del_filtered++;
@@ -1041,6 +1045,7 @@ OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
         _tablet->release_header_lock();
         return ret;
     } else {
+        _filter_delete = false;
         return OLAP_SUCCESS;
     }
 }

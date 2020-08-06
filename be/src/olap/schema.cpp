@@ -59,6 +59,9 @@ void Schema::_init(const std::vector<TabletColumn>& cols,
     size_t offset = 0;
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
+        if (cols[cid].is_delete_sign()) {
+            _delete_sign_idx = cid;
+        }
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
@@ -84,6 +87,9 @@ void Schema::_init(const std::vector<const Field*>& cols,
     size_t offset = 0;
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
+        if (cols[cid]->is_delete_sign()) {
+            _delete_sign_idx = cid;
+        }
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }

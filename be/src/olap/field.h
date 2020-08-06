@@ -257,6 +257,9 @@ public:
     Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
         return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
     }
+
+    inline bool is_delete_sign() const { return _is_delete_sign; }
+
 private:
     // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
     const TypeInfo* _type_info;
@@ -264,6 +267,7 @@ private:
     std::string _name;
     uint16_t _index_size;
     bool _is_nullable;
+    bool _is_delete_sign;
 
 protected:
     const AggregateInfo* _agg_info;
