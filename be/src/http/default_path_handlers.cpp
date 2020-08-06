@@ -29,6 +29,7 @@
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
+#include "http/action/tablets_info_action.h"
 
 namespace doris {
 
