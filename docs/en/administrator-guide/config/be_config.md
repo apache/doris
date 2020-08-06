@@ -437,6 +437,22 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `streaming_load_max_mb`
 
+* Type: int64
+* Description: Used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 10240
+* Dynamically modify: yes
+
+Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
+
+### `streaming_load_max_batch_size_mb`
+
+* Type: int64
+* Description: For some data formats, such as JSON, it is used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 100
+* Dynamically modify: yes
+
+Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
+
 ### `streaming_load_rpc_max_alive_time_sec`
 
 ### `sync_tablet_meta`

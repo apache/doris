@@ -183,6 +183,124 @@ Doris supports extracting the data specified in Json through Json Path.
     
     Will result in a complete match failure, the line will be marked as an error row, instead of producing `null, null`.
 
+## Json Path and Columns
+
+Json Path is used to specify how to extract data in JSON format, and Columns specify the mapping and conversion relationship of columns. The two can be used together, for example as follows.
+
+Data content:
+
+```
+{"k1": 1, "k2": 2}
+```
+
+Table schema:
+
+`k2 int, k1 int`
+
+Load statement 1 (take Stream Load as an example):
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -T example.json http:/ /127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+In Load statement 1, only Json Path is specified, and Columns are not specified. The role of Json Path is to extract the Json data in the order of the fields in the Json Path, and then write it in the order of the table schema. The final loaded data results are as follows:
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    2 |    1 |
++------+------+
+```
+
+You will see that the actual k1 column has loaded the value of the "k2" column in the Json data. This is because the field name in Json is not equivalent to the field name in the table schema. We need to explicitly specify the mapping relationship between the two.
+
+Load statement 2:
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -H "columns: k2, k1 "-T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+Compared to load statement 1, here is the Columns field, which is used to describe the mapping relationship of columns, in the order of `k2, k1`. That is, after extracting in the order of the fields in the Json Path, specify the first column as the value of the k2 column in the table, and the second column as the value of the k1 column in the table. The final loaded data results are as follows:
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    2 |
++------+------+
+```
+
+Of course, like other load methods, you can perform column conversion operations in Columns. Examples are as follows:
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\"]" -H "columns: k2, tmp_k1 , k1 = tmp_k1 * 100" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+The above example will multiply the value of k1 by 100 and import it. The final imported data results are as follows:
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|  100 |    2 |
++------+------+
+```
+
+## NULL and Default value
+
+The sample data is as follows:
+
+```
+[
+    {"k1": 1, "k2": "a"},
+    {"k1": 2},
+    {"k1": 3, "k2": "c"},
+]
+```
+
+The table schema is: `k1 int null, k2 varchar(32) null default "x"`
+
+The load statement is as follows:
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+The import results that users may expect are as follows, that is, for missing columns, fill in default values.
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    a |
++------+------+
+|    2 |    x |
++------+------+
+|    3 |    c |
++------+------+
+```
+
+But the actual load result is as follows, that is, for missing columns, NULL is added.
+
+```
++------+------+
+| k1   | k2   |
++------+------+
+|    1 |    a |
++------+------+
+|    2 | NULL |
++------+------+
+|    3 |    c |
++------+------+
+```
+
+This is because through the information in the load statement, Doris does not know that "the missing column is the k2 column in the table".
+If you want to load the above data as expected, the load statement is as follows:
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -H "jsonpaths: [\"$.k1\", \"$.k2\"]"- H "columns: k1, tmp_k2, k2 = ifnull(tmp_k2,'x')" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
 
 ## Examples
 

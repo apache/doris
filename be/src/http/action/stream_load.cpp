@@ -218,7 +218,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             LOG(WARNING) << "body exceed max size." << ctx->brief();
 
             std::stringstream ss;
-            ss << "body exceed max size, max_body_bytes=" << max_body_bytes;
+            ss << "body exceed max size: " << max_body_bytes << ", limit: " << max_body_bytes;
             return Status::InternalError(ss.str());
         }
     } else {
@@ -234,10 +234,19 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     } else {
         ctx->format = parse_format(http_req->header(HTTP_FORMAT_KEY));
         if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-            LOG(WARNING) << "unknown data format." << ctx->brief();
             std::stringstream ss;
             ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
             return Status::InternalError(ss.str());
+        }
+
+        if (ctx->format == TFileFormatType::FORMAT_JSON) {
+            size_t max_body_bytes = config::streaming_load_max_batch_size_mb * 1024 * 1024;
+            if (ctx->body_bytes > max_body_bytes) {
+                std::stringstream ss;
+                ss << "The size of this batch exceed the max size [" << max_body_bytes
+                   << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
+                return Status::InternalError(ss.str());
+            }
         }
     }
 
@@ -312,7 +321,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.formatType = ctx->format;
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<StreamLoadPipe>();
+        auto pipe = std::make_shared<StreamLoadPipe>(
+                1024 * 1024 /* max_buffered_bytes */,
+                64 * 1024 /* min_chunk_size */,
+                ctx->body_bytes /* total_length */);
         RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe));
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
