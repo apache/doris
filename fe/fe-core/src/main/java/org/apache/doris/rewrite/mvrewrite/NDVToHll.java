@@ -36,13 +36,14 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 /**
- * For duplicate table, the ndv(k1) could be rewritten to hll_union_agg(mv_hll_union_k1) when bitmap
+ * For duplicate table, the ndv(k1) could be rewritten to hll_union_agg(mv_hll_union_k1) when hll
  * mv exists.
  * For example:
  * Table: (k1 int, k2 int)
  * MV: (k1 int, mv_hll_union_k2 hll hll_union)
  * mv_hll_union_k2 = hll_hash(k2)
- * Query: select k1, count(distinct k2) from table group by k1
+ * Query: select k1, ndv(k2) from table group by k1
+ *    or  select k1, approx_count_distinct(k2) from table group by k1
  * Rewritten query: select k1, hll_union_agg(mv_hll_union_k2) from table group by k1
  */
 public class NDVToHll implements ExprRewriteRule{
@@ -55,7 +56,8 @@ public class NDVToHll implements ExprRewriteRule{
             return expr;
         }
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
-        if (!fnExpr.getFnName().getFunction().equalsIgnoreCase("ndv")) {
+        if (!fnExpr.getFnName().getFunction().equalsIgnoreCase("ndv")
+                && !fnExpr.getFnName().getFunction().equalsIgnoreCase("approx_count_distinct")) {
             return expr;
         }
         if (fnExpr.getChildren().size() != 1 || !(fnExpr.getChild(0) instanceof SlotRef)) {
