@@ -116,25 +116,26 @@ We generate a sparse index of short key every N rows (configurable) with the con
 The format design supports the subsequent expansion of other index information, such as bitmap index, spatial index, etc. It only needs to write the required data to the existing column data, and add the corresponding metadata fields to FileFooterPB.
 
 ### Metadata Definition ###
-FileFooterPB is defined as:
+SegmentFooterPB is defined as:
 
 ```
 message ColumnPB {
-    optional uint32 column_id = 1; // The column id is used here, and the column name is not used because the plan supports modifying the column name
-    optional string type = 2; // Column type
-    optional string aggregation = 3; // Whether to aggregate
-    optional uint32 length = 4; // Length of column
-    optional bool is_key = 5; // Whether column is a primary key column
-    optional string default_value = 6; // Defalut value
-    optional uint32 precision = 9 [default = 27]; // Precision of column
-    optional uint32 frac = 10 [default = 9];
-    optional bool is_nullable = 11 [default=false]; // Whether column is allowed to assgin null
-    optional bool is_bf_column = 15 [default=false]; // Whether column has bloom filter index
-	  optional bool is_bitmap_column = 16 [default=false]; // Whether column has bitmap index
-    optional bool is_delete_sign = 17 [default=false]; // Whether column is hidden delete column
+    required int32 unique_id = 1;   // The column id is used here, and the column name is not used
+    optional string name = 2;   // Column name,  when name equals__DORIS_DELETE_SIGN__, this column is a hidden delete column
+    required string type = 3;   // Column type
+    optional bool is_key = 4;   // Whether column is a primary key column
+    optional string aggregation = 5;    // Aggregate type
+    optional bool is_nullable = 6;      // Whether column is allowed to assgin null
+    optional bytes default_value = 7;   // Defalut value
+    optional int32 precision = 8;       // Precision of column
+    optional int32 frac = 9;
+    optional int32 length = 10;         // Length of column
+    optional int32 index_length = 11;   // Length of column index
+    optional bool is_bf_column = 12;    // Whether column has bloom filter index
+    optional bool has_bitmap_index = 15 [default=false];  // Whether column has bitmap index
 }
 
-// page偏移
+// page offset
 message PagePointerPB {
 	required uint64 offset; // offset of page in segment file
 	required uint32 length; // length of page
