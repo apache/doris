@@ -700,16 +700,16 @@ public final class AggregateInfo extends AggregateInfoBase {
     public void updateTypeOfAggregateExprs() {
         for (FunctionCallExpr functionCallExpr : aggregateExprs_) {
             if (!functionCallExpr.getFnName().getFunction().equalsIgnoreCase("sum")) {
-                break;
+                continue;
             }
             List<SlotRef> slots = new ArrayList<>();
             functionCallExpr.collect(SlotRef.class, slots);
             if (slots.size() != 1) {
-                return;
+                continue;
             }
             SlotRef slotRef = slots.get(0);
             if (slotRef.getDesc() == null) {
-                return;
+                continue;
             }
             if (slotRef.getType() != slotRef.getDesc().getType()) {
                 slotRef.setType(slotRef.getDesc().getType());

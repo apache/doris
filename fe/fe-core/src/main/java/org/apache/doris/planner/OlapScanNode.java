@@ -250,6 +250,9 @@ public class OlapScanNode extends ScanNode {
         }
         MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(selectedIndexId);
         for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
             Column baseColumn = slotDescriptor.getColumn();
             Preconditions.checkNotNull(baseColumn);
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
