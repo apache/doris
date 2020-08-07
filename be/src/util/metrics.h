@@ -282,7 +282,7 @@ struct MetricPrototypeEqualTo {
     }
 };
 
-using MetricByType = std::unordered_map<const MetricPrototype*, Metric*, MetricPrototypeHash, MetricPrototypeEqualTo>;
+using MetricMap = std::unordered_map<const MetricPrototype*, Metric*, MetricPrototypeHash, MetricPrototypeEqualTo>;
 
 class MetricEntity {
 public:
@@ -305,7 +305,7 @@ private:
     Labels _labels;
 
     mutable SpinLock _lock;
-    MetricByType _metrics;
+    MetricMap _metrics;
     std::map<std::string, std::function<void()>> _hooks;
 };
 
