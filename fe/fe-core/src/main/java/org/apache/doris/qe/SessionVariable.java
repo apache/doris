@@ -37,7 +37,7 @@ import java.lang.reflect.Field;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
-    
+
     static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
@@ -67,7 +67,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String CODEGEN_LEVEL = "codegen_level";
     // mem limit can't smaller than bufferpool's default page size
-    public static final int MIN_EXEC_MEM_LIMIT = 2097152;   
+    public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
@@ -75,9 +75,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
-    
+
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
+    public static final String ENABLE_RESULT_CACHE = "enable_result_cache";
 
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
@@ -86,7 +87,7 @@ public class SessionVariable implements Serializable, Writable {
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     /*
-     * configure the mem limit of load process on BE. 
+     * configure the mem limit of load process on BE.
      * Previously users used exec_mem_limit to set memory limits.
      * To maintain compatibility, the default value of load_mem_limit is 0,
      * which means that the load memory limit is still using exec_mem_limit.
@@ -232,6 +233,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
     private boolean enablePartitionCache = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_RESULT_CACHE)
+    private boolean enableResultCache = false;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     private boolean forwardToMaster = false;
@@ -411,9 +415,13 @@ public class SessionVariable implements Serializable, Writable {
         return disableColocateJoin;
     }
 
-    public String getPreferJoinMethod() {return preferJoinMethod; }
+    public String getPreferJoinMethod() {
+        return preferJoinMethod;
+    }
 
-    public void setPreferJoinMethod(String preferJoinMethod) {this.preferJoinMethod = preferJoinMethod; }
+    public void setPreferJoinMethod(String preferJoinMethod) {
+        this.preferJoinMethod = preferJoinMethod;
+    }
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
@@ -423,7 +431,9 @@ public class SessionVariable implements Serializable, Writable {
         return exchangeInstanceParallel;
     }
 
-    public boolean getEnableInsertStrict() { return enableInsertStrict; }
+    public boolean getEnableInsertStrict() {
+        return enableInsertStrict;
+    }
 
     public void setEnableInsertStrict(boolean enableInsertStrict) {
         this.enableInsertStrict = enableInsertStrict;
@@ -444,13 +454,33 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnablePartitionCache(boolean enablePartitionCache) {
         this.enablePartitionCache = enablePartitionCache;
     }
-    
+
+    /**
+     * Check if the result cache is enabled for this session. True by default.
+     *
+     * @return True for cached-enabled, otherwise false.
+     */
+    public boolean isEnableResultCache() {
+        return enableResultCache;
+    }
+
+    /**
+     * Turn on/off result cache for this session.
+     *
+     * @param resultCacheEnabledInSession
+     */
+    public void setEnableResultCache(boolean resultCacheEnabledInSession) {
+        this.enableResultCache = resultCacheEnabledInSession;
+    }
+
     // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
     }
 
-    public boolean isUseV2Rollup() { return useV2Rollup; }
+    public boolean isUseV2Rollup() {
+        return useV2Rollup;
+    }
 
     // for unit test
     public void setUseV2Rollup(boolean useV2Rollup) {
@@ -622,6 +652,9 @@ public class SessionVariable implements Serializable, Writable {
             }
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
                 exchangeInstanceParallel = in.readInt();
+            }
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_90) {
+                enableResultCache = in.readBoolean();
             }
         } else {
             readFromJson(in);

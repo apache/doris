@@ -1208,4 +1208,22 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_allowed_in_element_num_of_delete = 1024;
 
+    /**
+     * Whether or not the result cache is enabled in Fe level, it can be overwritten with connection/session
+     * level setting in Context.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_result_cache = false;
+
+    /**
+     * Specify how long an entry will be expired in milliseconds, 10000 by default.
+     */
+    @ConfField(mutable = true)
+    public static long result_cache_expire_after_in_milliseconds = 10*1000;
+
+    /**
+     * Specify the overall threshold of local cache in bytes, 1G bytes by default.
+     */
+    @ConfField(mutable = true)
+    public static long result_cache_size_in_bytes = 1024 * 1024 * 1024;
 }

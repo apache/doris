@@ -17,6 +17,7 @@
 
 package org.apache.doris;
 
+import org.apache.doris.cache.CacheFactory;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
@@ -91,7 +92,7 @@ public class PaloFe {
             Log4jConfig.initLogging();
 
             // set dns cache ttl
-            java.security.Security.setProperty("networkaddress.cache.ttl" , "60");
+            java.security.Security.setProperty("networkaddress.cache.ttl", "60");
 
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
@@ -104,6 +105,11 @@ public class PaloFe {
             // init catalog and wait it be ready
             Catalog.getCurrentCatalog().initialize(args);
             Catalog.getCurrentCatalog().waitForReady();
+            // Initialize the result cache if enabled
+            LOG.debug("result cache is " + (Config.enable_result_cache ? "enabled" : "disabled"));
+            if (Config.enable_result_cache) {
+                CacheFactory.getUniversalCache();
+            }
 
             // init and start:
             // 1. QeService for MySQL Server
@@ -141,12 +147,12 @@ public class PaloFe {
      *      Specify the helper node when joining a bdb je replication group
      * -b --bdb
      *      Run bdbje debug tools
-     *      
+     *
      *      -l --listdb
      *          List all database names in bdbje
      *      -d --db
      *          Specify a database in bdbje
-     *          
+     *
      *          -s --stat
      *              Print statistic of a database, including count, first key, last key
      *          -f --from
@@ -155,7 +161,7 @@ public class PaloFe {
      *              Specify the end scan key
      *          -m --metaversion
      *              Specify the meta version to decode log value
-     *              
+     *
      */
     private static CommandLineOptions parseArgs(String[] args) {
         CommandLineParser commandLineParser = new BasicParser();
@@ -194,7 +200,7 @@ public class PaloFe {
                     System.err.println("BDBJE database name is missing");
                     System.exit(-1);
                 }
-                
+
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
                     return new CommandLineOptions(false, "", bdbOpts);
@@ -224,7 +230,7 @@ public class PaloFe {
                             System.exit(-1);
                         }
                     }
-                    
+
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
                     return new CommandLineOptions(false, "", bdbOpts);
                 }

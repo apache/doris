@@ -15,44 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
+package org.apache.doris.cache;
 
-import org.apache.doris.proto.PQueryStatistics;
-import org.apache.doris.thrift.TResultBatch;
+import java.io.IOException;
+import java.util.Map;
 
-import java.io.Serializable;
-
-public final class RowBatch implements Serializable {
-    private TResultBatch batch;
-    //transient for cache
-    private transient PQueryStatistics statistics;
-    private boolean eos;
-
-    public RowBatch() {
-        eos = true;
+/**
+ * TODO Felix: implement a global one with JimDB
+ */
+public class GlobalCache implements Cache {
+    @Override
+    public byte[] get(NamedKey key) {
+        return new byte[0];
     }
 
-    public TResultBatch getBatch() {
-        return batch;
+    @Override
+    public void put(NamedKey key, byte[] value) {
+
     }
 
-    public void setBatch(TResultBatch batch) {
-        this.batch = batch;
+    @Override
+    public Map<NamedKey, byte[]> getBulk(Iterable<NamedKey> keys) {
+        return null;
     }
 
-    public PQueryStatistics getQueryStatistics() {
-        return statistics;
+    @Override
+    public CacheStats getStats() {
+        return null;
     }
 
-    public void setQueryStatistics(PQueryStatistics statistics) {
-        this.statistics = statistics;
+    @Override
+    public boolean isLocal() {
+        return false;
     }
 
-    public boolean isEos() {
-        return eos;
-    }
+    @Override
+    public void close() throws IOException {
 
-    public void setEos(boolean eos) {
-        this.eos = eos;
     }
 }

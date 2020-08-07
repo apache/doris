@@ -17,6 +17,9 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.cache.CacheFactory;
+import org.apache.doris.cache.CacheStats;
+
 import java.util.List;
 import java.util.TimerTask;
 
@@ -29,6 +32,7 @@ public class MetricCalculator extends TimerTask {
     private long lastQueryCounter = -1;
     private long lastRequestCounter = -1;
     private long lastQueryErrCounter = -1;
+    private CacheStats priorStats = null;
 
     @Override
     public void run() {
@@ -65,6 +69,28 @@ public class MetricCalculator extends TimerTask {
         MetricRepo.GAUGE_QUERY_ERR_RATE.setValue(errRate < 0 ? 0.0 : errRate);
         lastQueryErrCounter = currentErrCounter;
 
+        // Cache stats
+        if (priorStats == null) {
+            priorStats = CacheFactory.getUniversalCache().getStats();
+            MetricRepo.COUNTER_RESULT_CACHE_ERRORS.increase(priorStats.getNumErrors());
+            MetricRepo.COUNTER_RESULT_CACHE_TIMEOUTS.increase(priorStats.getNumTimeouts());
+            MetricRepo.COUNTER_RESULT_CACHE_EVICTIONS.increase(priorStats.getNumEvictions());
+            MetricRepo.GAUGE_RESULT_CACHE_SIZE_IN_BYTES.setValue(priorStats.getSizeInBytes());
+            MetricRepo.GAUGE_RESULT_CACHE_ENTRIES.setValue(priorStats.getNumEntries());
+            MetricRepo.COUNTER_RESULT_CACHE_MISSES.increase(priorStats.getNumMisses());
+            MetricRepo.COUNTER_RESULT_CACHE_HITS.increase(priorStats.getNumHits());
+        } else {
+            CacheStats currentStats = CacheFactory.getUniversalCache().getStats();
+            MetricRepo.COUNTER_RESULT_CACHE_ERRORS.increase(deltaCounter(priorStats.getNumErrors(), currentStats.getNumErrors()));
+            MetricRepo.COUNTER_RESULT_CACHE_TIMEOUTS.increase(deltaCounter(priorStats.getNumTimeouts(), currentStats.getNumTimeouts()));
+            MetricRepo.COUNTER_RESULT_CACHE_EVICTIONS.increase(deltaCounter(priorStats.getNumEvictions(), currentStats.getNumEvictions()));
+            MetricRepo.GAUGE_RESULT_CACHE_SIZE_IN_BYTES.setValue(currentStats.getSizeInBytes());
+            MetricRepo.GAUGE_RESULT_CACHE_ENTRIES.setValue(currentStats.getNumEntries());
+            MetricRepo.COUNTER_RESULT_CACHE_MISSES.increase(deltaCounter(priorStats.getNumMisses(), currentStats.getNumMisses()));
+            MetricRepo.COUNTER_RESULT_CACHE_HITS.increase(deltaCounter(priorStats.getNumHits(), currentStats.getNumHits()));
+            priorStats = currentStats;
+        }
+
         lastTs = currentTs;
 
         // max tabet compaction score of all backends
@@ -76,5 +102,16 @@ public class MetricCalculator extends TimerTask {
             }
         }
         MetricRepo.GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(maxCompactionScore);
+    }
+
+    /**
+     * compute delta value for counter metrics
+     *
+     * @param prior
+     * @param curent
+     * @return
+     */
+    private static long deltaCounter(long prior, long curent) {
+        return Math.max(0L, curent - prior);
     }
 }

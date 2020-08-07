@@ -36,6 +36,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.cache.Cache;
+import org.apache.doris.cache.CacheFactory;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -55,6 +57,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.util.StringUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
@@ -81,16 +84,21 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.commons.lang.SerializationUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static org.apache.doris.cache.Cache.NamedKey;
 
 // Do one COM_QEURY process.
 // first: Parse receive byte array to statement struct.
@@ -114,6 +122,7 @@ public class StmtExecutor {
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
     private PQueryStatistics statisticsForAuditLog;
+    private boolean isCached;
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
@@ -155,6 +164,8 @@ public class StmtExecutor {
         summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
+        // Add additional information to query profile summary
+        summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
         profile.addChild(summaryProfile);
         if (coord != null) {
             coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTimeInNanoSecond));
@@ -242,10 +253,9 @@ public class StmtExecutor {
             if (parsedStmt instanceof QueryStmt) {
                 context.getState().setIsQuery(true);
                 int retryTime = Config.max_query_retry_time;
-                for (int i = 0; i < retryTime; i ++) {
+                for (int i = 0; i < retryTime; i++) {
                     try {
-                        handleQueryStmt();
-                        if (context.getSessionVariable().isReportSucc()) {
+                        if (!handleQueryStmt() && context.getSessionVariable().isReportSucc()) {
                             writeProfile(beginTimeInNanoSecond);
                         }
                         break;
@@ -388,7 +398,7 @@ public class StmtExecutor {
                 LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
                         originStmt, context.getStmtId(), syntaxError, e);
                 if (syntaxError == null) {
-                    throw  e;
+                    throw e;
                 } else {
                     throw new AnalysisException(syntaxError, e);
                 }
@@ -407,7 +417,7 @@ public class StmtExecutor {
         if (isForwardToMaster()) {
             return;
         }
-        
+
         analyzer = new Analyzer(context.getCatalog(), context);
         // Convert show statement to select statement here
         if (parsedStmt instanceof ShowStmt) {
@@ -487,7 +497,7 @@ public class StmtExecutor {
                 // types and column labels to restore them after the rewritten stmt has been
                 // reset() and re-analyzed.
                 List<Type> origResultTypes = Lists.newArrayList();
-                for (Expr e: parsedStmt.getResultExprs()) {
+                for (Expr e : parsedStmt.getResultExprs()) {
                     origResultTypes.add(e.getType());
                 }
                 List<String> origColLabels =
@@ -552,7 +562,7 @@ public class StmtExecutor {
             // Only user itself and user with admin priv can kill connection
             if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
                     && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                              PrivPredicate.ADMIN)) {
+                    PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
 
@@ -576,31 +586,55 @@ public class StmtExecutor {
     }
 
     // Process a select statement.
-    private void handleQueryStmt() throws Exception {
+    private boolean handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
+        // Use connection ID as session identifier
+        NamedKey namedKey = new NamedKey(String.valueOf(context.getConnectionId()),
+                StringUtils.toUtf8(queryStmt.toSql()));
+        LOG.debug("Result Cache NamedKey [" + namedKey + "]");
+
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
-                                                  DebugUtil.printId(context.queryId()),
-                                                  context.getStartTime(), -1, -1,
-                                                  QueryDetail.QueryMemState.RUNNING,
-                                                  context.getDatabase(),
-                                                  originStmt.originStmt);
+                DebugUtil.printId(context.queryId()),
+                context.getStartTime(), -1, -1,
+                QueryDetail.QueryMemState.RUNNING,
+                context.getDatabase(),
+                originStmt.originStmt);
         context.setQueryDetail(queryDetail);
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.isVerbose() ? TExplainLevel.VERBOSE: TExplainLevel.NORMAL.NORMAL);
+            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.isVerbose() ? TExplainLevel.VERBOSE : TExplainLevel.NORMAL.NORMAL);
             handleExplainStmt(explainString);
-            return;
+            return false;
         }
         coord = new Coordinator(context, analyzer, planner);
 
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), 
+        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
 
-        coord.exec();
+        boolean isCacheEnabled = context.getSessionVariable().isEnableResultCache();
+        LOG.debug("Session level cache is " + (isCacheEnabled ? "enabled" : false));
+        Cache cache = null;
+        byte[] cachedVal = null;
+        ArrayList<RowBatch> batches = null;
+        if (isCacheEnabled) {
+            cache = CacheFactory.getUniversalCache();
+            cachedVal = cache.get(namedKey);
+        }
+
+        isCached = (cachedVal != null);
+        if (isCached) {
+            batches = (ArrayList<RowBatch>) SerializationUtils.deserialize(cachedVal);
+        } else {
+            coord.exec();
+            if (isCacheEnabled) {
+                // List is not serializable but ArrayList is.
+                batches = new ArrayList<>();
+            }
+        }
 
         // if python's MysqlDb get error after sendfields, it can't catch the exception
         // so We need to send fields after first batch arrived
@@ -619,18 +653,37 @@ public class StmtExecutor {
         if (!isOutfileQuery) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
+        Iterator<RowBatch> itr = (isCached) ? batches.iterator() : null;
+        if (isCached && itr == null) {
+            isCached = false;
+            LOG.info("do not get batches from SerializationUtils");
+        }
         while (true) {
-            batch = coord.getNext();
+            if (isCached) {
+                //  Theoretically, the batch must have next before gets into eof.
+                //  Otherwise, it is corrupted result.
+                batch = itr.next();
+            } else {
+                batch = coord.getNext();
+                if (isCacheEnabled) {
+                    batches.add(batch);
+                }
+            }
             // for outfile query, there will be only one empty batch send back with eos flag
             if (batch.getBatch() != null && !isOutfileQuery) {
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
-                }            
-                context.updateReturnRows(batch.getBatch().getRows().size());    
+                }
+                context.updateReturnRows(batch.getBatch().getRows().size());
             }
             if (batch.isEos()) {
                 break;
             }
+        }
+        if (cachedVal == null && isCacheEnabled) {
+            cachedVal = SerializationUtils.serialize(batches);
+            cache.put(namedKey, cachedVal);
+            LOG.debug("Put into cache with named key: " + namedKey);
         }
 
         statisticsForAuditLog = batch.getQueryStatistics();
@@ -639,6 +692,7 @@ public class StmtExecutor {
         } else {
             context.getState().setOk(statisticsForAuditLog.returned_rows, 0, "");
         }
+        return isCached;
     }
 
     // Process a select statement.
@@ -882,6 +936,7 @@ public class StmtExecutor {
 
         context.getState().setEof();
     }
+
     // Process show statement
     private void handleShow() throws IOException, AnalysisException, DdlException {
         ShowExecutor executor = new ShowExecutor(context, (ShowStmt) parsedStmt);

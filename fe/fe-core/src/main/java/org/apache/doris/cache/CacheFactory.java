@@ -15,32 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.metric;
+package org.apache.doris.cache;
 
-/*
- * Gauge metric is updated every time it is visited
- */
-public class GaugeMetric<T> extends Metric<T> {
+public class CacheFactory {
+    private static volatile Cache universalCache;
+
     /**
-     * Construct an instance with specified name and description
+     * Initialize the result cache.
      *
-     * @param name
-     * @param description
      * @return
      */
-    public GaugeMetric(String name, MetricUnit unit, String description) {
-        super(name, MetricType.GAUGE, unit, description);
+    public static Cache getUniversalCache() {
+        if (universalCache == null) {
+            synchronized (CacheFactory.class) {
+                if (universalCache == null) {
+                    // Now just use the simple local cache.
+                    // TODO Felix: add global/central cache or hybrid cache (l1/l2)
+                    universalCache = SimpleLocalCache.create();
+                }
+            }
+        }
+        return universalCache;
     }
 
-    private T value;
-
-    public void setValue(T v) {
-        this.value = v;
-    }
-
-    @Override
-    public T getValue() {
-        return value;
-    }
 }
-

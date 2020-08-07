@@ -15,32 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.metric;
+package org.apache.doris.common.util;
 
-/*
- * Gauge metric is updated every time it is visited
+import com.google.common.base.Preconditions;
+
+import java.nio.charset.StandardCharsets;
+
+/**
+ * Common String utilities for Doris
  */
-public class GaugeMetric<T> extends Metric<T> {
+public class StringUtils {
     /**
-     * Construct an instance with specified name and description
-     *
-     * @param name
-     * @param description
+     * Get UTF 8 bytes from input string
+     * @param str
      * @return
      */
-    public GaugeMetric(String name, MetricUnit unit, String description) {
-        super(name, MetricType.GAUGE, unit, description);
-    }
-
-    private T value;
-
-    public void setValue(T v) {
-        this.value = v;
-    }
-
-    @Override
-    public T getValue() {
-        return value;
+    public static byte[] toUtf8(String str){
+        Preconditions.checkNotNull(str, "Input String for UTF8 conversion is null!");
+        return str.getBytes(StandardCharsets.UTF_8);
     }
 }
-

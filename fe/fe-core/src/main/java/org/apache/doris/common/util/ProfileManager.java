@@ -37,13 +37,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
 /*
- * if you want to visit the atrribute(such as queryID,defaultDb) 
+ * if you want to visit the atrribute(such as queryID,defaultDb)
  * you can use profile.getInfoStrings("queryId")
  * All attributes can be seen from the above.
- * 
+ *
  * why the element in the finished profile arary is not RuntimeProfile,
- * the purpose is let coordinator can destruct earlier(the fragment profile is in Coordinator) 
- * 
+ * the purpose is let coordinator can destruct earlier(the fragment profile is in Coordinator)
+ *
  */
 public class ProfileManager {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
@@ -59,39 +59,40 @@ public class ProfileManager {
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String USER = "User";
     public static final String DEFAULT_DB = "Default Db";
-    
+    public static final String IS_CACHED = "IS Cached";
+
     public static final ArrayList<String> PROFILE_HEADERS = new ArrayList(
             Arrays.asList(QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
-                    START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE));
-    
+                    START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, IS_CACHED));
+
     private class ProfileElement {
-        public Map<String, String> infoStrings = Maps.newHashMap();  
+        public Map<String, String> infoStrings = Maps.newHashMap();
         public String profileContent;
     }
-    
+
     // only protect profileDeque; profileMap is concurrent, no need to protect
-    private ReentrantReadWriteLock lock; 
+    private ReentrantReadWriteLock lock;
     private ReadLock readLock;
     private WriteLock writeLock;
 
     private Deque<ProfileElement> profileDeque;
     private Map<String, ProfileElement> profileMap; // from QueryId to RuntimeProfile
-    
+
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
             INSTANCE = new ProfileManager();
         }
         return INSTANCE;
     }
-    
+
     private ProfileManager() {
-        lock = new ReentrantReadWriteLock(true); 
+        lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
         writeLock = lock.writeLock();
         profileDeque = new LinkedList<ProfileElement>();
         profileMap = new ConcurrentHashMap<String, ProfileElement>();
     }
-    
+
     public ProfileElement createElement(RuntimeProfile profile) {
         ProfileElement element = new ProfileElement();
         RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
@@ -101,12 +102,12 @@ public class ProfileManager {
         element.profileContent = profile.toString();
         return element;
     }
-    
+
     public void pushProfile(RuntimeProfile profile) {
         if (profile == null) {
             return;
         }
-        
+
         ProfileElement element = createElement(profile);
         String queryId = element.infoStrings.get(ProfileManager.QUERY_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
@@ -115,10 +116,10 @@ public class ProfileManager {
             LOG.warn("the key or value of Map is null, "
                     + "may be forget to insert 'QUERY_ID' column into infoStrings");
         }
-        
+
         profileMap.put(queryId, element);
         writeLock.lock();
-        try { 
+        try {
             if (profileDeque.size() >= ARRAY_SIZE) {
                 profileMap.remove(profileDeque.getFirst().infoStrings.get(QUERY_ID));
                 profileDeque.removeFirst();
@@ -128,7 +129,7 @@ public class ProfileManager {
             writeLock.unlock();
         }
     }
-    
+
     public List<List<String>> getAllQueries() {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
@@ -137,9 +138,9 @@ public class ProfileManager {
             while (reverse.hasNext()) {
                 ProfileElement element = (ProfileElement) reverse.next();
                 Map<String, String> infoStrings = element.infoStrings;
-                
+
                 List<String> row = Lists.newArrayList();
-                for (String str : PROFILE_HEADERS ) {
+                for (String str : PROFILE_HEADERS) {
                     row.add(infoStrings.get(str));
                 }
                 result.add(row);
@@ -149,7 +150,7 @@ public class ProfileManager {
         }
         return result;
     }
-    
+
     public String getProfile(String queryID) {
         readLock.lock();
         try {
@@ -157,7 +158,7 @@ public class ProfileManager {
             if (element == null) {
                 return null;
             }
-            
+
             return element.profileContent;
         } finally {
             readLock.unlock();

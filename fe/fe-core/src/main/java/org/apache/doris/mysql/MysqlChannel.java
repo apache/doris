@@ -248,6 +248,7 @@ public class MysqlChannel {
     public void sendOnePacket(ByteBuffer packet) throws IOException {
         int bufLen;
         int oldLimit = packet.limit();
+        packet.mark();
         while (oldLimit - packet.position() >= MAX_PHYSICAL_PACKET_LENGTH) {
             bufLen = MAX_PHYSICAL_PACKET_LENGTH;
             packet.limit(packet.position() + bufLen);
@@ -259,6 +260,8 @@ public class MysqlChannel {
         packet.limit(oldLimit);
         writeBuffer(packet);
         accSequenceId();
+        //Restore to state before read,as we may cache it for future use.
+        packet.reset();
     }
 
     public void sendAndFlush(ByteBuffer packet) throws IOException {
