@@ -121,7 +121,7 @@ SegmentFooterPB is defined as:
 ```
 message ColumnPB {
     required int32 unique_id = 1;   // The column id is used here, and the column name is not used
-    optional string name = 2;   // Column name,  when name equals__DORIS_DELETE_SIGN__, this column is a hidden delete column
+    optional string name = 2;   // Column name,  when name equals __DORIS_DELETE_SIGN__, this column is a hidden delete column
     required string type = 3;   // Column type
     optional bool is_key = 4;   // Whether column is a primary key column
     optional string aggregation = 5;    // Aggregate type
