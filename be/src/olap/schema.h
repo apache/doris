@@ -131,7 +131,7 @@ public:
     size_t num_columns() const { return _cols.size(); }
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
-    inline int32_t delete_sign_idx() const { return _delete_sign_idx; }
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
 
 private:
     void _init(const std::vector<TabletColumn>& cols,
@@ -156,7 +156,6 @@ private:
     size_t _num_key_columns;
     size_t _schema_size;
     int32_t _delete_sign_idx = -1;
-
 };
 
 } // namespace doris

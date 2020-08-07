@@ -438,6 +438,8 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             ++merged_count;
         }
 
+        // if reader needs to filter delete row and current delete_flag is ture, 
+        // then continue
         if (!(cur_delete_flag && _filter_delete)) {
             break;
         }
@@ -1037,15 +1039,20 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 }
 
 OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
+
     if (read_params.reader_type != READER_CUMULATIVE_COMPACTION) {
         _tablet->obtain_header_rdlock();
         OLAPStatus ret = _delete_handler.init(_tablet->tablet_schema(),
                                               _tablet->delete_predicates(),
                                               read_params.version.second);
         _tablet->release_header_lock();
+
+        if (read_params.reader_type == READER_BASE_COMPACTION) {
+            _filter_delete = true;
+        }
         return ret;
-    } else {
-        _filter_delete = false;
+    } 
+    else {
         return OLAP_SUCCESS;
     }
 }
