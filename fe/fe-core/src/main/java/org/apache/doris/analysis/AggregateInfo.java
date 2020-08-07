@@ -686,7 +686,7 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     /**
-     * Changing type of slot ref which is same as the type of slot desc.
+     * Changing type of slot ref which is the same as the type of slot desc.
      * Putting this logic in here is helpless.
      * If Doris could analyze mv column in the future, please move this logic before reanalyze.
      * <p>

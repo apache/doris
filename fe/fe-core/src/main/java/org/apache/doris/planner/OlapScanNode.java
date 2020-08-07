@@ -235,12 +235,12 @@ public class OlapScanNode extends ScanNode {
     }
 
     /**
-     * In some situation, the column type between base and mv is difference.
+     * In some situation, the column type between base and mv is different.
      * If mv selector selects the mv index, the type of column should be changed to the type of mv column.
      * For example:
      * base table: k1 int, k2 int
      * mv table: k1 int, k2 bigint sum
-     * The type of `k2` column between base and mv is difference.
+     * The type of `k2` column between base and mv is different.
      * When mv selector selects the mv table to scan, the type of column should be changed to bigint in here.
      * Currently, only `SUM` aggregate type could match this changed.
      */
