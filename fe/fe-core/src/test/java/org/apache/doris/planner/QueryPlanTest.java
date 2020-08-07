@@ -886,9 +886,15 @@ public class QueryPlanTest {
 
     @Test
     public void testColocateJoin() throws Exception {
+        FeConstants.runningUnitTest = true;
+
         String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and t1.k2 = t2.k2 and t1.k3 = t2.k3";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
+
+        queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: false"));
 
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -900,6 +906,10 @@ public class QueryPlanTest {
         String queryStr = "explain select * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
+
+        queryStr = "explain select * from test.dynamic_partition t1, test.dynamic_partition t2 where t1.k1 = t2.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: false"));
     }
 
     @Test

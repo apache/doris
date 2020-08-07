@@ -45,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -494,9 +495,14 @@ public class DistributedPlanner {
         OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
         OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
 
-        // if left table and right table is same table, they are naturally colocate relationship
-        // no need to check colocate group
-        if (leftTable.getId() != rightTable.getId()) {
+        // if left table and right table is same table and they select same single partition or no partition
+        // they are naturally colocate relationship no need to check colocate group
+        Collection<Long> leftPartitions = ((OlapScanNode)leftRoot).getSelectedPartitionIds();
+        Collection<Long> rightPartitions = ((OlapScanNode)rightRoot).getSelectedPartitionIds();
+        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId()) && (leftPartitions.equals(rightPartitions)) &&
+                (leftPartitions.size() <= 1);
+
+        if (!noNeedCheckColocateGroup) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
 
             //1 the table must be colocate
@@ -533,8 +539,16 @@ public class DistributedPlanner {
                 SlotDescriptor leftSlot = lhsJoinExpr.unwrapSlotRef().getDesc();
                 SlotDescriptor rightSlot = rhsJoinExpr.unwrapSlotRef().getDesc();
 
-                leftJoinColumns.add(leftSlot.getColumn());
-                rightJoinColumns.add(rightSlot.getColumn());
+                Column leftColumn = leftSlot.getColumn();
+                Column rightColumn = rightSlot.getColumn();
+                int leftColumnIndex = leftDistributeColumns.indexOf(leftColumn);
+                int rightColumnIndex = rightDistributeColumns.indexOf(rightColumn);
+
+                // eqjoinConjuncts column should have the same order like colocate distribute column
+                if (leftColumnIndex == rightColumnIndex && leftColumnIndex != -1) {
+                    leftJoinColumns.add(leftSlot.getColumn());
+                    rightJoinColumns.add(rightSlot.getColumn());
+                }
             }
 
             //3 the join columns should contains all distribute columns to enable colocate join
