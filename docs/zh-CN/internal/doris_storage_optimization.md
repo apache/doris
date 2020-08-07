@@ -130,7 +130,7 @@ message ColumnPB {
     optional bool is_nullable = 11 [default=false]; // 是否有null
     optional bool is_bf_column = 15 [default=false]; // 是否有bf词典
 	  optional bool is_bitmap_column = 16 [default=false]; // 是否有bitmap索引
-    optional bool is_delete_sign = 17 [default=false]; // 是否是删除列
+    optional bool is_delete_sign = 17 [default=false]; // 是否是隐藏的删除列
 }
 
 // page偏移

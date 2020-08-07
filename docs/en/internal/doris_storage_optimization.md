@@ -131,7 +131,7 @@ message ColumnPB {
     optional bool is_nullable = 11 [default=false]; // Whether column is allowed to assgin null
     optional bool is_bf_column = 15 [default=false]; // Whether column has bloom filter index
 	  optional bool is_bitmap_column = 16 [default=false]; // Whether column has bitmap index
-    optional bool is_delete_sign = 17 [default=false]; // Whether column is delete column
+    optional bool is_delete_sign = 17 [default=false]; // Whether column is hidden delete column
 }
 
 // page偏移
