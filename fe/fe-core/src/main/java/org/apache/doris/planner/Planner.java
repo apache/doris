@@ -195,7 +195,7 @@ public class Planner {
                     exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
             rootFragment.setOutputExprs(resExprs);
         } else {
-            List<Expr> resExprs = Expr.substituteList(queryStmt.getBaseTblResultExprs(),
+            List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
             rootFragment.setOutputExprs(resExprs);
         }
