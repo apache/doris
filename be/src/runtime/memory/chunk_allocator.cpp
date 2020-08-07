@@ -34,12 +34,12 @@ namespace doris {
 
 ChunkAllocator* ChunkAllocator::_s_instance = nullptr;
 
-DEFINE_COUNTER_METRIC_2ARG(chunk_pool_local_core_alloc_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_2ARG(chunk_pool_other_core_alloc_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_2ARG(chunk_pool_system_alloc_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_2ARG(chunk_pool_system_free_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_2ARG(chunk_pool_system_alloc_cost_ns, MetricUnit::NANOSECONDS);
-DEFINE_COUNTER_METRIC_2ARG(chunk_pool_system_free_cost_ns, MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_local_core_alloc_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_other_core_alloc_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_alloc_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_free_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_alloc_cost_ns, MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_free_cost_ns, MetricUnit::NANOSECONDS);
 
 static IntCounter chunk_pool_local_core_alloc_count;
 static IntCounter chunk_pool_other_core_alloc_count;

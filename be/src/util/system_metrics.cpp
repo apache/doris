@@ -28,7 +28,7 @@
 namespace doris {
 
 #define DEFINE_CPU_COUNTER_METRIC(metric)  \
-    DEFINE_COUNTER_METRIC_5ARG(cpu_##metric, MetricUnit::PERCENT, "", cpu, Labels({{"mode", #metric}}));
+    DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cpu_##metric, MetricUnit::PERCENT, "", cpu, Labels({{"mode", #metric}}));
 DEFINE_CPU_COUNTER_METRIC(user);
 DEFINE_CPU_COUNTER_METRIC(nice);
 DEFINE_CPU_COUNTER_METRIC(system);
@@ -84,7 +84,7 @@ struct CpuMetrics {
 };
 
 #define DEFINE_MEMORY_GAUGE_METRIC(metric, unit)  \
-    DEFINE_GAUGE_METRIC_2ARG(memory_##metric, unit);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memory_##metric, unit);
 DEFINE_MEMORY_GAUGE_METRIC(allocated_bytes, MetricUnit::BYTES);
 
 struct MemoryMetrics {
@@ -97,7 +97,7 @@ struct MemoryMetrics {
 };
 
 #define DEFINE_DISK_COUNTER_METRIC(metric, unit)  \
-    DEFINE_COUNTER_METRIC_2ARG(disk_##metric, unit);
+    DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disk_##metric, unit);
 DEFINE_DISK_COUNTER_METRIC(reads_completed, MetricUnit::OPERATIONS);
 DEFINE_DISK_COUNTER_METRIC(bytes_read, MetricUnit::BYTES);
 DEFINE_DISK_COUNTER_METRIC(read_time_ms, MetricUnit::MILLISECONDS);
@@ -131,7 +131,7 @@ struct DiskMetrics {
 };
 
 #define DEFINE_NETWORK_COUNTER_METRIC(metric, unit)  \
-    DEFINE_COUNTER_METRIC_2ARG(network_##metric, unit);
+    DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(network_##metric, unit);
 DEFINE_NETWORK_COUNTER_METRIC(receive_bytes, MetricUnit::BYTES);
 DEFINE_NETWORK_COUNTER_METRIC(receive_packets, MetricUnit::PACKETS);
 DEFINE_NETWORK_COUNTER_METRIC(send_bytes, MetricUnit::BYTES);
@@ -153,7 +153,7 @@ struct NetworkMetrics {
 };
 
 #define DEFINE_SNMP_COUNTER_METRIC(metric, unit, desc)  \
-    DEFINE_COUNTER_METRIC_3ARG(snmp_##metric, unit, desc);
+    DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(snmp_##metric, unit, desc);
 DEFINE_SNMP_COUNTER_METRIC(tcp_in_errs, MetricUnit::NOUNIT, "The number of all problematic TCP packets received");
 DEFINE_SNMP_COUNTER_METRIC(tcp_retrans_segs, MetricUnit::NOUNIT, "All TCP packets retransmitted");
 DEFINE_SNMP_COUNTER_METRIC(tcp_in_segs, MetricUnit::NOUNIT, "All received TCP packets");
@@ -176,7 +176,7 @@ struct SnmpMetrics {
 };
 
 #define DEFINE_FD_COUNTER_METRIC(metric, unit)  \
-    DEFINE_GAUGE_METRIC_2ARG(fd_##metric, unit);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(fd_##metric, unit);
 DEFINE_FD_COUNTER_METRIC(num_limit, MetricUnit::NOUNIT);
 DEFINE_FD_COUNTER_METRIC(num_used, MetricUnit::NOUNIT);
 

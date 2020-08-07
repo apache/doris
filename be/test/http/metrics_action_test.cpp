@@ -56,11 +56,11 @@ TEST_F(MetricsActionTest, prometheus_output) {
     MetricEntity* entity = metric_registry.register_entity("metrics_action_test.prometheus_output", {});
 
     IntGauge cpu_idle;
-    DEFINE_GAUGE_METRIC_2ARG(cpu_idle, MetricUnit::PERCENT);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(cpu_idle, MetricUnit::PERCENT);
     METRIC_REGISTER(entity, cpu_idle);
 
     IntCounter put_requests_total;
-    DEFINE_COUNTER_METRIC_5ARG(put_requests_total, MetricUnit::NOUNIT, "", requests_total, Labels({{"type", "put"}, {"path", "/sports"}}));
+    DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(put_requests_total, MetricUnit::NOUNIT, "", requests_total, Labels({{"type", "put"}, {"path", "/sports"}}));
     METRIC_REGISTER(entity, put_requests_total);
 
     cpu_idle.set_value(50);
@@ -81,7 +81,7 @@ TEST_F(MetricsActionTest, prometheus_no_prefix) {
     MetricEntity* entity = metric_registry.register_entity("metrics_action_test.prometheus_no_prefix", {});
 
     IntGauge cpu_idle;
-    DEFINE_GAUGE_METRIC_2ARG(cpu_idle, MetricUnit::PERCENT);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(cpu_idle, MetricUnit::PERCENT);
     METRIC_REGISTER(entity, cpu_idle);
 
     cpu_idle.set_value(50);

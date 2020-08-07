@@ -28,7 +28,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_2ARG(result_block_queue_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(result_block_queue_count, MetricUnit::NOUNIT);
 
 ResultQueueMgr::ResultQueueMgr() {
     // Each BlockingQueue has a limited size (default 20, by config::max_memory_sink_batch_count),

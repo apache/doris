@@ -47,7 +47,7 @@ using std::vector;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_3ARG(active_scratch_dirs, MetricUnit::NOUNIT, "Metric to track active scratch directories");
+DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(active_scratch_dirs, MetricUnit::NOUNIT, "Metric to track active scratch directories");
 
 const std::string _s_tmp_sub_dir_name = "doris-scratch";
 const uint64_t _s_available_space_threshold_mb = 1024;

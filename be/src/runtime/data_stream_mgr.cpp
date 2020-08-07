@@ -35,8 +35,8 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_2ARG(data_stream_receiver_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_2ARG(fragment_endpoint_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(data_stream_receiver_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(fragment_endpoint_count, MetricUnit::NOUNIT);
 
 using boost::mutex;
 using boost::shared_ptr;

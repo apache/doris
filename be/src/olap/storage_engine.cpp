@@ -83,8 +83,8 @@ using strings::Substitute;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
-DEFINE_GAUGE_METRIC_2ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
 

@@ -30,7 +30,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_2ARG(broker_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(broker_count, MetricUnit::NOUNIT);
 
 BrokerMgr::BrokerMgr(ExecEnv* exec_env) : 
         _exec_env(exec_env), _thread_stop(false), _ping_thread(&BrokerMgr::ping_worker, this) {

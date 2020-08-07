@@ -35,8 +35,8 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_3ARG(thrift_used_clients, MetricUnit::NOUNIT, "Number of clients 'checked-out' from the cache");
-DEFINE_GAUGE_METRIC_3ARG(thrift_opened_clients, MetricUnit::NOUNIT, "Total clients in the cache, including those in use");
+DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_used_clients, MetricUnit::NOUNIT, "Number of clients 'checked-out' from the cache");
+DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_opened_clients, MetricUnit::NOUNIT, "Total clients in the cache, including those in use");
 
 ClientCacheHelper::~ClientCacheHelper() {
     for (auto& it : _client_map) {

@@ -242,31 +242,31 @@ public:
     Labels labels;
 };
 
-#define DEFINE_METRIC(name, type, unit, desc, group, labels, core)      \
+#define DEFINE_METRIC_PROTOTYPE(name, type, unit, desc, group, labels, core)      \
     ::doris::MetricPrototype METRIC_##name(type, unit, #name, desc, group, labels, core)
 
-#define DEFINE_COUNTER_METRIC_2ARG(name, unit)                          \
-    DEFINE_METRIC(name, MetricType::COUNTER, unit, "", "", Labels(), false)
+#define DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(name, unit)                          \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::COUNTER, unit, "", "", Labels(), false)
 
-#define DEFINE_COUNTER_METRIC_3ARG(name, unit, desc)                    \
-    DEFINE_METRIC(name, MetricType::COUNTER, unit, desc, "", Labels(), false)
+#define DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(name, unit, desc)                    \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::COUNTER, unit, desc, "", Labels(), false)
 
-#define DEFINE_COUNTER_METRIC_5ARG(name, unit, desc, group, labels)     \
-    DEFINE_METRIC(name, MetricType::COUNTER, unit, desc, #group, labels, false)
+#define DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(name, unit, desc, group, labels)     \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::COUNTER, unit, desc, #group, labels, false)
 
-#define DEFINE_GAUGE_METRIC_2ARG(name, unit)                            \
-    DEFINE_METRIC(name, MetricType::GAUGE, unit, "", "", Labels(), false)
+#define DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(name, unit)                            \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, "", "", Labels(), false)
 
-#define DEFINE_CORE_GAUGE_METRIC_2ARG(name, unit)                       \
-    DEFINE_METRIC(name, MetricType::GAUGE, unit, "", "", Labels(), true)
+#define DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(name, unit)                            \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, "", "", Labels(), true)
 
-#define DEFINE_GAUGE_METRIC_3ARG(name, unit, desc)                      \
-    DEFINE_METRIC(name, MetricType::GAUGE, unit, desc, "", Labels(), false)
+#define DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(name, unit, desc)                      \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, desc, "", Labels(), false)
 
-#define METRIC_REGISTER(entity, metric)                                 \
+#define METRIC_REGISTER(entity, metric)                                           \
     entity->register_metric(&METRIC_##metric, &metric)
 
-#define METRIC_DEREGISTER(entity, metric)                               \
+#define METRIC_DEREGISTER(entity, metric)                                         \
     entity->deregister_metric(&METRIC_##metric)
 
 // For 'metrics' in MetricEntity.

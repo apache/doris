@@ -26,7 +26,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_2ARG(result_buffer_block_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(result_buffer_block_count, MetricUnit::NOUNIT);
 
 //std::size_t hash_value(const TUniqueId& fragment_id) {
 //    uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);
