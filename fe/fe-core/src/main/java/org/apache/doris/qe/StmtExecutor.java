@@ -225,9 +225,6 @@ public class StmtExecutor {
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
-        // set query id
-        UUID uuid = UUID.randomUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
         try {
             // analyze this query
             analyze(context.getSessionVariable().toThrift());
@@ -580,6 +577,10 @@ public class StmtExecutor {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
+
+        // assign query id before explain query return
+        UUID uuid = UUID.randomUUID();
+        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
                                                   DebugUtil.printId(context.queryId()),
