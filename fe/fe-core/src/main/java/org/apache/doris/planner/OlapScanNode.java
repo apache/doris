@@ -443,6 +443,10 @@ public class OlapScanNode extends ScanNode {
         // Step2: select best rollup
         long start = System.currentTimeMillis();
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
+            //This function is compatible with the INDEX selection logic of ROLLUP, 
+            //so the Duplicate table here returns base index directly
+            //and the selection logic of materialized view is selected in "MaterializedViewSelector"
+            selectedIndexId = olapTable.getBaseIndexId();
             LOG.debug("The best index will be selected later in mv selector");
             return;
         }
