@@ -67,12 +67,11 @@ public:
     //  - name: human-readable name of this server. Should not contain spaces
     //  - processor: Thrift processor to handle RPCs
     //  - port: The port the server will listen for connections on
-    //  - metrics: if not NULL, the server will register metrics on this object
     //  - num_worker_threads: the number of worker threads to use in any thread pool
     //  - server_type: the type of IO strategy this server should employ
     ThriftServer(const std::string& name,
                  const boost::shared_ptr<apache::thrift::TProcessor>& processor, int port,
-                 MetricRegistry* metrics = NULL, int num_worker_threads = DEFAULT_WORKER_THREADS,
+                 int num_worker_threads = DEFAULT_WORKER_THREADS,
                  ServerType server_type = THREADED);
 
     ~ThriftServer() { }
@@ -141,19 +140,16 @@ private:
     typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey> > SessionKeySet;
     SessionKeySet _session_keys;
 
-    // True if metrics are enabled
-    bool _metrics_enabled;
-
-    // Number of currently active connections
-    std::unique_ptr<IntGauge> _current_connections;
-
-    // Total connections made over the lifetime of this server
-    std::unique_ptr<IntCounter> _connections_total;
-
     // Helper class which monitors starting servers. Needs access to internal members, and
     // is not used outside of this class.
     class ThriftServerEventProcessor;
     friend class ThriftServerEventProcessor;
+
+    MetricEntity* _thrift_server_metric_entity;
+    // Number of currently active connections
+    IntGauge thrift_current_connections;
+    // Total connections made over the lifetime of this server
+    IntCounter thrift_connections_total;
 };
 
 }

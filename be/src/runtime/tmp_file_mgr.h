@@ -26,7 +26,6 @@
 
 namespace doris {
 
-class MetricRegistry;
 class ExecEnv;
 
 // TmpFileMgr creates and manages temporary files and directories on the local
@@ -115,23 +114,20 @@ public:
     };
 
     TmpFileMgr(ExecEnv* exec_env);
-    TmpFileMgr() { }
+    TmpFileMgr();
 
-    ~TmpFileMgr(){
-        // do nothing.
-    }
+    ~TmpFileMgr();
 
     // Creates the configured tmp directories. If multiple directories are specified per
     // disk, only one is created and used. Must be called after DiskInfo::Init().
-    Status init(MetricRegistry* metrics);
+    Status init();
 
     // Custom initialization - initializes with the provided list of directories.
     // If one_dir_per_device is true, only use one temporary directory per device.
     // This interface is intended for testing purposes.
     Status init_custom(
             const std::vector<std::string>& tmp_dirs,
-            bool one_dir_per_device,
-            MetricRegistry* metrics);
+            bool one_dir_per_device);
 
     // Return a new File handle with a unique path for a query instance. The file path
     // is within the (single) tmp directory on the specified device id. The caller owns
@@ -195,9 +191,8 @@ private:
     // The created tmp directories.
     std::vector<Dir> _tmp_dirs;
 
-    // MetricRegistry to track active scratch directories.
-    std::unique_ptr<IntGauge> _num_active_scratch_dirs_metric;
-    // SetMetric<std::string>* _active_scratch_dirs_metric;
+    // Metric to track active scratch directories.
+    IntGauge active_scratch_dirs;
 };
 
 } // end namespace doris

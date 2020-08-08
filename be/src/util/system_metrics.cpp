@@ -16,114 +16,216 @@
 // under the License.
 
 #include "util/system_metrics.h"
-#include "gutil/strings/split.h" // for string split
-#include "gutil/strtoint.h" //  for atoi64
 
 #include <stdio.h>
+#include <functional>
 #include <gperftools/malloc_extension.h>
 
-#include <functional>
+#include "gutil/strings/split.h" // for string split
+#include "gutil/strtoint.h" //  for atoi64
+#include "util/doris_metrics.h"
 
 namespace doris {
 
-const char* SystemMetrics::_s_hook_name = "system_metrics";
+#define DEFINE_CPU_COUNTER_METRIC(metric)  \
+    DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cpu_##metric, MetricUnit::PERCENT, "", cpu, Labels({{"mode", #metric}}));
+DEFINE_CPU_COUNTER_METRIC(user);
+DEFINE_CPU_COUNTER_METRIC(nice);
+DEFINE_CPU_COUNTER_METRIC(system);
+DEFINE_CPU_COUNTER_METRIC(idle);
+DEFINE_CPU_COUNTER_METRIC(iowait);
+DEFINE_CPU_COUNTER_METRIC(irq);
+DEFINE_CPU_COUNTER_METRIC(soft_irq);
+DEFINE_CPU_COUNTER_METRIC(steal);
+DEFINE_CPU_COUNTER_METRIC(guest);
+DEFINE_CPU_COUNTER_METRIC(guest_nice);
 
 // /proc/stat: http://www.linuxhowtos.org/System/procstat.htm
 struct CpuMetrics {
+    CpuMetrics(MetricEntity* ent) : entity(ent) {
+        METRIC_REGISTER(entity, cpu_user);
+        METRIC_REGISTER(entity, cpu_nice);
+        METRIC_REGISTER(entity, cpu_system);
+        METRIC_REGISTER(entity, cpu_idle);
+        METRIC_REGISTER(entity, cpu_iowait);
+        METRIC_REGISTER(entity, cpu_irq);
+        METRIC_REGISTER(entity, cpu_soft_irq);
+        METRIC_REGISTER(entity, cpu_steal);
+        METRIC_REGISTER(entity, cpu_guest);
+        METRIC_REGISTER(entity, cpu_guest_nice);
+
+        metrics[0] = &cpu_user;
+        metrics[1] = &cpu_nice;
+        metrics[2] = &cpu_system;
+        metrics[3] = &cpu_idle;
+        metrics[4] = &cpu_iowait;
+        metrics[5] = &cpu_irq;
+        metrics[6] = &cpu_soft_irq;
+        metrics[7] = &cpu_steal;
+        metrics[8] = &cpu_guest;
+        metrics[9] = &cpu_guest_nice;
+    }
+
     static constexpr int cpu_num_metrics = 10;
-    std::unique_ptr<IntAtomicCounter> metrics[cpu_num_metrics] = {
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT)),
-        std::unique_ptr<IntAtomicCounter>(new IntAtomicCounter(MetricUnit::PERCENT))
-    };
-    static const char* cpu_metrics[cpu_num_metrics];
+
+    MetricEntity* entity = nullptr;
+    IntAtomicCounter cpu_user;
+    IntAtomicCounter cpu_nice;
+    IntAtomicCounter cpu_system;
+    IntAtomicCounter cpu_idle;
+    IntAtomicCounter cpu_iowait;
+    IntAtomicCounter cpu_irq;
+    IntAtomicCounter cpu_soft_irq;
+    IntAtomicCounter cpu_steal;
+    IntAtomicCounter cpu_guest;
+    IntAtomicCounter cpu_guest_nice;
+
+    IntAtomicCounter* metrics[cpu_num_metrics];
 };
 
-const char* CpuMetrics::cpu_metrics[] = {
-    "user", "nice", "system", "idle", "iowait",
-    "irq", "soft_irq", "steal", "guest", "guest_nice"
-};
+#define DEFINE_MEMORY_GAUGE_METRIC(metric, unit)  \
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memory_##metric, unit);
+DEFINE_MEMORY_GAUGE_METRIC(allocated_bytes, MetricUnit::BYTES);
 
 struct MemoryMetrics {
-    METRIC_DEFINE_INT_GAUGE(allocated_bytes, MetricUnit::BYTES);
+    MemoryMetrics(MetricEntity* ent) : entity(ent) {
+        METRIC_REGISTER(entity, memory_allocated_bytes);
+    }
+
+    MetricEntity* entity = nullptr;
+    IntGauge memory_allocated_bytes;
 };
+
+#define DEFINE_DISK_COUNTER_METRIC(metric, unit)  \
+    DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disk_##metric, unit);
+DEFINE_DISK_COUNTER_METRIC(reads_completed, MetricUnit::OPERATIONS);
+DEFINE_DISK_COUNTER_METRIC(bytes_read, MetricUnit::BYTES);
+DEFINE_DISK_COUNTER_METRIC(read_time_ms, MetricUnit::MILLISECONDS);
+DEFINE_DISK_COUNTER_METRIC(writes_completed, MetricUnit::OPERATIONS);
+DEFINE_DISK_COUNTER_METRIC(bytes_written, MetricUnit::BYTES);
+DEFINE_DISK_COUNTER_METRIC(write_time_ms, MetricUnit::MILLISECONDS);
+DEFINE_DISK_COUNTER_METRIC(io_time_ms, MetricUnit::MILLISECONDS);
+DEFINE_DISK_COUNTER_METRIC(io_time_weigthed, MetricUnit::MILLISECONDS);
 
 struct DiskMetrics {
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(reads_completed, MetricUnit::OPERATIONS);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(bytes_read, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(read_time_ms, MetricUnit::MILLISECONDS);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(writes_completed, MetricUnit::OPERATIONS);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(bytes_written, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(write_time_ms, MetricUnit::MILLISECONDS);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(io_time_ms, MetricUnit::MILLISECONDS);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(io_time_weigthed, MetricUnit::MILLISECONDS);
+    DiskMetrics(MetricEntity* ent) : entity(ent) {
+        METRIC_REGISTER(entity, disk_reads_completed);
+        METRIC_REGISTER(entity, disk_bytes_read);
+        METRIC_REGISTER(entity, disk_read_time_ms);
+        METRIC_REGISTER(entity, disk_writes_completed);
+        METRIC_REGISTER(entity, disk_bytes_written);
+        METRIC_REGISTER(entity, disk_write_time_ms);
+        METRIC_REGISTER(entity, disk_io_time_ms);
+        METRIC_REGISTER(entity, disk_io_time_weigthed);
+    }
+
+    MetricEntity* entity = nullptr;
+    IntAtomicCounter disk_reads_completed;
+    IntAtomicCounter disk_bytes_read;
+    IntAtomicCounter disk_read_time_ms;
+    IntAtomicCounter disk_writes_completed;
+    IntAtomicCounter disk_bytes_written;
+    IntAtomicCounter disk_write_time_ms;
+    IntAtomicCounter disk_io_time_ms;
+    IntAtomicCounter disk_io_time_weigthed;
 };
 
-struct NetMetrics {
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(receive_bytes, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(receive_packets, MetricUnit::PACKETS);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(send_bytes, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(send_packets, MetricUnit::PACKETS);
+#define DEFINE_NETWORK_COUNTER_METRIC(metric, unit)  \
+    DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(network_##metric, unit);
+DEFINE_NETWORK_COUNTER_METRIC(receive_bytes, MetricUnit::BYTES);
+DEFINE_NETWORK_COUNTER_METRIC(receive_packets, MetricUnit::PACKETS);
+DEFINE_NETWORK_COUNTER_METRIC(send_bytes, MetricUnit::BYTES);
+DEFINE_NETWORK_COUNTER_METRIC(send_packets, MetricUnit::PACKETS);
+
+struct NetworkMetrics {
+    NetworkMetrics(MetricEntity* ent) : entity(ent) {
+        METRIC_REGISTER(entity, network_receive_bytes);
+        METRIC_REGISTER(entity, network_receive_packets);
+        METRIC_REGISTER(entity, network_send_bytes);
+        METRIC_REGISTER(entity, network_send_packets);
+    }
+
+    MetricEntity* entity = nullptr;
+    IntAtomicCounter network_receive_bytes;
+    IntAtomicCounter network_receive_packets;
+    IntAtomicCounter network_send_bytes;
+    IntAtomicCounter network_send_packets;
 };
+
+#define DEFINE_SNMP_COUNTER_METRIC(metric, unit, desc)  \
+    DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(snmp_##metric, unit, desc);
+DEFINE_SNMP_COUNTER_METRIC(tcp_in_errs, MetricUnit::NOUNIT, "The number of all problematic TCP packets received");
+DEFINE_SNMP_COUNTER_METRIC(tcp_retrans_segs, MetricUnit::NOUNIT, "All TCP packets retransmitted");
+DEFINE_SNMP_COUNTER_METRIC(tcp_in_segs, MetricUnit::NOUNIT, "All received TCP packets");
+DEFINE_SNMP_COUNTER_METRIC(tcp_out_segs, MetricUnit::NOUNIT, "All send TCP packets with RST mark");
 
 // metrics read from /proc/net/snmp
 struct SnmpMetrics {
-    // The number of all problematic TCP packets received
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(tcp_in_errs, MetricUnit::NOUNIT);
-    // All TCP packets retransmitted
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(tcp_retrans_segs, MetricUnit::NOUNIT);
-    // All received TCP packets
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(tcp_in_segs, MetricUnit::NOUNIT);
-    // All send TCP packets with RST mark
-    METRIC_DEFINE_INT_ATOMIC_COUNTER(tcp_out_segs, MetricUnit::NOUNIT);
+    SnmpMetrics(MetricEntity* ent) : entity(ent) {
+        METRIC_REGISTER(entity, snmp_tcp_in_errs);
+        METRIC_REGISTER(entity, snmp_tcp_retrans_segs);
+        METRIC_REGISTER(entity, snmp_tcp_in_segs);
+        METRIC_REGISTER(entity, snmp_tcp_out_segs);
+    }
+
+    MetricEntity* entity = nullptr;
+    IntAtomicCounter snmp_tcp_in_errs;
+    IntAtomicCounter snmp_tcp_retrans_segs;
+    IntAtomicCounter snmp_tcp_in_segs;
+    IntAtomicCounter snmp_tcp_out_segs;
 };
+
+#define DEFINE_FD_COUNTER_METRIC(metric, unit)  \
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(fd_##metric, unit);
+DEFINE_FD_COUNTER_METRIC(num_limit, MetricUnit::NOUNIT);
+DEFINE_FD_COUNTER_METRIC(num_used, MetricUnit::NOUNIT);
 
 struct FileDescriptorMetrics {
-    METRIC_DEFINE_INT_GAUGE(fd_num_limit, MetricUnit::NOUNIT);
-    METRIC_DEFINE_INT_GAUGE(fd_num_used, MetricUnit::NOUNIT);
+    FileDescriptorMetrics(MetricEntity* ent) : entity(ent) {
+        METRIC_REGISTER(entity, fd_num_limit);
+        METRIC_REGISTER(entity, fd_num_used);
+    }
+
+    MetricEntity* entity = nullptr;
+    IntGauge fd_num_limit;
+    IntGauge fd_num_used;
 };
 
-SystemMetrics::SystemMetrics() {
+const char* SystemMetrics::_s_hook_name = "system_metrics";
+
+SystemMetrics::SystemMetrics(MetricRegistry* registry,
+                             const std::set<std::string>& disk_devices,
+                             const std::vector<std::string>& network_interfaces) {
+    DCHECK(registry != nullptr);
+    _registry = registry;
+#ifndef BE_TEST
+    auto entity = DorisMetrics::instance()->server_entity();
+#else
+    auto entity = _registry->register_entity("server", {});
+#endif
+    DCHECK(entity != nullptr);
+    entity->register_hook(_s_hook_name, std::bind(&SystemMetrics::update, this));
+    _install_cpu_metrics(entity);
+    _install_memory_metrics(entity);
+    _install_disk_metrics(disk_devices);
+    _install_net_metrics(network_interfaces);
+    _install_fd_metrics(entity);
+    _install_snmp_metrics(entity);
 }
 
 SystemMetrics::~SystemMetrics() {
-    // we must deregister us from registry
-    if (_registry != nullptr) {
-        _registry->deregister_hook(_s_hook_name);
-        _registry = nullptr;
-    }
+    DCHECK(_registry != nullptr);
+    _registry->get_entity("server")->deregister_hook(_s_hook_name);
+
     for (auto& it : _disk_metrics) {
         delete it.second;
     }
-    for (auto& it : _net_metrics) {
+    for (auto& it : _network_metrics) {
         delete it.second;
     }
     if (_line_ptr != nullptr) {
         free(_line_ptr);
     }
-}
-
-void SystemMetrics::install(MetricRegistry* registry,
-                            const std::set<std::string>& disk_devices,
-                            const std::vector<std::string>& network_interfaces) {
-    DCHECK(_registry == nullptr);
-    if (!registry->register_hook(_s_hook_name, std::bind(&SystemMetrics::update, this))) {
-        return;
-    }
-    _install_cpu_metrics(registry);
-    _install_memory_metrics(registry);
-    _install_disk_metrics(registry, disk_devices);
-    _install_net_metrics(registry, network_interfaces);
-    _install_fd_metrics(registry);
-    _install_snmp_metrics(registry);
-    _registry = registry;
 }
 
 void SystemMetrics::update() {
@@ -135,14 +237,8 @@ void SystemMetrics::update() {
     _update_snmp_metrics();
 }
 
-void SystemMetrics::_install_cpu_metrics(MetricRegistry* registry) {
-    _cpu_metrics.reset(new CpuMetrics());
-
-    for (int i = 0; i < CpuMetrics::cpu_num_metrics; ++i) {
-        registry->register_metric("cpu",
-                                  MetricLabels().add("mode", CpuMetrics::cpu_metrics[i]),
-                                  _cpu_metrics->metrics[i].get());
-    }
+void SystemMetrics::_install_cpu_metrics(MetricEntity* entity) {
+    _cpu_metrics.reset(new CpuMetrics(entity));
 }
 
 #ifdef BE_TEST
@@ -195,10 +291,8 @@ void SystemMetrics::_update_cpu_metrics() {
     fclose(fp);
 }
 
-void SystemMetrics::_install_memory_metrics(MetricRegistry* registry) {
-    _memory_metrics.reset(new MemoryMetrics());
-
-    registry->register_metric("memory_allocated_bytes", &_memory_metrics->allocated_bytes);
+void SystemMetrics::_install_memory_metrics(MetricEntity* entity) {
+    _memory_metrics.reset(new MemoryMetrics(entity));
 }
 
 void SystemMetrics::_update_memory_metrics() {
@@ -208,27 +302,15 @@ void SystemMetrics::_update_memory_metrics() {
     size_t allocated_bytes = 0;
     MallocExtension::instance()->GetNumericProperty(
         "generic.current_allocated_bytes", &allocated_bytes);
-    _memory_metrics->allocated_bytes.set_value(allocated_bytes);
+    _memory_metrics->memory_allocated_bytes.set_value(allocated_bytes);
 #endif
 }
 
-void SystemMetrics::_install_disk_metrics(MetricRegistry* registry,
-                                          const std::set<std::string>& devices) {
-    for (auto& disk : devices) {
-        DiskMetrics* metrics = new DiskMetrics();
-#define REGISTER_DISK_METRIC(name) \
-        registry->register_metric("disk_"#name, \
-                                  MetricLabels().add("device", disk), \
-                                  &metrics->name)
-        REGISTER_DISK_METRIC(reads_completed);
-        REGISTER_DISK_METRIC(bytes_read);
-        REGISTER_DISK_METRIC(read_time_ms);
-        REGISTER_DISK_METRIC(writes_completed);
-        REGISTER_DISK_METRIC(bytes_written);
-        REGISTER_DISK_METRIC(write_time_ms);
-        REGISTER_DISK_METRIC(io_time_ms);
-        REGISTER_DISK_METRIC(io_time_weigthed);
-        _disk_metrics.emplace(disk, metrics);
+void SystemMetrics::_install_disk_metrics(const std::set<std::string>& disk_devices) {
+    for (auto& disk_device : disk_devices) {
+        auto disk_entity = _registry->register_entity(std::string("disk_metrics.") + disk_device, {{"device", disk_device}});
+        DiskMetrics* metrics = new DiskMetrics(disk_entity);
+        _disk_metrics.emplace(disk_device, metrics);
     }
 }
 
@@ -281,26 +363,26 @@ void SystemMetrics::_update_disk_metrics() {
             continue;
         }
         auto it = _disk_metrics.find(device);
-        if (it == std::end(_disk_metrics)) {
+        if (it == _disk_metrics.end()) {
             continue;
         }
         // update disk metrics
         // reads_completed: 4 reads completed successfully
-        it->second->reads_completed.set_value(values[0]);
+        it->second->disk_reads_completed.set_value(values[0]);
         // bytes_read: 6 sectors read * 512; 5 reads merged is ignored
-        it->second->bytes_read.set_value(values[2] * 512);
+        it->second->disk_bytes_read.set_value(values[2] * 512);
         // read_time_ms: 7 time spent reading (ms)
-        it->second->read_time_ms.set_value(values[3]);
+        it->second->disk_read_time_ms.set_value(values[3]);
         // writes_completed: 8 writes completed
-        it->second->writes_completed.set_value(values[4]);
+        it->second->disk_writes_completed.set_value(values[4]);
         // bytes_written: 10 sectors write * 512; 9 writes merged is ignored
-        it->second->bytes_written.set_value(values[6] * 512);
+        it->second->disk_bytes_written.set_value(values[6] * 512);
         // write_time_ms: 11 time spent writing (ms)
-        it->second->write_time_ms.set_value(values[7]);
+        it->second->disk_write_time_ms.set_value(values[7]);
         // io_time_ms: 13 time spent doing I/Os (ms)
-        it->second->io_time_ms.set_value(values[9]);
+        it->second->disk_io_time_ms.set_value(values[9]);
         // io_time_weigthed: 14 - weighted time spent doing I/Os (ms)
-        it->second->io_time_weigthed.set_value(values[10]);
+        it->second->disk_io_time_weigthed.set_value(values[10]);
     }
     if (ferror(fp) != 0) {
         char buf[64];
@@ -310,32 +392,16 @@ void SystemMetrics::_update_disk_metrics() {
     fclose(fp);
 }
 
-void SystemMetrics::_install_net_metrics(MetricRegistry* registry,
-                                         const std::vector<std::string>& interfaces) {
-    for (auto& net : interfaces) {
-        NetMetrics* metrics = new NetMetrics();
-#define REGISTER_NETWORK_METRIC(name) \
-        registry->register_metric("network_"#name, \
-                                  MetricLabels().add("device", net), \
-                                  &metrics->name)
-        REGISTER_NETWORK_METRIC(receive_bytes);
-        REGISTER_NETWORK_METRIC(receive_packets);
-        REGISTER_NETWORK_METRIC(send_bytes);
-        REGISTER_NETWORK_METRIC(send_packets);
-        _net_metrics.emplace(net, metrics);
+void SystemMetrics::_install_net_metrics(const std::vector<std::string>& interfaces) {
+    for (auto& interface : interfaces) {
+        auto interface_entity = _registry->register_entity(std::string("network_metrics.") + interface, {{"device", interface}});
+        NetworkMetrics* metrics = new NetworkMetrics(interface_entity);
+        _network_metrics.emplace(interface, metrics);
     }
 }
 
-void SystemMetrics::_install_snmp_metrics(MetricRegistry* registry) {
-    _snmp_metrics.reset(new SnmpMetrics());
-#define REGISTER_SNMP_METRIC(name) \
-        registry->register_metric("snmp", \
-                                  MetricLabels().add("name", #name), \
-                                  &_snmp_metrics->name)
-    REGISTER_SNMP_METRIC(tcp_in_errs);
-    REGISTER_SNMP_METRIC(tcp_retrans_segs);
-    REGISTER_SNMP_METRIC(tcp_in_segs);
-    REGISTER_SNMP_METRIC(tcp_out_segs);
+void SystemMetrics::_install_snmp_metrics(MetricEntity* entity) {
+    _snmp_metrics.reset(new SnmpMetrics(entity));
 }
 
 void SystemMetrics::_update_net_metrics() {
@@ -381,8 +447,8 @@ void SystemMetrics::_update_net_metrics() {
             start++;
         }
         std::string interface(start, ptr - start);
-        auto it = _net_metrics.find(interface);
-        if (it == std::end(_net_metrics)) {
+        auto it = _network_metrics.find(interface);
+        if (it == _network_metrics.end()) {
             continue;
         }
         ptr++;
@@ -420,10 +486,10 @@ void SystemMetrics::_update_net_metrics() {
         default:
             break;
         }
-        it->second->receive_bytes.set_value(receive_bytes);
-        it->second->receive_packets.set_value(receive_packets);
-        it->second->send_bytes.set_value(send_bytes);
-        it->second->send_packets.set_value(send_packets);
+        it->second->network_receive_bytes.set_value(receive_bytes);
+        it->second->network_receive_packets.set_value(receive_packets);
+        it->second->network_send_bytes.set_value(send_bytes);
+        it->second->network_send_packets.set_value(send_packets);
     }
     if (ferror(fp) != 0) {
         char buf[64];
@@ -492,10 +558,10 @@ void SystemMetrics::_update_snmp_metrics() {
     int64_t in_errs = atoi64(metrics[header_map["InErrs"]]);
     int64_t in_segs = atoi64(metrics[header_map["InSegs"]]);
     int64_t out_segs = atoi64(metrics[header_map["OutSegs"]]);
-    _snmp_metrics->tcp_retrans_segs.set_value(retrans_segs);
-    _snmp_metrics->tcp_in_errs.set_value(in_errs);
-    _snmp_metrics->tcp_in_segs.set_value(in_segs);
-    _snmp_metrics->tcp_out_segs.set_value(out_segs);
+    _snmp_metrics->snmp_tcp_retrans_segs.set_value(retrans_segs);
+    _snmp_metrics->snmp_tcp_in_errs.set_value(in_errs);
+    _snmp_metrics->snmp_tcp_in_segs.set_value(in_segs);
+    _snmp_metrics->snmp_tcp_out_segs.set_value(out_segs);
 
     if (ferror(fp) != 0) {
         char buf[64];
@@ -505,10 +571,8 @@ void SystemMetrics::_update_snmp_metrics() {
     fclose(fp);
 }
 
-void SystemMetrics::_install_fd_metrics(MetricRegistry* registry) {
-    _fd_metrics.reset(new FileDescriptorMetrics());
-    registry->register_metric("fd_num_limit", &_fd_metrics->fd_num_limit);
-    registry->register_metric("fd_num_used", &_fd_metrics->fd_num_used);
+void SystemMetrics::_install_fd_metrics(MetricEntity* entity) {
+    _fd_metrics.reset(new FileDescriptorMetrics(entity));
 }
 
 void SystemMetrics::_update_fd_metrics() {
@@ -552,7 +616,7 @@ int64_t SystemMetrics::get_max_io_util(
         const std::map<std::string, int64_t>& lst_value, int64_t interval_sec) {
     int64_t max = 0;
     for (auto& it : _disk_metrics) {
-        int64_t cur = it.second->io_time_ms.value();
+        int64_t cur = it.second->disk_io_time_ms.value();
         const auto find = lst_value.find(it.first);
         if (find == lst_value.end()) {
             continue;
@@ -566,7 +630,7 @@ int64_t SystemMetrics::get_max_io_util(
 void SystemMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
     map->clear();
     for (auto& it : _disk_metrics) {
-        map->emplace(it.first, it.second->io_time_ms.value());
+        map->emplace(it.first, it.second->disk_io_time_ms.value());
     }
 }
 
@@ -575,10 +639,10 @@ void SystemMetrics::get_network_traffic(
             std::map<std::string, int64_t>* rcv_map) {
     send_map->clear();
     rcv_map->clear();
-    for (auto& it : _net_metrics) {
+    for (auto& it : _network_metrics) {
         if (it.first == "lo") { continue; }
-        send_map->emplace(it.first, it.second->send_bytes.value());
-        rcv_map->emplace(it.first, it.second->receive_bytes.value());
+        send_map->emplace(it.first, it.second->network_send_bytes.value());
+        rcv_map->emplace(it.first, it.second->network_receive_bytes.value());
     }
 }
 
@@ -589,9 +653,9 @@ void SystemMetrics::get_max_net_traffic(
             int64_t* send_rate, int64_t* rcv_rate) {
     int64_t max_send = 0;
     int64_t max_rcv = 0;
-    for (auto& it : _net_metrics) {
-        int64_t cur_send = it.second->send_bytes.value();
-        int64_t cur_rcv = it.second->receive_bytes.value();
+    for (auto& it : _network_metrics) {
+        int64_t cur_send = it.second->network_send_bytes.value();
+        int64_t cur_rcv = it.second->network_receive_bytes.value();
 
         const auto find_send = lst_send_map.find(it.first);
         if (find_send != lst_send_map.end()) {

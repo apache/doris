@@ -28,6 +28,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "util/metrics.h"
 #include "util/mutex.h"
 
 namespace doris {
@@ -121,6 +122,8 @@ public:
 
     Status update_capacity();
 
+    void update_user_data_size(int64_t size);
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -185,6 +188,12 @@ private:
 
     // used in convert process
     bool _convert_old_data_success;
+
+    MetricEntity* _data_dir_metric_entity;
+    IntGauge disks_total_capacity;
+    IntGauge disks_avail_capacity;
+    IntGauge disks_data_used_capacity;
+    IntGauge disks_state;
 };
 
 } // namespace doris
