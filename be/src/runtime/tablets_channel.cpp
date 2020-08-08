@@ -27,6 +27,8 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_writer_count, MetricUnit::NOUNIT);
+
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker):
@@ -34,7 +36,7 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const std::shared_p
     _mem_tracker = MemTracker::CreateTracker(-1, "tablets channel", mem_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
-        REGISTER_GAUGE_DORIS_METRIC(tablet_writer_count, [&]() {
+        REGISTER_HOOK_METRIC(tablet_writer_count, [&]() {
             return _s_tablet_writer_count.load();
         });
     });

@@ -64,43 +64,36 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
     }
 }
 
-
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     UniqueId backend_uid = UniqueId::gen_uid();
-    UniqueId backend_uid2 = UniqueId::gen_uid();
-    ASSERT_NE(backend_uid, backend_uid2);
     UniqueRowsetIdGenerator id_generator(backend_uid);
-    UniqueRowsetIdGenerator id_generator2(backend_uid2);
-    {
-        RowsetId rowset_id1 = id_generator.next_id();  // hi == 1
-        RowsetId rowset_id2 = id_generator2.next_id();
-        ASSERT_EQ(rowset_id1.hi, rowset_id2.hi);
-    }
-    {
-        int64_t hi = 2;  // version
-        hi <<= 56;
-        RowsetId rowset_id = id_generator.next_id();  // hi == 2
-        ASSERT_EQ(rowset_id.hi, hi + 2);
-        ASSERT_EQ(rowset_id.version, 2);
-        ASSERT_EQ(backend_uid.lo, rowset_id.lo);
-        ASSERT_EQ(backend_uid.hi, rowset_id.mi);
-        ASSERT_NE(rowset_id.hi, 0);
-        bool in_use = id_generator.id_in_use(rowset_id);
-        ASSERT_TRUE(in_use);
-        id_generator.release_id(rowset_id);
-        in_use = id_generator.id_in_use(rowset_id);
-        ASSERT_FALSE(in_use);
+    int64_t hi = 2;  // version
+    hi <<= 56;
 
-        int64_t high = rowset_id.hi + 1;
-        rowset_id = id_generator.next_id();  // hi == 3
-        ASSERT_EQ(rowset_id.hi, high);
-        in_use = id_generator.id_in_use(rowset_id);
-        ASSERT_TRUE(in_use);
+    RowsetId rowset_id = id_generator.next_id();  // hi == 1
+    ASSERT_EQ(rowset_id.hi, hi + 1);
+    ASSERT_EQ(rowset_id.version, 2);
+    rowset_id = id_generator.next_id();  // hi == 2
+    ASSERT_EQ(rowset_id.hi, hi + 2);
+    ASSERT_EQ(rowset_id.version, 2);
+    ASSERT_EQ(backend_uid.lo, rowset_id.lo);
+    ASSERT_EQ(backend_uid.hi, rowset_id.mi);
+    ASSERT_NE(rowset_id.hi, 0);
+    bool in_use = id_generator.id_in_use(rowset_id);
+    ASSERT_TRUE(in_use);
+    id_generator.release_id(rowset_id);
+    in_use = id_generator.id_in_use(rowset_id);
+    ASSERT_FALSE(in_use);
 
-        std::string rowset_mid_str = rowset_id.to_string().substr(16,16);
-        std::string backend_mid_str = backend_uid.to_string().substr(0, 16);
-        ASSERT_EQ(rowset_mid_str, backend_mid_str);
-    }
+    int64_t high = rowset_id.hi + 1;
+    rowset_id = id_generator.next_id();  // hi == 3
+    ASSERT_EQ(rowset_id.hi, high);
+    in_use = id_generator.id_in_use(rowset_id);
+    ASSERT_TRUE(in_use);
+
+    std::string rowset_mid_str = rowset_id.to_string().substr(16,16);
+    std::string backend_mid_str = backend_uid.to_string().substr(0, 16);
+    ASSERT_EQ(rowset_mid_str, backend_mid_str);
 }
 
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdBenchmark) {

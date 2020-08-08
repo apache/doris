@@ -32,18 +32,8 @@ namespace doris {
 // map used 
 class BrpcStubCache {
 public:
-    BrpcStubCache() {
-        _stub_map.init(239);
-        REGISTER_GAUGE_DORIS_METRIC(brpc_endpoint_stub_count, [this]() {
-            std::lock_guard<SpinLock> l(_lock);
-            return _stub_map.size();
-        });
-    }
-    ~BrpcStubCache() {
-        for (auto& stub : _stub_map) {
-            delete stub.second;
-        }
-    }
+    BrpcStubCache();
+    ~BrpcStubCache();
 
     palo::PInternalService_Stub* get_stub(const butil::EndPoint& endpoint) {
         std::lock_guard<SpinLock> l(_lock);

@@ -34,6 +34,35 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(routine_load_task_count, MetricUnit::NOUNIT);
+
+RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
+    : _exec_env(exec_env),
+      _thread_pool(config::routine_load_thread_pool_size, 1),
+      _data_consumer_pool(10) {
+    REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _task_map.size();
+    });
+
+    _data_consumer_pool.start_bg_worker();
+}
+
+RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
+    DEREGISTER_HOOK_METRIC(routine_load_task_count);
+    _thread_pool.shutdown();
+    _thread_pool.join();
+
+    LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
+    for (auto it = _task_map.begin(); it != _task_map.end(); ++it) {
+        auto ctx = it->second;
+        if (ctx->unref()) {
+            delete ctx;
+        }
+    }
+    _task_map.clear();
+}
+
 Status RoutineLoadTaskExecutor::get_kafka_partition_meta(
         const PKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids) {
     DCHECK(request.has_kafka_info());
