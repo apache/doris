@@ -160,14 +160,14 @@ public class Planner {
 
         setResultExprScale(analyzer, queryStmt.getResultExprs());
 
-        // compute mem layout *before* finalize(); finalize() may reference
-        // TupleDescriptor.avgSerializedSize
-        analyzer.getDescTbl().computeMemLayout();
         // materialized view selector
         boolean selectFailed = singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
         if (selectFailed) {
             throw new MVSelectFailedException("Failed to select materialize view");
         }
+        // compute mem layout *before* finalize(); finalize() may reference
+        // TupleDescriptor.avgSerializedSize
+        analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
