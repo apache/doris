@@ -17,9 +17,10 @@
 
 #include "util/metrics.h"
 
-namespace doris {
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
-MetricLabels MetricLabels::EmptyLabels;
+namespace doris {
 
 std::ostream& operator<<(std::ostream& os, MetricType type) {
     switch (type) {
@@ -76,118 +77,209 @@ const char* unit_name(MetricUnit unit) {
     }
 }
 
-void Metric::hide() {
-    if (_registry == nullptr) {
+std::string labels_to_string(const Labels& entity_labels, const Labels& metric_labels) {
+    if (entity_labels.empty() && metric_labels.empty()) {
+        return std::string();
+    }
+
+    std::stringstream ss;
+    ss << "{";
+    int i = 0;
+    for (const auto& label : entity_labels) {
+        if (i++ > 0) {
+            ss << ",";
+        }
+        ss << label.first << "=\"" << label.second << "\"";
+    }
+    for (const auto& label : metric_labels) {
+        if (i++ > 0) {
+            ss << ",";
+        }
+        ss << label.first << "=\"" << label.second << "\"";
+    }
+    ss << "}";
+
+    return ss.str();
+}
+
+std::string MetricPrototype::simple_name() const {
+    return group_name.empty() ? name : group_name;
+}
+
+std::string MetricPrototype::combine_name(const std::string& registry_name) const {
+    return (registry_name.empty() ? std::string() : registry_name  + "_") + simple_name();
+}
+
+void MetricEntity::register_metric(const MetricPrototype* metric_type, Metric* metric) {
+    std::lock_guard<SpinLock> l(_lock);
+    DCHECK(_metrics.find(metric_type) == _metrics.end()) << "metric is already exist! " << _name << ":" << metric_type->name;
+    _metrics.emplace(metric_type, metric);
+}
+
+void MetricEntity::deregister_metric(const MetricPrototype* metric_type) {
+    std::lock_guard<SpinLock> l(_lock);
+    _metrics.erase(metric_type);
+}
+
+Metric* MetricEntity::get_metric(const std::string& name, const std::string& group_name) const {
+    MetricPrototype dummy(MetricType::UNTYPED, MetricUnit::NOUNIT, name, "", group_name);
+    std::lock_guard<SpinLock> l(_lock);
+    auto it = _metrics.find(&dummy);
+    if (it == _metrics.end()) {
+        return nullptr;
+    }
+    return it->second;
+}
+
+void MetricEntity::register_hook(const std::string& name, const std::function<void()>& hook) {
+    std::lock_guard<SpinLock> l(_lock);
+    DCHECK(_hooks.find(name) == _hooks.end()) << "hook is already exist! " << _name << ":" << name;
+    _hooks.emplace(name, hook);
+}
+
+void MetricEntity::deregister_hook(const std::string& name) {
+    std::lock_guard<SpinLock> l(_lock);
+    _hooks.erase(name);
+}
+
+void MetricEntity::trigger_hook_unlocked(bool force) const {
+    // When 'enable_metric_calculator' is true, hooks will be triggered by a background thread,
+    // see 'calculate_metrics' in daemon.cpp for more details.
+    if (!force && config::enable_metric_calculator) {
         return;
     }
-    _registry->deregister_metric(this);
-    _registry = nullptr;
-}
-
-bool MetricCollector::add_metic(const MetricLabels& labels, Metric* metric) {
-    if (empty()) {
-        _type = metric->type();
-    } else if (metric->type() != _type) {
-        return false;
-    }
-    auto it = _metrics.emplace(labels, metric);
-    return it.second;
-}
-
-void MetricCollector::remove_metric(Metric* metric) {
-    for (auto& it : _metrics) {
-        if (it.second == metric) {
-            _metrics.erase(it.first);
-            break;
-        }
-    }
-}
-
-Metric* MetricCollector::get_metric(const MetricLabels& labels) const {
-    auto it = _metrics.find(labels);
-    if (it != _metrics.end()) {
-        return it->second;
-    }
-    return nullptr;
-}
-
-void MetricCollector::get_metrics(std::vector<Metric*>* metrics) {
-    DCHECK(metrics != nullptr);
-    for (const auto& it : _metrics) {
-        metrics->push_back(it.second);
+    for (const auto& hook : _hooks) {
+        hook.second();
     }
 }
 
 MetricRegistry::~MetricRegistry() {
-    {
-        std::lock_guard<SpinLock> l(_lock);
+}
 
-        std::vector<Metric*> metrics;
-        for (const auto& it : _collectors) {
-            it.second->get_metrics(&metrics);
+MetricEntity* MetricRegistry::register_entity(const std::string& name, const Labels& labels) {
+    std::shared_ptr<MetricEntity> entity = std::make_shared<MetricEntity>(name, labels);
+
+    std::lock_guard<SpinLock> l(_lock);
+    DCHECK(_entities.find(name) == _entities.end()) << name;
+    _entities.insert(std::make_pair(name, entity));
+    return entity.get();
+}
+
+void MetricRegistry::deregister_entity(const std::string& name) {
+    std::lock_guard<SpinLock> l(_lock);
+    _entities.erase(name);
+}
+
+std::shared_ptr<MetricEntity> MetricRegistry::get_entity(const std::string& name) {
+    std::lock_guard<SpinLock> l(_lock);
+    auto entity = _entities.find(name);
+    if (entity == _entities.end()) {
+        return std::shared_ptr<MetricEntity>();
+    }
+    return entity->second;
+}
+
+void MetricRegistry::trigger_all_hooks(bool force) const {
+    std::lock_guard<SpinLock> l(_lock);
+    for (const auto& entity : _entities) {
+        std::lock_guard<SpinLock> l(entity.second->_lock);
+        entity.second->trigger_hook_unlocked(force);
+    }
+}
+
+std::string MetricRegistry::to_prometheus() const {
+    std::stringstream ss;
+    // Reorder by MetricPrototype
+    EntityMetricsByType entity_metrics_by_types;
+    std::lock_guard<SpinLock> l(_lock);
+    for (const auto& entity : _entities) {
+        std::lock_guard<SpinLock> l(entity.second->_lock);
+        entity.second->trigger_hook_unlocked(false);
+        for (const auto& metric : entity.second->_metrics) {
+            std::pair<MetricEntity*, Metric*> new_elem = std::make_pair(entity.second.get(), metric.second);
+            auto found = entity_metrics_by_types.find(metric.first);
+            if (found == entity_metrics_by_types.end()) {
+                entity_metrics_by_types.emplace(metric.first, std::vector<std::pair<MetricEntity*, Metric*>>({new_elem}));
+            } else {
+                found->second.emplace_back(new_elem);
+            }
         }
-        for (auto metric : metrics) {
-            _deregister_locked(metric);
+    }
+    // Output
+    std::string last_group_name;
+    for (const auto& entity_metrics_by_type : entity_metrics_by_types) {
+        if (last_group_name.empty() || last_group_name != entity_metrics_by_type.first->group_name) {
+            ss << "# TYPE " << entity_metrics_by_type.first->combine_name(_name) << " "
+               << entity_metrics_by_type.first->type << "\n"; // metric TYPE line
+        }
+        last_group_name = entity_metrics_by_type.first->group_name;
+        std::string display_name = entity_metrics_by_type.first->combine_name(_name);
+        for (const auto& entity_metric : entity_metrics_by_type.second) {
+            ss << display_name                                                                           // metric name
+               << labels_to_string(entity_metric.first->_labels, entity_metrics_by_type.first->labels)   // metric labels
+               << " " << entity_metric.second->to_string() << "\n";                                      // metric value
         }
     }
-    // All register metric will deregister
-    DCHECK(_collectors.empty()) << "_collectors not empty, size=" << _collectors.size();
+
+    return ss.str();
 }
 
-bool MetricRegistry::register_metric(const std::string& name,
-                                     const MetricLabels& labels,
-                                     Metric* metric) {
-    DCHECK(metric != nullptr);
-    metric->hide();
+std::string MetricRegistry::to_json() const {
+    rj::Document doc{rj::kArrayType};
+    rj::Document::AllocatorType& allocator = doc.GetAllocator();
     std::lock_guard<SpinLock> l(_lock);
-    MetricCollector* collector = nullptr;
-    auto it = _collectors.find(name);
-    if (it == _collectors.end()) {
-        collector = new MetricCollector();
-        _collectors.emplace(name, collector);
-    } else {
-        collector = it->second;
-    }
-    auto res = collector->add_metic(labels, metric);
-    if (res) {
-        metric->_registry = this;
-    }
-    return res;
-}
-
-void MetricRegistry::_deregister_locked(Metric* metric) {
-    std::vector<std::string> to_erase;
-    for (auto& it : _collectors) {
-        it.second->remove_metric(metric);
-        if (it.second->empty()) {
-            to_erase.emplace_back(it.first);
+    for (const auto& entity : _entities) {
+        std::lock_guard<SpinLock> l(entity.second->_lock);
+        entity.second->trigger_hook_unlocked(false);
+        for (const auto& metric : entity.second->_metrics) {
+            rj::Value metric_obj(rj::kObjectType);
+            // tags
+            rj::Value tag_obj(rj::kObjectType);
+            tag_obj.AddMember("metric", rj::Value(metric.first->simple_name().c_str(), allocator), allocator);
+            // MetricPrototype's labels
+            for (auto& label : metric.first->labels) {
+                tag_obj.AddMember(
+                        rj::Value(label.first.c_str(), allocator),
+                        rj::Value(label.second.c_str(), allocator),
+                        allocator);
+            }
+            // MetricEntity's labels
+            for (auto& label : entity.second->_labels) {
+                tag_obj.AddMember(
+                        rj::Value(label.first.c_str(), allocator),
+                        rj::Value(label.second.c_str(), allocator),
+                        allocator);
+            }
+            metric_obj.AddMember("tags", tag_obj, allocator);
+            // unit
+            rj::Value unit_val(unit_name(metric.first->unit), allocator);
+            metric_obj.AddMember("unit", unit_val, allocator);
+            // value
+            metric_obj.AddMember("value", metric.second->to_json_value(), allocator);
+            doc.PushBack(metric_obj, allocator);
         }
     }
-    for (auto& name : to_erase) {
-        auto it = _collectors.find(name);
-        delete it->second;
-        _collectors.erase(it);
+
+    rj::StringBuffer strBuf;
+    rj::Writer<rj::StringBuffer> writer(strBuf);
+    doc.Accept(writer);
+    return strBuf.GetString();
+}
+
+std::string MetricRegistry::to_core_string() const {
+    std::stringstream ss;
+    std::lock_guard<SpinLock> l(_lock);
+    for (const auto& entity : _entities) {
+        std::lock_guard<SpinLock> l(entity.second->_lock);
+        entity.second->trigger_hook_unlocked(false);
+        for (const auto &metric : entity.second->_metrics) {
+            if (metric.first->is_core_metric) {
+                ss << metric.first->combine_name(_name) << " LONG " << metric.second->to_string() << "\n";
+            }
+        }
     }
-}
 
-Metric* MetricRegistry::get_metric(const std::string& name, const MetricLabels& labels) const {
-    std::lock_guard<SpinLock> l(_lock);
-    auto it = _collectors.find(name);
-    if (it != _collectors.end()) {
-        return it->second->get_metric(labels);
-    }
-    return nullptr;
-}
-
-bool MetricRegistry::register_hook(const std::string& name, const std::function<void()>& hook) {
-    std::lock_guard<SpinLock> l(_lock);
-    auto it = _hooks.emplace(name, hook);
-    return it.second;
-}
-
-void MetricRegistry::deregister_hook(const std::string& name) {
-    std::lock_guard<SpinLock> l(_lock);
-    _hooks.erase(name);
+    return ss.str();
 }
 
 }
