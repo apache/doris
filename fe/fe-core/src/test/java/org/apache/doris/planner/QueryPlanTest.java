@@ -851,6 +851,14 @@ public class QueryPlanTest {
     }
 
     @Test
+    public void testDistinctPushDown() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "select distinct k1 from (select distinct k1 from test.pushdown_test) t where k1 > 1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
+    }
+
+    @Test
     public void testConstInParitionPrune() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9 group by kk1)tt where kk1 in ('aa');";
