@@ -17,6 +17,7 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 
@@ -156,6 +157,8 @@ public class MappingPhase implements SearchPhase {
             }
             docValueField = colName;
         }
-        searchContext.docValueFieldsContext().put(colName, docValueField);
+        if (StringUtils.isNotEmpty(docValueField)) {
+            searchContext.docValueFieldsContext().put(colName, docValueField);
+        }
     }
 }
