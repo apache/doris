@@ -31,3 +31,8 @@ target_link_libraries(udasample
  -static-libstdc++
  -static-libgcc
 )
+add_library(parseurl SHARED parse_url.cpp)
+target_link_libraries(parseurl
+ -static-libstdc++
+ -static-libgcc
+)
