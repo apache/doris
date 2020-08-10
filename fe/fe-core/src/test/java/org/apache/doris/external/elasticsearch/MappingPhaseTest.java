@@ -105,11 +105,12 @@ public class MappingPhaseTest extends EsTestCase {
     }
 
     @Test
-    public void testFieldMultAnalyzer() throws Exception {
+    public void testMultTextFields() throws Exception {
         MappingPhase mappingPhase = new MappingPhase(null);
         EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext = new SearchContext(esTableAfter7X);
         mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
         assertFalse(searchContext.docValueFieldsContext().containsKey("k3"));
+
     }
 }
