@@ -205,6 +205,29 @@ public class MaterializedViewHandlerTest {
         }
     }
 
+
+    @Test
+    public void testInvalidKeysType(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
+                                    @Injectable OlapTable olapTable) {
+        new Expectations() {
+            {
+                createMaterializedViewStmt.getMVKeysType();
+                result = KeysType.DUP_KEYS;
+                olapTable.getKeysType();
+                result = KeysType.AGG_KEYS;
+            }
+        };
+
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        try {
+            Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
+                                   createMaterializedViewStmt, olapTable);
+            Assert.fail();
+        } catch (Exception e) {
+            System.out.print(e.getMessage());
+        }
+    }
+
     @Test
     public void testDuplicateTable(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
                                    @Injectable OlapTable olapTable) {
