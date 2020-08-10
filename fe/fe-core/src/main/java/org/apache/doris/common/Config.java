@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import org.apache.doris.PaloFe;
-import org.apache.doris.http.HttpServer;
 
 public class Config extends ConfigBase {
     
@@ -284,15 +283,6 @@ public class Config extends ConfigBase {
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
-
-    /*
-     * Netty http param
-     */
-    @ConfField public static int http_max_line_length = HttpServer.DEFAULT_MAX_LINE_LENGTH;
-
-    @ConfField public static int http_max_header_size = HttpServer.DEFAULT_MAX_HEADER_SIZE;
-
-    @ConfField public static int http_max_chunk_size = HttpServer.DEFAULT_MAX_CHUNK_SIZE;
 
     /**
      * The backlog_num for netty http server
