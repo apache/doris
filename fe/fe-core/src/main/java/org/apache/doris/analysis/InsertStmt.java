@@ -236,10 +236,6 @@ public class InsertStmt extends DdlStmt {
         return isUserSpecifiedLabel;
     }
 
-    public UUID getUUID() {
-        return uuid;
-    }
-
     public DataSink getDataSink() {
         return dataSink;
     }
