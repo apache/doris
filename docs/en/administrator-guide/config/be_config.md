@@ -135,7 +135,7 @@ User can set this configuration to a larger value to get better QPS performance.
 ### `compaction_automatic_switch`
 
 * Type: bool
-* Description: Open automatic compaction task
+* Description: Whether open automatic compaction task
 * Default value: true
 
 Generally it needs to be turned on. When you want to manually operate the compaction task in the debugging or test environment, you can turn off the configuration.
