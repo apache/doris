@@ -91,8 +91,9 @@ Status StorageEngine::start_bg_threads() {
     // calc the max concurrency of compaction tasks
     int32_t max_compaction_concurrency = config::max_compaction_concurrency;
     if (max_compaction_concurrency < 0
-        || max_compaction_concurrency > base_compaction_num_threads + cumulative_compaction_num_threads) {
-        max_compaction_concurrency = base_compaction_num_threads + cumulative_compaction_num_threads;
+        || max_compaction_concurrency > base_compaction_num_threads + cumulative_compaction_num_threads + 1) {
+        // reserve 1 thread for manual execution
+        max_compaction_concurrency = base_compaction_num_threads + cumulative_compaction_num_threads + 1;
     }
     Compaction::init(max_compaction_concurrency);
 

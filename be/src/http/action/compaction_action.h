@@ -19,6 +19,9 @@
 
 #include "http/http_handler.h"
 #include "common/status.h"
+#include "olap/storage_engine.h"
+#include "olap/base_compaction.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -28,11 +31,19 @@ enum CompactionActionType {
     RUN_COMPACTION = 2
 };
 
-// This action is used for viewing the compaction status.
-// See compaction-action.md for details.
+const std::string PARAM_COMPACTION_TYPE = "compact_type";
+const std::string PARAM_COMPACTION_BASE = "base";
+const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
+
+/// This action is used for viewing the compaction status.
+/// See compaction-action.md for details.
 class CompactionAction : public HttpHandler {
 public:
-    CompactionAction(CompactionActionType type) : _type(type) {}
+    CompactionAction(CompactionActionType type)
+            : _type(type),
+              _is_compaction_running(false),
+              _compaction_mem_tracker(
+                      MemTracker::CreateTracker(-1, "manual compaction mem tracker(unlimited)")) {}
 
     virtual ~CompactionAction() {}
 
@@ -41,8 +52,22 @@ public:
 private:
     Status _handle_show_compaction(HttpRequest *req, std::string* json_result);
 
+    /// execute compaction request to run compaction task
+    /// param compact_type in req to distinguish the task type, base or cumulative
+    Status _handle_run_compaction(HttpRequest *req, std::string* json_result);
+
+    /// thread callback function for the tablet to do compaction
+    OLAPStatus _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
+
 private:
     CompactionActionType _type;
+
+    /// running check mutex
+    std::mutex _compaction_running_mutex;
+    /// whether there is manual compaction running
+    bool _is_compaction_running;
+    /// memory tracker
+    std::shared_ptr<MemTracker> _compaction_mem_tracker;
 };
 
 } // end namespace doris
