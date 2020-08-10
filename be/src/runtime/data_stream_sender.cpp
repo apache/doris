@@ -42,7 +42,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/palo_internal_service.pb.h"
 
 #include <arpa/inet.h>
 
@@ -175,7 +174,7 @@ private:
     PUniqueId _finst_id;
     PRowBatch _pb_batch;
     PTransmitDataParams _brpc_request;
-    palo::PInternalService_Stub* _brpc_stub = nullptr;
+    PBackendService_Stub* _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
