@@ -124,7 +124,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&sch
 ```
 {
     "status": "Success",
-    "msg": "compaction task is successfully trigged."
+    "msg": "compaction task is successfully triggered."
 }
 ```
 

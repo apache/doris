@@ -124,7 +124,7 @@ If the compaction execution task successes to be triggered, an error in JSON for
 ```
 {
     "status": "Success",
-    "msg": "compaction task is successfully trigged."
+    "msg": "compaction task is successfully triggered."
 }
 ```
 
@@ -142,14 +142,40 @@ curl -X GET http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema
 ## Manual Compaction execution statu
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/run_status
+curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy
 ```
-
-JSON format is returned:
+If the tablet does not exist, an error in JSON format is returned:
 
 ```
 {
-    "run_status": 0
+    "status": "Fail",
+    "msg": "Tablet not found"
+}
+```
+
+If the tablet exists and the tablet is not running, JSON format is returned:
+
+```
+{
+    "status" : "Success",
+    "run_status" : false,
+    "msg" : "this tablet_id is not running",
+    "tablet_id" : 11308,
+    "schema_hash" : 700967178,
+    "compact_type" : ""
+}
+```
+
+If the tablet exists and the tablet is running, JSON format is returned:
+
+```
+{
+    "status" : "Success",
+    "run_status" : true,
+    "msg" : "this tablet_id is running",
+    "tablet_id" : 11308,
+    "schema_hash" : 700967178,
+    "compact_type" : "cumulative"
 }
 ```
 
@@ -160,5 +186,5 @@ Explanation of results:
 ### Examples
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/run_status
+curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015\&schema_hash=1294206575
 

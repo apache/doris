@@ -256,8 +256,8 @@ namespace config {
     CONF_Bool(disable_storage_page_cache, "false");
 
     // be policy
-    // whether open automatic compaction task
-    CONF_Bool(compaction_automatic_switch, "true");
+    // whether disable automatic compaction task
+    CONF_mBool(disable_auto_compaction, "false");
 
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");

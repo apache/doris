@@ -62,6 +62,9 @@ private:
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
+    /// check param and fetch tablet_id and schema_hash from req
+    Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint32_t* schema_hash);
+
 private:
     CompactionActionType _type;
 
@@ -69,6 +72,12 @@ private:
     static std::mutex _compaction_running_mutex;
     /// whether there is manual compaction running
     static bool _is_compaction_running;
+    /// tablet id of current running manual compaction
+    static uint64_t _current_tablet_id;
+    /// schema hash of current running manual compaction
+    static uint32_t _current_schema_hash;
+    /// compaction type of current running manual compaction
+    static std::string _current_compaction_type;
     /// memory tracker
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
 };

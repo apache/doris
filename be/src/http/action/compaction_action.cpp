@@ -41,9 +41,12 @@ const static std::string HEADER_JSON = "application/json";
 
 bool CompactionAction::_is_compaction_running = false;
 std::mutex CompactionAction::_compaction_running_mutex;
+uint64_t CompactionAction::_current_tablet_id = -1;
+uint32_t CompactionAction::_current_schema_hash = -1;
+std::string CompactionAction::_current_compaction_type = "";
 
-// for viewing the compaction status
-Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
+Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uint32_t* schema_hash) {
+    
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
     if (req_tablet_id == "" && req_schema_hash == "") {
@@ -51,15 +54,27 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
         return Status::NotSupported("The overall compaction status is not supported yet");
     }
 
-    uint64_t tablet_id = 0;
-    uint32_t schema_hash = 0;
     try {
-        tablet_id = std::stoull(req_tablet_id);
-        schema_hash = std::stoul(req_schema_hash);
+        *tablet_id = std::stoull(req_tablet_id);
+        *schema_hash = std::stoul(req_schema_hash);
     } catch (const std::exception& e) {
         LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
                      << ", schema_hash:" << req_schema_hash;
         return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
+    }
+
+    return Status::OK();
+}
+
+// for viewing the compaction status
+Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
+    
+    uint64_t tablet_id = 0;
+    uint32_t schema_hash = 0;
+    
+    Status status = _check_param(req, &tablet_id, &schema_hash);
+    if (!status.ok()) {
+        return status;
     }
 
     TabletSharedPtr tablet =
@@ -74,31 +89,20 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
 
 Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* json_result) {
 
-    std::string req_tablet_id = req->param(TABLET_ID_KEY);
-    std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
-    std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
-
     // 1. param check
+    uint64_t tablet_id = 0;
+    uint32_t schema_hash = 0;
+    
     // check req_tablet_id and req_schema_hash is not empty
-    if (req_tablet_id == "" && req_schema_hash == "") {
-        return Status::NotSupported("The overall compaction status is not supported yet");
+    Status check_status = _check_param(req, &tablet_id, &schema_hash);
+    if (!check_status.ok()) {
+        return check_status;
     }
 
+    std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
     // check compaction_type is not empty and equals base or cumulative
     if (compaction_type == "" && !(compaction_type == PARAM_COMPACTION_BASE || compaction_type == PARAM_COMPACTION_CUMULATIVE)) {
         return Status::NotSupported("The compaction type is not supported");
-    }
-
-    // convert req_tablet_id amd req_schema_hash to int
-    uint64_t tablet_id = 0;
-    uint32_t schema_hash = 0;
-    try {
-        tablet_id = std::stoull(req_tablet_id);
-        schema_hash = std::stoul(req_schema_hash);
-    } catch (const std::exception& e) {
-        LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
-                     << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
     }
 
     // 2. fetch the tablet by tablet_id and schema_hash
@@ -106,10 +110,10 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
 
     if (tablet == nullptr) {
-        LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
-                     << ", schema_hash:" << req_schema_hash;
+        LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id
+                     << ", schema_hash:" << schema_hash;
         return Status::InternalError(
-                strings::Substitute("fail to get $0, $1", req_tablet_id, req_schema_hash));
+                strings::Substitute("fail to get $0, $1", tablet_id, schema_hash));
     }
 
     // 3. execute compaction task
@@ -126,6 +130,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
         } else {
             // 3.2 execute the compaction task and set compaction task running 
             _is_compaction_running = true;
+            _current_tablet_id = tablet_id;
+            _current_schema_hash = schema_hash;
+            _current_compaction_type = compaction_type;
             std::thread(std::move(task)).detach();
         }
     }
@@ -143,16 +150,44 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
         LOG(INFO) << "Manual compaction task is timeout for waiting " << (status == std::future_status::timeout);
     }
    
-    LOG(INFO) << "Manual compaction task is successfully trigged";
-    *json_result = "{\"status\": \"Success\", \"msg\": \"compaction task is successfully trigged.\"}";
+    LOG(INFO) << "Manual compaction task is successfully triggered";
+    *json_result = "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered.\"}";
 
     return Status::OK();
 }
 
 Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::string* json_result) {
 
+    uint64_t tablet_id = 0;
+    uint32_t schema_hash = 0;
+    
+    // check req_tablet_id and req_schema_hash is not empty
+    Status check_status = _check_param(req, &tablet_id, &schema_hash);
+    if (!check_status.ok()) {
+        return check_status;
+    }
+
+    std::string json_template = R"({
+        "status" : "Success",
+        "run_status" : $0,
+        "msg" : "$1",
+        "tablet_id" : $2,
+        "schema_hash" : $3,
+        "compact_type" : "$4"
+})";
+
     std::lock_guard<std::mutex> lock(_compaction_running_mutex);
-    *json_result = "{\"run_status\": " + std::to_string(_is_compaction_running) + "}";
+    std::string msg = "this tablet_id is not running";
+    std::string compaction_type = "";
+    bool run_status = 0;
+    if (_current_tablet_id == tablet_id && _is_compaction_running) {
+        msg = "this tablet_id is running";
+        compaction_type = _current_compaction_type;
+        run_status = 1;
+    }
+
+    *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
+                                       compaction_type);
     return Status::OK();
 }
 

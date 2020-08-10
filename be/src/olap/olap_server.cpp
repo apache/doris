@@ -98,32 +98,30 @@ Status StorageEngine::start_bg_threads() {
     }
     Compaction::init(max_compaction_concurrency);
 
-    // check whether automatic switch is on
-    if (config::compaction_automatic_switch) {
-        _base_compaction_threads.reserve(base_compaction_num_threads);
-        for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
-            _base_compaction_threads.emplace_back(
-                [this, data_dir_num, data_dirs, i] {
-                    _base_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
-                });
-        }
-        for (auto& thread : _base_compaction_threads) {
-            thread.detach();
-        }
-        LOG(INFO) << "base compaction threads started. number: " << base_compaction_num_threads;
-
-        _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
-        for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
-            _cumulative_compaction_threads.emplace_back(
-                [this, data_dir_num, data_dirs, i] {
-                    _cumulative_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
-                });
-        }
-        for (auto& thread : _cumulative_compaction_threads) {
-            thread.detach();
-        }
-        LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
+    _base_compaction_threads.reserve(base_compaction_num_threads);
+    for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
+        _base_compaction_threads.emplace_back(
+            [this, data_dir_num, data_dirs, i] {
+                _base_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
+            });
     }
+    for (auto& thread : _base_compaction_threads) {
+        thread.detach();
+    }
+    LOG(INFO) << "base compaction threads started. number: " << base_compaction_num_threads;
+
+    _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
+    for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
+        _cumulative_compaction_threads.emplace_back(
+            [this, data_dir_num, data_dirs, i] {
+                _cumulative_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
+            });
+    }
+    for (auto& thread : _cumulative_compaction_threads) {
+        thread.detach();
+    }
+    LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
+
     // tablet checkpoint thread
     for (auto data_dir : data_dirs) {
         _tablet_checkpoint_threads.emplace_back(
@@ -196,20 +194,24 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_d
     //string last_base_compaction_fs;
     //TTabletId last_base_compaction_tablet_id = -1;
     while (!_stop_bg_worker) {
-        // must be here, because this thread is start on start and
-        // cgroup is not initialized at this time
-        // add tid to cgroup
-        CgroupsMgr::apply_system_cgroup();
-        if (!data_dir->reach_capacity_limit(0)) {
-            _perform_base_compaction(data_dir);
+
+        if (!config::disable_auto_compaction) {
+            // must be here, because this thread is start on start and
+            // cgroup is not initialized at this time
+            // add tid to cgroup
+            CgroupsMgr::apply_system_cgroup();
+            if (!data_dir->reach_capacity_limit(0)) {
+                _perform_base_compaction(data_dir);
+            }
         }
 
         int32_t interval = config::base_compaction_check_interval_seconds;
         if (interval <= 0) {
             OLAP_LOG_WARNING("base compaction check interval config is illegal: [%d], "
-                             "force set to 1", interval);
+                            "force set to 1", interval);
             interval = 1;
         }
+        
         SLEEP_IN_BG_WORKER(interval);
     }
 
@@ -288,18 +290,20 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* 
     LOG(INFO) << "try to start cumulative compaction process!";
 
     while (!_stop_bg_worker) {
-        // must be here, because this thread is start on start and
-        // cgroup is not initialized at this time
-        // add tid to cgroup
-        CgroupsMgr::apply_system_cgroup();
-        if (!data_dir->reach_capacity_limit(0)) {
-            _perform_cumulative_compaction(data_dir);
-        }
 
+        if (!config::disable_auto_compaction) {
+            // must be here, because this thread is start on start and
+            // cgroup is not initialized at this time
+            // add tid to cgroup
+            CgroupsMgr::apply_system_cgroup();
+            if (!data_dir->reach_capacity_limit(0)) {
+                _perform_cumulative_compaction(data_dir);
+            }
+        }
         int32_t interval = config::cumulative_compaction_check_interval_seconds;
         if (interval <= 0) {
             LOG(WARNING) << "cumulative compaction check interval config is illegal:" << interval
-                         << "will be forced set to one";
+                        << "will be forced set to one";
             interval = 1;
         }
         SLEEP_IN_BG_WORKER(interval);
