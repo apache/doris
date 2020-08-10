@@ -127,7 +127,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
         }
     }
 
-    // 4. wait for result for 2 seconds
+    // 4. wait for result for 2 seconds by async
     std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
     if (status == std::future_status::ready) {
         // fetch execute result
@@ -141,7 +141,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
     }
    
     LOG(INFO) << "Manual compaction task is successfully trigged";
-    *json_result = "{\"messege\": \"compaction task is successfully trigged.\"}";
+    *json_result = "{\"status\": \"Success\", \"msg\": \"compaction task is successfully trigged.\"}";
 
     return Status::OK();
 }
