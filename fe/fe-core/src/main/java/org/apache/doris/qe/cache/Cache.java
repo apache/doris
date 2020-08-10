@@ -18,7 +18,7 @@
 package org.apache.doris.qe.cache;
 
 import org.apache.doris.analysis.SelectStmt;
-//import org.apache.doris.common.Config;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
@@ -38,8 +38,8 @@ public abstract class Cache {
 
     protected TUniqueId queryId;
     protected SelectStmt selectStmt;
-    //protected RowBatchBuilder rowBatchBuilder;
-    //protected CacheAnalyzer.CacheTable latestTable;
+    protected RowBatchBuilder rowBatchBuilder;
+    protected CacheAnalyzer.CacheTable latestTable;
     protected CacheProxy proxy;
     protected HitRange hitRange;
 
@@ -72,7 +72,6 @@ public abstract class Cache {
     public abstract void updateCache();
 
     protected boolean checkRowLimit() {
-        /*
         if (rowBatchBuilder == null) {
             return false;
         }
@@ -82,7 +81,6 @@ public abstract class Cache {
             return false;
         } else {
             return true;
-        }*/
-        return false;
+        }
     }
 }
