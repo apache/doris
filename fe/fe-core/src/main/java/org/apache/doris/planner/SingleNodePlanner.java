@@ -2051,16 +2051,17 @@ public class SingleNodePlanner {
                 Expr sourceExpr = slotDesc.getSourceExprs().get(0);
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null
-                if (stmt.getGroupByClause().isGroupByExtension()
-                        && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
+                GroupByClause groupByClause = stmt.getGroupByClause();
+                if (groupByClause != null && groupByClause.isGroupByExtension()
+                        && groupByClause.getGroupingExprs().contains(sourceExpr)) {
                     // if grouping type is CUBE or ROLLUP will definitely produce null
-                    if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
-                            || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
+                    if (groupByClause.getGroupingType() == GroupByClause.GroupingType.CUBE
+                            || groupByClause.getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
                         isAllSlotReferingGroupBys = false;
                     } else {
                         // if grouping type is GROUPING_SETS and the predicate not in all grouping list,
                         // the predicate cannot be push down
-                        for (List<Expr> exprs: stmt.getGroupByClause().getGroupingSetList()) {
+                        for (List<Expr> exprs: groupByClause.getGroupingSetList()) {
                             if (!exprs.contains(sourceExpr)) {
                                 isAllSlotReferingGroupBys = false;
                                 break;

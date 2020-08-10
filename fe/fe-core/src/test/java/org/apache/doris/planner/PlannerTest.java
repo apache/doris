@@ -306,6 +306,29 @@ public class PlannerTest {
         Planner planner2 = stmtExecutor2.planner();
         List<PlanFragment> fragments2 = planner2.getFragments();
         Assert.assertEquals(4, fragments2.get(0).getPlanRoot().getChild(0).conjuncts.size());
+    }
+
+    @Test
+    public void testDistinctInSubQuery() {
+        String sql1 = "SELECT\n" +
+                "    *\n" +
+                "FROM\n" +
+                "    (\n" +
+                "        SELECT\n" +
+                "            DISTINCT k1,\n" +
+                "            k2\n" +
+                "        FROM\n" +
+                "            db1.tbl1\n" +
+                "    ) a\n" +
+                "WHERE\n" +
+                "    a.k1 IS NOT NULL";
+        try {
+            StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+            stmtExecutor1.execute();
+            Assert.assertNotEquals(0, stmtExecutor1.planner().getFragments().size());
+        } catch (Exception e) {
+            Assert.fail("No exception should be thrown.");
+        }
 
     }
 
