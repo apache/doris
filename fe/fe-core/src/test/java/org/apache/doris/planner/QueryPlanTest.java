@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -968,5 +969,32 @@ public class QueryPlanTest {
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+    }
+
+    @Test
+    public void testEmptyNode() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String emptyNode = "EMPTYSET";
+        String denseRank = "dense_rank";
+
+        List<String> sqls = Lists.newArrayList();
+        sqls.add("explain select * from baseall limit 0");
+        sqls.add("explain select count(*) from baseall limit 0;");
+        sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall limit 0;");
+        sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a limit 0;");
+        sqls.add("explain select * from baseall join bigtable as b limit 0");
+
+        sqls.add("explain select * from baseall where 1 = 2");
+        sqls.add("explain select count(*) from baseall where 1 = 2;");
+        sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall where 1 =2;");
+        sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a where 1 =2;");
+        sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
+
+        for(String sql: sqls) {
+            String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+            System.out.println(explainString);
+            Assert.assertTrue(explainString.contains(emptyNode));
+            Assert.assertFalse(explainString.contains(denseRank));
+        }
     }
 }
