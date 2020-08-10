@@ -133,7 +133,7 @@ void* calculate_metrics(void* dummy) {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     while (true) {
-        DorisMetrics::instance()->metrics()->trigger_hook();
+        DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
             last_ts = GetCurrentTimeMicros() / 1000;
@@ -204,7 +204,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
         }
     }
     DorisMetrics::instance()->initialize(
-        paths, init_system_metrics, disk_devices, network_interfaces);
+        init_system_metrics, disk_devices, network_interfaces);
 
     if (config::enable_metric_calculator) {
         pthread_t calculator_pid;

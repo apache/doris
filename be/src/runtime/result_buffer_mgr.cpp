@@ -26,6 +26,8 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(result_buffer_block_count, MetricUnit::NOUNIT);
+
 //std::size_t hash_value(const TUniqueId& fragment_id) {
 //    uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);
 //    value = RawValue::get_hash_value(&fragment_id.hi, TypeDescriptor(TYPE_BIGINT), value);
@@ -36,13 +38,14 @@ ResultBufferMgr::ResultBufferMgr()
     : _is_stop(false) {
     // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
     // actual size of all BufferControlBlock.
-    REGISTER_GAUGE_DORIS_METRIC(result_buffer_block_count, [this]() {
+    REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
         boost::lock_guard<boost::mutex> l(_lock);
         return _buffer_map.size();
     });
 }
 
 ResultBufferMgr::~ResultBufferMgr() {
+    DEREGISTER_HOOK_METRIC(result_buffer_block_count);
     _is_stop = true;
     _cancel_thread->join();
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -886,9 +887,16 @@ public class QueryPlanTest {
 
     @Test
     public void testColocateJoin() throws Exception {
+        FeConstants.runningUnitTest = true;
+
         String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and t1.k2 = t2.k2 and t1.k3 = t2.k3";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
+
+        // t1.k1 = t2.k2 not same order with distribute column
+        queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: false"));
 
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -897,9 +905,17 @@ public class QueryPlanTest {
 
     @Test
     public void testSelfColocateJoin() throws Exception {
+        FeConstants.runningUnitTest = true;
+
+        // single partition
         String queryStr = "explain select * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
+
+        // multi partition, should not be colocate
+        queryStr = "explain select * from test.dynamic_partition t1, test.dynamic_partition t2 where t1.k1 = t2.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: false"));
     }
 
     @Test
@@ -953,5 +969,32 @@ public class QueryPlanTest {
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+    }
+
+    @Test
+    public void testEmptyNode() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String emptyNode = "EMPTYSET";
+        String denseRank = "dense_rank";
+
+        List<String> sqls = Lists.newArrayList();
+        sqls.add("explain select * from baseall limit 0");
+        sqls.add("explain select count(*) from baseall limit 0;");
+        sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall limit 0;");
+        sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a limit 0;");
+        sqls.add("explain select * from baseall join bigtable as b limit 0");
+
+        sqls.add("explain select * from baseall where 1 = 2");
+        sqls.add("explain select count(*) from baseall where 1 = 2;");
+        sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall where 1 =2;");
+        sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a where 1 =2;");
+        sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
+
+        for(String sql: sqls) {
+            String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+            System.out.println(explainString);
+            Assert.assertTrue(explainString.contains(emptyNode));
+            Assert.assertFalse(explainString.contains(denseRank));
+        }
     }
 }

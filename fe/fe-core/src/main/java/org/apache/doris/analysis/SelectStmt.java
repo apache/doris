@@ -1567,6 +1567,13 @@ public class SelectStmt extends QueryStmt {
         return strBuilder.toString();
     }
 
+    /**
+     * If the select statement has a sort/top that is evaluated, then the sort tuple
+     * is materialized. Else, if there is aggregation then the aggregate tuple id is
+     * materialized. Otherwise, all referenced tables are materialized as long as they are
+     * not semi-joined. If there are analytics and no sort, then the returned tuple
+     * ids also include the logical analytic output tuple.
+     */
     @Override
     public void getMaterializedTupleIds(ArrayList<TupleId> tupleIdList) {
         // If select statement has an aggregate, then the aggregate tuple id is materialized.
@@ -1585,6 +1592,7 @@ public class SelectStmt extends QueryStmt {
                 tupleIdList.addAll(tblRef.getMaterializedTupleIds());
             }
         }
+        // Fixme(kks): get tuple id from analyticInfo is wrong, should get from AnalyticEvalNode
         // We materialize the agg tuple or the table refs together with the analytic tuple.
         if (hasAnalyticInfo() && isEvaluateOrderBy()) {
             tupleIdList.add(analyticInfo.getOutputTupleId());

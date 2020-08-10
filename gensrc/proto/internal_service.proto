@@ -169,7 +169,7 @@ message PCacheParam {
 message PCacheValue {
     required PCacheParam param = 1;
     required int32 data_size = 2;
-    repeated bytes row = 3;
+    repeated bytes rows = 3;
 };
 
 //for update&clear return
@@ -179,17 +179,17 @@ message PCacheResponse {
 
 message PUpdateCacheRequest{
     required PUniqueId sql_key = 1;
-    repeated PCacheValue value = 2;
+    repeated PCacheValue values = 2;
 };
 
 message PFetchCacheRequest {
     required PUniqueId sql_key = 1;
-    repeated PCacheParam param = 2;
+    repeated PCacheParam params = 2;
 };
 
 message PFetchCacheResult {
     required PCacheStatus status = 1;
-    repeated PCacheValue value = 2;
+    repeated PCacheValue values = 2;
 };
 
 enum PClearType {

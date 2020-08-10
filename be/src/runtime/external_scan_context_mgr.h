@@ -50,10 +50,7 @@ public:
 
     ExternalScanContextMgr(ExecEnv* exec_env);
 
-    ~ExternalScanContextMgr() {
-        _is_stop = true;
-        _keep_alive_reaper->join();
-    }
+    ~ExternalScanContextMgr();
 
     Status create_scan_context(std::shared_ptr<ScanContext>* p_context);
 

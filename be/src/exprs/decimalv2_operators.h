@@ -54,6 +54,7 @@ public:
     static DoubleVal cast_to_double_val(FunctionContext*, const DecimalV2Val&);
     static StringVal cast_to_string_val(FunctionContext*, const DecimalV2Val&);
     static DateTimeVal cast_to_datetime_val(FunctionContext*, const DecimalV2Val&);
+    static DateTimeVal cast_to_date_val(FunctionContext*, const DecimalV2Val&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const DecimalV2Val&);
 
     static DecimalV2Val add_decimalv2_val_decimalv2_val(
