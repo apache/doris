@@ -39,6 +39,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
+bool CompactionAction::_is_compaction_running = false;
+std::mutex CompactionAction::_compaction_running_mutex;
+
 // for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
@@ -146,6 +149,13 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
     return Status::OK();
 }
 
+Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::string* json_result) {
+
+    std::lock_guard<std::mutex> lock(_compaction_running_mutex);
+    *json_result = "{\"run_status\": " + std::to_string(_is_compaction_running) + "}";
+    return Status::OK();
+}
+
 OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                                                     const std::string& compaction_type) {
     OLAPStatus status = OLAP_SUCCESS;
@@ -194,7 +204,7 @@ void CompactionAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
-    } else {
+    } else if (_type == CompactionActionType::RUN_COMPACTION) {
         std::string json_result;
         Status st = _handle_run_compaction(req, &json_result);
         if (!st.ok()) {
@@ -202,7 +212,15 @@ void CompactionAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
+    } else {
+        std::string json_result;
+        Status st = _handle_run_status_compaction(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, to_json(st));
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
     }
-}
 
+}
 } // end namespace doris

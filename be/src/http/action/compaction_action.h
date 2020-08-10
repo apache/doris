@@ -28,7 +28,8 @@ namespace doris {
 
 enum CompactionActionType {
     SHOW_INFO = 1,
-    RUN_COMPACTION = 2
+    RUN_COMPACTION = 2,
+    RUN_COMPACTION_STATUS = 3,
 };
 
 const std::string PARAM_COMPACTION_TYPE = "compact_type";
@@ -41,7 +42,6 @@ class CompactionAction : public HttpHandler {
 public:
     CompactionAction(CompactionActionType type)
             : _type(type),
-              _is_compaction_running(false),
               _compaction_mem_tracker(
                       MemTracker::CreateTracker(-1, "manual compaction mem tracker(unlimited)")) {}
 
@@ -59,13 +59,16 @@ private:
     /// thread callback function for the tablet to do compaction
     OLAPStatus _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
 
+    /// fetch compaction running status
+    Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
+
 private:
     CompactionActionType _type;
 
     /// running check mutex
-    std::mutex _compaction_running_mutex;
+    static std::mutex _compaction_running_mutex;
     /// whether there is manual compaction running
-    bool _is_compaction_running;
+    static bool _is_compaction_running;
     /// memory tracker
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
 };

@@ -83,6 +83,7 @@ Status StorageEngine::start_bg_threads() {
     }
     int32_t data_dir_num = data_dirs.size();
 
+    
     // base and cumulative compaction threads
     int32_t base_compaction_num_threads_per_disk = std::max<int32_t>(1, config::base_compaction_num_threads_per_disk);
     int32_t cumulative_compaction_num_threads_per_disk = std::max<int32_t>(1, config::cumulative_compaction_num_threads_per_disk);
@@ -97,30 +98,32 @@ Status StorageEngine::start_bg_threads() {
     }
     Compaction::init(max_compaction_concurrency);
 
-    _base_compaction_threads.reserve(base_compaction_num_threads);
-    for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
-        _base_compaction_threads.emplace_back(
-            [this, data_dir_num, data_dirs, i] {
-                _base_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
-            });
-    }
-    for (auto& thread : _base_compaction_threads) {
-        thread.detach();
-    }
-    LOG(INFO) << "base compaction threads started. number: " << base_compaction_num_threads;
+    // check whether automatic switch is on
+    if (config::compaction_automatic_switch) {
+        _base_compaction_threads.reserve(base_compaction_num_threads);
+        for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
+            _base_compaction_threads.emplace_back(
+                [this, data_dir_num, data_dirs, i] {
+                    _base_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
+                });
+        }
+        for (auto& thread : _base_compaction_threads) {
+            thread.detach();
+        }
+        LOG(INFO) << "base compaction threads started. number: " << base_compaction_num_threads;
 
-    _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
-    for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
-        _cumulative_compaction_threads.emplace_back(
-            [this, data_dir_num, data_dirs, i] {
-                _cumulative_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
-            });
+        _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
+        for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
+            _cumulative_compaction_threads.emplace_back(
+                [this, data_dir_num, data_dirs, i] {
+                    _cumulative_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
+                });
+        }
+        for (auto& thread : _cumulative_compaction_threads) {
+            thread.detach();
+        }
+        LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
     }
-    for (auto& thread : _cumulative_compaction_threads) {
-        thread.detach();
-    }
-    LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
-
     // tablet checkpoint thread
     for (auto data_dir : data_dirs) {
         _tablet_checkpoint_threads.emplace_back(

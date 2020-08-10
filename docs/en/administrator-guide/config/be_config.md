@@ -132,6 +132,14 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `create_tablet_worker_count`
 
+### `compaction_automatic_switch`
+
+* Type: bool
+* Description: Open automatic compaction task
+* Default value: true
+
+Generally it needs to be turned on. When you want to manually operate the compaction task in the debugging or test environment, you can turn off the configuration.
+
 ### `cumulative_compaction_budgeted_bytes`
 
 ### `cumulative_compaction_check_interval_seconds`

@@ -95,4 +95,70 @@ curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015\&schem
 
 ## Manually trigger Compaction
 
-(TODO)
+```
+curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
+```
+
+The only one manual compaction task that can be performed at a moment, and the value range of compact_type is base or cumulative
+
+If the tablet does not exist, an error in JSON format is returned:
+
+```
+{
+    "status": "Fail",
+    "msg": "Tablet not found"
+}
+```
+
+If the compaction execution task fails to be triggered, an error in JSON format is returned:
+
+```
+{
+    "status": "Fail",
+    "msg": "fail to execute compaction, error = -2000"
+}
+```
+
+If the compaction execution task successes to be triggered, an error in JSON format is returned:
+
+```
+{
+    "status": "Success",
+    "msg": "compaction task is successfully trigged."
+}
+```
+
+Explanation of results:
+
+* status: Trigger task status, when it is successfully triggered, it is Success; when for some reason (for example, the appropriate version is not obtained), it returns Fail.
+* msg: Give specific success or failure information.
+
+### Examples
+
+```
+curl -X GET http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
+```
+
+## Manual Compaction execution statu
+
+```
+curl -X GET http://be_host:webserver_port/api/compaction/run_status
+```
+
+JSON format is returned:
+
+```
+{
+    "run_status": 0
+}
+```
+
+Explanation of results:
+
+* run_status: Get the current manual compaction task execution status.
+
+### Examples
+
+```
+curl -X GET http://192.168.10.24:8040/api/compaction/run_status
+

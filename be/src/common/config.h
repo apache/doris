@@ -256,6 +256,8 @@ namespace config {
     CONF_Bool(disable_storage_page_cache, "false");
 
     // be policy
+    CONF_Bool(compaction_automatic_switch, "true");
+
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");
     CONF_mInt32(base_compaction_check_interval_seconds, "60");
