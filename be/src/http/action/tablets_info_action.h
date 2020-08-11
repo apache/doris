@@ -29,10 +29,10 @@ public:
     TabletsInfoAction();
     void handle(HttpRequest *req) override;
     EasyJson get_tablets_info();
-    std::string hostname() { return _hostname; }
+    std::string host() { return _host; }
 
 private:
-    std::string _hostname;
+    std::string _host;
 };
 } // namespace doris
 

@@ -18,12 +18,12 @@
 #include "http/action/tablets_info_action.h"
 
 #include <string>
-#include <unistd.h>
 
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_headers.h"
 #include "http/http_status.h"
+#include "service/backend_options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 
@@ -32,9 +32,7 @@ namespace doris {
 const static std::string HEADER_JSON = "application/json";
 
 TabletsInfoAction::TabletsInfoAction() {
-    char name[256];
-    gethostname(name, sizeof(name));
-    _hostname = name;
+    _host = BackendOptions::get_localhost();
 }
 
 void TabletsInfoAction::handle(HttpRequest *req) {
@@ -44,19 +42,20 @@ void TabletsInfoAction::handle(HttpRequest *req) {
 
 EasyJson TabletsInfoAction::get_tablets_info() {
     EasyJson tablets_info_ej;
-    EasyJson be_node = tablets_info_ej.Set("node", EasyJson::kObject);
-    be_node["hostname"] = _hostname;
+    tablets_info_ej["msg"] = "OK";
+    tablets_info_ej["code"] = 0;
+    EasyJson data = tablets_info_ej.Set("data", EasyJson::kObject);
+    data["host"] = _host;
     std::vector<TabletInfo> tablets_info;
     TabletManager* tablet_manager = StorageEngine::instance()->tablet_manager();
     tablet_manager->obtain_all_tablets(tablets_info);
-    be_node["tablet number"] = tablets_info.size();
-    EasyJson tablets = tablets_info_ej.Set("tablets", EasyJson::kArray);
-
+    EasyJson tablets = data.Set("tablets", EasyJson::kArray);
     for(int i = 0; i < tablets_info.size(); i++) {
         EasyJson tablet = tablets.PushBack(EasyJson::kObject);
         tablet["tablet_id"] = tablets_info[i].tablet_id;
         tablet["schema_hash"] = tablets_info[i].schema_hash;
     }
+    tablets_info_ej["count"] = tablets_info.size();
     return tablets_info_ej;
 }
 } // namespace doris

@@ -27,12 +27,14 @@ under the License.
     </tr>
   </thead>
   <tbody>
-    {{#tablets}}
-    <tr>
-      <td><a href="{{hostname}}/api/meta/header/{{tablet_id}}/{{schema_hash}}">{{tablet_id}}</a></td>
-      <td><a href="{{hostname}}/api/meta/header/{{tablet_id}}/{{schema_hash}}">{{schema_hash}}</a></td>
-    </tr>
-    {{/tablets}}
+    {{#data}}
+      {{#tablets}}
+        <tr>
+          <td><a href="/api/meta/header/{{tablet_id}}/{{schema_hash}}" target="_blank">{{tablet_id}}</a></td>
+          <td><a href="/api/meta/header/{{tablet_id}}/{{schema_hash}}" target="_blank">{{schema_hash}}</a></td>
+        </tr>
+      {{/tablets}}
+    {{/data}}
   </tbody>
 </table>
 
