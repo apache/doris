@@ -103,7 +103,14 @@ void mem_usage_handler(const std::shared_ptr<MemTracker>& mem_tracker,
 
 void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
     TabletsInfoAction tablet_info_action;
-    (*ej) = tablet_info_action.get_tablets_info();
+    std::string tablet_num_to_return;
+    WebPageHandler::ArgumentMap::const_iterator it = args.find("limit");
+if (it != args.end()) {
+        tablet_num_to_return = it->second;
+    } else {
+        tablet_num_to_return = "";
+    }
+    (*ej) = tablet_info_action.get_tablets_info(tablet_num_to_return);
 }
 
 void add_default_path_handlers(WebPageHandler* web_page_handler,

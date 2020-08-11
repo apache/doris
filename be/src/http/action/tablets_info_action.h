@@ -28,7 +28,7 @@ class TabletsInfoAction : public HttpHandler {
 public:
     TabletsInfoAction();
     void handle(HttpRequest *req) override;
-    EasyJson get_tablets_info();
+    EasyJson get_tablets_info(std::string tablet_num_to_return);
     std::string host() { return _host; }
 
 private:

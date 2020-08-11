@@ -36,26 +36,45 @@ TabletsInfoAction::TabletsInfoAction() {
 }
 
 void TabletsInfoAction::handle(HttpRequest *req) {
+    const std::string& tablet_num_to_return = req->param("limit");
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_info().ToString());
+    HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_info(tablet_num_to_return).ToString());
 }
 
-EasyJson TabletsInfoAction::get_tablets_info() {
-    EasyJson tablets_info_ej;
-    tablets_info_ej["msg"] = "OK";
-    tablets_info_ej["code"] = 0;
-    EasyJson data = tablets_info_ej.Set("data", EasyJson::kObject);
-    data["host"] = _host;
+EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     std::vector<TabletInfo> tablets_info;
     TabletManager* tablet_manager = StorageEngine::instance()->tablet_manager();
     tablet_manager->obtain_all_tablets(tablets_info);
+
+    int64_t number;
+    std::string msg;
+    if (tablet_num_to_return == "") {
+        number = 0;
+        msg = "Parameter Missing";
+    } else if (tablet_num_to_return == "all") {
+        number = tablets_info.size();
+        msg = "OK";
+    } else if (std::all_of(tablet_num_to_return.begin(), tablet_num_to_return.end(), ::isdigit)) {
+        int64_t tablet_num = std::atol(tablet_num_to_return.c_str());
+        number = tablet_num < tablets_info.size() ? tablet_num : tablets_info.size();
+        msg = "OK";
+    } else {
+        number = 0;
+        msg = "Parameter Error";
+    }
+
+    EasyJson tablets_info_ej;
+    tablets_info_ej["msg"] = msg;
+    tablets_info_ej["code"] = 0;
+    EasyJson data = tablets_info_ej.Set("data", EasyJson::kObject);
+    data["host"] = _host;
     EasyJson tablets = data.Set("tablets", EasyJson::kArray);
-    for(int i = 0; i < tablets_info.size(); i++) {
+    for (int64_t i = 0; i < number; i++) {
         EasyJson tablet = tablets.PushBack(EasyJson::kObject);
         tablet["tablet_id"] = tablets_info[i].tablet_id;
         tablet["schema_hash"] = tablets_info[i].schema_hash;
     }
-    tablets_info_ej["count"] = tablets_info.size();
+    tablets_info_ej["count"] = number;
     return tablets_info_ej;
 }
 } // namespace doris

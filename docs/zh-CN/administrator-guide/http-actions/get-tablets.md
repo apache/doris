@@ -1,6 +1,6 @@
 ---
 {
-    "title": "GET ALL TABLETS ON A PARTICULAR BE",
+    "title": "GET TABLETS ON A PARTICULAR BE",
     "language": "zh-CN"
 }
 ---
@@ -24,21 +24,21 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# GET ALL TABLETS ON A PARTICULAR BE
+# GET TABLETS ON A PARTICULAR BE
    
-获取特定BE节点上所有tablet的tablet id和schema hash
+获取特定BE节点上指定数量的tablet的tablet id和schema hash信息
 
 ```
-curl -X GET http://be_host:webserver_port/tablets_page
+curl -X GET http://be_host:webserver_port/tablets_page?limit=XXXXX
 ```
 
-返回值就是指定BE节点上所有tablet的tablet id和schema hash，以渲染的Web页面形式返回。
+返回值就是指定BE节点上特定数量tablet的tablet id和schema hash，以渲染的Web页面形式返回。返回的tablet数量由参数limit确定，若limit不存在，则不返回tablet；若limit的值为"all"，则返回指定BE节点上所有的tablet；若limit的值为除“all”之外的其他非数值类型，则不返回tablet。
 
 ```
-curl -X GET http://be_host:webserver_port/tablets_json
+curl -X GET http://be_host:webserver_port/tablets_json?limit=XXXXX
 ```
 
-返回值就是指定BE节点上所有tablet的tablet id和schema hash，以Json对象形式返回。
+返回值就是指定BE节点上特定数量tablet的tablet id和schema hash，以Json对象形式返回。返回的tablet数量由参数limit确定，若limit不存在，则不返回tablet；若limit的值为"all"，则返回指定BE节点上所有的tablet；若limit的值为除“all”之外的其他非数值类型，则不返回tablet。
 
 ```
 {
