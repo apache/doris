@@ -35,7 +35,7 @@ class MemTable;
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     int64_t flush_time_ns = 0;
-    int64_t flush_count= 0;
+    int64_t flush_count = 0;
     int64_t flush_size_bytes = 0;
 };
 

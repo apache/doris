@@ -79,14 +79,14 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _current_shard(0),
           _meta(nullptr) {
     _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("data_dir.") + path, {{"path", path}});
-    METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
-    METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
-    METRIC_REGISTER(_data_dir_metric_entity, disks_data_used_capacity);
-    METRIC_REGISTER(_data_dir_metric_entity, disks_state);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_data_used_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
 }
 
 DataDir::~DataDir() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(std::string("data_dir.") + _path);
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_data_dir_metric_entity);
     delete _id_generator;
     delete _meta;
 }
@@ -314,7 +314,7 @@ void DataDir::health_check() {
             }
         }
     }
-    disks_state.set_value(_is_used ? 1 : 0);
+    disks_state->set_value(_is_used ? 1 : 0);
 }
 
 OLAPStatus DataDir::_read_and_write_test_file() {
@@ -937,8 +937,8 @@ Status DataDir::update_capacity() {
             "boost::filesystem::space failed");
     }
 
-    disks_total_capacity.set_value(_disk_capacity_bytes);
-    disks_avail_capacity.set_value(_available_bytes);
+    disks_total_capacity->set_value(_disk_capacity_bytes);
+    disks_avail_capacity->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
               << ", available capacity: " << _available_bytes;
 
@@ -946,7 +946,7 @@ Status DataDir::update_capacity() {
 }
 
 void DataDir::update_user_data_size(int64_t size) {
-    disks_data_used_capacity.set_value(size);
+    disks_data_used_capacity->set_value(size);
 }
 
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {

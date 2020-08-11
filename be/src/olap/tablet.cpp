@@ -49,6 +49,9 @@ using std::sort;
 using std::string;
 using std::vector;
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_count, MetricUnit::OPERATIONS);
+
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                 DataDir* data_dir) {
     return std::make_shared<Tablet>(tablet_meta, data_dir);
@@ -67,6 +70,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
+
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_count);
 }
 
 OLAPStatus Tablet::_init_once_action() {

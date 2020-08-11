@@ -89,15 +89,15 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    _stream_load_entity = DorisMetrics::instance()->metric_registry()->register_entity("stream_load", {});
-    METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
-    METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
-    METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
-    METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
+    _stream_load_entity = DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
+    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
+    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
+    INT_GAUGE_METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
 }
 
 StreamLoadAction::~StreamLoadAction() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity("stream_load");
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_stream_load_entity);
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {
@@ -130,10 +130,10 @@ void StreamLoadAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, str);
 
     // update statstics
-    streaming_load_requests_total.increment(1);
-    streaming_load_duration_ms.increment(ctx->load_cost_nanos / 1000000);
-    streaming_load_bytes.increment(ctx->receive_bytes);
-    streaming_load_current_processing.increment(-1);
+    streaming_load_requests_total->increment(1);
+    streaming_load_duration_ms->increment(ctx->load_cost_nanos / 1000000);
+    streaming_load_bytes->increment(ctx->receive_bytes);
+    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
@@ -165,7 +165,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
-    streaming_load_current_processing.increment(1);
+    streaming_load_current_processing->increment(1);
 
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->ref();
@@ -196,7 +196,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         }
         auto str = ctx->to_json();
         HttpChannel::send_reply(req, str);
-        streaming_load_current_processing.increment(-1);
+        streaming_load_current_processing->increment(-1);
         return -1;
     }
     return 0;
