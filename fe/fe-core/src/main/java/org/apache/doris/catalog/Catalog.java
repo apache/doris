@@ -171,6 +171,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
@@ -210,6 +211,8 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -225,7 +228,6 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -2228,6 +2230,10 @@ public class Catalog {
 
     public void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
         VariableMgr.replayGlobalVariable(variable);
+    }
+
+    public void replayGlobalVariableV2(GlobalVarPersistInfo info) throws IOException, DdlException {
+        VariableMgr.replayGlobalVariableV2(info);
     }
 
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {

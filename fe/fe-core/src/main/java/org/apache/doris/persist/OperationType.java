@@ -117,6 +117,7 @@ public class OperationType {
     public static final short OP_SHOW_CLUSTERS = 80;
     public static final short OP_UPDATE_DB = 82;
     public static final short OP_DROP_LINKDB = 83;
+    public static final short OP_GLOBAL_VARIABLE_V2 = 84;
 
     public static final short OP_ADD_BROKER = 85;
     public static final short OP_DROP_BROKER = 86;
