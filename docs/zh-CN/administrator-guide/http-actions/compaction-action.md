@@ -141,7 +141,7 @@ curl -X GET http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema
 ## 手动 Compaction 执行状态
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/run_status
+curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx\&schema_hash=yyyy
 ```
 
 返回 JSON 格式：
@@ -159,4 +159,4 @@ curl -X GET http://be_host:webserver_port/api/compaction/run_status
 ### 示例
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/run_status
+curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015\&schema_hash=1294206575
