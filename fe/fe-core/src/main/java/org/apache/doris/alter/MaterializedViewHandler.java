@@ -432,7 +432,7 @@ public class MaterializedViewHandler extends AlterHandler {
         List<Column> newMVColumns = Lists.newArrayList();
         int numOfKeys = 0;
         if (olapTable.getKeysType().isAggregationFamily()) {
-            if (olapTable.getKeysType() != addMVClause.getMVKeysType()) {
+            if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS) {
                 throw new DdlException("The materialized view of aggregation or unique table must has grouping columns");
             }
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
