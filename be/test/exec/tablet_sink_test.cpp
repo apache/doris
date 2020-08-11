@@ -298,7 +298,7 @@ TDataSink get_decimal_sink(TDescriptorTable* desc_tbl) {
     return data_sink;
 }
 
-class TestInternalService : public palo::PInternalService {
+class TestInternalService : public PBackendService {
 public:
     TestInternalService() {}
     virtual ~TestInternalService() {}
