@@ -96,7 +96,7 @@ curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015\&schem
 ## Manually trigger Compaction
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
+curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
 ```
 
 The only one manual compaction task that can be performed at a moment, and the value range of compact_type is base or cumulative
@@ -136,7 +136,7 @@ Explanation of results:
 ### Examples
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
+curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
 ```
 
 ## Manual Compaction execution status

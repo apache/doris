@@ -96,7 +96,7 @@ curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015\&schem
 ## 手动触发 Compaction
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
+curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
 ```
 
 当前仅能执行一个手动compaction任务，其中compact_type取值为base或cumulative
@@ -135,7 +135,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&sch
 ### 示例
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
+curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
 ```
 
 ## 手动 Compaction 执行状态
