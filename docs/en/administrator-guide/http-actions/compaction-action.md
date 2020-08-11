@@ -142,7 +142,7 @@ curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schem
 ## Manual Compaction execution status
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy
+curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx\&schema_hash=yyyy
 ```
 If the tablet does not exist, an error in JSON format is returned:
 
