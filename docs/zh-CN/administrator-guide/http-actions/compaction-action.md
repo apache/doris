@@ -144,11 +144,38 @@ curl -X GET http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema
 curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx\&schema_hash=yyyy
 ```
 
-返回 JSON 格式：
+若 tablet 不存在，返回 JSON 格式：
 
 ```
 {
-    "run_status": 0
+    "status": "Fail",
+    "msg": "Tablet not found"
+}
+```
+
+若 tablet 存在并且 tablet 不在正在执行 compaction，返回 JSON 格式：
+
+```
+{
+    "status" : "Success",
+    "run_status" : false,
+    "msg" : "this tablet_id is not running",
+    "tablet_id" : 11308,
+    "schema_hash" : 700967178,
+    "compact_type" : ""
+}
+```
+
+若 tablet 存在并且 tablet 正在执行 compaction，返回 JSON 格式：
+
+```
+{
+    "status" : "Success",
+    "run_status" : true,
+    "msg" : "this tablet_id is running",
+    "tablet_id" : 11308,
+    "schema_hash" : 700967178,
+    "compact_type" : "cumulative"
 }
 ```
 
