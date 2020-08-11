@@ -792,6 +792,7 @@ public class EditLog {
                 case OperationType.OP_GLOBAL_VARIABLE_V2: {
                     GlobalVarPersistInfo info = (GlobalVarPersistInfo) journal.getData();
                     catalog.replayGlobalVariableV2(info);
+                    break;
                 }
                 default: {
                     IOException e = new IOException();
@@ -1361,6 +1362,6 @@ public class EditLog {
     }
 
     public void logGlobalVariableV2(GlobalVarPersistInfo info) {
-        logEdit(OperationType.OP_GLOBAL_VARIABLE, info);
+        logEdit(OperationType.OP_GLOBAL_VARIABLE_V2, info);
     }
 }

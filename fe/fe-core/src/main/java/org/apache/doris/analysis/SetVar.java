@@ -143,8 +143,8 @@ public class SetVar {
         }
 
         if (getVariable().toLowerCase().equals("exec_mem_limit")) {
-            this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getValue().getStringValue()));
-            this.result = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
+            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
+            this.result = (LiteralExpr) this.value;
         }
     }
 

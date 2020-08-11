@@ -335,7 +335,7 @@ public class VariableMgr {
                     LOG.error("failed to get global variable {} when replaying", varName);
                     continue;
                 }
-                setValue(varContext.getObj(), varContext.getField(), root.getString(varName));
+                setValue(varContext.getObj(), varContext.getField(), root.get(varName).toString());
             }
         } finally {
             wlock.unlock();

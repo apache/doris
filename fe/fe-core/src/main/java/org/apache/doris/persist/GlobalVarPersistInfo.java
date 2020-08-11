@@ -100,6 +100,7 @@ public class GlobalVarPersistInfo implements Writable {
                 }
                 Preconditions.checkState(found, varName);
 
+                theField.setAccessible(true);
                 String fieldName = theField.getAnnotation(VariableMgr.VarAttr.class).name();
                 switch (theField.getType().getSimpleName()) {
                     case "boolean":
