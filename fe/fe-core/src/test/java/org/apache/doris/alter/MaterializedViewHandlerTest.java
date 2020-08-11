@@ -189,6 +189,8 @@ public class MaterializedViewHandlerTest {
                 result = mvName;
                 createMaterializedViewStmt.getMVColumnItemList();
                 result = Lists.newArrayList(mvColumnItem);
+                createMaterializedViewStmt.getMVKeysType();
+                result = KeysType.AGG_KEYS;
                 olapTable.getColumn(columnName);
                 result = baseColumn;
                 olapTable.getKeysType();
