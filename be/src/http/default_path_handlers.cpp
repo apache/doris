@@ -105,7 +105,7 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
     TabletsInfoAction tablet_info_action;
     std::string tablet_num_to_return;
     WebPageHandler::ArgumentMap::const_iterator it = args.find("limit");
-if (it != args.end()) {
+    if (it != args.end()) {
         tablet_num_to_return = it->second;
     } else {
         tablet_num_to_return = "";
