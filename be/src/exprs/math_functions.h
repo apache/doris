@@ -35,6 +35,22 @@ public:
     static doris_udf::DoubleVal e(doris_udf::FunctionContext* ctx);
 
     static doris_udf::DoubleVal abs(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::FloatVal abs(doris_udf::FunctionContext*, const doris_udf::FloatVal&);
+    static doris_udf::DecimalVal abs(doris_udf::FunctionContext*, const doris_udf::DecimalVal&);
+    static doris_udf::DecimalV2Val abs(
+        doris_udf::FunctionContext*, const doris_udf::DecimalV2Val&);
+
+    // For integer math, we have to promote ABS() to the next highest integer type because
+    // in two's complement arithmetic, the largest negative value for any bit width is not
+    // representable as a positive value within the same width.  For the largest width, we
+    // simply overflow.  In the unlikely event a workaround is needed, one can simply cast
+     // to a higher precision decimal type.
+    static doris_udf::LargeIntVal abs(doris_udf::FunctionContext*, const doris_udf::LargeIntVal&);
+    static doris_udf::LargeIntVal abs(doris_udf::FunctionContext*, const doris_udf::BigIntVal&);
+    static doris_udf::BigIntVal abs(doris_udf::FunctionContext*, const doris_udf::IntVal&);
+    static doris_udf::IntVal abs(doris_udf::FunctionContext*, const doris_udf::SmallIntVal&);
+    static doris_udf::SmallIntVal abs(doris_udf::FunctionContext*, const doris_udf::TinyIntVal&);
+
     static doris_udf::FloatVal sign(
         doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
 
