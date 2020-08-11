@@ -32,6 +32,7 @@ import mockit.Expectations;
 import mockit.Injectable;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 public class MappingPhaseTest extends EsTestCase {
 
@@ -100,6 +101,16 @@ public class MappingPhaseTest extends EsTestCase {
         assertEquals("k3.keyword", searchContext1.docValueFieldsContext().get("k3"));
         assertEquals("k1", searchContext1.docValueFieldsContext().get("k1"));
         assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
+
+    }
+
+    @Test
+    public void testMultTextFields() throws Exception {
+        MappingPhase mappingPhase = new MappingPhase(null);
+        EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
+        SearchContext searchContext = new SearchContext(esTableAfter7X);
+        mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
+        assertFalse(searchContext.docValueFieldsContext().containsKey("k3"));
 
     }
 }
