@@ -139,7 +139,7 @@ Explanation of results:
 curl -X GET http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
 ```
 
-## Manual Compaction execution statu
+## Manual Compaction execution status
 
 ```
 curl -X GET http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy

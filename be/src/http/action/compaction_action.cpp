@@ -41,9 +41,6 @@ const static std::string HEADER_JSON = "application/json";
 
 bool CompactionAction::_is_compaction_running = false;
 std::mutex CompactionAction::_compaction_running_mutex;
-uint64_t CompactionAction::_current_tablet_id = -1;
-uint32_t CompactionAction::_current_schema_hash = -1;
-std::string CompactionAction::_current_compaction_type = "";
 
 Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uint32_t* schema_hash) {
     
@@ -130,9 +127,6 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
         } else {
             // 3.2 execute the compaction task and set compaction task running 
             _is_compaction_running = true;
-            _current_tablet_id = tablet_id;
-            _current_schema_hash = schema_hash;
-            _current_compaction_type = compaction_type;
             std::thread(std::move(task)).detach();
         }
     }
@@ -167,6 +161,17 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::st
         return check_status;
     }
 
+    // fetch the tablet by tablet_id and schema_hash
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+
+    if (tablet == nullptr) {
+        LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id
+                     << ", schema_hash:" << schema_hash;
+        return Status::InternalError(
+                strings::Substitute("fail to get $0, $1", tablet_id, schema_hash));
+    }
+
     std::string json_template = R"({
         "status" : "Success",
         "run_status" : $0,
@@ -176,18 +181,34 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::st
         "compact_type" : "$4"
 })";
 
-    std::lock_guard<std::mutex> lock(_compaction_running_mutex);
     std::string msg = "this tablet_id is not running";
     std::string compaction_type = "";
     bool run_status = 0;
-    if (_current_tablet_id == tablet_id && _is_compaction_running) {
+
+    // use try lock to check this tablet is running cumulative compaction
+    MutexLock lock_cumulativie(tablet->get_cumulative_lock(), TRY_LOCK);
+    if (!lock_cumulativie.own_lock()) {
         msg = "this tablet_id is running";
-        compaction_type = _current_compaction_type;
+        compaction_type = "cumulative";
         run_status = 1;
+        *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
+                                           compaction_type);
+        return Status::OK();
     }
 
+    // use try lock to check this tablet is running base compaction
+    MutexLock lock_base(tablet->get_base_lock(), TRY_LOCK);
+    if (!lock_base.own_lock()) {
+        msg = "this tablet_id is running";
+        compaction_type = "base";
+        run_status = 1;
+        *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
+                                           compaction_type);
+        return Status::OK();
+    }
+    // not running any compaction
     *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
-                                       compaction_type);
+                                           compaction_type);
     return Status::OK();
 }
 

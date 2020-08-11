@@ -72,12 +72,6 @@ private:
     static std::mutex _compaction_running_mutex;
     /// whether there is manual compaction running
     static bool _is_compaction_running;
-    /// tablet id of current running manual compaction
-    static uint64_t _current_tablet_id;
-    /// schema hash of current running manual compaction
-    static uint32_t _current_schema_hash;
-    /// compaction type of current running manual compaction
-    static std::string _current_compaction_type;
     /// memory tracker
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
 };
