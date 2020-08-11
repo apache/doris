@@ -31,7 +31,7 @@ public:
     EnvPosixTest() { }
     virtual ~EnvPosixTest() { }
     void SetUp() override {
-        auto st = Env::Default()->create_dir_if_missing("./ut_dir/env_posix");
+        auto st = FileUtils::create_dir("./ut_dir/env_posix");
         ASSERT_TRUE(st.ok());
     }
     void TearDown() override {
