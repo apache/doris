@@ -70,9 +70,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
     uint32_t schema_hash = 0;
     
     Status status = _check_param(req, &tablet_id, &schema_hash);
-    if (!status.ok()) {
-        return status;
-    }
+    RETURN_IF_ERROR(status);
 
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
@@ -92,9 +90,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
     
     // check req_tablet_id and req_schema_hash is not empty
     Status check_status = _check_param(req, &tablet_id, &schema_hash);
-    if (!check_status.ok()) {
-        return check_status;
-    }
+    RETURN_IF_ERROR(check_status);
 
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
     // check compaction_type is not empty and equals base or cumulative
@@ -157,9 +153,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::st
     
     // check req_tablet_id and req_schema_hash is not empty
     Status check_status = _check_param(req, &tablet_id, &schema_hash);
-    if (!check_status.ok()) {
-        return check_status;
-    }
+    RETURN_IF_ERROR(check_status);
 
     // fetch the tablet by tablet_id and schema_hash
     TabletSharedPtr tablet =
