@@ -579,11 +579,12 @@ class PoolMemTrackerRegistry {
   /// with the process tracker as its parent. There is no explicit per-pool byte_limit
   /// set at any particular impalad, so newly created trackers will always have a limit
   /// of -1.
-  /// TODO(cmy): this method is not used for now. the memtracker returned from here is
+  /// TODO(cmy): this function is not used for now. the memtracker returned from here is
   ///            got from a shared_ptr in `pool_to_mem_trackers_`.
-  ///            I don't know why it need to return a raw pointer.
-  ///            If this method be further used, please notice that.
-  MemTracker* GetRequestPoolMemTracker(
+  ///            This funtion is from
+  ///            https://github.com/cloudera/Impala/blob/495397101e5807c701df71ea288f4815d69c2c8a/be/src/runtime/mem-tracker.h#L497
+  ///            And in impala this function will return a raw pointer.
+  std::shared_ptr<MemTracker> GetRequestPoolMemTracker(
       const std::string& pool_name, bool create_if_not_present);
 
  private:

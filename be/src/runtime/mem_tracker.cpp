@@ -212,7 +212,7 @@ int64_t MemTracker::GetPoolMemReserved() {
   return mem_reserved;
 }
 
-MemTracker* PoolMemTrackerRegistry::GetRequestPoolMemTracker(
+std::shared_ptr<MemTracker> PoolMemTrackerRegistry::GetRequestPoolMemTracker(
     const string& pool_name, bool create_if_not_present) {
   DCHECK(!pool_name.empty());
   lock_guard<SpinLock> l(pool_to_mem_trackers_lock_);
@@ -220,7 +220,7 @@ MemTracker* PoolMemTrackerRegistry::GetRequestPoolMemTracker(
   if (it != pool_to_mem_trackers_.end()) {
     MemTracker* tracker = it->second.get();
     DCHECK(pool_name == tracker->pool_name_);
-    return tracker;
+    return it->second;
   }
   if (!create_if_not_present) return nullptr;
   // First time this pool_name registered, make a new object.
@@ -229,7 +229,7 @@ MemTracker* PoolMemTrackerRegistry::GetRequestPoolMemTracker(
             ExecEnv::GetInstance()->process_mem_tracker());
   tracker->pool_name_ = pool_name;
   pool_to_mem_trackers_.emplace(pool_name, std::shared_ptr<MemTracker>(tracker));
-  return tracker.get();
+  return tracker;
 }
 
 MemTracker::~MemTracker() {
