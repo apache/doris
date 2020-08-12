@@ -38,9 +38,14 @@ BE metrics can be viewed by visiting:
 
 The default format is of [Prometheus](https://prometheus.io/).
 
-You can get Json format by visiting:
+### Optional Parameters
+- You can get Json format by visiting:
 
-`http://be_host:be_webserver_port/metrics?type=json`
+  `http://be_host:be_webserver_port/metrics?type=json`
+
+- You can get Tablet level metrics by visiting:
+
+  `http://be_host:be_webserver_port/metrics?with_tablet=true`
 
 ## Metrics List
 
