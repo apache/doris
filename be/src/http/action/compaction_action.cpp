@@ -179,26 +179,30 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::st
     std::string compaction_type = "";
     bool run_status = 0;
 
-    // use try lock to check this tablet is running cumulative compaction
-    MutexLock lock_cumulativie(tablet->get_cumulative_lock(), TRY_LOCK);
-    if (!lock_cumulativie.own_lock()) {
-        msg = "this tablet_id is running";
-        compaction_type = "cumulative";
-        run_status = 1;
-        *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
-                                           compaction_type);
-        return Status::OK();
+    {
+        // use try lock to check this tablet is running cumulative compaction
+        MutexLock lock_cumulativie(tablet->get_cumulative_lock(), TRY_LOCK);
+        if (!lock_cumulativie.own_lock()) {
+            msg = "this tablet_id is running";
+            compaction_type = "cumulative";
+            run_status = 1;
+            *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
+                                            compaction_type);
+            return Status::OK();
+        }
     }
 
-    // use try lock to check this tablet is running base compaction
-    MutexLock lock_base(tablet->get_base_lock(), TRY_LOCK);
-    if (!lock_base.own_lock()) {
-        msg = "this tablet_id is running";
-        compaction_type = "base";
-        run_status = 1;
-        *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
-                                           compaction_type);
-        return Status::OK();
+    {
+        // use try lock to check this tablet is running base compaction
+        MutexLock lock_base(tablet->get_base_lock(), TRY_LOCK);
+        if (!lock_base.own_lock()) {
+            msg = "this tablet_id is running";
+            compaction_type = "base";
+            run_status = 1;
+            *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
+                                            compaction_type);
+            return Status::OK();
+        }
     }
     // not running any compaction
     *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
