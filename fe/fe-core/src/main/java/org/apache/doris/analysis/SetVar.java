@@ -28,6 +28,7 @@ import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.system.HeartbeatFlags;
 
 // change one variable.
@@ -106,6 +107,10 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support non-constant expr.");
         }
 
+        ExprRewriter exprRewriter = analyzer.getExprRewriter();
+        exprRewriter.reset();
+        value = exprRewriter.rewrite(value, analyzer);
+        
         final Expr literalExpr = value.getResultValue();
         if (!(literalExpr instanceof LiteralExpr)) {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());

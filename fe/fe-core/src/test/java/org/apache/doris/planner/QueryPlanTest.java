@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -40,6 +39,8 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
+
+import com.google.common.collect.Lists;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
@@ -1004,5 +1005,13 @@ public class QueryPlanTest {
             Assert.assertTrue(explainString.contains(emptyNode));
             Assert.assertFalse(explainString.contains(denseRank));
         }
+    }
+
+    @Test
+    public void testConst() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String queryStr = "set sql_mode = concat(@@exec_mem_limit, \"abc\")";
+        // default set PreferBroadcastJoin true
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
     }
 }
