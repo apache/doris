@@ -683,7 +683,7 @@ public class Load {
             } else {
                 // convert column to schema format
                 for (String assignCol : assignColumnNames) {
-                    if (table.getColumn(assignCol) != null) {
+                    if (table.getColumn(assignCol) != null && table.getColumn(assignCol).isVisible()) {
                         columnNames.add(table.getColumn(assignCol).getName());
                     } else {
                         columnNames.add(assignCol);
