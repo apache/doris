@@ -676,7 +676,9 @@ public class Load {
             if (assignColumnNames.isEmpty()) {
                 // use table columns
                 for (Column column : baseSchema) {
-                    columnNames.add(column.getName());
+                    if (column.isVisible()) {
+                        columnNames.add(column.getName());
+                    }
                 }
             } else {
                 // convert column to schema format
