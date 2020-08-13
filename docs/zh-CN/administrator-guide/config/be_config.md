@@ -130,6 +130,14 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `create_tablet_worker_count`
 
+### `disable_auto_compaction`
+
+* 类型：bool
+* 描述：关闭自动执行compaction任务
+* 默认值：false
+
+一般需要为关闭状态，当调试或测试环境中想要手动操作compaction任务时，可以对该配置进行开启
+
 ### `cumulative_compaction_budgeted_bytes`
 
 ### `cumulative_compaction_check_interval_seconds`

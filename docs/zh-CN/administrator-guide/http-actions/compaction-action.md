@@ -95,5 +95,95 @@ curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015\&schem
 
 ## 手动触发 Compaction
 
-(TODO)
+```
+curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
+```
 
+当前仅能执行一个手动compaction任务，其中compact_type取值为base或cumulative
+
+若 tablet 不存在，返回 JSON 格式的错误：
+
+```
+{
+    "status": "Fail",
+    "msg": "Tablet not found"
+}
+```
+
+若 compaction 执行任务触发失败时，返回 JSON 格式的错误：
+
+```
+{
+    "status": "Fail",
+    "msg": "fail to execute compaction, error = -2000"
+}
+```
+
+若 compaction 执行触发成功时，则返回 JSON 格式的结果:
+
+```
+{
+    "status": "Success",
+    "msg": "compaction task is successfully triggered."
+}
+```
+
+结果说明：
+
+* status：触发任务状态，当成功触发时为Success；当因某些原因（比如，没有获取到合适的版本）时，返回Fail。
+* msg：给出具体的成功或失败的信息。
+### 示例
+
+```
+curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
+```
+
+## 手动 Compaction 执行状态
+
+```
+curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx\&schema_hash=yyyy
+```
+
+若 tablet 不存在，返回 JSON 格式：
+
+```
+{
+    "status": "Fail",
+    "msg": "Tablet not found"
+}
+```
+
+若 tablet 存在并且 tablet 不在正在执行 compaction，返回 JSON 格式：
+
+```
+{
+    "status" : "Success",
+    "run_status" : false,
+    "msg" : "this tablet_id is not running",
+    "tablet_id" : 11308,
+    "schema_hash" : 700967178,
+    "compact_type" : ""
+}
+```
+
+若 tablet 存在并且 tablet 正在执行 compaction，返回 JSON 格式：
+
+```
+{
+    "status" : "Success",
+    "run_status" : true,
+    "msg" : "this tablet_id is running",
+    "tablet_id" : 11308,
+    "schema_hash" : 700967178,
+    "compact_type" : "cumulative"
+}
+```
+
+结果说明：
+
+* run_status：获取当前手动 compaction 任务执行状态
+
+### 示例
+
+```
+curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015\&schema_hash=1294206575
