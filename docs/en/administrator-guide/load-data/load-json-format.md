@@ -185,7 +185,9 @@ Doris supports extracting the data specified in Json through Json Path.
 
 ## Json Path and Columns
 
-Json Path is used to specify how to extract data in JSON format, and Columns specify the mapping and conversion relationship of columns. The two can be used together, for example as follows.
+Json Path is used to specify how to extract data in JSON format, and Columns specify the mapping and conversion relationship of columns. The two can be used together.
+
+In other words, it is equivalent to using Json Path to rearrange the data in a Json format according to the column order specified in Json Path. After that, you can use Columns to map the rearranged source data to the columns of the table. Examples are as follows:
 
 Data content:
 
