@@ -222,6 +222,7 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const StringVa
   StringVal sv;
   sv.ptr = val.ptr;
   sv.len = val.len;
+  
   const FunctionContext::TypeDesc& result_type = ctx->get_return_type();
   if (result_type.len > 0) {
       AnyValUtil::TruncateIfNecessary(result_type, &sv);
@@ -305,6 +306,7 @@ CAST_FROM_DATETIME(DoubleVal, double_val);
     CAST_TO_DATETIME(SmallIntVal);\
     CAST_TO_DATETIME(IntVal);\
     CAST_TO_DATETIME(BigIntVal);\
+    CAST_TO_DATETIME(LargeIntVal);\
     CAST_TO_DATETIME(FloatVal);\
     CAST_TO_DATETIME(DoubleVal);
 
@@ -327,6 +329,7 @@ CAST_TO_DATETIMES();
     CAST_TO_DATE(SmallIntVal);\
     CAST_TO_DATE(IntVal);\
     CAST_TO_DATE(BigIntVal);\
+    CAST_TO_DATE(LargeIntVal);\
     CAST_TO_DATE(FloatVal);\
     CAST_TO_DATE(DoubleVal);
 
