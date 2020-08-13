@@ -124,6 +124,8 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show", show_compaction_action);
     CompactionAction* run_compaction_action = new CompactionAction(CompactionActionType::RUN_COMPACTION);
     _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run", run_compaction_action);
+    CompactionAction* run_status_compaction_action = new CompactionAction(CompactionActionType::RUN_COMPACTION_STATUS);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status", run_status_compaction_action);
 
     UpdateConfigAction* update_config_action = new UpdateConfigAction();
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
