@@ -509,6 +509,9 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean meetReplaceValue = false;
         KeysType keysType = olapTable.getKeysType();
         Map<String, Column> baseColumnNameToColumn = Maps.newHashMap();
+        for (Column column : olapTable.getSchemaByIndexId(baseIndexId)) {
+            baseColumnNameToColumn.put(column.getName(), column);
+        }
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
             for (String columnName : rollupColumnNames) {
