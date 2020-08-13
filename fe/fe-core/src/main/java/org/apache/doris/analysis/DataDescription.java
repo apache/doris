@@ -666,7 +666,7 @@ public class DataDescription {
      *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
      * 
      */
-    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) throws DdlException {
+    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) {
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             return;
         }

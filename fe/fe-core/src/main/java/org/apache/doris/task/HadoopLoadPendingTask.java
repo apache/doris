@@ -172,9 +172,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
     private Map<String, EtlColumn> createEtlColumns(OlapTable table) {
         Map<String, EtlColumn> etlColumns = Maps.newHashMap();
         for (Column column : table.getBaseSchema()) {
-            if (column.isVisible()) {
-                etlColumns.put(column.getName(), new EtlColumn(column));
-            }
+            etlColumns.put(column.getName(), new EtlColumn(column));
         }
         return etlColumns;
     }
@@ -207,9 +205,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             int keySize = 0;
             List<Map<String, Object>> columnRefs = Lists.newArrayList();
             for (Column column : indexColumns) {
-                if (!column.isVisible()) {
-                    continue;
-                }
                 Map<String, Object> dppColumn = Maps.newHashMap();
                 dppColumn.put("name", column.getName());
                 if (column.isKey()) {
