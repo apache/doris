@@ -17,45 +17,27 @@
 
 #include "udf_sample.h"
 #include <string>
-#include <algorithm>
-
+#include "exprs/anyval_util.h"
 using namespace std;
 namespace doris_udf {
 
-StringVal ParseUrlUdf(FunctionContext* context, const StringVal& urlStr, const StringVal& partToExtract) {
-    if (urlStr.is_null || partToExtract.is_null) {
+StringVal ReplaceUdf(FunctionContext *context, const StringVal &origStr, const StringVal &oldStr, const StringVal &newStr) {
+    if (origStr.is_null || oldStr.is_null || newStr.is_null) {
         return StringVal::null();
     }
-    std::string raw_url = std::string(reinterpret_cast<const char*>(urlStr.ptr), urlStr.len);
-    std::string part = std::string(reinterpret_cast<const char*>(partToExtract.ptr), partToExtract.len);
-    std::string path,domain,x,protocol,port,query;
-    int offset = 0;
-    size_t pos1,pos2,pos3,pos4;
-    x = raw_url;
-    offset = offset==0 && x.compare(0, 8, "https://")==0 ? 8 : offset;
-    offset = offset==0 && x.compare(0, 7, "http://" )==0 ? 7 : offset;
-    pos1 = x.find_first_of('/', offset+1 );
-    path = pos1==std::string::npos ? "" : x.substr(pos1);
-    domain = std::string( x.begin()+offset, pos1 != std::string::npos ? x.begin()+pos1 : x.end() );
-    path = (pos2 = path.find("#"))!=std::string::npos ? path.substr(0,pos2) : path;
-    port = (pos3 = domain.find(":"))!=std::string::npos ? domain.substr(pos3+1) : "";
-    domain = domain.substr(0, pos3!=std::string::npos ? pos3 : domain.length());
-    protocol = offset > 0 ? x.substr(0,offset-3) : "";
-    query = (pos4 = path.find("?"))!=std::string::npos ? path.substr(pos4+1) : "";
-    path = pos4 != std::string::npos ? path.substr(0, pos4) : path;
-    std::string res = "";
-    if (part == "HOST") {
-        res = domain;
-    } else if (part == "PORT") {
-        res = port;
-    } else if (part == "PATH") {
-        res = path;
-    } else if (part == "QUERY") {
-        res = query;
-    } else if (part == "PROTOCOL") {
-        res = protocol;
+    std::string orig_str = std::string(reinterpret_cast<const char *>(origStr.ptr), origStr.len);
+    std::string old_str = std::string(reinterpret_cast<const char *>(oldStr.ptr), oldStr.len);
+    std::string new_str = std::string(reinterpret_cast<const char *>(newStr.ptr), newStr.len);
+    std::string::size_type pos = 0;
+    std::string::size_type oldLen = old_str.size();
+    std::string::size_type newLen = new_str.size();
+    while(pos = orig_str.find(old_str, pos))
+    {
+        if(pos == std::string::npos) break;
+        orig_str.replace(pos, oldLen, new_str);
+        pos += newLen;
     }
-	return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(res.c_str())), res.size());
+    return AnyValUtil::from_string_temp(context, orig_str);
 }
 
 

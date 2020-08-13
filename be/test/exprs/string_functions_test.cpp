@@ -494,6 +494,19 @@ TEST_F(StringFunctionsTest, rpad) {
     ASSERT_EQ(StringVal("呵呵hih"),
               StringFunctions::rpad(ctx, StringVal("呵呵"), IntVal(5), StringVal("hi")));
 }
+
+TEST_F(StringFunctionsTest, str_replace) {
+    ASSERT_EQ(StringVal("http://www.baidu.com:8080"),
+            StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal("9090"), StringVal("8080")));
+
+    ASSERT_EQ(StringVal("http://www.baidu.com:9090"),
+        StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal("9070"), StringVal("8080")));
+    ASSERT_EQ(StringVal("http://www.baidu.com:9090"),
+        StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal(""), StringVal("8080")));
+    ASSERT_EQ(StringVal("http://www.baidu.com:"),
+        StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal("9090"), StringVal("")));
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {

@@ -21,7 +21,7 @@
 
 namespace doris_udf {
 
-StringVal ParseUrlUdf(FunctionContext* context, const StringVal& urlStr, const StringVal& partToExtract);
+StringVal ReplaceUdf(FunctionContext* context, const StringVal& urlStr, const StringVal& partToExtract);
 
 /// --- Prepare / Close Functions ---
 /// ---------------------------------
