@@ -50,5 +50,5 @@ mysql> SELECT rpad("hi", 1, "xy");
 | h                   |
 +---------------------+
 ```
-##keyword
+## keyword
 RPAD

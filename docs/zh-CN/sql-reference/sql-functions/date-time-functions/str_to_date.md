@@ -60,6 +60,6 @@ mysql> select str_to_date('200442 Monday', '%X%V %W');
 +-----------------------------------------+
 ```
 
-##keyword
+## keyword
 
     STR_TO_DATE,STR,TO,DATE

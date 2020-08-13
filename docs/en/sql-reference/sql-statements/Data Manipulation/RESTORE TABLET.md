@@ -37,5 +37,5 @@ URI: http://be_host:be_http_port/api/restore_tablet?tablet_id=xxx&schema_hash=xx
 '35;'35; example
 
 Curl -X POST "http://hostname:8088 /api /restore" tablet? Tablet id =123456 &schema hash =1111111 "
-##keyword
+## keyword
 RESTORE,TABLET,RESTORE,TABLET
