@@ -563,8 +563,8 @@ public class OlapTable extends Table {
         return partitionInfo;
     }
 
-    public List<String> getPartitionColumnNames() {
-        List<String> partitionColumnNames = Lists.newArrayList();
+    public Set<String> getPartitionColumnNames() {
+        Set<String> partitionColumnNames = Sets.newHashSet();
         if (partitionInfo instanceof SinglePartitionInfo) {
             return partitionColumnNames;
         }
@@ -580,8 +580,8 @@ public class OlapTable extends Table {
         return defaultDistributionInfo;
     }
 
-    public List<String> getDistributionColumnNames() {
-        List<String> distributionColumnNames = Lists.newArrayList();
+    public Set<String> getDistributionColumnNames() {
+        Set<String> distributionColumnNames = Sets.newHashSet();
         if (defaultDistributionInfo instanceof RandomDistributionInfo) {
             return distributionColumnNames;
         }

@@ -458,7 +458,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         } else {
-            List<String> partitionOrDistributedColumnName = olapTable.getPartitionColumnNames();
+            Set<String> partitionOrDistributedColumnName = olapTable.getPartitionColumnNames();
             partitionOrDistributedColumnName.addAll(olapTable.getDistributionColumnNames());
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 if (partitionOrDistributedColumnName.contains(mvColumnItem.getBaseColumnName().toLowerCase())
