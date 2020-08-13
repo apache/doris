@@ -115,6 +115,19 @@ public class SysVariableDesc extends Expr {
     }
 
     @Override
+    public Expr getResultValue() throws AnalysisException {
+        Expr expr = super.getResultValue();
+        if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            try {
+                return new StringLiteral(SqlModeHelper.decode(intValue));
+            } catch (DdlException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        return expr;
+    }
+
+    @Override
     protected boolean isConstantImpl() {
         return true;
     }

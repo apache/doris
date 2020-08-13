@@ -1010,7 +1010,9 @@ public class QueryPlanTest {
     @Test
     public void testConst() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String queryStr = "set sql_mode = concat(@@exec_mem_limit, \"abc\")";
+        // String queryStr = "set sql_mode = concat(@@sql_mode, \"STRICT_TRANS_TABLES\")";
+        // String queryStr = "select concat(@@sql_mode, \"STRICT_TRANS_TABLES\")";
+        String queryStr = "select concat(@@exec_mem_limit, \"STRICT_TRANS_TABLES\")";
         // default set PreferBroadcastJoin true
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
     }

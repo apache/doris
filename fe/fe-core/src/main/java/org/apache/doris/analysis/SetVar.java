@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -28,8 +27,9 @@ import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.system.HeartbeatFlags;
+
+import com.google.common.base.Strings;
 
 // change one variable.
 public class SetVar {
@@ -107,9 +107,15 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support non-constant expr.");
         }
 
+        /*
         ExprRewriter exprRewriter = analyzer.getExprRewriter();
         exprRewriter.reset();
         value = exprRewriter.rewrite(value, analyzer);
+        if (exprRewriter.changed()) {
+            Analyzer newAnalyzer = new Analyzer(analyzer.getCatalog(), analyzer.getContext());
+            value.analyze(newAnalyzer);
+        }
+        */
         
         final Expr literalExpr = value.getResultValue();
         if (!(literalExpr instanceof LiteralExpr)) {
