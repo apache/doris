@@ -217,7 +217,6 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
         </dependency>
     </dependencies>
 
-
     <build>
         <finalName>auditloader</finalName>
         <plugins>
