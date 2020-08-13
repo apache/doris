@@ -471,7 +471,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && hasDeleteSign) {
             newMVColumns.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT),
-                    false, null, true, "0",
+                    false, AggregateType.REPLACE, true, "0",
                     "doris delete flag hidden column", false));
         }
         return newMVColumns;
