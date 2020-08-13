@@ -432,6 +432,12 @@ public class MaterializedViewHandler extends AlterHandler {
         List<MVColumnItem> mvColumnItemList = addMVClause.getMVColumnItemList();
         List<Column> newMVColumns = Lists.newArrayList();
         int numOfKeys = 0;
+        boolean hasDeleteSign = false;
+        for (Column column : olapTable.getBaseSchema()) {
+            if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                hasDeleteSign = true;
+            }
+        }
         if (olapTable.getKeysType().isAggregationFamily()) {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 String mvColumnName = mvColumnItem.getName();
@@ -462,6 +468,11 @@ public class MaterializedViewHandler extends AlterHandler {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
+        }
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && hasDeleteSign) {
+            newMVColumns.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT),
+                    false, null, true, "0",
+                    "doris delete flag hidden column", false));
         }
         return newMVColumns;
     }
@@ -496,15 +507,8 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean meetValue = false;
         boolean hasKey = false;
         boolean meetReplaceValue = false;
-        boolean hasDeleteSign = false;
         KeysType keysType = olapTable.getKeysType();
         Map<String, Column> baseColumnNameToColumn = Maps.newHashMap();
-        for (Column column : olapTable.getSchemaByIndexId(baseIndexId)) {
-            baseColumnNameToColumn.put(column.getName(), column);
-            if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                hasDeleteSign = true;
-            }
-        }
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
             for (String columnName : rollupColumnNames) {
@@ -539,11 +543,6 @@ public class MaterializedViewHandler extends AlterHandler {
                     } else {
                         throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
                     }
-                }
-                if (KeysType.UNIQUE_KEYS == keysType && hasDeleteSign) {
-                    rollupSchema.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT),
-                            false, null, true, "0",
-                            "doris delete flag hidden column", false));
                 }
             }
         } else if (KeysType.DUP_KEYS == keysType) {
