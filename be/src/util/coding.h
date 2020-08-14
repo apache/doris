@@ -143,7 +143,7 @@ extern uint8_t* encode_varint64(uint8_t* dst, uint64_t value);
 inline uint8_t* encode_varint64(uint8_t* dst, uint64_t v) {
     static const unsigned int B = 128;
     while (v >= B) {
-        *(dst++) = (v & (B - 1)) | B;
+        *(dst++) = v | B;
         v >>= 7;
     }
     *(dst++) = static_cast<unsigned char>(v);
