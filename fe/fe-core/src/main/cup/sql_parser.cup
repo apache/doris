@@ -3262,6 +3262,46 @@ select_list_item ::=
     {:
         RESULT = new SelectListItem(expr, alias);
     :}
+    | expr:e1 opt_collate:collate EQUAL:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
+    | expr:e1 opt_collate:collate NOT EQUAL:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.NE, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
+    | expr:e1 opt_collate:collate LESSTHAN GREATERTHAN:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.NE, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
+    | expr:e1 opt_collate:collate LESSTHAN EQUAL:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.LE, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
+    | expr:e1 opt_collate:collate GREATERTHAN EQUAL:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.GE, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
+    | expr:e1 opt_collate:collate LESSTHAN:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.LT, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
+    | expr:e1 opt_collate:collate GREATERTHAN:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.GT, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
+    | expr:e1 opt_collate:collate LESSTHAN EQUAL GREATERTHAN:op expr:e2 select_alias:alias
+    {:
+        Predicate p = new BinaryPredicate(BinaryPredicate.Operator.EQ_FOR_NULL, e1, e2);
+        RESULT = new SelectListItem(p, alias);
+    :}
     | star_expr:expr
     {:
         RESULT = expr;
