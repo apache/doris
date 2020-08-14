@@ -74,7 +74,7 @@ public class DescribeStmtTest {
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), true);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl` ALL", stmt.toString());
-        Assert.assertEquals(8, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(9, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("IndexKeysType", stmt.getMetaData().getColumn(1).getName());
         Assert.assertEquals("testCluster:testDb", stmt.getDb());
         Assert.assertEquals("testTbl", stmt.getTableName());
