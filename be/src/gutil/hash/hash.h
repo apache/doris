@@ -20,8 +20,8 @@
 // RECOMMENDED HASH FOR STRINGS:    GoodFastHash
 //
 // It is a functor, so you can use it like this:
-//     hash_map<string, xxx, GoodFastHash<string> >
-//     hash_set<char *, GoodFastHash<char*> >
+//     hash_map<string, xxx, GoodFastHash<string>>
+//     hash_set<char *, GoodFastHash<char*>>
 //
 // RECOMMENDED HASH FOR NUMBERS:    hash<>
 //
@@ -259,7 +259,7 @@ template<class T> struct hash<T*> {
 #if defined(__GNUC__)
 // Use our nice hash function for strings
 template<class _CharT, class _Traits, class _Alloc>
-struct hash<std::basic_string<_CharT, _Traits, _Alloc> > {
+struct hash<std::basic_string<_CharT, _Traits, _Alloc>> {
   size_t operator()(const std::basic_string<_CharT, _Traits, _Alloc>& k) const {
     return HashTo32(k.data(), static_cast<uint32>(k.length()));
   }
@@ -306,7 +306,7 @@ template<> struct hash<std::string> {
 
 // Hasher for STL pairs. Requires hashers for both members to be defined
 template<class First, class Second>
-struct hash<pair<First, Second> > {
+struct hash<pair<First, Second>> {
   size_t operator()(const pair<First, Second>& p) const {
     size_t h1 = hash<First>()(p.first);
     size_t h2 = hash<Second>()(p.second);
@@ -369,7 +369,7 @@ template<> struct GoodFastHash<const char*> {
 
 // This intended to be a "good" hash function.  It may change from time to time.
 template<class _CharT, class _Traits, class _Alloc>
-struct GoodFastHash<std::basic_string<_CharT, _Traits, _Alloc> > {
+struct GoodFastHash<std::basic_string<_CharT, _Traits, _Alloc>> {
   size_t operator()(const std::basic_string<_CharT, _Traits, _Alloc>& k) const {
     return HashStringThoroughly(k.data(), k.length() * sizeof(k[0]));
   }
@@ -384,7 +384,7 @@ struct GoodFastHash<std::basic_string<_CharT, _Traits, _Alloc> > {
 
 // This intended to be a "good" hash function.  It may change from time to time.
 template<class _CharT, class _Traits, class _Alloc>
-struct GoodFastHash<const std::basic_string<_CharT, _Traits, _Alloc> > {
+struct GoodFastHash<const std::basic_string<_CharT, _Traits, _Alloc>> {
   size_t operator()(const std::basic_string<_CharT, _Traits, _Alloc>& k) const {
     return HashStringThoroughly(k.data(), k.length() * sizeof(k[0]));
   }

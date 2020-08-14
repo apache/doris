@@ -836,7 +836,7 @@ BinaryComposeBinary<F, G1, G2> BinaryCompose2(F f, G1 g1, G2 g2) {
 // THREAD SAFE.  This should only be used in situations where you can
 // ensure that only a single thread performs allocation and
 // deallocation.
-template <typename T, typename Alloc = std::allocator<T> >
+template <typename T, typename Alloc = std::allocator<T>>
 class STLCountingAllocator : public Alloc {
  public:
   typedef typename Alloc::pointer pointer;

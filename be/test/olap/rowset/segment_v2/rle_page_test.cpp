@@ -114,7 +114,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderRandom) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
@@ -126,7 +126,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderSequence) {
@@ -138,7 +138,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
@@ -172,7 +172,7 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BOOL, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_BOOL>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_BOOL> >(bools.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_BOOL>>(bools.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {

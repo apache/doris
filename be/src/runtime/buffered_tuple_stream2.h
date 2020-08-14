@@ -295,10 +295,10 @@ private:
     uint32_t _null_indicators_write_block;
 
     // Vector of all the strings slots grouped by tuple_idx.
-    std::vector<std::pair<int, std::vector<SlotDescriptor*> > > _string_slots;
+    std::vector<std::pair<int, std::vector<SlotDescriptor*>> > _string_slots;
 
     // Vector of all the collection slots grouped by tuple_idx.
-    // std::vector<std::pair<int, std::vector<SlotDescriptor*> > > _collection_slots;
+    // std::vector<std::pair<int, std::vector<SlotDescriptor*>> > _collection_slots;
 
     // Block manager and client used to allocate, pin and release blocks. Not owned.
     BufferedBlockMgr2* _block_mgr;
