@@ -496,15 +496,37 @@ TEST_F(StringFunctionsTest, rpad) {
 }
 
 TEST_F(StringFunctionsTest, str_replace) {
+    //exist substring
     ASSERT_EQ(StringVal("http://www.baidu.com:8080"),
             StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal("9090"), StringVal("8080")));
 
+    //not exist substring
     ASSERT_EQ(StringVal("http://www.baidu.com:9090"),
         StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal("9070"), StringVal("8080")));
+
+    //old substring is empty
     ASSERT_EQ(StringVal("http://www.baidu.com:9090"),
         StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal(""), StringVal("8080")));
+
+    //new substring is empty
     ASSERT_EQ(StringVal("http://www.baidu.com:"),
         StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal("9090"), StringVal("")));
+
+    //origin string is null
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::str_replace(ctx, StringVal::null(), StringVal("hello"), StringVal("8080")));
+
+    //old substring is null
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal::null(), StringVal("8080")));
+
+    //new substring is null
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::str_replace(ctx, StringVal("http://www.baidu.com:9090"), StringVal("hello"), StringVal::null()));
+
+    //substring contains Chinese character
+    ASSERT_EQ(StringVal("http://华夏zhongguo:9090"),
+        StringFunctions::str_replace(ctx, StringVal("http://中国hello:9090"), StringVal("中国hello"), StringVal("华夏zhongguo")));
 }
 
 } // namespace doris

@@ -42,5 +42,5 @@ mysql> select str_replace("http://www.baidu.com:9090", "9090", "");
 | http://www.baidu.com:                                |
 +------------------------------------------------------+
 ```
-##keyword
+## keyword
 STR_REPLACE

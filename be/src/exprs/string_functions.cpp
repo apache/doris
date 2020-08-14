@@ -1001,7 +1001,7 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
 
 StringVal StringFunctions::str_replace(FunctionContext *context, const StringVal &origStr, const StringVal &oldStr, const StringVal &newStr) {
     if (origStr.is_null || oldStr.is_null || newStr.is_null) {
-        return origStr;
+        return StringVal::null();
     }
     std::string orig_str = std::string(reinterpret_cast<const char *>(origStr.ptr), origStr.len);
     std::string old_str = std::string(reinterpret_cast<const char *>(oldStr.ptr), oldStr.len);
