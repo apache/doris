@@ -341,7 +341,8 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         str_error << "ParseError : " << e.what();
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
-    } catch (orc::TimezoneError& e) {
+    } catch (std::runtime_error& e) {
+	// orc include file didn't supply orc::TimezoneError which is inherited from std::runtime_error
         std::stringstream str_error;
         str_error << "TimezoneError : " << e.what();
         LOG(WARNING) << str_error.str();
