@@ -187,7 +187,9 @@ Doris 支持通过 Json Path 抽取 Json 中指定的数据。
 
 ## Json Path 和 Columns
 
-Json Path 用于指定如何对 JSON 格式中的数据进行抽取，而 Columns 指定列的映射和转换关系。两者可以配合使用，举例如下。
+Json Path 用于指定如何对 JSON 格式中的数据进行抽取，而 Columns 指定列的映射和转换关系。两者可以配合使用。
+
+换句话说，相当于通过 Json Path，将一个 Json 格式的数据，按照 Json Path 中指定的列顺序进行了列的重排。之后，可以通过 Columns，将这个重排后的源数据和表的列进行映射。举例如下：
 
 数据内容：
 
