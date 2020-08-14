@@ -1009,7 +1009,7 @@ StringVal StringFunctions::str_replace(FunctionContext *context, const StringVal
     std::string::size_type pos = 0;
     std::string::size_type oldLen = old_str.size();
     std::string::size_type newLen = new_str.size();
-    while(pos = orig_str.find(old_str, pos))
+    while ((pos = orig_str.find(old_str, pos)))
     {
         if(pos == std::string::npos) break;
         orig_str.replace(pos, oldLen, new_str);
