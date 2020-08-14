@@ -27,6 +27,19 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 
+// orc include file didn't expose orc::TimezoneError
+// we have to declare it by hand
+namespace orc {
+
+class TimezoneError: public std::runtime_error {
+public:
+    TimezoneError(const std::string& what);
+    TimezoneError(const TimezoneError&);
+    virtual ~TimezoneError() noexcept;
+};
+
+}
+
 namespace doris {
 
 class ORCFileStream : public orc::InputStream {
@@ -341,8 +354,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         str_error << "ParseError : " << e.what();
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
-    } catch (std::runtime_error& e) {
-	// orc include file didn't supply orc::TimezoneError which is inherited from std::runtime_error
+    } catch (orc::TimezoneError& e) {
         std::stringstream str_error;
         str_error << "TimezoneError : " << e.what();
         LOG(WARNING) << str_error.str();
