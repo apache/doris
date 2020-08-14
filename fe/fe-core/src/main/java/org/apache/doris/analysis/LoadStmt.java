@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -288,7 +287,7 @@ public class LoadStmt extends DdlStmt {
                 throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
             }
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
-                    && table.getColumn(Column.DELETE_SIGN) == null ) {
+                    && !((table instanceof OlapTable) && ((OlapTable) table).hasDeleteSign()) ) {
                 throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
             }
         }

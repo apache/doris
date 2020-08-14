@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -91,24 +90,14 @@ public class AlterTableStmt extends DdlStmt {
                         if (idx.getId() == table.getBaseIndexId()) {
                             continue;
                         }
-                        ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN,
-                                TypeDef.create(PrimitiveType.TINYINT),
-                                false, null, false,
-                                new ColumnDef.DefaultValue(true, "0"),
-                                "doris delete flag hidden column", false);
-                        AddColumnClause addColumnClause = new AddColumnClause(columnDef, null,
+                        AddColumnClause addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                 table.getIndexNameById(idx.getId()), null);
                         addColumnClause.analyze(analyzer);
                         clauses.add(addColumnClause);
                     }
                 } else {
                     // no rollup tables
-                    ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN,
-                            TypeDef.create(PrimitiveType.TINYINT),
-                            false, null, false,
-                            new ColumnDef.DefaultValue(true, "0"),
-                            "doris delete flag hidden column", false);
-                    AddColumnClause addColumnClause = new AddColumnClause(columnDef, null,
+                    AddColumnClause addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                             table.getIndexNameById(table.getBaseIndexId()), null);
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);

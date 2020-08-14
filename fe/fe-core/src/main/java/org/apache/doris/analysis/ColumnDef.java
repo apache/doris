@@ -108,6 +108,17 @@ public class ColumnDef {
         this.visible = visible;
     }
 
+    public static ColumnDef newDeleteSignColumnDef() {
+        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null, false,
+                new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+    }
+
+    public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType, false,
+                new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+    }
+
+
     public boolean isAllowNull() { return isAllowNull; }
     public String getDefaultValue() { return defaultValue.value; }
     public String getName() { return name; }

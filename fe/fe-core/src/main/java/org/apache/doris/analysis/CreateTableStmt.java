@@ -337,9 +337,7 @@ public class CreateTableStmt extends DdlStmt {
         }
         // add a hidden column as delete flag for unique table
         if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
-            columnDefs.add(new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT),
-                    false, AggregateType.REPLACE, false, new ColumnDef.DefaultValue(true, "0"),
-                    "doris delete flag hidden column", false));
+            columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
         }
         int rowLengthBytes = 0;
         boolean hasHll = false;

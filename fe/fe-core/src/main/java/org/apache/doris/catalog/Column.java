@@ -182,6 +182,10 @@ public class Column implements Writable {
         return visible;
     }
 
+    public boolean isDeleteSignColumn() {
+        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(DELETE_SIGN, true);
+    }
+
     public PrimitiveType getDataType() { return type.getPrimitiveType(); }
 
     public Type getType() { return ScalarType.createType(type.getPrimitiveType()); }

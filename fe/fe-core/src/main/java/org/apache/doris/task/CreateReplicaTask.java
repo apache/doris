@@ -170,7 +170,7 @@ public class CreateReplicaTask extends AgentTask {
             }
             tColumn.setVisible(column.isVisible());
             tColumns.add(tColumn);
-            if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+            if (column.isDeleteSignColumn()) {
                 deleteSign = i;
             }
         }

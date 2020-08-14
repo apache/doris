@@ -678,9 +678,6 @@ public class DataDescription {
         }
         
         for (Column column : baseSchema) {
-            if (!column.isVisible()) {
-                continue;
-            }
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }

@@ -538,7 +538,7 @@ public class SelectStmt extends QueryStmt {
         for (TableRef tableRef : fromClause_.getTableRefs()) {
             if (!isForbiddenMVRewrite() && tableRef instanceof BaseTableRef && tableRef.getTable() instanceof OlapTable
                     && ((OlapTable) tableRef.getTable()).getKeysType() == KeysType.UNIQUE_KEYS
-                    && tableRef.getTable().getColumn(Column.DELETE_SIGN) != null) {
+                    && ((OlapTable) tableRef.getTable()).hasDeleteSign()) {
                 BinaryPredicate filterDeleteExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                         new SlotRef(tableRef.getName(), Column.DELETE_SIGN), new IntLiteral(0));
                 if (whereClause == null) {
@@ -975,11 +975,9 @@ public class SelectStmt extends QueryStmt {
      * refs for each column to selectListExprs.
      */
     private void expandStar(TableName tblName, TupleDescriptor desc) {
-        for (Column col : desc.getTable().getBaseSchema()) {
-            if (col.isVisible()) {
-                resultExprs.add(new SlotRef(tblName, col.getName()));
-                colLabels.add(col.getName());
-            }
+        for (Column col : desc.getTable().getBaseSchema(false)) {
+            resultExprs.add(new SlotRef(tblName, col.getName()));
+            colLabels.add(col.getName());
         }
     }
 

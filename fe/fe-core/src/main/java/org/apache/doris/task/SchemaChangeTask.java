@@ -93,7 +93,7 @@ public class SchemaChangeTask extends AgentTask {
                 tColumn.setIs_bloom_filter_column(true);
             }
             tColumn.setVisible(column.isVisible());
-            if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+            if (column.isDeleteSignColumn()) {
                 deleteSign = i;
             }
             tColumns.add(tColumn);

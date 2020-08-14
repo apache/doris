@@ -400,11 +400,9 @@ public class InsertStmt extends DdlStmt {
         if (targetColumnNames == null) {
             // the mentioned columns are columns which are visible to user, so here we use
             // getBaseSchema(), not getFullSchema()
-            for (Column col : targetTable.getBaseSchema()) {
-                if (col.isVisible()) {
-                    mentionedColumns.add(col.getName());
-                    targetColumns.add(col);
-                }
+            for (Column col : targetTable.getBaseSchema(false)) {
+                mentionedColumns.add(col.getName());
+                targetColumns.add(col);
             }
         } else {
             for (String colName : targetColumnNames) {

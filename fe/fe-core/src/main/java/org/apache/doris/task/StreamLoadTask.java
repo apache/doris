@@ -28,7 +28,6 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -235,9 +234,9 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("Negative is only used when merge type is append.");
         }
         if (mergeType == LoadTask.MergeType.MERGE) {
-            columnExprDescs.add(new ImportColumnDesc(Column.DELETE_SIGN, deleteCondition));
+            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
         }  else if (mergeType == LoadTask.MergeType.DELETE) {
-            columnExprDescs.add(new ImportColumnDesc(Column.DELETE_SIGN, new IntLiteral(1)));
+            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
         }
     }
 

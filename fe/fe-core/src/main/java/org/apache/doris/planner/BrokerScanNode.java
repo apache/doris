@@ -222,9 +222,9 @@ public class BrokerScanNode extends LoadScanNode {
         if (isLoad()) {
             columnExprs = context.fileGroup.getColumnExprList();
             if (mergeType == LoadTask.MergeType.MERGE) {
-                columnExprs.add(new ImportColumnDesc(Column.DELETE_SIGN, deleteCondition));
+                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
             } else if (mergeType == LoadTask.MergeType.DELETE) {
-                columnExprs.add(new ImportColumnDesc(Column.DELETE_SIGN, new IntLiteral(1)));
+                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
             }
         }
 

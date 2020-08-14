@@ -57,9 +57,6 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         result.setNames(TITLE_NAMES);
 
         for (Column column : schema) {
-            if (!column.isVisible()) {
-                continue;
-            }
             // Extra string (aggregation and bloom filter)
             List<String> extras = Lists.newArrayList();
             if (column.getAggregationType() != null) {

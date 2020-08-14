@@ -432,12 +432,6 @@ public class MaterializedViewHandler extends AlterHandler {
         List<MVColumnItem> mvColumnItemList = addMVClause.getMVColumnItemList();
         List<Column> newMVColumns = Lists.newArrayList();
         int numOfKeys = 0;
-        boolean hasDeleteSign = false;
-        for (Column column : olapTable.getBaseSchema()) {
-            if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                hasDeleteSign = true;
-            }
-        }
         if (olapTable.getKeysType().isAggregationFamily()) {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 String mvColumnName = mvColumnItem.getName();
@@ -469,10 +463,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         }
-        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && hasDeleteSign) {
-            newMVColumns.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT),
-                    false, AggregateType.REPLACE, true, "0",
-                    "doris delete flag hidden column", false));
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
+            newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
         }
         return newMVColumns;
     }
