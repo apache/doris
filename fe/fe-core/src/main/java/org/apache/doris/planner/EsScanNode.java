@@ -224,7 +224,7 @@ public class EsScanNode extends ScanNode {
                 List<Backend> candidateBeList = Lists.newArrayList();
                 if (usingRandomBackend) {
                     for (int i = 0; i < numBe; ++i) {
-                        candidateBeList.add(backendList.get(beIndex++ % numBe));
+                        candidateBeList.add(backendList.get(beIndex++ % backendList.size()));
                     }
                 } else {
                     candidateBeList.addAll(colocatedBes);
