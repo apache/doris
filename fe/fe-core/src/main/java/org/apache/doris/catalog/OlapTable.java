@@ -245,9 +245,9 @@ public class OlapTable extends Table {
     @Override
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
-            return fullSchema;
+            return getSchemaByIndexId(baseIndexId);
         } else {
-            return fullSchema.stream().filter(column -> column.isVisible()).collect(Collectors.toList());
+            return getSchemaByIndexId(baseIndexId).stream().filter(column -> column.isVisible()).collect(Collectors.toList());
         }
     }
 
