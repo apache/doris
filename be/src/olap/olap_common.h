@@ -268,6 +268,10 @@ struct OlapReaderStatistics {
 
     int64_t rows_bitmap_index_filtered = 0;
     int64_t bitmap_index_filter_timer = 0;
+    // number of segment filtered by column stat when creating seg iterator
+    int64_t filtered_segment_number = 0;
+    // total number of segment
+    int64_t total_segment_number = 0;
 };
 
 typedef uint32_t ColumnId;

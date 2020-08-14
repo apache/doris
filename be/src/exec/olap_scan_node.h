@@ -291,6 +291,11 @@ private:
     RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
     // number of created olap scanners
     RuntimeProfile::Counter* _num_scanners = nullptr;
+
+    // number of segment filted by column stat when creating seg iterator
+    RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
+    // total number of segment related to this scan node
+    RuntimeProfile::Counter* _total_segment_counter = nullptr;
 };
 
 } // namespace doris
