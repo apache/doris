@@ -563,8 +563,34 @@ public class OlapTable extends Table {
         return partitionInfo;
     }
 
+    public Set<String> getPartitionColumnNames() {
+        Set<String> partitionColumnNames = Sets.newHashSet();
+        if (partitionInfo instanceof SinglePartitionInfo) {
+            return partitionColumnNames;
+        }
+        RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+        List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
+        for (Column column : partitionColumns) {
+            partitionColumnNames.add(column.getName().toLowerCase());
+        }
+        return partitionColumnNames;
+    }
+
     public DistributionInfo getDefaultDistributionInfo() {
         return defaultDistributionInfo;
+    }
+
+    public Set<String> getDistributionColumnNames() {
+        Set<String> distributionColumnNames = Sets.newHashSet();
+        if (defaultDistributionInfo instanceof RandomDistributionInfo) {
+            return distributionColumnNames;
+        }
+        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) defaultDistributionInfo;
+        List<Column> partitionColumns = hashDistributionInfo.getDistributionColumns();
+        for (Column column : partitionColumns) {
+            distributionColumnNames.add(column.getName().toLowerCase());
+        }
+        return distributionColumnNames;
     }
 
     public void renamePartition(String partitionName, String newPartitionName) {
