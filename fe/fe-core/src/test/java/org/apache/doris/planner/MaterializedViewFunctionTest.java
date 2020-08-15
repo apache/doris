@@ -63,20 +63,20 @@ public class MaterializedViewFunctionTest {
 
     @Before
     public void beforeMethod() throws Exception {
-        String createTableSQL = "create table " + HR_DB_NAME + "." + EMPS_TABLE_NAME + " (empid int, name varchar, "
-                + "deptno int, salary int, commission int) partition by range (empid) "
+        String createTableSQL = "create table " + HR_DB_NAME + "." + EMPS_TABLE_NAME + " (time date, empid int, name varchar, "
+                + "deptno int, salary int, commission int) partition by range (time) "
                 + "(partition p1 values less than MAXVALUE) "
-                + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
+                + "distributed by hash(time) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
         createTableSQL = "create table " + HR_DB_NAME + "." + DEPTS_TABLE_NAME
-                + " (deptno int, name varchar, cost int) partition by range (deptno) "
+                + " (time date, deptno int, name varchar, cost int) partition by range (time) "
                 + "(partition p1 values less than MAXVALUE) "
-                + "distributed by hash(deptno) buckets 3 properties('replication_num' = '1');";
+                + "distributed by hash(time) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
         createTableSQL = "create table " + HR_DB_NAME + "." + USER_TAG_TABLE_NAME
-                + " (user_id int, user_name varchar(20), tag_id int) partition by range (user_id) "
+                + " (time date, user_id int, user_name varchar(20), tag_id int) partition by range (time) "
                 + " (partition p1 values less than MAXVALUE) "
-                + "distributed by hash(user_id) buckets 3 properties('replication_num' = '1');";
+                + "distributed by hash(time) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
 
@@ -406,16 +406,16 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testQueryOnStar() throws Exception {
-        String createEmpsMVSQL = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, name, " +
-                "salary, commission from " + EMPS_TABLE_NAME + " order by deptno, empid;";
+        String createEmpsMVSQL = "create materialized view " + EMPS_MV_NAME + " as select time, deptno, empid, name, " +
+                "salary, commission from " + EMPS_TABLE_NAME + " order by time, deptno, empid;";
         String query = "select * from " + EMPS_TABLE_NAME + " where deptno = 1";
         dorisAssert.withMaterializedView(createEmpsMVSQL).query(query).explainContains(QUERY_USE_EMPS_MV);
     }
 
     @Test
     public void testQueryOnStarAndJoin() throws Exception {
-        String createEmpsMVSQL = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, name, " +
-                "salary, commission from " + EMPS_TABLE_NAME + " order by deptno, empid;";
+        String createEmpsMVSQL = "create materialized view " + EMPS_MV_NAME + " as select time, deptno, empid, name, " +
+                "salary, commission from " + EMPS_TABLE_NAME + " order by time, deptno, empid;";
         String query = "select * from " + EMPS_TABLE_NAME + " join depts on " + EMPS_TABLE_NAME + ".deptno = " +
                 DEPTS_TABLE_NAME + ".deptno";
         dorisAssert.withMaterializedView(createEmpsMVSQL).query(query).explainContains(QUERY_USE_EMPS_MV);

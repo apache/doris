@@ -461,7 +461,14 @@ public class MaterializedViewHandler extends AlterHandler {
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         } else {
+            Set<String> partitionOrDistributedColumnName = olapTable.getPartitionColumnNames();
+            partitionOrDistributedColumnName.addAll(olapTable.getDistributionColumnNames());
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                if (partitionOrDistributedColumnName.contains(mvColumnItem.getBaseColumnName().toLowerCase())
+                        && mvColumnItem.getAggregationType() != null) {
+                    throw new DdlException("The partition and distributed columns " + mvColumnItem.getBaseColumnName()
+                                                   + " must be key column in mv");
+                }
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         }
