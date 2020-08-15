@@ -404,7 +404,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             default:
                 throw new AnalysisException("Unsupported function:" + functionName);
         }
-        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, type, mvAggregateType, false, defineExpr);
+        MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, type, mvAggregateType, false, defineExpr, baseColumnName);
         return mvColumnItem;
     }
 
