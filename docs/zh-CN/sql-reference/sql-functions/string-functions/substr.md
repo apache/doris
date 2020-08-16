@@ -21,11 +21,10 @@ under the License.
 ## description
 ### Syntax
 
-`VARCHAR substr(VARCHAR str, start position, length)`
+`VARCHAR substr(VARCHAR str, 起始位置start, 截取字符数length)`
 
 
-It returns the left part of a string of specified length, length is char length not the byte size.
- 
+它返回从start位置开始计算截取length个字符，length是字符长度，不是字节长度
 
 ## example
 
