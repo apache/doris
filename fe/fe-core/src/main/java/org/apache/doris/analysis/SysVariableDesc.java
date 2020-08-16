@@ -118,6 +118,10 @@ public class SysVariableDesc extends Expr {
     public Expr getResultValue() throws AnalysisException {
         Expr expr = super.getResultValue();
         if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            // SQL_MODE is a special variable. Its type is int, but it is usually set using a string.
+            // Such as `set sql_mode =  concat(@@sql_mode, "STRICT_TRANS_TABLES");`
+            // So we return the string type here so that it can correctly match the subsequent function signature.
+            // We will convert the string to int in VariableMgr.
             try {
                 return new StringLiteral(SqlModeHelper.decode(intValue));
             } catch (DdlException e) {
