@@ -350,4 +350,16 @@ public class SelectStmtTest {
                 "SELECT v1.k FROM test_view AS v1 LEFT OUTER JOIN test_view AS v2 ON v1.k=v2.k";
         dorisAssert.query(sql).explainQuery();
     }
+
+    @Test
+    public void testDataGripSupport() throws Exception {
+        String sql = "select schema();";
+        dorisAssert.query(sql).explainQuery();
+        sql = "select\n" +
+                "collation_name,\n" +
+                "character_set_name,\n" +
+                "is_default collate utf8_general_ci = 'Yes' as is_default\n" +
+                "from information_schema.collations";
+        dorisAssert.query(sql).explainQuery();
+    }
 }
