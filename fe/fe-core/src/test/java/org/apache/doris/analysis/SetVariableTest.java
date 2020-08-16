@@ -17,12 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -43,10 +43,21 @@ public class SetVariableTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException {
+    public void testSqlMode() throws Exception {
         String setStr = "set sql_mode = concat(@@sql_mode, 'STRICT_TRANS_TABLES');";
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, setStr);
-        System.out.println(connectContext.getSessionVariable().getSqlMode());
+        stmtExecutor.execute();
+        Assert.assertEquals("STRICT_TRANS_TABLES",
+                SqlModeHelper.decode(connectContext.getSessionVariable().getSqlMode()));
+    }
+
+    @Test
+    public void testExecMemLimit() throws Exception {
+        String setStr = "set exec_mem_limit = @@exec_mem_limit * 10";
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, setStr);
+        stmtExecutor.execute();
+        Assert.assertEquals(21474836480L, connectContext.getSessionVariable().getMaxExecMemByte());
     }
 }
