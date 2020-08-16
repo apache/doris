@@ -179,7 +179,7 @@ struct ExtFunction : public ExtPredicate {
         values(values) {
     }
 
-    const std::string& func_name;
+    const std::string func_name;
     std::vector<ExtColumnDesc> cols;
     const std::vector<ExtLiteral> values;
 };
@@ -205,7 +205,6 @@ public:
 
 private:
     Status build_disjuncts_list(const Expr* conjunct);
-    bool is_match_func(const Expr* conjunct);
     const SlotDescriptor* get_slot_desc(const SlotRef* slotRef);
 
     ExprContext* _context; 

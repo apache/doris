@@ -267,7 +267,7 @@ The easiest way, you can implement your plugin by modifying the example `auditde
 
 Doris's plugin can be deployed in three ways:
 
-* Http or Https .zip, like `http://xxx.xxxxxx.com/data/plugin.zip`, Doris will download this .zip file. At the same time, an md5 file with the same name as the `.zip` file needs to be placed. Such as `http://xxx.xxxxxx.com/data/my_plugin.zip.md5`. The content is the MD5 value of the .zip file.
+* Http or Https .zip, like `http://xxx.xxxxxx.com/data/plugin.zip`, Doris will download this .zip file. At the same time, the value of md5sum needs to be set in properties, or an md5 file with the same name as the `.zip` file needs to be placed, such as `http://xxx.xxxxxx.com/data/my_plugin.zip.md5`. The content is the MD5 value of the .zip file.
 * Local .zip, like `/home/work/data/plugin.zip`. If the plug-in is only used for FE, it needs to be deployed in the same directory of all FE nodes. Otherwise, it needs to be deployed on all FE and BE nodes.
 * Local directory, like `/home/work/data/plugin`, .zip decompressed folder. If the plug-in is only used for FE, it needs to be deployed in the same directory of all FE nodes. Otherwise, it needs to be deployed on all FE and BE nodes.
 
@@ -281,7 +281,7 @@ Install and uninstall the plugin through the install/uninstall statements. More 
 mysql> install plugin from "/home/users/doris/auditloader.zip";
 Query OK, 0 rows affected (0.09 sec)
 
-mysql> mysql> show plugins\G
+mysql> show plugins\G
 *************************** 1. row ***************************
        Name: auditloader
        Type: AUDIT
@@ -292,6 +292,7 @@ JavaVersion: 1.8.31
      SoName: NULL
     Sources: /home/users/doris/auditloader.zip
      Status: INSTALLED
+ Properties: {}
 *************************** 2. row ***************************
        Name: AuditLogBuilder
        Type: AUDIT
@@ -302,6 +303,7 @@ JavaVersion: 1.8.31
      SoName: NULL
     Sources: Builtin
      Status: INSTALLED
+ Properties: {}   
 2 rows in set (0.00 sec)
 
 mysql> uninstall plugin auditloader;

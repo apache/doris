@@ -150,7 +150,7 @@ OlapTablePartitionParam::OlapTablePartitionParam(
         std::shared_ptr<OlapTableSchemaParam> schema,
         const TOlapTablePartitionParam& t_param)
             : _schema(schema), _t_param(t_param),
-            _mem_tracker(new MemTracker()),
+            _mem_tracker(MemTracker::CreateTracker(-1, "OlapTablePartitionParam")),
             _mem_pool(new MemPool(_mem_tracker.get())) {
 }
 

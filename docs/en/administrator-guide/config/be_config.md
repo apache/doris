@@ -132,6 +132,14 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `create_tablet_worker_count`
 
+### `disable_auto_compaction`
+
+* Type: bool
+* Description: Whether disable automatic compaction task
+* Default value: false
+
+Generally it needs to be turned off. When you want to manually operate the compaction task in the debugging or test environment, you can turn on the configuration.
+
 ### `cumulative_compaction_budgeted_bytes`
 
 ### `cumulative_compaction_check_interval_seconds`
@@ -245,6 +253,15 @@ When BE starts, it will check all the paths under the `storage_root_path` in  co
 
 The default value is `false`.
 
+### ignore_rowset_stale_unconsistent_delete
+
+* Type: boolean
+* Description：It is used to decide whether to delete the outdated merged rowset if it cannot form a consistent version path.
+* Default: false
+
+The merged expired rowset version path will be deleted after half an hour. In abnormal situations, deleting these versions will result in the problem that the consistent path of the query cannot be constructed. When the configuration is false, the program check is strict and the program will directly report an error and exit.
+When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispathed by fe, -230 error will appear.
+
 ### inc_rowset_expired_sec
 
 * Type: boolean
@@ -261,8 +278,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 1. If the tablet information is not repairable, you can delete the wrong tablet through the `meta_tool` tool under the condition that other copies are normal.
 2. Set `ignore_load_tablet_failure` to true, BE will ignore these wrong tablets and start normally.
-
-### `inc_rowset_expired_sec`
 
 ### `index_stream_cache_capacity`
 
@@ -430,6 +445,22 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `streaming_load_max_mb`
 
+* Type: int64
+* Description: Used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 10240
+* Dynamically modify: yes
+
+Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
+
+### `streaming_load_max_batch_size_mb`
+
+* Type: int64
+* Description: For some data formats, such as JSON, it is used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 100
+* Dynamically modify: yes
+
+Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
+
 ### `streaming_load_rpc_max_alive_time_sec`
 
 ### `sync_tablet_meta`
@@ -454,6 +485,14 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `tablet_stat_cache_update_interval_second`
 
+### `tablet_rowset_stale_sweep_time_sec`
+
+* Type: int64
+* Description: It is used to control the expiration time of cleaning up the merged rowset version. When the current time now() minus the max created rowset‘s create time in a version path is greater than tablet_rowset_stale_sweep_time_sec, the current path is cleaned up and these merged rowsets are deleted, the unit is second.
+* Default: 1800
+
+When writing is too frequent and the disk time is insufficient, you can configure less tablet_rowset_stale_sweep_time_sec. However, if this time is less than 5 minutes, it may cause fe to query the version that has been merged, causing a query -230 error.
+
 ### `tablet_writer_open_rpc_timeout_sec`
 
 ### `tc_free_memory_rate`
@@ -467,6 +506,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 If the system is found to be in a high-stress scenario and a large number of threads are found in the tcmalloc lock competition phase through the BE thread stack, such as a large number of `SpinLock` related stacks, you can try increasing this parameter to improve system performance. [Reference] (https://github.com/gperftools/gperftools/issues/1111)
 
 ### `tc_use_memory_min`
+
+### `thrift_client_retry_interval_ms`
+
+* Type: int64
+* Description: Used to set retry interval for thrift client in be to avoid avalanche disaster in fe thrift server, the unit is ms.
+* Default: 1000
 
 ### `thrift_connect_timeout_seconds`
 

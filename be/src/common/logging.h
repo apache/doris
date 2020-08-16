@@ -61,4 +61,10 @@
 #define VLOG_ROW_IS_ON VLOG_IS_ON(3)
 #define VLOG_PROGRESS_IS_ON VLOG_IS_ON(2)
 
+/// Define a wrapper around DCHECK for strongly typed enums that print a useful error
+/// message on failure.
+#define DCHECK_ENUM_EQ(a, b)                                               \
+  DCHECK(a == b) << "[ " #a " = " << static_cast<int>(a) << " , " #b " = " \
+                 << static_cast<int>(b) << " ]"
+
 #endif

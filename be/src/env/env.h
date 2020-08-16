@@ -9,8 +9,8 @@
 
 #pragma once
 
-#include <string>
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 #include "util/slice.h"
@@ -35,15 +35,15 @@ public:
     // CREATE_OR_OPEN               | opens             | creates
     // MUST_CREATE                  | fails             | creates
     // MUST_EXIST                   | opens             | fails
-    enum OpenMode {
-        CREATE_OR_OPEN_WITH_TRUNCATE,
-        CREATE_OR_OPEN,
-        MUST_CREATE,
-        MUST_EXIST
+    enum OpenMode { 
+      CREATE_OR_OPEN_WITH_TRUNCATE, 
+      CREATE_OR_OPEN, 
+      MUST_CREATE, 
+      MUST_EXIST 
     };
 
-    Env() { }
-    virtual ~Env() { }
+    Env() {}
+    virtual ~Env() {}
 
     // Return a default environment suitable for the current operating
     // system.  Sophisticated users may wish to provide their own Env
@@ -85,8 +85,7 @@ public:
 
     // Like the previous new_writable_file, but allows options to be
     // specified.
-    virtual Status new_writable_file(const WritableFileOptions& opts,
-                                     const std::string& fname,
+    virtual Status new_writable_file(const WritableFileOptions& opts, const std::string& fname,
                                      std::unique_ptr<WritableFile>* result) = 0;
 
     // Creates a new readable and writable file. If a file with the same name
@@ -98,8 +97,7 @@ public:
                                       std::unique_ptr<RandomRWFile>* result) = 0;
 
     // Like the previous new_random_rw_file, but allows options to be specified.
-    virtual Status new_random_rw_file(const RandomRWFileOptions& opts,
-                                      const std::string& fname,
+    virtual Status new_random_rw_file(const RandomRWFileOptions& opts, const std::string& fname,
                                       std::unique_ptr<RandomRWFile>* result) = 0;
 
     // Returns OK if the path exists.
@@ -116,8 +114,7 @@ public:
     //         NotFound if "dir" does not exist, the calling process does not have
     //                  permission to access "dir", or if "dir" is invalid.
     //         IOError if an IO Error was encountered
-    virtual Status get_children(const std::string& dir,
-                                std::vector<std::string>* result) = 0;
+    virtual Status get_children(const std::string& dir, std::vector<std::string>* result) = 0;
 
     // Iterate the specified directory and call given callback function with child's
     // name. This function continues execution until all children have been iterated
@@ -168,19 +165,16 @@ public:
     virtual Status get_file_size(const std::string& fname, uint64_t* size) = 0;
 
     // Store the last modification time of fname in *file_mtime.
-    virtual Status get_file_modified_time(const std::string& fname,
-                                              uint64_t* file_mtime) = 0;
+    virtual Status get_file_modified_time(const std::string& fname, uint64_t* file_mtime) = 0;
     // Rename file src to target.
-    virtual Status rename_file(const std::string& src,
-                               const std::string& target) = 0;
+    virtual Status rename_file(const std::string& src, const std::string& target) = 0;
 
     // create a hard-link
-    virtual Status link_file(const std::string& /*old_path*/,
-                             const std::string& /*new_path*/) = 0;
+    virtual Status link_file(const std::string& /*old_path*/, const std::string& /*new_path*/) = 0;
 };
 
 struct RandomAccessFileOptions {
-    RandomAccessFileOptions() { }
+    RandomAccessFileOptions() {}
 };
 
 // Creation-time options for WritableFile
@@ -202,8 +196,8 @@ struct RandomRWFileOptions {
 // A file abstraction for reading sequentially through a file
 class SequentialFile {
 public:
-    SequentialFile() { }
-    virtual ~SequentialFile() { }
+    SequentialFile() {}
+    virtual ~SequentialFile() {}
 
     // Read up to "result.size" bytes from the file.
     // Sets "result.data" to the data that was read.
@@ -229,8 +223,8 @@ public:
 
 class RandomAccessFile {
 public:
-    RandomAccessFile() { }
-    virtual ~RandomAccessFile() { }
+    RandomAccessFile() {}
+    virtual ~RandomAccessFile() {}
 
     // Read "result.size" bytes from the file starting at "offset".
     // Copies the resulting data into "result.data".
@@ -271,13 +265,13 @@ public:
 // one of Append or PositionedAppend. We support only Append here.
 class WritableFile {
 public:
-    enum FlushMode {
-        FLUSH_SYNC,
-        FLUSH_ASYNC
+    enum FlushMode { 
+      FLUSH_SYNC, 
+      FLUSH_ASYNC 
     };
 
-    WritableFile() { }
-    virtual ~WritableFile() { }
+    WritableFile() {}
+    virtual ~WritableFile() {}
 
     // Append data to the end of the file
     virtual Status append(const Slice& data) = 0;
@@ -325,12 +319,9 @@ private:
 // A file abstraction for random reading and writing.
 class RandomRWFile {
 public:
-    enum FlushMode {
-        FLUSH_SYNC,
-        FLUSH_ASYNC
-    };
+    enum FlushMode { FLUSH_SYNC, FLUSH_ASYNC };
     RandomRWFile() {}
-    virtual ~RandomRWFile() { }
+    virtual ~RandomRWFile() {}
 
     virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
 
@@ -350,4 +341,4 @@ public:
     virtual const std::string& filename() const = 0;
 };
 
-}
+} // namespace doris

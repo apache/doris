@@ -47,27 +47,33 @@ using std::vector;
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(active_scratch_dirs, MetricUnit::NOUNIT, "Metric to track active scratch directories");
+
 const std::string _s_tmp_sub_dir_name = "doris-scratch";
 const uint64_t _s_available_space_threshold_mb = 1024;
 
-// Metric keys
-const std::string TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS = "tmp_file_mgr.active_scratch_dirs";
-const std::string TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST = "tmp_file_mgr.active_scratch_dirs.list";
-
 TmpFileMgr::TmpFileMgr(ExecEnv* exec_env) :
-        _exec_env(exec_env), _initialized(false), _dir_status_lock(), _tmp_dirs() { }
-        // _num_active_scratch_dirs_metric(NULL), _active_scratch_dirs_metric(NULL) {}
+        _exec_env(exec_env), _initialized(false), _dir_status_lock(), _tmp_dirs() {
+    METRIC_REGISTER(DorisMetrics::instance()->metric_registry()->get_entity("server"), active_scratch_dirs);
+}
 
-Status TmpFileMgr::init(MetricRegistry* metrics) {
+TmpFileMgr::TmpFileMgr() {
+    METRIC_REGISTER(DorisMetrics::instance()->metric_registry()->get_entity("server"), active_scratch_dirs);
+}
+
+TmpFileMgr::~TmpFileMgr() {
+    METRIC_DEREGISTER(DorisMetrics::instance()->metric_registry()->get_entity("server"), active_scratch_dirs);
+}
+
+Status TmpFileMgr::init() {
     vector<string> all_tmp_dirs;
     for (auto& path : _exec_env->store_paths()) {
         all_tmp_dirs.emplace_back(path.path);
     }
-    return init_custom(all_tmp_dirs, true, metrics);
+    return init_custom(all_tmp_dirs, true);
 }
 
-Status TmpFileMgr::init_custom(
-        const vector<string>& tmp_dirs, bool one_dir_per_device, MetricRegistry* metrics) {
+Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_device) {
     DCHECK(!_initialized);
     if (tmp_dirs.empty()) {
         LOG(WARNING) << "Running without spill to disk: no scratch directories provided.";
@@ -118,19 +124,7 @@ Status TmpFileMgr::init_custom(
         }
     }
 
-    DCHECK(metrics != NULL);
-    _num_active_scratch_dirs_metric.reset(new IntGauge(MetricUnit::NOUNIT));
-    metrics->register_metric("active_scratch_dirs", _num_active_scratch_dirs_metric.get());
-    //_active_scratch_dirs_metric = metrics->register_metric(new SetMetric<std::string>(
-    //        TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST,
-    //        std::set<std::string>()));
-    // TODO(zc):
-    // _active_scratch_dirs_metric = SetMetric<string>::CreateAndRegister(
-    // metrics, TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST, std::set<std::string>());
-    _num_active_scratch_dirs_metric->set_value(_tmp_dirs.size());
-    // for (int i = 0; i < _tmp_dirs.size(); ++i) {
-    //     _active_scratch_dirs_metric->add(_tmp_dirs[i].path());
-    // }
+    active_scratch_dirs.set_value(_tmp_dirs.size());
 
     _initialized = true;
 
@@ -182,8 +176,7 @@ void TmpFileMgr::blacklist_device(DeviceId device_id) {
         added = _tmp_dirs[device_id].blacklist();
     }
     if (added) {
-        _num_active_scratch_dirs_metric->increment(-1);
-        // _active_scratch_dirs_metric->remove(_tmp_dirs[device_id].path());
+        active_scratch_dirs.increment(-1);
     }
 }
 

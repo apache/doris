@@ -231,7 +231,7 @@ void EngineStorageMigrationTask::_generate_new_header(
         const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta) {
     DCHECK(store != nullptr);
-    tablet->generate_tablet_meta_copy(new_tablet_meta);
+    tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {

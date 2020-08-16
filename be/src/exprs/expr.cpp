@@ -539,7 +539,7 @@ Status Expr::prepare(
         const std::vector<ExprContext*>& ctxs,
         RuntimeState* state,
         const RowDescriptor& row_desc,
-        MemTracker* tracker) {
+        const std::shared_ptr<MemTracker>& tracker) {
     for (int i = 0; i < ctxs.size(); ++i) {
         RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc, tracker));
     }
@@ -868,13 +868,12 @@ void Expr::assign_fn_ctx_idx(int* next_fn_ctx_idx) {
   _fn_ctx_idx_end = *next_fn_ctx_idx;
 }
 
-
-Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc,
-    RuntimeState* state, ObjectPool* pool, Expr** scalar_expr,
-    MemTracker* tracker) {
-  *scalar_expr = nullptr;
-  Expr* root;
-  RETURN_IF_ERROR(create_expr(pool, texpr.nodes[0], &root));
+Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
+                    ObjectPool* pool, Expr** scalar_expr,
+                    const std::shared_ptr<MemTracker>& tracker) {
+    *scalar_expr = nullptr;
+    Expr* root;
+    RETURN_IF_ERROR(create_expr(pool, texpr.nodes[0], &root));
   RETURN_IF_ERROR(create_tree(texpr, pool, root));
   // TODO pengyubing replace by Init()
   ExprContext* ctx = pool->add(new ExprContext(root));
@@ -893,9 +892,10 @@ Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc,
   return Status::OK();
 }
 
-Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc,
-    RuntimeState* state, ObjectPool* pool, vector<Expr*>* exprs, MemTracker* tracker) {
-  exprs->clear();
+Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc, RuntimeState* state,
+                    ObjectPool* pool, vector<Expr*>* exprs,
+                    const std::shared_ptr<MemTracker>& tracker) {
+    exprs->clear();
   for (const TExpr& texpr: texprs) {
     Expr* expr;
     RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr, tracker));
@@ -906,12 +906,12 @@ Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc,
 }
 
 Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc,
-    RuntimeState* state, Expr** scalar_expr, MemTracker* tracker) {
+    RuntimeState* state, Expr** scalar_expr, const std::shared_ptr<MemTracker>& tracker) {
   return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr, tracker);
 }
 
 Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc,
-    RuntimeState* state, vector<Expr*>* exprs, MemTracker* tracker) {
+    RuntimeState* state, vector<Expr*>* exprs, const std::shared_ptr<MemTracker>& tracker) {
   return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs, tracker);
 }
 

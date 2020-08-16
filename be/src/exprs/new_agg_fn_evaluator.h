@@ -69,13 +69,13 @@ class NewAggFnEvaluator {
   /// from 'mem_pool'. Note that it's the responsibility to call Close() all evaluators
   /// even if this function returns error status on initialization failure.
   static Status Create(const AggFn& agg_fn, RuntimeState* state, ObjectPool* pool,
-      MemPool* mem_pool, NewAggFnEvaluator** eval, MemTracker* tracker, 
+      MemPool* mem_pool, NewAggFnEvaluator** eval, const std::shared_ptr<MemTracker>& tracker,
       const RowDescriptor& row_desc) WARN_UNUSED_RESULT;
 
   /// Convenience functions for creating evaluators for multiple aggregate functions.
   static Status Create(const std::vector<AggFn*>& agg_fns, RuntimeState* state,
       ObjectPool* pool, MemPool* mem_pool, std::vector<NewAggFnEvaluator*>* evals,
-      MemTracker* tracker, const RowDescriptor& row_desc) WARN_UNUSED_RESULT;
+      const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc) WARN_UNUSED_RESULT;
 
   ~NewAggFnEvaluator();
 
@@ -223,7 +223,7 @@ class NewAggFnEvaluator {
   /// Owned by the exec node which owns this evaluator.
   MemPool* mem_pool_ = nullptr;
 
-  MemTracker* _mem_tracker;  // saved c'tor param
+  std::shared_ptr<MemTracker> _mem_tracker;  // saved c'tor param
 
   /// This contains runtime state such as constant input arguments to the aggregate
   /// functions and a FreePool from which the intermediate values are allocated.
@@ -245,7 +245,7 @@ class NewAggFnEvaluator {
   doris_udf::AnyVal* staging_merge_input_val_ = nullptr;
 
   /// Use Create() instead.
-  NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, MemTracker* tracker, bool is_clone);
+  NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, const std::shared_ptr<MemTracker>& tracker, bool is_clone);
 
   /// Return the intermediate type of the aggregate function.
   inline const SlotDescriptor& intermediate_slot_desc() const;

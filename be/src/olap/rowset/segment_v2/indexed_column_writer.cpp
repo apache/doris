@@ -37,13 +37,12 @@ namespace doris {
 namespace segment_v2 {
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                         const TypeInfo* typeinfo,
-                                         fs::WritableBlock* wblock)
+                                         const TypeInfo* typeinfo, fs::WritableBlock* wblock)
         : _options(options),
           _typeinfo(typeinfo),
           _wblock(wblock),
-          _mem_tracker(-1),
-          _mem_pool(&_mem_tracker),
+          _mem_tracker(new MemTracker()),
+          _mem_pool(_mem_tracker.get()),
           _num_values(0),
           _num_data_pages(0),
           _validx_key_coder(nullptr),

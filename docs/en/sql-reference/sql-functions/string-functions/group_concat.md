@@ -59,5 +59,5 @@ mysql> select group_concat(value, " ") from test;
 | a b c                      |
 +----------------------------+
 ```
-##keyword
+## keyword
 GROUP_CONCAT,GROUP,CONCAT

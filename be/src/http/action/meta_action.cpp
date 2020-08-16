@@ -60,13 +60,11 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status::InternalError("no tablet exist");
     }
-    OLAPStatus s =
-            TabletMetaManager::get_json_meta(tablet->data_dir(), tablet_id, schema_hash, json_meta);
-    if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
-        return Status::InternalError("no header exist");
-    } else if (s != OLAP_SUCCESS) {
-        return Status::InternalError("backend error");
-    }
+    TabletMetaSharedPtr tablet_meta(new TabletMeta());
+    tablet->generate_tablet_meta_copy(tablet_meta);
+    json2pb::Pb2JsonOptions json_options;
+    json_options.pretty_json = true;
+    tablet_meta->to_json(json_meta, json_options);
     return Status::OK();
 }
 

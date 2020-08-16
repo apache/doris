@@ -65,7 +65,10 @@ public:
     using MemoryIndexType = typename BitmapIndexTraits<CppType>::MemoryIndexType;
 
     explicit BitmapIndexWriterImpl(const TypeInfo* typeinfo)
-        : _typeinfo(typeinfo), _reverted_index_size(0), _tracker(), _pool(&_tracker) {}
+            : _typeinfo(typeinfo),
+              _reverted_index_size(0),
+              _tracker(new MemTracker()),
+              _pool(_tracker.get()) {}
 
     ~BitmapIndexWriterImpl() = default;
 
@@ -183,7 +186,7 @@ private:
     Roaring _null_bitmap;
     // unique value to its row id list
     MemoryIndexType _mem_index;
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 

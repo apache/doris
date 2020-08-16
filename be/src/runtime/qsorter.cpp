@@ -84,7 +84,7 @@ QSorter::QSorter(
             RuntimeState* state) :
         _row_desc(row_desc),
         _order_expr_ctxs(order_expr_ctxs),
-        _tuple_pool(new MemPool(state->instance_mem_tracker())) {
+        _tuple_pool(new MemPool(state->instance_mem_tracker().get())) {
 }
 
 Status QSorter::prepare(RuntimeState* state) {

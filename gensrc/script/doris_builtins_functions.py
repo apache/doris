@@ -268,6 +268,23 @@ visible_functions = [
 
     [['abs'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
+    [['abs'], 'FLOAT', ['FLOAT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_8FloatValE'],
+    [['abs'], 'LARGEINT', ['LARGEINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_11LargeIntValE'],
+    [['abs'], 'LARGEINT', ['BIGINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
+    [['abs'], 'INT', ['SMALLINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_11SmallIntValE'],
+    [['abs'], 'BIGINT', ['INT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
+    [['abs'], 'SMALLINT', ['TINYINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_10TinyIntValE'],
+    [['abs'], 'DECIMAL', ['DECIMAL'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_10DecimalValE'],
+    [['abs'], 'DECIMALV2', ['DECIMALV2'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE'],
+
     [['sign'], 'FLOAT', ['DOUBLE'],
         '_ZN5doris13MathFunctions4signEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
 

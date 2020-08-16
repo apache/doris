@@ -38,7 +38,7 @@ namespace segment_v2 {
 class BitmapIndexTest : public testing::Test {
 public:
     const std::string kTestDir = "./ut_dir/bitmap_index_test";
-    BitmapIndexTest() : _pool(&_tracker) { }
+    BitmapIndexTest() : _tracker(new MemTracker()), _pool(_tracker.get()) {}
 
     void SetUp() override {
         if (FileUtils::check_exist(kTestDir)) {
@@ -53,7 +53,7 @@ public:
     }
 
 private:
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 

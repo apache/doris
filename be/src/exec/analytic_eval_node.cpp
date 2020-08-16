@@ -25,8 +25,6 @@
 #include "runtime/runtime_state.h"
 #include "udf/udf_internal.h"
 
-static const int MAX_TUPLE_POOL_SIZE = 8 * 1024 * 1024; // 8MB
-
 namespace doris {
 
 using doris_udf::BigIntVal;
@@ -53,6 +51,7 @@ AnalyticEvalNode::AnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
         _dummy_result_tuple(NULL),
         _curr_partition_idx(-1),
         _prev_input_row(NULL),
+        _block_mgr_client(nullptr),
         _input_eos(false),
         _evaluation_timer(NULL) {
     if (tnode.analytic_node.__isset.buffered_tuple_id) {
@@ -147,18 +146,18 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
-    _curr_tuple_pool.reset(new MemPool(mem_tracker()));
-    _prev_tuple_pool.reset(new MemPool(mem_tracker()));
-    _mem_pool.reset(new MemPool(mem_tracker()));
+    _curr_tuple_pool.reset(new MemPool(mem_tracker().get()));
+    _prev_tuple_pool.reset(new MemPool(mem_tracker().get()));
+    _mem_pool.reset(new MemPool(mem_tracker().get()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
 
     for (int i = 0; i < _evaluators.size(); ++i) {
         doris_udf::FunctionContext* ctx;
-        RETURN_IF_ERROR(_evaluators[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
-                _intermediate_tuple_desc->slots()[i], _result_tuple_desc->slots()[i],
-                mem_tracker(), &ctx));
+        RETURN_IF_ERROR(_evaluators[i]->prepare(
+                state, child(0)->row_desc(), _mem_pool.get(), _intermediate_tuple_desc->slots()[i],
+                _result_tuple_desc->slots()[i], mem_tracker(), &ctx));
         _fn_ctxs.push_back(ctx);
         state->obj_pool()->add(ctx);
     }
@@ -172,13 +171,13 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 
         if (_partition_by_eq_expr_ctx != NULL) {
             RETURN_IF_ERROR(
-                _partition_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+                    _partition_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
             //AddExprCtxToFree(_partition_by_eq_expr_ctx);
         }
 
         if (_order_by_eq_expr_ctx != NULL) {
             RETURN_IF_ERROR(
-                _order_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+                    _order_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
             //AddExprCtxToFree(_order_by_eq_expr_ctx);
         }
     }
@@ -194,8 +193,8 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(child(0)->open(state));
-    RETURN_IF_ERROR(state->block_mgr2()->register_client(2, mem_tracker(), state, &client_));
-    _input_stream.reset(new BufferedTupleStream2(state, child(0)->row_desc(), state->block_mgr2(), client_, false, true));
+    RETURN_IF_ERROR(state->block_mgr2()->register_client(2, mem_tracker(), state, &_block_mgr_client));
+    _input_stream.reset(new BufferedTupleStream2(state, child(0)->row_desc(), state->block_mgr2(), _block_mgr_client, false, true));
     RETURN_IF_ERROR(_input_stream->init(id(), runtime_profile(), true));
 
     bool got_read_buffer;
@@ -239,8 +238,8 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
 
     // Fetch the first input batch so that some _prev_input_row can be set here to avoid
     // special casing in GetNext().
-    _prev_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
-    _curr_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
+    _prev_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _curr_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
 
     while (!_input_eos && _prev_input_row == NULL) {
         RETURN_IF_ERROR(child(0)->get_next(state, _curr_child_batch.get(), &_input_eos));
@@ -689,6 +688,7 @@ Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
             // not enough memory (status() is OK). If there isn't enough memory, we unpin
             // the stream and continue writing/reading in unpinned mode.
             // TODO: Consider re-pinning later if the output stream is fully consumed.
+            add_runtime_exec_option("Spilled");
             RETURN_IF_ERROR(status);
             RETURN_IF_ERROR(_input_stream->unpin_stream());
             VLOG_FILE << id() << " Unpin input stream while adding row idx=" << stream_idx;
@@ -710,7 +710,12 @@ Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
 
     // Transfer resources to _prev_tuple_pool when enough resources have accumulated
     // and the _prev_tuple_pool has already been transfered to an output batch.
-    if (_curr_tuple_pool->total_allocated_bytes() > MAX_TUPLE_POOL_SIZE &&
+
+    // The memory limit of _curr_tuple_pool is set by the fixed value 
+    // The size is specified as 8MB, which is used in the extremely strict memory limit.
+    // Eg: exec_mem_limit < 100MB may cause memory exeecded limit problem. So change it to half of max block size to prevent the problem.
+    // TODO: Should we keep the buffer of _curr_tuple_pool or release the memory occupied ASAP?
+    if (_curr_tuple_pool->total_allocated_bytes() > state->block_mgr2()->max_block_size() / 2 &&
             (_prev_pool_last_result_idx == -1 || _prev_pool_last_window_idx == -1)) {
         _prev_tuple_pool->acquire_data(_curr_tuple_pool.get(), false);
         _prev_pool_last_result_idx = _last_result_idx;
@@ -739,7 +744,7 @@ Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* ou
     ExprContext** ctxs = &_conjunct_ctxs[0];
     int num_ctxs = _conjunct_ctxs.size();
 
-    RowBatch input_batch(child(0)->row_desc(), output_batch->capacity(), mem_tracker());
+    RowBatch input_batch(child(0)->row_desc(), output_batch->capacity(), mem_tracker().get());
     int64_t stream_idx = _input_stream->rows_returned();
     RETURN_IF_ERROR(_input_stream->get_next(&input_batch, eos));
 
@@ -811,6 +816,7 @@ Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
+    RETURN_IF_ERROR(state->check_query_state("Analytic eval, while get_next."));
     VLOG_FILE << id() << " GetNext: " << debug_state_string(false);
 
     if (reached_limit()) {
@@ -855,6 +861,9 @@ Status AnalyticEvalNode::close(RuntimeState* state) {
         _input_stream->close();
     }
 
+    if (_block_mgr_client != nullptr) {
+        state->block_mgr2()->clear_reservations(_block_mgr_client);
+    }
     // Close all evaluators and fn ctxs. If an error occurred in Init or rrepare there may
     // be fewer ctxs than evaluators. We also need to Finalize if _curr_tuple was created
     // in Open.

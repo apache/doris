@@ -68,7 +68,7 @@ under the License.
 
         timeout: 指定导入的超时时间。单位秒。默认是 600 秒。可设置范围为 1 秒 ~ 259200 秒。
 
-        strict_mode: 用户指定此次导入是否开启严格模式，默认为开启。关闭方式为 -H "strict_mode: false"。
+        strict_mode: 用户指定此次导入是否开启严格模式，默认为关闭。开启方式为 -H "strict_mode: true"。
 
         timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
 
@@ -88,6 +88,8 @@ under the License.
             {"k1" : 3, "v1" : 4}
            ]
            当strip_outer_array为true，最后导入到doris中会生成两行数据。
+
+        json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
@@ -158,6 +160,7 @@ under the License.
                {"category":"Java","author":"avc","title":"Effective Java","price":95},
                {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
               ]
+
     11. 匹配模式，导入json数据
        json数据格式：
            [
@@ -170,6 +173,18 @@ under the License.
          说明：
            1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
            2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
+
+    12. 用户指定json根节点
+       json数据格式:
+            {
+            "RECORDS":[
+                {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+                {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+                {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+                ]
+            }
+        通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性  
+         curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 ## keyword
     STREAM,LOAD

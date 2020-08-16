@@ -73,8 +73,8 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         }
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
-            break;// break if true
+        if (fill_dest_tuple(tuple, tuple_pool)) {
+            break; // break if true
         }
     }
     if (_scanner_eof) {
@@ -134,15 +134,20 @@ Status JsonScanner::open_next_reader() {
     }
     }
 
+    std::string json_root = "";
     std::string jsonpath = "";
     bool strip_outer_array = false;
     if (range.__isset.jsonpaths) {
         jsonpath = range.jsonpaths;
     }
+    if (range.__isset.json_root) {
+        json_root = range.json_root;
+    }
     if (range.__isset.strip_outer_array) {
         strip_outer_array = range.strip_outer_array;
     }
-    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, jsonpath, strip_outer_array);
+    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, strip_outer_array);
+    RETURN_IF_ERROR(_cur_file_reader->init(jsonpath, json_root));
 
     return Status::OK();
 }
@@ -159,28 +164,26 @@ void JsonScanner::close() {
 
 ////// class JsonDataInternal
 JsonDataInternal::JsonDataInternal(rapidjson::Value* v) :
-        _json_values(v), _iterator(v->Begin()) {
-}
-
-JsonDataInternal::~JsonDataInternal() {
-
+        _json_values(v) {
+   if (v != nullptr) {
+       _iterator = v->Begin();
+   }
 }
 
 rapidjson::Value::ConstValueIterator JsonDataInternal::get_next() {
-    if (_json_values->End() == _iterator) {
+    if (is_null() || _json_values->End() == _iterator) {
         return nullptr;
     }
     return _iterator++;
 }
-
 
 ////// class JsonReader
 JsonReader::JsonReader(
         RuntimeState* state, ScannerCounter* counter,
         RuntimeProfile* profile,
         FileReader* file_reader,
-        std::string& jsonpath,
         bool strip_outer_array) :
+            _handle_json_callback(nullptr),
             _next_line(0),
             _total_lines(0),
             _state(state),
@@ -188,36 +191,63 @@ JsonReader::JsonReader(
             _profile(profile),
             _file_reader(file_reader),
             _closed(false),
-            _strip_outer_array(strip_outer_array) {
+            _strip_outer_array(strip_outer_array),
+            _json_doc(nullptr) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "FileReadTime");
-
-    init_jsonpath(jsonpath);
 }
 
 JsonReader::~JsonReader() {
-    close();
+    _close();
 }
 
-void JsonReader::init_jsonpath(std::string& jsonpath) {
-    //parse jsonpath
+Status JsonReader::init(const std::string& jsonpath, const std::string& json_root) {
+    // parse jsonpath
     if (!jsonpath.empty()) {
-        if (!_jsonpaths_doc.Parse(jsonpath.c_str()).HasParseError()) {
-            if (!_jsonpaths_doc.IsArray()) {
-                _parse_jsonpath_flag = -1;// failed, has none object
-            } else {
-                _parse_jsonpath_flag = 1;// success
-            }
+        Status st = _generate_json_paths(jsonpath, &_parsed_jsonpaths);
+        RETURN_IF_ERROR(st);
+    }
+    if (!json_root.empty()) {
+        JsonFunctions::parse_json_paths(json_root, &_parsed_json_root);
+    }
+
+    //improve performance
+    if (_parsed_jsonpaths.empty()) { // input is a simple json-string
+        _handle_json_callback = &JsonReader::_handle_simple_json;
+    } else { // input is a complex json-string and a json-path
+        if (_strip_outer_array) {
+            _handle_json_callback = &JsonReader::_handle_flat_array_complex_json;
         } else {
-            _parse_jsonpath_flag = -1;// parse failed
+            _handle_json_callback = &JsonReader::_handle_nested_complex_json;
+        }
+    }
+    return Status::OK();
+}
+
+Status JsonReader::_generate_json_paths(const std::string& jsonpath, std::vector<std::vector<JsonPath>>* vect) {
+    rapidjson::Document jsonpaths_doc;
+    if (!jsonpaths_doc.Parse(jsonpath.c_str()).HasParseError()) {
+        if (!jsonpaths_doc.IsArray()) {
+            return Status::InvalidArgument("Invalid json path: " + jsonpath);
+        } else {
+            for (int i = 0; i < jsonpaths_doc.Size(); i++) {
+                const rapidjson::Value& path = jsonpaths_doc[i];
+                if (!path.IsString()) {
+                    return Status::InvalidArgument("Invalid json path: " + jsonpath);
+                }
+                path.GetString();
+                std::vector<JsonPath> parsed_paths;
+                JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
+                vect->push_back(parsed_paths);
+            }
+            return Status::OK();
         }
     } else {
-        _parse_jsonpath_flag = 0;
+        return Status::InvalidArgument("Invalid json path: " + jsonpath);
     }
-    return ;
 }
 
-void JsonReader::close() {
+void JsonReader::_close() {
     if (_closed) {
         return;
     }
@@ -228,7 +258,11 @@ void JsonReader::close() {
     _closed = true;
 }
 
-Status JsonReader::parse_json_doc(bool* eof) {
+// read one json string from file read and parse it to json doc.
+// return Status::DataQualityError() if data has quality error.
+// return other error if encounter other problemes.
+// return Status::OK() if parse succeed or reach EOF.
+Status JsonReader::_parse_json_doc(bool* eof) {
     // read a whole message, must be delete json_str by `delete[]`
     uint8_t* json_str = nullptr;
     size_t length = 0;
@@ -237,48 +271,68 @@ Status JsonReader::parse_json_doc(bool* eof) {
         *eof = true;
         return Status::OK();
     }
-    //  parse jsondata to JsonDoc
-    if (_json_doc.Parse((char*)json_str, length).HasParseError()) {
-        delete[] json_str;
+    // parse jsondata to JsonDoc
+    if (_origin_json_doc.Parse((char*)json_str, length).HasParseError()) {
         std::stringstream str_error;
-        str_error << "Parse json data for JsonDoc is failed. code = " << _json_doc.GetParseError()
-                << ", error-info:" << rapidjson::GetParseError_En(_json_doc.GetParseError());
-        return Status::InternalError(str_error.str());
-    }
-
-    if (!_json_doc.IsArray() && _strip_outer_array) {
+        str_error << "Parse json data for JsonDoc failed. code = " << _origin_json_doc.GetParseError()
+                << ", error-info:" << rapidjson::GetParseError_En(_origin_json_doc.GetParseError());
+        _state->append_error_msg_to_file(std::string((char*) json_str, length), str_error.str());
+        _counter->num_rows_filtered++;
         delete[] json_str;
-        return Status::InternalError("JSON ROOT node is array-object, `strip_outer_array` must be TRUE.");
+        return Status::DataQualityError(str_error.str());
+    }
+    delete[] json_str;
+
+    // set json root
+    if (_parsed_json_root.size() != 0) {
+        _json_doc = JsonFunctions::get_json_object_from_parsed_json(_parsed_json_root, &_origin_json_doc, _origin_json_doc.GetAllocator());
+        if (_json_doc == nullptr) {
+            std::stringstream str_error;
+            str_error << "JSON Root not found.";
+            _state->append_error_msg_to_file(_print_json_value(_origin_json_doc), str_error.str());
+            _counter->num_rows_filtered++;
+            return Status::DataQualityError(str_error.str());
+        }
+    } else {
+        _json_doc = &_origin_json_doc;
     }
 
-    delete[] json_str;
+    if (_json_doc->IsArray() && !_strip_outer_array) {
+        std::stringstream str_error;
+        str_error << "JSON data is array-object, `strip_outer_array` must be TRUE.";
+        _state->append_error_msg_to_file(_print_json_value(_origin_json_doc), str_error.str());
+        _counter->num_rows_filtered++;
+        return Status::DataQualityError(str_error.str());
+    }
+
+    if (!_json_doc->IsArray() && _strip_outer_array) {
+        std::stringstream str_error;
+        str_error << "JSON data is not an array-object, `strip_outer_array` must be FALSE.";
+        _state->append_error_msg_to_file(_print_json_value(_origin_json_doc), str_error.str());
+        _counter->num_rows_filtered++;
+        return Status::DataQualityError(str_error.str());
+    }
+
     return Status::OK();
 }
 
-size_t JsonReader::get_data_by_jsonpath(const std::vector<SlotDescriptor*>& slot_descs) {
-    size_t max_lines = 0;
-    //iterator jsonpath to find object and save it to Map
-    _jmap.clear();
-
-    for (int i = 0; i < _jsonpaths_doc.Size(); i++) {
-        const rapidjson::Value& path = _jsonpaths_doc[i];
-        if (!path.IsString()) {
-            return -1;
-        }
-
-        // if jsonValues is null, because not match in jsondata.
-        rapidjson::Value* json_values = JsonFunctions::get_json_array_from_parsed_json(path.GetString(), &_json_doc, _json_doc.GetAllocator());
-        if (json_values == nullptr) {
-            return -1;
-        }
-        max_lines = std::max(max_lines, (size_t)json_values->Size());
-        _jmap.emplace(slot_descs[i]->col_name(), json_values);
-    }
-
-    return max_lines;
+std::string JsonReader::_print_json_value(const rapidjson::Value& value) {
+    rapidjson::StringBuffer buffer;
+    buffer.Clear();
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    value.Accept(writer);
+    return std::string(buffer.GetString());
 }
 
-void JsonReader::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len) {
+std::string JsonReader::_print_jsonpath(const std::vector<JsonPath>& path) {
+    std::stringstream ss;
+    for (auto& p : path) {
+        ss << p.to_string() << ".";
+    }
+    return ss.str();
+}
+
+void JsonReader::_fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len) {
     tuple->set_not_null(slot_desc->null_indicator_offset());
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
     StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
@@ -288,38 +342,38 @@ void JsonReader::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem
     return;
 }
 
-Status JsonReader::write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc, Tuple* tuple, MemPool* tuple_pool) {
+void JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc, Tuple* tuple, MemPool* tuple_pool, bool* valid) {
     const char* str_value = nullptr;
     uint8_t tmp_buf[128] = {0};
     int32_t wbytes = 0;
     switch (value->GetType()) {
         case rapidjson::Type::kStringType:
             str_value = value->GetString();
-            fill_slot(tuple, desc, tuple_pool, (uint8_t*)str_value, strlen(str_value));
+            _fill_slot(tuple, desc, tuple_pool, (uint8_t*)str_value, strlen(str_value));
             break;
         case rapidjson::Type::kNumberType:
             if (value->IsUint()) {
                 wbytes = sprintf((char*)tmp_buf, "%u", value->GetUint());
-                fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
+                _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
             } else if (value->IsInt()) {
                 wbytes = sprintf((char*)tmp_buf, "%d", value->GetInt());
-                fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
+                _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
             } else if (value->IsUint64()) {
                 wbytes = sprintf((char*)tmp_buf, "%lu", value->GetUint64());
-                fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
+                _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
             } else if (value->IsInt64()) {
                 wbytes = sprintf((char*)tmp_buf, "%ld", value->GetInt64());
-                fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
+                _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
             } else {
                 wbytes = sprintf((char*)tmp_buf, "%f", value->GetDouble());
-                fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
+                _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
             }
             break;
         case rapidjson::Type::kFalseType:
-            fill_slot(tuple, desc, tuple_pool, (uint8_t*)"0", 1);
+            _fill_slot(tuple, desc, tuple_pool, (uint8_t*)"0", 1);
             break;
         case rapidjson::Type::kTrueType:
-            fill_slot(tuple, desc, tuple_pool, (uint8_t*)"1", 1);
+            _fill_slot(tuple, desc, tuple_pool, (uint8_t*)"1", 1);
             break;
         case rapidjson::Type::kNullType:
             if (desc->is_nullable()) {
@@ -327,31 +381,49 @@ Status JsonReader::write_data_to_tuple(rapidjson::Value::ConstValueIterator valu
             } else {
                 std::stringstream str_error;
                 str_error << "Json value is null, but the column `" << desc->col_name() << "` is not nullable.";
-                return Status::RuntimeError(str_error.str());
+                _state->append_error_msg_to_file(_print_json_value(*value), str_error.str());
+                _counter->num_rows_filtered++;
+                *valid = false;
+                return;
             }
             break;
         default:
-            std::stringstream str_error;
-            str_error << "Invalid JsonType " << value->GetType() << ", Column Name `" << desc->col_name() << "`.";
-            return Status::RuntimeError(str_error.str());
+            // for other type like array or object. we convert it to string to save
+            std::string json_str = _print_json_value(*value);
+            _fill_slot(tuple, desc, tuple_pool, (uint8_t*) json_str.c_str(), json_str.length());
+            break;
     }
-    return Status::OK();
+    *valid = true;
+    return;
 }
 
-Status JsonReader::set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid) {
+// for simple format json
+void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid) {
+    if (!objectValue.IsObject()) {
+        // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"},
+        // not other type of Json format.
+        _state->append_error_msg_to_file(_print_json_value(objectValue), "Expect json object value");
+        _counter->num_rows_filtered++;
+        *valid = false; // current row is invalid
+        return;
+    }
+
     int nullcount = 0;
     for (auto v : slot_descs) {
         if (objectValue.HasMember(v->col_name().c_str())) {
             rapidjson::Value& value = objectValue[v->col_name().c_str()];
-            RETURN_IF_ERROR(write_data_to_tuple(&value, v, tuple, tuple_pool));
-        } else {
+            _write_data_to_tuple(&value, v, tuple, tuple_pool, valid);
+            if (!(*valid)) {
+                return;
+            }
+        } else { // not found
             if (v->is_nullable()) {
                 tuple->set_null(v->null_indicator_offset());
                 nullcount++;
             } else  {
                 std::stringstream str_error;
                 str_error << "The column `" << v->col_name() << "` is not nullable, but it's not found in jsondata.";
-                _state->append_error_msg_to_file("", str_error.str());
+                _state->append_error_msg_to_file(_print_json_value(objectValue), str_error.str());
                 _counter->num_rows_filtered++;
                 *valid = false; // current row is invalid
                 break;
@@ -360,42 +432,57 @@ Status JsonReader::set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, 
     }
 
     if (nullcount == slot_descs.size()) {
-        _state->append_error_msg_to_file("", "The all fields is null, this is a invalid row.");
+        _state->append_error_msg_to_file(_print_json_value(objectValue), "All fields is null, this is a invalid row.");
         _counter->num_rows_filtered++;
         *valid = false;
-        return Status::OK();
+        return;
     }
     *valid = true;
-    return Status::OK();
+    return;
 }
 
 /**
- * handle input a simple json
+ * handle input a simple json.
+ * A json is a simple json only when user not specifying the json path.
  * For example:
- *  case 1. [{"colunm1":"value1", "colunm2":10}, {"colunm1":"value2", "colunm2":30}]
+ *  case 1. [{"colunm1":"value1", "colunm2":10}, {"colunm1":"
+", "colunm2":30}]
  *  case 2. {"colunm1":"value1", "colunm2":10}
  */
-Status JsonReader::handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
+Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
     do {
         bool valid = false;
-        if (_next_line >= _total_lines) {//parse json and generic document
-            RETURN_IF_ERROR(parse_json_doc(eof));
-            if (*eof) {// read all data, then return
+        if (_next_line >= _total_lines) { // parse json and generic document
+            Status st = _parse_json_doc(eof);
+            if (st.is_data_quality_error()) {
+                continue; // continue to read next
+            }
+            RETURN_IF_ERROR(st); // terminate if encounter other errors
+            if (*eof) { // read all data, then return
                 return Status::OK();
             }
-            if (_json_doc.IsArray() ) {
-                _total_lines = _json_doc.Size();
+            if (_json_doc->IsArray()) {
+                _total_lines = _json_doc->Size();
+                if (_total_lines == 0) {
+                    // may be passing an empty json, such as "[]"
+                    std::stringstream str_error;
+                    str_error << "Empty json line";
+                    _state->append_error_msg_to_file(_print_json_value(*_json_doc), str_error.str());
+                    _counter->num_rows_filtered++;
+                    continue;
+                }
             } else {
                 _total_lines = 1; // only one row
             }
+
             _next_line = 0;
         }
 
-        if (_json_doc.IsArray()) {//handle case 1
-            rapidjson::Value& objectValue = _json_doc[_next_line];// json object
-            RETURN_IF_ERROR(set_tuple_value(objectValue, tuple, slot_descs, tuple_pool, &valid));
-        } else {// handle case 2
-            RETURN_IF_ERROR(set_tuple_value(_json_doc, tuple, slot_descs, tuple_pool, &valid));
+        if (_json_doc->IsArray()) { // handle case 1
+            rapidjson::Value& objectValue = (*_json_doc)[_next_line];// json object
+            _set_tuple_value(objectValue, tuple, slot_descs, tuple_pool, &valid);
+        } else { // handle case 2
+            _set_tuple_value(*_json_doc, tuple, slot_descs, tuple_pool, &valid);
         }
         _next_line++;
         if (!valid) {
@@ -406,63 +493,73 @@ Status JsonReader::handle_simple_json(Tuple* tuple, const std::vector<SlotDescri
     return Status::OK();
 }
 
-Status JsonReader::set_tuple_value_from_map(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid) {
-    std::unordered_map<std::string, JsonDataInternal>::iterator it_map;
-    for (auto v : slot_descs) {
-        it_map = _jmap.find(v->col_name());
-        if (it_map == _jmap.end()) {
-            return Status::RuntimeError("The column name of table is not foud in jsonpath.");
-        }
-        rapidjson::Value::ConstValueIterator value = it_map->second.get_next();
-        if (value == nullptr) {
-            if (v->is_nullable()) {
-                tuple->set_null(v->null_indicator_offset());
+bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs) {
+    int nullcount = 0;
+    bool valid = true;
+    size_t column_num = std::min(slot_descs.size(), _parsed_jsonpaths.size());
+
+    for (size_t i = 0; i < column_num; i++) {
+        rapidjson::Value* json_values = JsonFunctions::get_json_array_from_parsed_json(_parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator());
+        if (json_values == nullptr) {
+            // not match in jsondata.
+            if (slot_descs[i]->is_nullable()) {
+                tuple->set_null(slot_descs[i]->null_indicator_offset());
+                nullcount++;
             } else  {
                 std::stringstream str_error;
-                str_error << "The column `" << it_map->first << "` is not nullable, but it's not found in jsondata.";
-                _state->append_error_msg_to_file("", str_error.str());
+                str_error << "The column `" << slot_descs[i]->col_name() << "` is not nullable, but it's not found in jsondata.";
+                _state->append_error_msg_to_file(_print_json_value(objectValue), str_error.str());
                 _counter->num_rows_filtered++;
-                *valid = false; // current row is invalid
+                valid = false; // current row is invalid
                 break;
             }
         } else {
-            RETURN_IF_ERROR(write_data_to_tuple(value, v, tuple, tuple_pool));
+            CHECK(json_values->IsArray());
+            CHECK(json_values->Size() >= 1);
+            if (json_values->Size() == 1) {
+                // NOTICE1: JsonFunctions::get_json_array_from_parsed_json() will wrap the single json object with an array.
+                // so here we unwrap the array to get the real element.
+                // if json_values' size > 1, it means we just match an array, not a wrapped one, so no need to unwrap.
+                json_values = &((*json_values)[0]);
+            }
+            _write_data_to_tuple(json_values, slot_descs[i], tuple, tuple_pool, &valid);
+            if (!valid) {
+                break;
+            }
         }
     }
-    *valid = true;
-    return Status::OK();
+    if (nullcount == column_num) {
+        _state->append_error_msg_to_file(_print_json_value(objectValue), "All fields is null or not matched, this is a invalid row.");
+        _counter->num_rows_filtered++;
+    }
+    return valid;
 }
 
-Status JsonReader::handle_nest_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
-    do {
-        bool valid = false;
-        if (_next_line >= _total_lines) {
-            RETURN_IF_ERROR(parse_json_doc(eof));
-            if (*eof) {
-                return Status::OK();
-            }
-            _total_lines = get_data_by_jsonpath(slot_descs);
-            if (_total_lines == -1) {
-                return Status::InternalError("Parse json data is failed.");
-            } else if (_total_lines == 0) {
-                *eof = true;
-                return Status::OK();
-            }
-            _next_line = 0;
+/**
+ * for example:
+ * {
+ *    "data": {"a":"a1", "b":"b1", "c":"c1"}
+ * }
+ * In this scene, generate only one row
+ */
+Status JsonReader::_handle_nested_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
+    while(true) {
+        Status st = _parse_json_doc(eof);
+        if (st.is_data_quality_error()) {
+            continue; // continue to read next
         }
-
-        RETURN_IF_ERROR(set_tuple_value_from_map(tuple, slot_descs, tuple_pool, &valid));
-        _next_line++;
-        if (!valid) {// read a invalid row, then read next one
-            continue;
+        RETURN_IF_ERROR(st);
+        if (*eof) {
+            return Status::OK();// read over,then return
         }
-        break; // read a valid row, then break
-    } while (_next_line <= _total_lines);
+        break; // read a valid row
+    }
+    _write_values_by_jsonpath(*_json_doc, tuple_pool, tuple, slot_descs);
     return Status::OK();
 }
 
 /**
- * flat array for json
+ * flat array for json. _json_doc should be an array
  * For example:
  *  [{"colunm1":"value1", "colunm2":10}, {"colunm1":"value2", "colunm2":30}]
  * Result:
@@ -471,75 +568,31 @@ Status JsonReader::handle_nest_complex_json(Tuple* tuple, const std::vector<Slot
  *      value1     10
  *      value2     30
  */
-Status JsonReader::handle_flat_array_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
+Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
     do {
-        if (_next_line >= _total_lines) {//parse json and generic document
-            RETURN_IF_ERROR(parse_json_doc(eof));
-            if (*eof) {// read all data, then return
+        if (_next_line >= _total_lines) {
+            Status st = _parse_json_doc(eof);
+            if (st.is_data_quality_error()) {
+                continue; // continue to read next
+            }
+            RETURN_IF_ERROR(st); // terminate if encounter other errors
+            if (*eof) { // read all data, then return
                 return Status::OK();
             }
-            _total_lines = _json_doc.Size();
+            _total_lines = _json_doc->Size();
             _next_line = 0;
         }
-        int nullcount = 0;
-        bool valid = true;
-        size_t limit = std::min(slot_descs.size(), (size_t)_jsonpaths_doc.Size());
-        rapidjson::Value& objectValue = _json_doc[_next_line];
-
-        for (size_t i = 0; i < limit; i++) {
-            const rapidjson::Value& path = _jsonpaths_doc[i];
-            if (!path.IsString()) {
-                return Status::InternalError("Jsonpath is not string.");
-            }
-
-            // if jsonValues is null, because not match in jsondata.
-            rapidjson::Value* json_values = JsonFunctions::get_json_array_from_parsed_json(path.GetString(), &objectValue, _json_doc.GetAllocator());
-            if (json_values == nullptr) {
-                if (slot_descs[i]->is_nullable()) {
-                    tuple->set_null(slot_descs[i]->null_indicator_offset());
-                    nullcount++;
-                } else  {
-                    std::stringstream str_error;
-                    str_error << "The column `" << slot_descs[i]->col_name() << "` is not nullable, but it's not found in jsondata.";
-                    _state->append_error_msg_to_file("", str_error.str());
-                    _counter->num_rows_filtered++;
-                    valid = false; // current row is invalid
-                    break;
-                }
-            } else {
-                RETURN_IF_ERROR(write_data_to_tuple(json_values, slot_descs[i], tuple, tuple_pool));
-            }
-        }
-        _next_line++;
-        if (!valid) {
-            continue;
-        }
-        if (nullcount == _jsonpaths_doc.Size()) {
-            _state->append_error_msg_to_file("", "The all fields is null, this is a invalid row.");
-            _counter->num_rows_filtered++;
-            continue;
+        rapidjson::Value& objectValue = (*_json_doc)[_next_line++];
+        if (!_write_values_by_jsonpath(objectValue, tuple_pool, tuple, slot_descs)) {
+            continue; // process next line
         }
         break; // get a valid row, then break
     } while (_next_line <= _total_lines);
     return Status::OK();
 }
 
-Status JsonReader::handle_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
-    if (_strip_outer_array) {
-        return handle_flat_array_complex_json(tuple, slot_descs, tuple_pool, eof);
-    } else {
-        return handle_nest_complex_json(tuple, slot_descs, tuple_pool, eof);
-    }
-}
-
 Status JsonReader::read(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
-    if (_parse_jsonpath_flag == -1) {
-        return Status::InternalError("Parse jsonpath is failed.");
-    } else if (_parse_jsonpath_flag == 0) {// input a simple json-string
-        return handle_simple_json(tuple, slot_descs, tuple_pool, eof);
-    } else {// input a complex json-string and a json-path
-        return handle_complex_json(tuple,  slot_descs, tuple_pool, eof);
-    }
+    return (this->*_handle_json_callback)(tuple,  slot_descs, tuple_pool, eof);
 }
 
 

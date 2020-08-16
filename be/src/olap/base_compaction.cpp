@@ -21,9 +21,9 @@
 
 namespace doris {
 
-BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
-    : Compaction(tablet)
-{ }
+BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::string& label,
+                               const std::shared_ptr<MemTracker>& parent_tracker)
+        : Compaction(tablet, label, parent_tracker) {}
 
 BaseCompaction::~BaseCompaction() { }
 
@@ -55,10 +55,6 @@ OLAPStatus BaseCompaction::compact() {
     DorisMetrics::instance()->base_compaction_deltas_total.increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total.increment(_input_rowsets_size);
     TRACE("save base compaction metrics");
-
-    // 5. garbage collect input rowsets after base compaction 
-    RETURN_NOT_OK(gc_unused_rowsets());
-    TRACE("unused rowsets have been moved to GC queue");
 
     return OLAP_SUCCESS;
 }
@@ -137,6 +133,11 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
 OLAPStatus BaseCompaction::_check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets) {
     for (auto& rs : rowsets) {
         if (rs->rowset_meta()->is_segments_overlapping()) {
+            LOG(WARNING) << "There is overlapping rowset before cumulative point, "
+                << "rowset verison=" << rs->start_version()
+                << "-" << rs->end_version()
+                << ", cumulative point=" << _tablet->cumulative_layer_point()
+                << ", tablet=" << _tablet->full_name();
             return OLAP_ERR_BE_SEGMENTS_OVERLAPPING;
         }
     }

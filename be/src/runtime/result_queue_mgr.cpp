@@ -28,16 +28,19 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(result_block_queue_count, MetricUnit::NOUNIT);
+
 ResultQueueMgr::ResultQueueMgr() {
     // Each BlockingQueue has a limited size (default 20, by config::max_memory_sink_batch_count),
     // it's not needed to count the actual size of all BlockingQueue.
-    REGISTER_GAUGE_DORIS_METRIC(result_block_queue_count, [this]() {
+    REGISTER_HOOK_METRIC(result_block_queue_count, [this]() {
         std::lock_guard<std::mutex> l(_lock);
         return _fragment_queue_map.size();
     });
 }
 
 ResultQueueMgr::~ResultQueueMgr() {
+    DEREGISTER_HOOK_METRIC(result_block_queue_count);
 }
 
 Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos) {

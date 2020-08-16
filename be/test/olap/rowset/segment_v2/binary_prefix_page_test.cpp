@@ -72,8 +72,8 @@ class BinaryPrefixPageTest : public testing::Test {
         ASSERT_EQ(slices.size(), page_decoder->count());
 
         //check values
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
@@ -146,8 +146,8 @@ class BinaryPrefixPageTest : public testing::Test {
         ret = page_decoder->init();
         ASSERT_TRUE(ret.ok());
 
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));

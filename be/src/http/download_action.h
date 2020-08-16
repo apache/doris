@@ -54,28 +54,13 @@ private:
     Status check_log_path_is_allowed(const std::string& file_path);
 
     void handle_normal(HttpRequest *req, const std::string& file_param);
-    void handle_error_log(
-            HttpRequest *req,
-            const std::string& file_param);
-
-    void do_file_response(const std::string& dir_path, HttpRequest *req);
-    void do_dir_response(const std::string& dir_path, HttpRequest *req);
-
-    Status get_file_content(
-            FILE* fp, char* buffer, int32_t buffer_size,
-            int32_t* readed_size, bool* eos);
-
-    int64_t get_file_size(FILE* fp);
-
-    std::string get_content_type(const std::string& file_name);
+    void handle_error_log(HttpRequest *req, const std::string& file_param);
 
     ExecEnv* _exec_env;
     DOWNLOAD_TYPE _download_type;
 
     std::vector<std::string> _allow_paths;
     std::string _error_log_root_dir;
-
-
 }; // end class DownloadAction
 
 } // end namespace doris

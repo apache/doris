@@ -69,10 +69,8 @@ public:
         ASSERT_TRUE(status.ok());
 
         //test1
-        
-
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         size_t size = 3;
         Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
         uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));

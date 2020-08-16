@@ -54,6 +54,7 @@ public:
     Status next_batch(RowBlockV2* row_block) override;
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
+    uint64_t data_id() const {return _segment->id(); }
 private:
     Status _init();
 

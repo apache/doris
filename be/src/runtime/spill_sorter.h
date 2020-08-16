@@ -94,7 +94,7 @@ public:
     // and retrieve rows from an intermediate merger.
     SpillSorter(const TupleRowComparator& compare_less_than,
             const std::vector<ExprContext*>& sort_tuple_slot_expr_ctxs,
-            RowDescriptor* output_row_desc, MemTracker* mem_tracker,
+            RowDescriptor* output_row_desc, const std::shared_ptr<MemTracker>& mem_tracker,
             RuntimeProfile* profile, RuntimeState* state);
 
     ~SpillSorter();
@@ -118,6 +118,9 @@ public:
     // may or may not have been called.
     Status reset();
 
+    bool is_spilled() {
+        return _spilled;
+    }
     // Estimate the memory overhead in bytes for an intermediate merge, based on the
     // maximum number of memory buffers available for the sort, the row descriptor for
     // the sorted tuples and the batch size used (in rows).
@@ -171,7 +174,7 @@ private:
     std::vector<ExprContext*> _sort_tuple_slot_expr_ctxs;
 
     // Mem tracker for batches created during merge. Not owned by SpillSorter.
-    MemTracker* _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // Descriptor for the sort tuple. Input rows are materialized into 1 tuple before
     // sorting. Not owned by the SpillSorter.
@@ -212,6 +215,8 @@ private:
     RuntimeProfile::Counter* _num_merges_counter;
     RuntimeProfile::Counter* _in_mem_sort_timer;
     RuntimeProfile::Counter* _sorted_data_size;
+
+    bool _spilled;
 };
 
 } // namespace doris

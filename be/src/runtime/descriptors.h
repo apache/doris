@@ -384,6 +384,8 @@ public:
 
     RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable);
 
+    RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc);
+
     // dummy descriptor, needed for the JNI EvalPredicate() function
     RowDescriptor() {}
 

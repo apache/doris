@@ -131,8 +131,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
     init_runtime_profile(print_plan_node_type(tnode.node_type));
 }
 
-ExecNode::~ExecNode() {
-}
+ExecNode::~ExecNode() {}
 
 void ExecNode::push_down_predicate(
         RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
@@ -150,7 +149,7 @@ void ExecNode::push_down_predicate(
         if ((*iter)->root()->is_bound(&_tuple_ids)) {
             // LOG(INFO) << "push down success expr is " << (*iter)->debug_string()
             //          << " and node is " << debug_string();
-            (*iter)->prepare(state, row_desc(), _expr_mem_tracker.get());
+            (*iter)->prepare(state, row_desc(), _expr_mem_tracker);
             (*iter)->open(state);
             _conjunct_ctxs.push_back(*iter);
             iter = expr_ctxs->erase(iter);
@@ -177,8 +176,8 @@ Status ExecNode::prepare(RuntimeState* state) {
                                                    _rows_returned_counter,
                                                    runtime_profile()->total_time_counter()),
                               "");
-    _mem_tracker.reset(new MemTracker(_runtime_profile.get(), -1, _runtime_profile->name(), state->instance_mem_tracker()));
-    _expr_mem_tracker.reset(new MemTracker(-1, "Exprs", _mem_tracker.get()));
+    _mem_tracker = MemTracker::CreateTracker(_runtime_profile.get(), -1, "ExecNode "+ _runtime_profile->name(), state->instance_mem_tracker());
+    _expr_mem_tracker = MemTracker::CreateTracker(-1, "ExecNode Exprs", _mem_tracker);
     _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
     // TODO chenhao
     RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc(), expr_mem_tracker()));
@@ -244,14 +243,6 @@ Status ExecNode::close(RuntimeState* state) {
         state->initial_reservations()->Return(
             &_buffer_pool_client, _resource_profile.min_reservation);
         state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
-    }
-
-    if (_expr_mem_tracker != nullptr) { 
-        _expr_mem_tracker->close();
-    }
-  
-    if (_mem_tracker != nullptr) {
-        _mem_tracker->close();
     }
 
     return result;
@@ -591,12 +582,10 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     }   
  
     ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
-    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(),
-                                                state->instance_buffer_reservation(),
-                                                mem_tracker(), buffer_pool->GetSystemBytesLimit(), 
-                                                runtime_profile(),
-                                                &_buffer_pool_client));
-    
+    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), state->instance_buffer_reservation(),
+                                                mem_tracker(), buffer_pool->GetSystemBytesLimit(),
+                                                runtime_profile(), &_buffer_pool_client));
+
     state->initial_reservations()->Claim(&_buffer_pool_client, _resource_profile.min_reservation);
 /*
     if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&

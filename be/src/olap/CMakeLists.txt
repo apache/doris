@@ -63,7 +63,7 @@ add_library(Olap STATIC
     row_block.cpp
     row_block2.cpp
     row_cursor.cpp
-    rowset_graph.cpp
+    version_graph.cpp
     schema.cpp
     schema_change.cpp
     serialize.cpp

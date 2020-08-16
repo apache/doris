@@ -54,6 +54,7 @@ module.exports = [
           "routine-load-manual",
           "insert-into-manual",
           "delete-manual",
+          "load-json-format",
         ],
         sidebarDepth: 2,
       },
@@ -68,6 +69,7 @@ module.exports = [
         ],
         sidebarDepth: 2,
       },
+      "materialized_view",
       {
         title: "HTTP API",
         directoryPath: "http-actions/",
@@ -75,7 +77,7 @@ module.exports = [
           "cancel-label",
           "compaction-action",
           "fe-get-log-file",
-          "get-label-state",
+          "get-load-state",
           "restore-tablet",
           "profile-action",
           "connection-action",
@@ -266,7 +268,7 @@ module.exports = [
               "hll_union_agg",
               "max",
               "min",
-              "ndv",
+              "approx_count_distinct",
               "percentile_approx",
               "stddev",
               "stddev_samp",
@@ -404,6 +406,7 @@ module.exports = [
               "LOAD",
               "MINI LOAD",
               "MULTI LOAD",
+              "alter-routine-load",
               "PAUSE ROUTINE LOAD",
               "RESTORE TABLET",
               "RESUME ROUTINE LOAD",
@@ -461,7 +464,11 @@ module.exports = [
   {
     title: "Developer Guide",
     directoryPath: "developer-guide/",
-    children: ["debug-tool", "format-code"],
+    children: [
+        "debug-tool",
+        "format-code",
+        "fe-eclipse-dev"
+    ],
   },
   {
     title: "Apache Community",

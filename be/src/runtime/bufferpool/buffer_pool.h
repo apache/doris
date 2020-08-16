@@ -176,8 +176,8 @@ class BufferPool : public CacheLineAligned {
   /// The client's reservation is created as a child of 'parent_reservation' with limit
   /// 'reservation_limit' and associated with MemTracker 'mem_tracker'. The initial
   /// reservation is 0 bytes.
-  Status RegisterClient(const std::string& name, //TmpFileMgr::FileGroup* file_group,
-      ReservationTracker* parent_reservation, MemTracker* mem_tracker,
+  Status RegisterClient(const std::string& name,
+      ReservationTracker* parent_reservation, const std::shared_ptr<MemTracker>& mem_tracker,
       int64_t reservation_limit, RuntimeProfile* profile,
       ClientHandle* client) WARN_UNUSED_RESULT;
 

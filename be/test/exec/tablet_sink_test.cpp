@@ -298,7 +298,7 @@ TDataSink get_decimal_sink(TDescriptorTable* desc_tbl) {
     return data_sink;
 }
 
-class TestInternalService : public palo::PInternalService {
+class TestInternalService : public PBackendService {
 public:
     TestInternalService() {}
     virtual ~TestInternalService() {}
@@ -332,8 +332,8 @@ public:
             k_add_batch_status.to_protobuf(response->mutable_status());
 
             if (request->has_row_batch() && _row_desc != nullptr) {
-                MemTracker tracker;
-                RowBatch batch(*_row_desc, request->row_batch(), &tracker);
+                auto tracker = std::make_shared<MemTracker>();
+                RowBatch batch(*_row_desc, request->row_batch(), tracker.get());
                 for (int i = 0; i < batch.num_rows(); ++i) {
                     LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
                     _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
@@ -403,8 +403,8 @@ TEST_F(OlapTableSinkTest, normal) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    MemTracker tracker;
-    RowBatch batch(row_desc, 1024, &tracker);
+    auto tracker = std::make_shared<MemTracker>();
+    RowBatch batch(row_desc, 1024, tracker.get());
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -536,8 +536,8 @@ TEST_F(OlapTableSinkTest, convert) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    MemTracker tracker;
-    RowBatch batch(row_desc, 1024, &tracker);
+    auto tracker = std::make_shared<MemTracker>();
+    RowBatch batch(row_desc, 1024, tracker.get());
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -844,8 +844,8 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    MemTracker tracker;
-    RowBatch batch(row_desc, 1024, &tracker);
+    auto tracker = std::make_shared<MemTracker>();
+    RowBatch batch(row_desc, 1024, tracker.get());
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     // 12, 9, "abc"
     {
@@ -925,8 +925,8 @@ TEST_F(OlapTableSinkTest, decimal) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    MemTracker tracker;
-    RowBatch batch(row_desc, 1024, &tracker);
+    auto tracker = std::make_shared<MemTracker>();
+    RowBatch batch(row_desc, 1024, tracker.get());
     // 12, 12.3
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());

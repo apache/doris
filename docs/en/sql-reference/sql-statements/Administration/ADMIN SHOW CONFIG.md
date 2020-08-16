@@ -31,7 +31,7 @@ This statement is used to show the configuration of the current cluster (current
 
 Grammar:
 
-ADMIN SHOW FRONTEND CONFIG;
+ADMIN SHOW FRONTEND CONFIG [LIKE "pattern"];
 
 Explain:
 
@@ -48,6 +48,16 @@ The implications of the results are as follows:
 1. View the configuration of the current FE node
 
 ADMIN SHOW FRONTEND CONFIG;
+
+2. Search for a configuration of the current Fe node with like predicate
+
+mysql> ADMIN SHOW FRONTEND CONFIG LIKE '%check_java_version%';
++--------------------+-------+---------+-----------+------------+---------+
+| Key                | Value | Type    | IsMutable | MasterOnly | Comment |
++--------------------+-------+---------+-----------+------------+---------+
+| check_java_version | true  | boolean | false     | false      |         |
++--------------------+-------+---------+-----------+------------+---------+
+1 row in set (0.00 sec)
 
 ## keyword
 ADMIN,SHOW,CONFIG

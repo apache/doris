@@ -39,38 +39,21 @@ namespace doris {
 
 class TmpFileMgrTest : public ::testing::Test {
 protected:
-    virtual void SetUp() {
-        _metrics.reset(new MetricRegistry(""));
-    }
 
-    virtual void TearDown() {
-        _metrics.reset();
-    }
-#if 0
     // Check that metric values are consistent with TmpFileMgr state.
     void check_metrics(TmpFileMgr* tmp_file_mgr) {
         vector<TmpFileMgr::DeviceId> active = tmp_file_mgr->active_tmp_devices();
-        IntCounter* active_metric = _metrics->get_metric<IntCounter>(
-                "tmp-file-mgr.active-scratch-dirs");
-        EXPECT_EQ(active.size(), active_metric->value());
-        SetMetric<string>* active_set_metric = _metrics->get_metric<SetMetric<string> >(
-                "tmp-file-mgr.active-scratch-dirs.list");
-        set<string> active_set = active_set_metric->value();
-        EXPECT_EQ(active.size(), active_set.size());
-        for (int i = 0; i < active.size(); ++i) {
-            string tmp_dir_path = tmp_file_mgr->get_tmp_dir_path(active[i]);
-            EXPECT_TRUE(active_set.find(tmp_dir_path) != active_set.end());
-        }
+        int64_t active_metric =
+            DorisMetrics::instance()->metric_registry()->get_entity("server")->get_metric("active_scratch_dirs").value();
+        EXPECT_EQ(active.size(), active_metric);
     }
-#endif
-    boost::scoped_ptr<MetricRegistry> _metrics;
 };
 
 // Regression test for IMPALA-2160. Verify that temporary file manager allocates blocks
 // at the expected file offsets and expands the temporary file to the correct size.
 TEST_F(TmpFileMgrTest, TestFileAllocation) {
     TmpFileMgr tmp_file_mgr;
-    EXPECT_TRUE(tmp_file_mgr.init(_metrics.get()).ok());
+    EXPECT_TRUE(tmp_file_mgr.init().ok());
     // Default configuration should give us one temporary device.
     EXPECT_EQ(1, tmp_file_mgr.num_active_tmp_devices());
     vector<TmpFileMgr::DeviceId> tmp_devices = tmp_file_mgr.active_tmp_devices();
@@ -110,7 +93,7 @@ TEST_F(TmpFileMgrTest, TestOneDirPerDevice) {
         EXPECT_TRUE(FileSystemUtil::create_directory(tmp_dirs[i]).ok());
     }
     TmpFileMgr tmp_file_mgr;
-    tmp_file_mgr.init_custom(tmp_dirs, true, _metrics.get());
+    tmp_file_mgr.init_custom(tmp_dirs, true);
 
     // Only the first directory should be used.
     EXPECT_EQ(1, tmp_file_mgr.num_active_tmp_devices());
@@ -134,7 +117,7 @@ TEST_F(TmpFileMgrTest, TestMultiDirsPerDevice) {
         EXPECT_TRUE(FileSystemUtil::create_directory(tmp_dirs[i]).ok());
     }
     TmpFileMgr tmp_file_mgr;
-    tmp_file_mgr.init_custom(tmp_dirs, false, _metrics.get());
+    tmp_file_mgr.init_custom(tmp_dirs, false);
 
     // Both directories should be used.
     EXPECT_EQ(2, tmp_file_mgr.num_active_tmp_devices());
@@ -162,7 +145,7 @@ TEST_F(TmpFileMgrTest, TestReportError) {
         EXPECT_TRUE(FileSystemUtil::create_directory(tmp_dirs[i]).ok());
     }
     TmpFileMgr tmp_file_mgr;
-    tmp_file_mgr.init_custom(tmp_dirs, false, _metrics.get());
+    tmp_file_mgr.init_custom(tmp_dirs, false);
 
     // Both directories should be used.
     vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
@@ -208,7 +191,7 @@ TEST_F(TmpFileMgrTest, TestAllocateFails) {
     vector<string> tmp_dirs(1, tmp_dir);
     EXPECT_TRUE(FileSystemUtil::create_directory(tmp_dir).ok());
     TmpFileMgr tmp_file_mgr;
-    tmp_file_mgr.init_custom(tmp_dirs, false, _metrics.get());
+    tmp_file_mgr.init_custom(tmp_dirs, false);
 
     TUniqueId id;
     TmpFileMgr::File* allocated_file1;

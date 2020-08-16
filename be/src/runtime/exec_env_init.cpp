@@ -72,7 +72,6 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _store_paths = store_paths;
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
-    _metrics = DorisMetrics::instance()->metrics();
     _stream_mgr = new DataStreamMgr();
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
@@ -80,7 +79,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _extdatasource_client_cache = new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
-    _mem_tracker = nullptr;
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
     _thread_pool = new PriorityThreadPool(
@@ -106,10 +104,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _plugin_mgr = new PluginMgr();
 
-    _backend_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "backend");
-    _frontend_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "frontend");
-    _broker_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "broker");
-    _extdatasource_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "extdatasource");
+    _backend_client_cache->init_metrics("backend");
+    _frontend_client_cache->init_metrics("frontend");
+    _broker_client_cache->init_metrics("broker");
+    _extdatasource_client_cache->init_metrics("extdatasource");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -178,11 +176,12 @@ Status ExecEnv::_init_mem_tracker() {
         return Status::InternalError(ss.str());
     }
 
-    _mem_tracker = new MemTracker(bytes_limit);
+    _mem_tracker =
+            MemTracker::CreateTracker(bytes_limit, "ExecEnv root", MemTracker::GetRootTracker());
 
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
-    RETURN_IF_ERROR(_tmp_file_mgr->init(DorisMetrics::instance()->metrics()));
+    RETURN_IF_ERROR(_tmp_file_mgr->init());
 
     int64_t storage_cache_limit = ParseUtil::parse_mem_spec(
         config::storage_page_cache_limit, &is_percent);
@@ -224,7 +223,6 @@ void ExecEnv::_destory() {
     delete _thread_pool;
     delete _thread_mgr;
     delete _pool_mem_trackers;
-    delete _mem_tracker;
     delete _broker_client_cache;
     delete _extdatasource_client_cache;
     delete _frontend_client_cache;
@@ -236,7 +234,6 @@ void ExecEnv::_destory() {
     delete _routine_load_task_executor;
     delete _external_scan_context_mgr;
     delete _heartbeat_flags;
-    _metrics = nullptr;
 }
 
 void ExecEnv::destroy(ExecEnv* env) {

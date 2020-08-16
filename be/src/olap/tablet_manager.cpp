@@ -982,6 +982,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
             for (const auto& tablet : all_tablets) {
                 tablet->delete_expired_inc_rowsets();
+                tablet->delete_expired_stale_rowset();
             }
             all_tablets.clear();
 
@@ -1390,6 +1391,21 @@ void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
     _partition_tablet_map[tablet.partition_id()].erase(tablet.get_tablet_info());
     if (_partition_tablet_map[tablet.partition_id()].empty()) {
         _partition_tablet_map.erase(tablet.partition_id());
+    }
+}
+
+void TabletManager::obtain_all_tablets(vector<TabletInfo> &tablets_info) {
+    for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
+        ReadLock rdlock(&_tablet_map_lock_array[i]);
+        for (const auto& item : _tablet_map_array[i]) {
+            for (TabletSharedPtr tablet : item.second.table_arr) {
+                if (tablet == nullptr) {
+                    continue;
+                }
+                TabletInfo tablet_info(tablet->get_tablet_info().tablet_id, tablet->get_tablet_info().schema_hash, tablet->get_tablet_info().tablet_uid);
+                tablets_info.emplace_back(tablet_info);
+            }
+        }
     }
 }
 

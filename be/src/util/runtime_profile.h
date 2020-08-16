@@ -454,6 +454,11 @@ public:
     HighWaterMarkCounter* AddHighWaterMarkCounter(const std::string& name,
             TUnit::type unit, const std::string& parent_counter_name = "");
 
+    // Only for create MemTracker(using profile's counter to calc consumption)
+    std::shared_ptr<HighWaterMarkCounter> AddSharedHighWaterMarkCounter(
+        const std::string& name, TUnit::type unit,
+        const std::string& parent_counter_name = "");
+
     // stops updating the value of 'rate_counter'. Rate counters are updated
     // periodically so should be removed as soon as the underlying counter is
     // no longer going to change.
@@ -479,6 +484,9 @@ private:
     // Pool for allocated counters. Usually owned by the creator of this
     // object, but occasionally allocated in the constructor.
     std::unique_ptr<ObjectPool> _pool;
+
+    // Pool for allocated counters. These counters are shared with some other objects.
+    std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
 
     // True if we have to delete the _pool on destruction.
     bool _own_pool;

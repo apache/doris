@@ -57,5 +57,5 @@ mysql> select money_format(1123.4);
 | 1,123.40             |
 +----------------------+
 ```
-##keyword
+## keyword
 MONEY_FORMAT,MONEY,FORMAT

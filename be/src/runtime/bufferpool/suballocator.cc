@@ -88,6 +88,15 @@ int Suballocator::ComputeListIndex(int64_t bytes) const {
   return BitUtil::Log2CeilingNonZero64(bytes) - LOG_MIN_ALLOCATION_BYTES;
 }
 
+uint64_t Suballocator::ComputeAllocateBufferSize(int64_t bytes) const {
+    bytes = max(bytes, MIN_ALLOCATION_BYTES);
+    const int target_list_idx = ComputeListIndex(bytes);
+    for (int i = target_list_idx; i < NUM_FREE_LISTS; ++i) {
+        if (CheckFreeListHeadNotNull(i)) return 0;
+    }
+    return max(min_buffer_len_, BitUtil::RoundUpToPowerOfTwo(bytes));
+}
+
 Status Suballocator::AllocateBuffer(int64_t bytes, unique_ptr<Suballocation>* result) {
   DCHECK_LE(bytes, MAX_ALLOCATION_BYTES);
   const int64_t buffer_len = max(min_buffer_len_, BitUtil::RoundUpToPowerOfTwo(bytes));
@@ -153,8 +162,8 @@ Status Suballocator::SplitToSize(unique_ptr<Suballocation> free_node,
   return Status::OK();
 }
 
-void Suballocator::Free(unique_ptr<Suballocation> allocation) {
-  if (allocation == nullptr) return;
+uint64_t Suballocator::Free(unique_ptr<Suballocation> allocation) {
+  if (allocation == nullptr) return 0;
 
   DCHECK(allocation->in_use_);
   allocation->in_use_ = false;
@@ -168,7 +177,7 @@ void Suballocator::Free(unique_ptr<Suballocation> allocation) {
     if (curr_allocation->buddy_->in_use_) {
       // If the buddy is not free we can't coalesce, just add it to free list.
       AddToFreeList(move(curr_allocation));
-      return;
+      return 0;
     }
     unique_ptr<Suballocation> buddy = RemoveFromFreeList(curr_allocation->buddy_);
     curr_allocation = CoalesceBuddies(move(curr_allocation), move(buddy));
@@ -176,8 +185,10 @@ void Suballocator::Free(unique_ptr<Suballocation> allocation) {
 
   // Reached root, which is an entire free buffer. We are not using it, so free up memory.
   DCHECK(curr_allocation->buffer_.is_open());
+  auto free_len = curr_allocation->buffer_.len();
   pool_->FreeBuffer(client_, &curr_allocation->buffer_);
   curr_allocation.reset();
+  return free_len;
 }
 
 void Suballocator::AddToFreeList(unique_ptr<Suballocation> node) {
@@ -217,6 +228,10 @@ unique_ptr<Suballocation> Suballocator::PopFreeListHead(int list_idx) {
   }
   free_lists_[list_idx] = move(result->next_free_);
   return result;
+}
+
+bool Suballocator::CheckFreeListHeadNotNull(int list_idx) const {
+    return free_lists_[list_idx] != nullptr;
 }
 
 unique_ptr<Suballocation> Suballocator::CoalesceBuddies(

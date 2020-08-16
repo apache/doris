@@ -65,11 +65,6 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
     // }
     // at this point, the report thread should have been stopped
     DCHECK(!_report_thread_active);
-
-    // fragment mem tracker needs unregister
-    if (_mem_tracker.get() != nullptr) {
-        _mem_tracker->unregister_from_parent();
-    }
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
@@ -134,9 +129,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         bytes_limit = _exec_env->process_mem_tracker()->limit();
     }
     // NOTE: this MemTracker only for olap
-    _mem_tracker.reset(
-            new MemTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker()));
-    _runtime_state->set_fragment_mem_tracker(_mem_tracker.get());
+    _mem_tracker = MemTracker::CreateTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker());
+    _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     LOG(INFO) << "Using query memory limit: "
         << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
@@ -192,8 +186,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         VLOG(1) << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
     }
 
-    print_volume_ids(params.per_node_scan_ranges);
-
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
     _runtime_state->set_num_per_fragment_instances(params.num_senders);
 
@@ -223,7 +215,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _row_batch.reset(new RowBatch(
             _plan->row_desc(),
             _runtime_state->batch_size(),
-            _runtime_state->instance_mem_tracker()));
+            _runtime_state->instance_mem_tracker().get()));
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG(3) << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
@@ -231,13 +223,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _query_statistics.reset(new QueryStatistics());
     _sink->set_query_statistics(_query_statistics);
     return Status::OK();
-}
-
-void PlanFragmentExecutor::print_volume_ids(
-    const PerNodeScanRanges& per_node_scan_ranges) {
-    if (per_node_scan_ranges.empty()) {
-        return;
-    }
 }
 
 Status PlanFragmentExecutor::open() {
@@ -519,6 +504,10 @@ void PlanFragmentExecutor::cancel() {
     _runtime_state->exec_env()->result_mgr()->cancel(_runtime_state->fragment_instance_id());
 }
 
+void PlanFragmentExecutor::set_abort() {
+    update_status(Status::Aborted("Execution aborted before start"));
+}
+
 const RowDescriptor& PlanFragmentExecutor::row_desc() {
     return _plan->row_desc();
 }
@@ -579,7 +568,7 @@ void PlanFragmentExecutor::close() {
      
     // _mem_tracker init failed
     if (_mem_tracker.get() != nullptr) {
-        _mem_tracker->release(_mem_tracker->consumption());
+        _mem_tracker->Release(_mem_tracker->consumption());
     }
     _closed = true;
 }

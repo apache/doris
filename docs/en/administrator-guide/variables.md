@@ -159,7 +159,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `exec_mem_limit`
 
-    Used to set the memory limit for a single query. The default is 2GB, in bytes.
+    Used to set the memory limit for a single query. The default is 2GB, you can set it in B/K/KB/M/MB/G/GB/T/TB/P/PB, the default is B.
     
     This parameter is used to limit the memory that can be used by an instance of a single query fragment in a query plan. A query plan may have multiple instances, and a BE node may execute one or more instances. Therefore, this parameter does not accurately limit the memory usage of a query across the cluster, nor does it accurately limit the memory usage of a query on a single BE node. The specific needs need to be judged according to the generated query plan.
     
@@ -234,7 +234,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `lower_case_table_names`
 
     Used for compatibility with MySQL clients. Cannot be set. Table names in current Doris are case sensitive by default.
-    
+
 * `max_allowed_packet`
 
     Used for compatible JDBC connection pool C3P0. No practical effect.
@@ -338,3 +338,9 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `rewrite_count_distinct_to_bitmap_hll`
 
     Whether to rewrite count distinct queries of bitmap and HLL types as bitmap_union_count and hll_union_agg.
+
+* `prefer_join_method`
+
+    When choosing the join method(broadcast join or shuffle join), if the broadcast join cost and shuffle join cost are equal, which join method should we prefer.
+
+    Currently, the optional values for this variable are "broadcast" or "shuffle".

@@ -52,7 +52,7 @@ public:
     /// Prepare expr tree for evaluation.
     /// Allocations from this context will be counted against 'tracker'.
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   MemTracker* tracker);
+                   const std::shared_ptr<MemTracker>& tracker);
 
     /// Must be called after calling Prepare(). Does not need to be called on clones.
     /// Idempotent (this allows exprs to be opened multiple times in subplans without

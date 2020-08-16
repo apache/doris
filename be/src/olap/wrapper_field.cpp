@@ -86,4 +86,8 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
     }
 }
 
+WrapperField::WrapperField(Field* rep, const RowCursorCell &row_cursor_cell)
+        : _rep(rep), _field_buf((char *)row_cursor_cell.cell_ptr() - 1) {
+}
+
 }

@@ -307,10 +307,35 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.condition_values.push_back("3");
     conditions.push_back(condition);
 
-    condition.column_name = "k2";
+    condition.column_name = "k3";
     condition.condition_op = "<=";
     condition.condition_values.clear();
     condition.condition_values.push_back("5");
+    conditions.push_back(condition);
+
+    condition.column_name = "k4";
+    condition.condition_op = "IS";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("NULL");
+    conditions.push_back(condition);
+
+    condition.column_name = "k5";
+    condition.condition_op = "*=";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("7");
+    conditions.push_back(condition);
+
+    condition.column_name = "k12";
+    condition.condition_op = "!*=";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("9");
+    conditions.push_back(condition);
+
+    condition.column_name = "k13";
+    condition.condition_op = "*=";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("1");
+    condition.condition_values.push_back("3");
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
@@ -318,10 +343,18 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     ASSERT_EQ(OLAP_SUCCESS, success_res);
 
     // 验证存储在header中的过滤条件正确
-    ASSERT_EQ(size_t(3), del_pred.sub_predicates_size());
+    ASSERT_EQ(size_t(6), del_pred.sub_predicates_size());
     EXPECT_STREQ("k1=1", del_pred.sub_predicates(0).c_str());
     EXPECT_STREQ("k2>>3", del_pred.sub_predicates(1).c_str());
-    EXPECT_STREQ("k2<=5", del_pred.sub_predicates(2).c_str());
+    EXPECT_STREQ("k3<=5", del_pred.sub_predicates(2).c_str());
+    EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(3).c_str());
+    EXPECT_STREQ("k5=7", del_pred.sub_predicates(4).c_str());
+    EXPECT_STREQ("k12!=9", del_pred.sub_predicates(5).c_str());
+
+    ASSERT_EQ(size_t(1), del_pred.in_predicates_size());
+    ASSERT_FALSE(del_pred.in_predicates(0).is_not_in());
+    EXPECT_STREQ("k13", del_pred.in_predicates(0).column_name().c_str());
+    ASSERT_EQ(std::size_t(2), del_pred.in_predicates(0).values().size());
 }
 
 // 检测参数不正确的情况，包括：空的过滤条件字符串

@@ -83,7 +83,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new(std::nothrow) MemPool(mem_tracker()));
+    _tuple_pool.reset(new(std::nothrow) MemPool(mem_tracker().get()));
 
     if (_tuple_pool.get() == NULL) {
         return Status::InternalError("new a mem pool failed.");

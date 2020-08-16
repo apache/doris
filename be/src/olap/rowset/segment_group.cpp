@@ -253,9 +253,17 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
     //    For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
     // 2. adding column to existed table, get_num_zone_map_columns() will larger than
     //    zone_map_fields.size()
+    int zonemap_col_num = get_num_zone_map_columns();
+    CHECK(zonemap_col_num <= schema_mapping.size()) << zonemap_col_num << " vs. " << schema_mapping.size();
 
-    int num_new_keys = 0;
-    for (size_t i = 0; i < get_num_zone_map_columns(); ++i) {
+    for (size_t i = 0; i < zonemap_col_num; ++i) {
+        
+        // in duplicated table update from 0.11 to 0.12, zone map index may be missed
+        if (_schema->keys_type() == DUP_KEYS && 
+            schema_mapping[i].ref_column != -1 &&
+            schema_mapping[i].ref_column >= zone_map_fields.size()) {
+            continue;
+        }
         const TabletColumn& column = _schema->column(i);
 
         WrapperField* first = WrapperField::create(column);
@@ -264,15 +272,18 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
 
-        // for new key column, use default value to fill into column_statistics
-        if (schema_mapping[i].ref_column == -1) {
-            num_new_keys++;
-
-            first->copy(schema_mapping[i].default_value);
-            second->copy(schema_mapping[i].default_value);
+        // when this is no ref_column (add new column), fill default value
+        if (schema_mapping[i].ref_column == -1 || schema_mapping[i].ref_column >= zone_map_fields.size()) {
+            // ref_column == -1 means this is a new column.
+            // for new column, use default value to fill into column_statistics
+            if (schema_mapping[i].default_value != nullptr) {
+                first->copy(schema_mapping[i].default_value);
+                second->copy(schema_mapping[i].default_value);
+            }
         } else {
-            first->copy(zone_map_fields[i - num_new_keys].first);
-            second->copy(zone_map_fields[i - num_new_keys].second);
+            // use src column's zone map value to fill
+            first->copy(zone_map_fields[schema_mapping[i].ref_column].first);
+            second->copy(zone_map_fields[schema_mapping[i].ref_column].second);
         }
 
         _zone_maps.push_back(std::make_pair(first, second));

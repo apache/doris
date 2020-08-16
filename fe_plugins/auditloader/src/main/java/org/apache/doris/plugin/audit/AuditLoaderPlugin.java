@@ -75,7 +75,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             }
             this.lastLoadTime = System.currentTimeMillis();
 
-            loadConfig(ctx);
+            loadConfig(ctx, info.getProperties());
 
             this.streamLoader = new DorisStreamLoader(conf);
             this.loadThread = new Thread(new LoadWorker(this.streamLoader), "audit loader thread");
@@ -85,7 +85,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         }
     }
 
-    private void loadConfig(PluginContext ctx) throws PluginException {
+    private void loadConfig(PluginContext ctx, Map<String, String> pluginInfoProperties) throws PluginException {
         Path pluginPath = FileSystems.getDefault().getPath(ctx.getPluginPath());
         if (!Files.exists(pluginPath)) {
             throw new PluginException("plugin path does not exist: " + pluginPath);
@@ -102,9 +102,13 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         } catch (IOException e) {
             throw new PluginException(e.getMessage());
         }
+
+        for (Map.Entry<String, String> entry : pluginInfoProperties.entrySet()) {
+            props.setProperty(entry.getKey(), entry.getValue());
+        }
+
         final Map<String, String> properties = props.stringPropertyNames().stream()
                 .collect(Collectors.toMap(Function.identity(), props::getProperty));
-
         conf = new AuditLoaderConf();
         conf.init(properties);
         conf.feIdentity = ctx.getFeIdentity();
