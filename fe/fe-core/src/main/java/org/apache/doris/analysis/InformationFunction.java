@@ -42,6 +42,10 @@ public class InformationFunction extends Expr {
         strValue = other.strValue;
     }
 
+    public String getStrValue() {
+        return strValue;
+    }
+
     @Override
     public Expr clone() {
         return new InformationFunction(this);
@@ -76,4 +80,5 @@ public class InformationFunction extends Expr {
         return funcType + "()";
     }
 }
+
 
