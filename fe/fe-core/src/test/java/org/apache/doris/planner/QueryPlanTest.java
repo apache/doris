@@ -40,13 +40,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -1005,15 +1005,5 @@ public class QueryPlanTest {
             Assert.assertTrue(explainString.contains(emptyNode));
             Assert.assertFalse(explainString.contains(denseRank));
         }
-    }
-
-    @Test
-    public void testConst() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
-        // String queryStr = "set sql_mode = concat(@@sql_mode, \"STRICT_TRANS_TABLES\")";
-        // String queryStr = "select concat(@@sql_mode, \"STRICT_TRANS_TABLES\")";
-        String queryStr = "select concat(@@exec_mem_limit, \"STRICT_TRANS_TABLES\")";
-        // default set PreferBroadcastJoin true
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
     }
 }

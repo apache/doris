@@ -29,6 +29,8 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.HeartbeatFlags;
 
+import com.google.common.base.Strings;
+
 // change one variable.
 public class SetVar {
 
