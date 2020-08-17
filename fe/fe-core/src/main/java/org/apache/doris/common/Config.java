@@ -544,6 +544,15 @@ public class Config extends ConfigBase {
     public static String spark_resource_path = "";
 
     /**
+     * Default yarn client path
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String yarn_client_path = PaloFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn";
+
+    @ConfField
+    public static String yarn_config_dir = PaloFe.DORIS_HOME_DIR + "/lib/yarn-config";
+
+    /**
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
      * In some situation, such as switch the master, the current number is maybe more then desired_max_waiting_jobs

@@ -24,6 +24,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
+import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -66,6 +67,7 @@ public class SparkResource extends Resource {
     private static final String SPARK_CONFIG_PREFIX = "spark.";
     private static final String BROKER_PROPERTY_PREFIX = "broker.";
     // spark uses hadoop configs in the form of spark.hadoop.*
+    private static final String SPARK_HADOOP_CONFIG_PREFIX = "spark.hadoop.";
     private static final String SPARK_YARN_RESOURCE_MANAGER_ADDRESS = "spark.hadoop.yarn.resourcemanager.address";
     private static final String SPARK_FS_DEFAULT_FS = "spark.hadoop.fs.defaultFS";
     private static final String YARN_RESOURCE_MANAGER_ADDRESS = "yarn.resourcemanager.address";
@@ -166,6 +168,14 @@ public class SparkResource extends Resource {
         return archive;
     }
 
+    // Each SparkResource has and only has one yarn config to run yarn command
+    // This method will write all the configuration into config files in a specific directory
+    public synchronized String prepareYarnConfig() throws LoadException {
+        SparkYarnConfigFiles yarnConfigFiles = new SparkYarnConfigFiles(name, getSparkHadoopConfigs(sparkConfigs));
+        yarnConfigFiles.prepare();
+        return yarnConfigFiles.getConfigDir();
+    }
+
     public boolean isYarnMaster() {
         return getMaster().equalsIgnoreCase(YARN_MASTER);
     }
@@ -237,6 +247,16 @@ public class SparkResource extends Resource {
         Map<String, String> sparkConfigs = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(SPARK_CONFIG_PREFIX)) {
+                sparkConfigs.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return sparkConfigs;
+    }
+
+    private Map<String, String> getSparkHadoopConfigs(Map<String, String> properties) {
+        Map<String, String> sparkConfigs = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(SPARK_HADOOP_CONFIG_PREFIX)) {
                 sparkConfigs.put(entry.getKey(), entry.getValue());
             }
         }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.PaloFe;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Config;
@@ -24,6 +25,8 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.CommandResult;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.dpp.DppResult;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
@@ -43,9 +46,6 @@ import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.client.api.YarnClient;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.exceptions.ApplicationNotFoundException;
-import org.apache.hadoop.yarn.exceptions.YarnException;
-import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.launcher.SparkAppHandle;
@@ -76,6 +76,13 @@ public class SparkEtlJobHandler {
     // 5min
     private static final int GET_APPID_MAX_RETRY_TIMES = 300;
     private static final int GET_APPID_SLEEP_MS = 1000;
+    // 30s
+    private static final long EXEC_CMD_TIMEOUT_MS = 30000L;
+    // yarn client path
+    private static final String YARN_CLIENT = PaloFe.DORIS_HOME_DIR + Config.yarn_client_path;
+    // yarn command
+    private static final String YARN_STATUS_CMD = "%s --config %s application -status %s";
+    private static final String YARN_KILL_CMD = "%s --config %s application -kill %s";
 
     class SparkAppListener implements Listener {
         @Override
@@ -195,38 +202,47 @@ public class SparkEtlJobHandler {
     }
 
     public EtlStatus getEtlJobStatus(SparkAppHandle handle, String appId, long loadJobId, String etlOutputPath,
-                                     SparkResource resource, BrokerDesc brokerDesc) {
+                                     SparkResource resource, BrokerDesc brokerDesc) throws LoadException {
         EtlStatus status = new EtlStatus();
 
         if (resource.isYarnMaster()) {
-            // state from yarn
             Preconditions.checkState(appId != null && !appId.isEmpty());
-            YarnClient client = startYarnClient(resource);
-            try {
-                ApplicationReport report = client.getApplicationReport(ConverterUtils.toApplicationId(appId));
-                LOG.info("yarn application -status {}. load job id: {}, result: {}", appId, loadJobId, report);
-
-                YarnApplicationState state = report.getYarnApplicationState();
-                FinalApplicationStatus faStatus = report.getFinalApplicationStatus();
-                status.setState(fromYarnState(state, faStatus));
-                if (status.getState() == TEtlState.CANCELLED) {
-                    if (state == YarnApplicationState.FINISHED) {
-                        status.setFailMsg("spark app state: " + faStatus.toString());
-                    } else {
-                        status.setFailMsg("yarn app state: " + state.toString());
+            // prepare yarn config
+            String configDir = resource.prepareYarnConfig();
+            // yarn --config configDir application -status command
+            String yarnStatusCmd = String.format(YARN_STATUS_CMD, YARN_CLIENT, configDir, appId);
+            LOG.info(yarnStatusCmd);
+            String[] envp = { "LC_ALL=" + Config.locale };
+            CommandResult result = Util.executeCommand(yarnStatusCmd, envp, EXEC_CMD_TIMEOUT_MS);
+            if (result.getReturnCode() != 0) {
+                String stderr = result.getStderr();
+                if (stderr != null) {
+                    // case application not exists
+                    if (stderr.contains("doesn't exist in RM")) {
+                        LOG.warn("spark app not found. spark app id: {}, load job id: {}", appId, loadJobId);
+                        status.setState(TEtlState.CANCELLED);
                     }
                 }
-                status.setTrackingUrl(report.getTrackingUrl());
-                status.setProgress((int) (report.getProgress() * 100));
-            } catch (ApplicationNotFoundException e) {
-                LOG.warn("spark app not found. spark app id: {}, load job id: {}", appId, loadJobId, e);
+                LOG.warn("yarn application status failed. spark app id: {}, load job id: {}, timeout: {}, msg: {}",
+                            appId, loadJobId, EXEC_CMD_TIMEOUT_MS, stderr);
                 status.setState(TEtlState.CANCELLED);
-                status.setFailMsg(e.getMessage());
-            } catch (YarnException | IOException e) {
-                LOG.warn("yarn application status failed. spark app id: {}, load job id: {}", appId, loadJobId, e);
-            } finally {
-                stopYarnClient(client);
+                return status;
             }
+            LOG.info(result.getStdout());
+            ApplicationReport report = new YarnApplicationReport(result.getStdout()).getReport();
+            LOG.info("yarn application -status {}. load job id: {}, result: {}", appId, loadJobId, report);
+            YarnApplicationState state = report.getYarnApplicationState();
+            FinalApplicationStatus faStatus = report.getFinalApplicationStatus();
+            status.setState(fromYarnState(state, faStatus));
+            if (status.getState() == TEtlState.CANCELLED) {
+                if (state == YarnApplicationState.FINISHED) {
+                    status.setFailMsg("spark app state: " + faStatus.toString());
+                } else {
+                    status.setFailMsg("yarn app state: " + state.toString());
+                }
+            }
+            status.setTrackingUrl(report.getTrackingUrl());
+            status.setProgress((int) (report.getProgress() * 100));
         } else {
             // state from handle
             if (handle == null) {
@@ -262,19 +278,88 @@ public class SparkEtlJobHandler {
         return status;
     }
 
-    public void killEtlJob(SparkAppHandle handle, String appId, long loadJobId, SparkResource resource) {
+//    public EtlStatus getEtlJobStatus(SparkAppHandle handle, String appId, long loadJobId, String etlOutputPath,
+//                                     SparkResource resource, BrokerDesc brokerDesc) {
+//        EtlStatus status = new EtlStatus();
+//
+//        if (resource.isYarnMaster()) {
+//            // state from yarn
+//            Preconditions.checkState(appId != null && !appId.isEmpty());
+//            YarnClient client = startYarnClient(resource);
+//            try {
+//                ApplicationReport report = client.getApplicationReport(ConverterUtils.toApplicationId(appId));
+//                LOG.info("yarn application -status {}. load job id: {}, result: {}", appId, loadJobId, report);
+//
+//                YarnApplicationState state = report.getYarnApplicationState();
+//                FinalApplicationStatus faStatus = report.getFinalApplicationStatus();
+//                status.setState(fromYarnState(state, faStatus));
+//                if (status.getState() == TEtlState.CANCELLED) {
+//                    if (state == YarnApplicationState.FINISHED) {
+//                        status.setFailMsg("spark app state: " + faStatus.toString());
+//                    } else {
+//                        status.setFailMsg("yarn app state: " + state.toString());
+//                    }
+//                }
+//                status.setTrackingUrl(report.getTrackingUrl());
+//                status.setProgress((int) (report.getProgress() * 100));
+//            } catch (ApplicationNotFoundException e) {
+//                LOG.warn("spark app not found. spark app id: {}, load job id: {}", appId, loadJobId, e);
+//                status.setState(TEtlState.CANCELLED);
+//                status.setFailMsg(e.getMessage());
+//            } catch (YarnException | IOException e) {
+//                LOG.warn("yarn application status failed. spark app id: {}, load job id: {}", appId, loadJobId, e);
+//            } finally {
+//                stopYarnClient(client);
+//            }
+//        } else {
+//            // state from handle
+//            if (handle == null) {
+//                status.setFailMsg("spark app handle is null");
+//                status.setState(TEtlState.CANCELLED);
+//                return status;
+//            }
+//
+//            State state = handle.getState();
+//            status.setState(fromSparkState(state));
+//            if (status.getState() == TEtlState.CANCELLED) {
+//                status.setFailMsg("spark app state: " + state.toString());
+//            }
+//            LOG.info("spark app id: {}, load job id: {}, app state: {}", appId, loadJobId, state);
+//        }
+//
+//        if (status.getState() == TEtlState.FINISHED || status.getState() == TEtlState.CANCELLED) {
+//            // get dpp result
+//            String dppResultFilePath = EtlJobConfig.getDppResultFilePath(etlOutputPath);
+//            try {
+//                byte[] data = BrokerUtil.readFile(dppResultFilePath, brokerDesc);
+//                String dppResultStr = new String(data, "UTF-8");
+//                DppResult dppResult = new Gson().fromJson(dppResultStr, DppResult.class);
+//                status.setDppResult(dppResult);
+//                if (status.getState() == TEtlState.CANCELLED && !Strings.isNullOrEmpty(dppResult.failedReason)) {
+//                    status.setFailMsg(dppResult.failedReason);
+//                }
+//            } catch (UserException | JsonSyntaxException | UnsupportedEncodingException e) {
+//                LOG.warn("read broker file failed. path: {}", dppResultFilePath, e);
+//            }
+//        }
+//
+//        return status;
+//    }
+
+    public void killEtlJob(SparkAppHandle handle, String appId, long loadJobId, SparkResource resource) throws LoadException {
         if (resource.isYarnMaster()) {
             Preconditions.checkNotNull(appId);
-            YarnClient client = startYarnClient(resource);
-            try {
-                try {
-                    client.killApplication(ConverterUtils.toApplicationId(appId));
-                    LOG.info("yarn application -kill {}", appId);
-                } catch (YarnException | IOException e) {
-                    LOG.warn("yarn application kill failed. app id: {}, load job id: {}", appId, loadJobId, e);
-                }
-            } finally {
-                stopYarnClient(client);
+            // prepare yarn config
+            String configDir = resource.prepareYarnConfig();
+            // yarn --config configDir application -status command
+            String yarnKillCmd = String.format(YARN_KILL_CMD, YARN_CLIENT, configDir, appId);
+            LOG.info(yarnKillCmd);
+            String[] envp = { "LC_ALL=" + Config.locale };
+            CommandResult result = Util.executeCommand(yarnKillCmd, envp, EXEC_CMD_TIMEOUT_MS);
+            LOG.info("yarn application -kill {}", appId);
+            if (result.getReturnCode() != 0) {
+                String stderr = result.getStderr();
+                LOG.warn("yarn application kill failed. app id: {}, load job id: {}, msg: {}", appId, loadJobId, stderr);
             }
         } else {
             if (handle != null) {
