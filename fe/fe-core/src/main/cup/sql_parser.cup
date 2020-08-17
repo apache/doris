@@ -500,6 +500,7 @@ precedence left LPAREN, RPAREN;
 // Support chaining of timestamp arithmetic exprs.
 precedence left KW_INTERVAL;
 precedence left KW_OVER;
+precedence left KW_COLLATE;
 precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
 precedence right KW_TEMPORARY;
@@ -3258,7 +3259,7 @@ select_sublist ::=
     ;
 
 select_list_item ::=
-    expr:expr opt_collate:collate select_alias:alias
+    expr:expr select_alias:alias
     {:
         RESULT = new SelectListItem(expr, alias);
     :}
@@ -3849,7 +3850,7 @@ sign_chain_expr ::=
   ;
 
 expr ::=
-  non_pred_expr:e
+  non_pred_expr:e opt_collate:collate
   {: RESULT = e; :}
   | predicate:p
   {: RESULT = p; :}
