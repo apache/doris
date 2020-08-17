@@ -339,7 +339,7 @@ nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
-nonterminal TableName table_name;
+nonterminal TableName table_name, opt_table_name;
 nonterminal FunctionName function_name;
 nonterminal Expr where_clause;
 nonterminal Expr where_clause_without_null;
@@ -1642,9 +1642,9 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, tableName, false)));
     :}
-    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON ident:db
+    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists table_name:dbMvName opt_table_name:dbTblName
     {:
-        RESULT = new DropMaterializedViewStmt(ifExists, mvName, db);
+        RESULT = new DropMaterializedViewStmt(ifExists, dbMvName, dbTblName);
     :}
     | KW_DROP KW_RESOURCE ident_or_text:resourceName
     {:
@@ -2082,9 +2082,9 @@ show_param ::=
     {:
         RESULT = new ShowTableStatusStmt(db, parser.wild, parser.where);
     :}
-    | KW_MATERIALIZED KW_VIEW KW_ON ident:db
+    | KW_MATERIALIZED KW_VIEW opt_db:db
     {:
-        RESULT = new ShowRollupStmt(db);
+        RESULT = new ShowMaterializedView(db);
     :}
     /* show table status */
     | opt_full KW_TABLES opt_db:db opt_wild_where
@@ -2242,6 +2242,10 @@ show_param ::=
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
     :}
+    | KW_ALTER KW_MATERIALIZED KW_VIEW opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowAlterStmt(ShowAlterStmt.AlterType.MATERIALIZED_VIEW, db, parser.where, orderByClause, limitClause);
+    :}
     /* Show data statement: used to show data size of specified range */
     | KW_DATA
     {:
@@ -2366,6 +2370,17 @@ opt_db ::=
     :}
     ;
 
+opt_table_name ::=
+     /* empty */
+     {:
+         RESULT = null;
+     :}
+     | from_or_in table_name:table
+     {:
+         RESULT = table;
+     :}
+     ;
+
 charset ::=
     KW_CHAR KW_SET
     | KW_CHARSET
@@ -2463,6 +2478,10 @@ opt_alter_type ::=
     {:
         RESULT = ShowAlterStmt.AlterType.ROLLUP;
     :}
+    | KW_MATERIALIZED KW_VIEW
+    {:
+        RESULT = ShowAlterStmt.AlterType.MATERIALIZED_VIEW;
+    :}
     | KW_COLUMN
     {:
         RESULT = ShowAlterStmt.AlterType.COLUMN;
@@ -2542,6 +2561,10 @@ cancel_param ::=
     | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table cancel_rollup_job_id_list:list
     {:
         RESULT = new CancelAlterTableStmt(type, table, list);
+    :}
+    | KW_ALTER KW_MATERIALIZED KW_VIEW KW_FROM table_name:table
+    {:
+        RESULT = new CancelAlterTableStmt(ShowAlterStmt.AlterType.MATERIALIZED_VIEW, table);
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:

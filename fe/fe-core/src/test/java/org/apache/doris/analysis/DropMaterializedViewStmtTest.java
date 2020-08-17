@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -38,12 +39,44 @@ public class DropMaterializedViewStmtTest {
 
     @Test
     public void testEmptyMVName() {
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", "testDb");
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, new TableName("", ""), new TableName("test", "table"));
         try {
             stmt.analyze(analyzer);
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("could not be empty"));
+        }
+    }
+
+    @Test
+    public void testRepeatedDB() {
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, new TableName("test", "mvname"), new TableName("test", "table"));
+        try {
+            stmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("should not include the database name prefix"));
+        }
+    }
+
+    @Test
+    public void testFromDB() {
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, new TableName("test", "mvname"), new TableName("", "table"));
+        try {
+            stmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("mush specify database name explicitly"));
+        }
+    }
+
+    @Test
+    public void testNormal() {
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, new TableName("test", "mvname"), null);
+        try {
+            stmt.analyze(analyzer);
+        } catch (UserException e) {
+            Assert.fail();
         }
     }
 
@@ -56,7 +89,7 @@ public class DropMaterializedViewStmtTest {
                 result = false;
             }
         };
-        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, "test", "testDb");
+        DropMaterializedViewStmt stmt = new DropMaterializedViewStmt(false, new TableName("test", "testDb"), null);
         try {
             stmt.analyze(analyzer);
             Assert.fail();

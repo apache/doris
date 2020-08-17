@@ -128,15 +128,15 @@ public class Alter {
 
         db.writeLock();
         try {
-            String tableName = stmt.getTableName().getTbl();
-            Table table = db.getTable(tableName);
-            // if table exists
-            if (table == null) {
+            Table table = null;
+            if (stmt.getTblName() != null) {
+                table = db.getTable(stmt.getTblName());
+            } else {
                 boolean hasfindTable = false;
                 for (Table t : db.getTables()) {
                     OlapTable olapTable = (OlapTable) t;
                     for (MaterializedIndex mvIdx : olapTable.getVisibleIndex()) {
-                        if ( olapTable.getIndexNameById(mvIdx.getId()).equals(stmt.getMvName())) {
+                        if (olapTable.getIndexNameById(mvIdx.getId()).equals(stmt.getMvName())) {
                             table = olapTable;
                             hasfindTable = true;
                             break;
@@ -148,11 +148,11 @@ public class Alter {
                 }
             }
             if (table == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+                throw new DdlException("Materialized view " + stmt.getMvName() + " is not find");
             }
             // check table type
             if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Do not support non-OLAP table [" + tableName + "] when drop materialized view");
+                throw new DdlException("Do not support non-OLAP table [" + table.getName() + "] when drop materialized view");
             }
             // check table state
             OlapTable olapTable = (OlapTable) table;

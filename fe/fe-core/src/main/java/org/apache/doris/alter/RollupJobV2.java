@@ -163,6 +163,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.partitionIdToRollupIndex.put(partitionId, mvIndex);
     }
 
+    public String getRollupIndexName() {
+        return rollupIndexName;
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
     }

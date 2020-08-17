@@ -53,7 +53,7 @@ public class ShowAlterStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowAlterStmt.class);
 
     public static enum AlterType {
-        COLUMN, ROLLUP
+        COLUMN, ROLLUP, MATERIALIZED_VIEW
     }
 
     private AlterType type;

@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -335,7 +336,19 @@ public class MaterializedViewHandlerTest {
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
+    }
 
+    @Test
+    public void testDropMaterializedView(@Injectable DropMaterializedViewStmt stmt) {
+        new Expectations() {
+
+        };
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        try {
+            Deencapsulation.invoke(materializedViewHandler, "dropMaterializedView", stmt);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
     }
 
 }

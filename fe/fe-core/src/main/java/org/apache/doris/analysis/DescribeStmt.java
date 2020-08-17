@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
@@ -51,6 +52,17 @@ import java.util.Map;
 import java.util.Set;
 
 public class DescribeStmt extends ShowStmt {
+
+    private static final ShowResultSetMetaData DESC_OLAP_TABLE_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Key", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Default", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
+                    .build();
+
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
@@ -78,11 +90,12 @@ public class DescribeStmt extends ShowStmt {
 
     private TableName dbTableName;
     private ProcNodeInterface node;
-    
+
     List<List<String>> totalRows;
 
     private boolean isAllTables;
     private boolean isOlapTable;
+    private boolean isMaterializedView;
 
     public DescribeStmt(TableName dbTableName, boolean isAllTables) {
         this.dbTableName = dbTableName;
@@ -97,7 +110,7 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         dbTableName.analyze(analyzer);
-        
+
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
                                                                 dbTableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
@@ -114,6 +127,37 @@ public class DescribeStmt extends ShowStmt {
         try {
             Table table = db.getTable(dbTableName.getTbl());
             if (table == null) {
+                for (Table tb : db.getTables()) {
+                    if (tb.getType() == Table.TableType.OLAP) {
+                        OlapTable olapTable = (OlapTable) tb;
+                        for (MaterializedIndex mvIdx : olapTable.getVisibleIndex()) {
+                            if (olapTable.getIndexNameById(mvIdx.getId()).equalsIgnoreCase(dbTableName.getTbl())) {
+                                List<Column> columns = olapTable.getIndexIdToSchema().get(mvIdx.getId());
+                                for (int j = 0; j < columns.size(); ++j) {
+                                    Column column = columns.get(j);
+
+                                    // Extra string (aggregation and bloom filter)
+                                    List<String> extras = Lists.newArrayList();
+                                    if (column.getAggregationType() != null) {
+                                        extras.add(column.getAggregationType().name());
+                                    }
+                                    String extraStr = StringUtils.join(extras, ",");
+                                    List<String> row = Arrays.asList(
+                                            column.getDisplayName(),
+                                            column.getOriginType().toString(),
+                                            column.isAllowNull() ? "Yes" : "No",
+                                            ((Boolean) column.isKey()).toString(),
+                                            column.getDefaultValue() == null
+                                                    ? FeConstants.null_string : column.getDefaultValue(),
+                                            extraStr);
+                                    totalRows.add(row);
+                                }
+                                isMaterializedView = true;
+                                return;
+                            }
+                        }
+                    }
+                }
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, dbTableName.getTbl());
             }
 
@@ -215,7 +259,7 @@ public class DescribeStmt extends ShowStmt {
     }
 
     public List<List<String>> getResultRows() throws AnalysisException {
-        if (isAllTables) {
+        if (isAllTables || isMaterializedView) {
             return totalRows;
         } else {
             Preconditions.checkNotNull(node);
@@ -226,19 +270,23 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         if (!isAllTables) {
-            ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+            if (isMaterializedView) {
+                return DESC_OLAP_TABLE_META_DATA;
+            } else {
+                ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-            ProcResult result = null;
-            try {
-                result = node.fetchResult();
-            } catch (AnalysisException e) {
+                ProcResult result = null;
+                try {
+                    result = node.fetchResult();
+                } catch (AnalysisException e) {
+                    return builder.build();
+                }
+
+                for (String col : result.getColumnNames()) {
+                    builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+                }
                 return builder.build();
             }
-
-            for (String col : result.getColumnNames()) {
-                builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
-            }
-            return builder.build();
         } else {
             if (isOlapTable) {
                 return DESC_OLAP_TABLE_ALL_META_DATA;

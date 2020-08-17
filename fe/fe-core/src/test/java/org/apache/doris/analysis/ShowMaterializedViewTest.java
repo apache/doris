@@ -23,44 +23,20 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-public class ShowRollupStmtTest {
+public class ShowMaterializedViewTest {
     private Analyzer analyzer;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
-    /*
+
     @Test
     public void testNormal() throws AnalysisException {
         // use default database
-        ShowRollupStmt stmt = new ShowRollupStmt(new TableName("", "tbl"), "");
+        ShowMaterializedView stmt = new ShowMaterializedView("test");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getDb());
-        Assert.assertEquals("tbl", stmt.getTbl());
-        Assert.assertEquals("SHOW ROLLUP FROM `testCluster:testDb`.`tbl`", stmt.toString());
-
-        // use table database
-        stmt = new ShowRollupStmt(new TableName("testDb1", "tbl"), "");
-        stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testDb1", stmt.getDb());
-        Assert.assertEquals("tbl", stmt.getTbl());
-        Assert.assertEquals("SHOW ROLLUP FROM `testCluster:testDb1`.`tbl`", stmt.toString());
-
-        // use db database
-        stmt = new ShowRollupStmt(new TableName("testDb1", "tbl"), "testDb2");
-        stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testDb2", stmt.getDb());
-        Assert.assertEquals("tbl", stmt.getTbl());
-        Assert.assertEquals("SHOW ROLLUP FROM `testCluster:testDb2`.`tbl`", stmt.toString());
+        Assert.assertEquals("SHOW MATERIALIZED VIEW FROM test", stmt.toString());
     }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoTbl() throws AnalysisException {
-        // use default database
-        ShowRollupStmt stmt = new ShowRollupStmt(new TableName("testDb", ""), "");
-        stmt.analyze(analyzer);
-        Assert.fail("No exception throws.");
-    }
-    */
 }

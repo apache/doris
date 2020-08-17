@@ -38,6 +38,7 @@ import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowMaterializedView;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
@@ -54,7 +55,6 @@ import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
-import org.apache.doris.analysis.ShowRollupStmt;
 import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSmallFilesStmt;
@@ -166,8 +166,8 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
-        if (stmt instanceof ShowRollupStmt) {
-            handleShowRollup();
+        if (stmt instanceof ShowMaterializedView) {
+            handleShowMaterializedView();
         } else if (stmt instanceof ShowAuthorStmt) {
             handleShowAuthor();
         } else if (stmt instanceof ShowProcStmt) {
@@ -267,9 +267,8 @@ public class ShowExecutor {
         return resultSet;
     }
 
-    private void handleShowRollup() throws AnalysisException {
-        ShowRollupStmt showRollupStmt = (ShowRollupStmt) stmt;
-        String dbName = ((ShowRollupStmt) stmt).getDb();
+    private void handleShowMaterializedView() throws AnalysisException {
+        String dbName = ((ShowMaterializedView) stmt).getDb();
         List<List<String>> rowSets = Lists.newArrayList();
 
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
@@ -291,13 +290,29 @@ public class ShowExecutor {
                         ArrayList<String> resultRow = new ArrayList<>();
                         MaterializedIndexMeta mvMeta = olapTable.getVisibleIndexIdToMeta().get(mvIdx.getId());
                         resultRow.add(String.valueOf(mvIdx.getId()));
-                        if (mvMeta.isMaterializedView()) {
-                            resultRow.add(olapTable.getIndexNameById(mvIdx.getId()));
-                        } else {
-                            resultRow.add(olapTable.getName() + "." + olapTable.getIndexNameById(mvIdx.getId()));
-                        }
+                        resultRow.add(olapTable.getIndexNameById(mvIdx.getId()));
                         resultRow.add(dbName);
-                        resultRow.add(mvMeta.getOriginStmt());
+                        if (mvMeta.getOriginStmt() == null) {
+                            StringBuilder originStmtBuilder = new StringBuilder("create materialized view " + olapTable.getIndexNameById(mvIdx.getId()) + " as select ");
+                            String groupByString = "";
+                            for (Column column : mvMeta.getSchema()) {
+                                if (column.isKey()) {
+                                    groupByString += column.getName() + ",";
+                                }
+                            }
+                            originStmtBuilder.append(groupByString);
+                            for (Column column : mvMeta.getSchema()) {
+                                if (!column.isKey()) {
+                                    originStmtBuilder.append(column.getAggregationType().toString()).append("(").append(column.getName()).append(")").append(",");
+                                }
+                            }
+                            originStmtBuilder.delete(originStmtBuilder.length() - 1, originStmtBuilder.length());
+                            originStmtBuilder.append(" from ").append(olapTable.getName()).append(" group by ").append(groupByString);
+                            originStmtBuilder.delete(originStmtBuilder.length() - 1, originStmtBuilder.length());
+                            resultRow.add(originStmtBuilder.toString());
+                        } else {
+                            resultRow.add(mvMeta.getOriginStmt());
+                        }
                         resultRow.add(String.valueOf(mvIdx.getRowCount()));
                         rowSets.add(resultRow);
                     }
@@ -306,8 +321,6 @@ public class ShowExecutor {
         } finally {
             db.readUnlock();
         }
-
-        resultSet = new ShowResultSet(showRollupStmt.getMetaData(), rowSets);
     }
 
     // Handle show authors
