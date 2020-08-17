@@ -70,7 +70,7 @@ public class WebBaseAction extends BaseAction {
             + "  <link href=\"/static/css?res=DataTables-1.10.21/css/dataTables.bootstrap.css\" "
             + "    rel=\"stylesheet\" media=\"screen\"/>"
 
-            + "  <script type=\"text/javascript\" src=\"/static?res=jQuery-1.12.4/jquery-1.12.4.js\"></script>"
+            + "  <script type=\"text/javascript\" src=\"/static?res=jQuery-3.3.1/jquery-3.3.1.min.js\"></script>"
             + "  <script type=\"text/javascript\" src=\"/static?res=DataTables-1.10.21/js/jquery.dataTables.js\"></script>"
             + "  <script type=\"text/javascript\" src=\"/static?res=DataTables-1.10.21/js/dataTables.bootstrap.js\"></script>"
 
