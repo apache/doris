@@ -411,7 +411,7 @@ under the License.
 4. 创建一个 mysql 表
 
 ```
-    CREATE TABLE example_db.table_mysql
+    CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
     k2 INT,

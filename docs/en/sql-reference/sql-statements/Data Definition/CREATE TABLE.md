@@ -383,7 +383,7 @@ Syntax:
 4. Create a mysql table
 
     ```
-    CREATE TABLE example_db.table_mysql
+    CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
     k2 INT,
