@@ -59,7 +59,7 @@ public:
 
     // Close this scanner
     virtual void close() = 0;
-    bool fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool* mem_pool);
+    bool fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 
     void fill_slots_of_columns_from_path(int start, const std::vector<std::string>& columns_from_path);
 
@@ -76,7 +76,7 @@ protected:
     Tuple* _src_tuple;
     TupleRow* _src_tuple_row;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     MemPool _mem_pool;
 

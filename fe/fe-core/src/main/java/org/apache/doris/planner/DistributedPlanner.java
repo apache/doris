@@ -45,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -494,28 +495,39 @@ public class DistributedPlanner {
         OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
         OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
 
-        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+        // if left table and right table is same table and they select same single partition or no partition
+        // they are naturally colocate relationship no need to check colocate group
+        Collection<Long> leftPartitions = ((OlapScanNode)leftRoot).getSelectedPartitionIds();
+        Collection<Long> rightPartitions = ((OlapScanNode)rightRoot).getSelectedPartitionIds();
+        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId()) && (leftPartitions.equals(rightPartitions)) &&
+                (leftPartitions.size() <= 1);
 
-        //1 the table must be colocate
-        if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
-            cannotReason.add("table not in same group");
-            return false;
-        }
+        if (!noNeedCheckColocateGroup) {
+            ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
 
-        //2 the colocate group must be stable
-        GroupId groupId = colocateIndex.getGroup(leftTable.getId());
-        if (colocateIndex.isGroupUnstable(groupId)) {
-            cannotReason.add("group is not stable");
-            return false;
+            //1 the table must be colocate
+            if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
+                cannotReason.add("table not in the same group");
+                return false;
+            }
+
+            //2 the colocate group must be stable
+            GroupId groupId = colocateIndex.getGroup(leftTable.getId());
+            if (colocateIndex.isGroupUnstable(groupId)) {
+                cannotReason.add("group is not stable");
+                return false;
+            }
         }
 
         DistributionInfo leftDistribution = leftTable.getDefaultDistributionInfo();
         DistributionInfo rightDistribution = rightTable.getDefaultDistributionInfo();
 
         if (leftDistribution instanceof HashDistributionInfo && rightDistribution instanceof HashDistributionInfo) {
-            List<Column> leftColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
-            List<Column> rightColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
+            List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
+            List<Column> rightDistributeColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
 
+            List<Column> leftJoinColumns = new ArrayList<>();
+            List<Column> rightJoinColumns = new ArrayList<>();
             List<BinaryPredicate> eqJoinConjuncts = node.getEqJoinConjuncts();
             for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
                 Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
@@ -527,10 +539,21 @@ public class DistributedPlanner {
                 SlotDescriptor leftSlot = lhsJoinExpr.unwrapSlotRef().getDesc();
                 SlotDescriptor rightSlot = rhsJoinExpr.unwrapSlotRef().getDesc();
 
-                //3 the eqJoinConjuncts must contain the distributionColumns
-                if (leftColumns.contains(leftSlot.getColumn()) && rightColumns.contains(rightSlot.getColumn())) {
-                    return true;
+                Column leftColumn = leftSlot.getColumn();
+                Column rightColumn = rightSlot.getColumn();
+                int leftColumnIndex = leftDistributeColumns.indexOf(leftColumn);
+                int rightColumnIndex = rightDistributeColumns.indexOf(rightColumn);
+
+                // eqjoinConjuncts column should have the same order like colocate distribute column
+                if (leftColumnIndex == rightColumnIndex && leftColumnIndex != -1) {
+                    leftJoinColumns.add(leftSlot.getColumn());
+                    rightJoinColumns.add(rightSlot.getColumn());
                 }
+            }
+
+            //3 the join columns should contains all distribute columns to enable colocate join
+            if (leftJoinColumns.containsAll(leftDistributeColumns) && rightJoinColumns.containsAll(rightDistributeColumns)) {
+                return true;
             }
         }
 

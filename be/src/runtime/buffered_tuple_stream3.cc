@@ -695,7 +695,7 @@ void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
 }
 */
 Status BufferedTupleStream3::GetRows(
-    MemTracker* tracker, scoped_ptr<RowBatch>* batch, bool* got_rows) {
+    const std::shared_ptr<MemTracker>& tracker, scoped_ptr<RowBatch>* batch, bool* got_rows) {
   if (num_rows() > numeric_limits<int>::max()) {
     // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
     return Status::InternalError(Substitute("Trying to read $0 rows into in-memory batch failed. Limit "
@@ -710,7 +710,7 @@ Status BufferedTupleStream3::GetRows(
   // TODO chenhao 
   // capacity in RowBatch use int, but _num_rows is int64_t
   // it may be precision loss
-  batch->reset(new RowBatch(*desc_, num_rows(), tracker));
+  batch->reset(new RowBatch(*desc_, num_rows(), tracker.get()));
   bool eos = false;
   // Loop until GetNext fills the entire batch. Each call can stop at page
   // boundaries. We generally want it to stop, so that pages can be freed

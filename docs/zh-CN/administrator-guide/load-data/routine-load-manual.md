@@ -238,6 +238,10 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 只能查看当前正在运行中的任务，已结束和未开始的任务无法查看。
 
+### 修改作业属性
+
+用户可以修改已经创建的作业。具体说明可以通过 `HELP ALTER ROUTINE LOAD;` 命令查看。或参阅 [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data Manipulation/alter-routine-load.md)。
+
 ### 作业控制
 
 用户可以通过 `STOP/PAUSE/RESUME` 三个命令来控制作业的停止，暂停和重启。可以通过 `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` 以及 `HELP RESUME ROUTINE LOAD;` 三个命令查看帮助和示例。

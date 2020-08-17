@@ -29,8 +29,8 @@ namespace doris {
 FunctionUtils::FunctionUtils() {
     doris_udf::FunctionContext::TypeDesc return_type;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
-    _mem_tracker = new MemTracker();
-    _memory_pool = new MemPool(_mem_tracker);
+    _mem_tracker.reset(new MemTracker(-1, "function util"));
+    _memory_pool = new MemPool(_mem_tracker.get());
     _fn_ctx = FunctionContextImpl::create_context(
         _state, _memory_pool, return_type, arg_types, 0, false);
 }
@@ -38,8 +38,8 @@ FunctionUtils::FunctionUtils(RuntimeState* state) {
     _state = state;
     doris_udf::FunctionContext::TypeDesc return_type;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
-    _mem_tracker = new MemTracker();
-    _memory_pool = new MemPool(_mem_tracker);
+    _mem_tracker.reset(new MemTracker(-1, "function util"));
+    _memory_pool = new MemPool(_mem_tracker.get());
     _fn_ctx = FunctionContextImpl::create_context(
         _state, _memory_pool, return_type, arg_types, 0, false);
 }
@@ -48,7 +48,6 @@ FunctionUtils::~FunctionUtils() {
     _fn_ctx->impl()->close();
     delete _fn_ctx;
     delete _memory_pool;
-    delete _mem_tracker;
 }
 
 }

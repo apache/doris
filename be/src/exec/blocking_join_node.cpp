@@ -50,7 +50,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
-    _build_pool.reset(new MemPool(mem_tracker()));
+    _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
@@ -74,7 +74,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     _probe_tuple_row_size = num_left_tuples * sizeof(Tuple*);
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
-    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
+    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
     return Status::OK();
 }
 

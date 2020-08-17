@@ -67,7 +67,6 @@ public:
 
     ~MemoryScratchSinkTest() {
         delete _state;
-        delete _mem_tracker;
         delete _exec_env->_result_queue_mgr;
         delete _exec_env->_thread_mgr;
         delete _exec_env->_buffer_reservation;
@@ -102,7 +101,7 @@ private:
     TPlanNode _tnode;
     RowDescriptor* _row_desc = nullptr;
     TMemoryScratchSink _tsink;
-    MemTracker *_mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
     DescriptorTbl* _desc_tbl = nullptr;
     std::vector<TExpr> _exprs;
 };
@@ -125,7 +124,7 @@ void MemoryScratchSinkTest::init_runtime_state() {
     query_id.hi = 100;
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
-    _mem_tracker = new MemTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());

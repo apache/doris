@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.PaloFe;
+import org.apache.doris.http.HttpServer;
 
 public class Config extends ConfigBase {
     
@@ -283,6 +284,15 @@ public class Config extends ConfigBase {
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
+
+    /*
+     * Netty http param
+     */
+    @ConfField public static int http_max_line_length = HttpServer.DEFAULT_MAX_LINE_LENGTH;
+
+    @ConfField public static int http_max_header_size = HttpServer.DEFAULT_MAX_HEADER_SIZE;
+
+    @ConfField public static int http_max_chunk_size = HttpServer.DEFAULT_MAX_CHUNK_SIZE;
 
     /**
      * The backlog_num for netty http server
@@ -1161,8 +1171,7 @@ public class Config extends ConfigBase {
     public static long min_clone_task_timeout_sec = 3 * 60; // 3min
     @ConfField(mutable = true, masterOnly = true)
     public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
-    
-     
+
     /** 
      * If set to true, fe will enable sql result cache
      * This option is suitable for offline data update scenarios
@@ -1192,4 +1201,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static int cache_result_max_row_count = 3000;
+    
+    /**
+     * Used to limit element num of InPredicate in delete statement.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_allowed_in_element_num_of_delete = 1024;
+
 }

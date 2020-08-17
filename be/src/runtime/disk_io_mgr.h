@@ -244,10 +244,9 @@ public:
         // Returns the offset within the scan range that this buffer starts at
         int64_t scan_range_offset() const { return _scan_range_offset; }
 
-        // Updates this buffer buffer to be owned by the new tracker. Consumption is
+        // Updates this buffer to be owned by the new tracker. Consumption is
         // release from the current tracker and added to the new one.
-        // void SetMemTracker(MemTracker* tracker);
-        void set_mem_tracker(MemTracker* mem_tracker);
+        void set_mem_tracker(std::shared_ptr<MemTracker> tracker);
 
         // Returns the buffer to the IoMgr. This must be called for every buffer
         // returned by get_next()/read() that did not return an error. This is non-blocking.
@@ -268,8 +267,7 @@ public:
         RequestContext* _reader;
 
         // The current tracker this buffer is associated with.
-        // MemTracker* _mem_tracker;
-        MemTracker* _mem_tracker;
+        std::shared_ptr<MemTracker> _mem_tracker;
 
         // Scan range that this buffer is for.
         ScanRange* _scan_range;
@@ -548,8 +546,7 @@ public:
     ~DiskIoMgr();
 
     // Initialize the IoMgr. Must be called once before any of the other APIs.
-    // Status init(MemTracker* process_mem_tracker);
-    Status init(MemTracker* process_mem_tracker);
+    Status init(const std::shared_ptr<MemTracker>& process_mem_tracker);
 
     // Allocates tracking structure for a request context.
     // Register a new request context which is returned in *request_context.
@@ -559,10 +556,8 @@ public:
     //    used for this reader will be tracked by this. If the limit is exceeded
     //    the reader will be cancelled and MEM_LIMIT_EXCEEDED will be returned via
     //    get_next().
-    // Status register_context(RequestContext** request_context,
-    //         MemTracker* reader_mem_tracker = NULL);
     Status register_context(RequestContext** request_context,
-            MemTracker* reader_mem_tracker = NULL);
+                            std::shared_ptr<MemTracker> reader_mem_tracker = std::shared_ptr<MemTracker>());
 
     // Unregisters context from the disk IoMgr. This must be called for every
     // register_context() regardless of cancellation and must be called in the
@@ -704,8 +699,7 @@ private:
     ObjectPool _pool;
 
     // Process memory tracker; needed to account for io buffers.
-    // MemTracker* _process_mem_tracker;
-    MemTracker* _process_mem_tracker;
+    std::shared_ptr<MemTracker> _process_mem_tracker;
 
     // Number of worker(read) threads per disk. Also the max depth of queued
     // work to the disk.

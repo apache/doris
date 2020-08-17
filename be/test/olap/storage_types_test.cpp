@@ -41,8 +41,8 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     ASSERT_EQ(sizeof(src_val), type->size());
     {
         typename TypeTraits<field_type>::CppType dst_val;
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
@@ -82,8 +82,8 @@ void test_char(Slice src_val) {
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));

@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -33,6 +29,11 @@ import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -162,14 +163,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
 
-    //custom kafka property map<key, value>
+    // custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
-    private static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
-    private static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
-    private static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> { return v >= 5 && v <= 60; };
-    private static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v >= 200000; };
-    private static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
+    public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
+    public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
+    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> { return v >= 5 && v <= 60; };
+    public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v >= 200000; };
+    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties,
@@ -366,12 +367,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         format = jobProperties.get(FORMAT);
         if (format != null) {
             if (format.equalsIgnoreCase("csv")) {
-                format = "";// if it's not json, then it's mean csv and set empty
+                format = ""; // if it's not json, then it's mean csv and set empty
             } else if (format.equalsIgnoreCase("json")) {
                 format = "json";
                 jsonPaths = jobProperties.get(JSONPATHS);
                 jsonRoot = jobProperties.get(JSONROOT);
-                stripOuterArray = Boolean.valueOf(jobProperties.get(STRIP_OUTER_ARRAY));
+                stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
             }
@@ -424,58 +425,74 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
 
         // check partitions
-        final String kafkaPartitionsString = dataSourceProperties.get(KAFKA_PARTITIONS_PROPERTY);
+        String kafkaPartitionsString = dataSourceProperties.get(KAFKA_PARTITIONS_PROPERTY);
         if (kafkaPartitionsString != null) {
-            kafkaPartitionsString.replaceAll(" ", "");
-            if (kafkaPartitionsString.isEmpty()) {
-                throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY + " could not be a empty string");
-            }
-            String[] kafkaPartionsStringList = kafkaPartitionsString.split(",");
-            for (String s : kafkaPartionsStringList) {
-                try {
-                    kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY),
-                                                          KafkaProgress.OFFSET_END_VAL));
-                } catch (AnalysisException e) {
-                    throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY
-                                                        + " must be a number string with comma-separated");
-                }
-            }
+            analyzeKafkaPartitionProperty(kafkaPartitionsString, this.kafkaPartitionOffsets);
         }
 
         // check offset
-        final String kafkaOffsetsString = dataSourceProperties.get(KAFKA_OFFSETS_PROPERTY);
+        String kafkaOffsetsString = dataSourceProperties.get(KAFKA_OFFSETS_PROPERTY);
         if (kafkaOffsetsString != null) {
-            kafkaOffsetsString.replaceAll(" ", "");
-            if (kafkaOffsetsString.isEmpty()) {
-                throw new AnalysisException(KAFKA_OFFSETS_PROPERTY + " could not be a empty string");
-            }
-            String[] kafkaOffsetsStringList = kafkaOffsetsString.split(",");
-            if (kafkaOffsetsStringList.length != kafkaPartitionOffsets.size()) {
-                throw new AnalysisException("Partitions number should be equals to offsets number");
-            }
+            analyzeKafkaOffsetProperty(kafkaOffsetsString, this.kafkaPartitionOffsets);
+        }
 
-            for (int i = 0; i < kafkaOffsetsStringList.length; i++) {
-                // defined in librdkafka/rdkafkacpp.h
-                // OFFSET_BEGINNING: -2
-                // OFFSET_END: -1
-                try {
-                    kafkaPartitionOffsets.get(i).second = getLongValueFromString(kafkaOffsetsStringList[i],
-                            KAFKA_OFFSETS_PROPERTY);
-                    if (kafkaPartitionOffsets.get(i).second < 0) {
-                        throw new AnalysisException("Cannot specify offset smaller than 0");
-                    }
-                } catch (AnalysisException e) {
-                    if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
-                        kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_BEGINNING_VAL;
-                    } else if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
-                        kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_END_VAL;
-                    } else {
-                        throw e;
-                    }
+        // check custom kafka property
+        analyzeCustomProperties(this.dataSourceProperties, this.customKafkaProperties);
+    }
+
+    public static void analyzeKafkaPartitionProperty(String kafkaPartitionsString,
+            List<Pair<Integer, Long>> kafkaPartitionOffsets) throws AnalysisException {
+        kafkaPartitionsString = kafkaPartitionsString.replaceAll(" ", "");
+        if (kafkaPartitionsString.isEmpty()) {
+            throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY + " could not be a empty string");
+        }
+        String[] kafkaPartionsStringList = kafkaPartitionsString.split(",");
+        for (String s : kafkaPartionsStringList) {
+            try {
+                kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY),
+                        KafkaProgress.OFFSET_END_VAL));
+            } catch (AnalysisException e) {
+                throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY
+                        + " must be a number string with comma-separated");
+            }
+        }
+    }
+
+    public static void analyzeKafkaOffsetProperty(String kafkaOffsetsString,
+            List<Pair<Integer, Long>> kafkaPartitionOffsets) throws AnalysisException {
+        kafkaOffsetsString = kafkaOffsetsString.replaceAll(" ", "");
+        if (kafkaOffsetsString.isEmpty()) {
+            throw new AnalysisException(KAFKA_OFFSETS_PROPERTY + " could not be a empty string");
+        }
+        String[] kafkaOffsetsStringList = kafkaOffsetsString.split(",");
+        if (kafkaOffsetsStringList.length != kafkaPartitionOffsets.size()) {
+            throw new AnalysisException("Partitions number should be equals to offsets number");
+        }
+
+        for (int i = 0; i < kafkaOffsetsStringList.length; i++) {
+            // defined in librdkafka/rdkafkacpp.h
+            // OFFSET_BEGINNING: -2
+            // OFFSET_END: -1
+            try {
+                kafkaPartitionOffsets.get(i).second = getLongValueFromString(kafkaOffsetsStringList[i],
+                        KAFKA_OFFSETS_PROPERTY);
+                if (kafkaPartitionOffsets.get(i).second < 0) {
+                    throw new AnalysisException("Can not specify offset smaller than 0");
+                }
+            } catch (AnalysisException e) {
+                if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
+                    kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_BEGINNING_VAL;
+                } else if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
+                    kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_END_VAL;
+                } else {
+                    throw e;
                 }
             }
         }
-        // check custom kafka property
+    }
+
+    public static void analyzeCustomProperties(Map<String, String> dataSourceProperties,
+            Map<String, String> customKafkaProperties) throws AnalysisException {
         for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
             if (dataSourceProperty.getKey().startsWith("property.")) {
                 String propertyKey = dataSourceProperty.getKey();
@@ -486,11 +503,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
                 customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
             }
-            //can be extended in the future which other prefix
+            // can be extended in the future which other prefix
         }
     }
 
-    private int getIntegerValueFromString(String valueString, String propertyName) throws AnalysisException {
+    private static int getIntegerValueFromString(String valueString, String propertyName) throws AnalysisException {
         if (valueString.isEmpty()) {
             throw new AnalysisException(propertyName + " could not be a empty string");
         }
@@ -503,7 +520,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return value;
     }
 
-    private long getLongValueFromString(String valueString, String propertyName) throws AnalysisException {
+    private static long getLongValueFromString(String valueString, String propertyName) throws AnalysisException {
         if (valueString.isEmpty()) {
             throw new AnalysisException(propertyName + " could not be a empty string");
         }
@@ -511,7 +528,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         try {
             value = Long.valueOf(valueString);
         } catch (NumberFormatException e) {
-            throw new AnalysisException(propertyName + " must be a integer");
+            throw new AnalysisException(propertyName + " must be a integer: " + valueString);
         }
         return value;
     }

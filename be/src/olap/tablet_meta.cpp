@@ -125,7 +125,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         string data_type;
         EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
         column->set_type(data_type);
-        if (tcolumn.column_type.type == TPrimitiveType::DECIMAL) {
+        if (tcolumn.column_type.type == TPrimitiveType::DECIMAL ||
+            tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
             column->set_precision(tcolumn.column_type.precision);
             column->set_frac(tcolumn.column_type.scale);
         }
@@ -599,6 +600,7 @@ void TabletMeta::add_delete_predicate(const DeletePredicatePB& delete_predicate,
     DeletePredicatePB* del_pred = _del_pred_array.Add();
     del_pred->set_version(version);
     *del_pred->mutable_sub_predicates() = delete_predicate.sub_predicates();
+    *del_pred->mutable_in_predicates() = delete_predicate.in_predicates();
 }
 
 void TabletMeta::remove_delete_predicate_by_version(const Version& version) {

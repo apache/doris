@@ -17,12 +17,14 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -35,9 +37,11 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -201,11 +205,11 @@ public class RoutineLoadManager implements Writable {
         return false;
     }
 
-    public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
-            throws UserException {
-        RoutineLoadJob routineLoadJob = getJob(pauseRoutineLoadStmt.getDbFullName(), pauseRoutineLoadStmt.getName());
+    private RoutineLoadJob checkPrivAndGetJob(String dbName, String jobName)
+            throws MetaNotFoundException, DdlException, AnalysisException {
+        RoutineLoadJob routineLoadJob = getJob(dbName, jobName);
         if (routineLoadJob == null) {
-            throw new DdlException("There is not operable routine load job with name " + pauseRoutineLoadStmt.getName());
+            throw new DdlException("There is not operable routine load job with name " + jobName);
         }
         // check auth
         String dbFullName;
@@ -225,41 +229,27 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
+        return routineLoadJob;
+    }
+
+    public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
+            throws UserException {
+        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
+                pauseRoutineLoadStmt.getName());
 
         routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                                   new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
-                                   "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
-                                   false /* not replay */);
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                         .add("current_state", routineLoadJob.getState())
-                         .add("user", ConnectContext.get().getQualifiedUser())
-                         .add("msg", "routine load job has been paused by user")
-                         .build());
+                new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                        "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
+                false /* not replay */);
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
+                routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
+                        "routine load job has been paused by user").build());
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
-        RoutineLoadJob routineLoadJob = getJob(resumeRoutineLoadStmt.getDbFullName(), resumeRoutineLoadStmt.getName());
-        if (routineLoadJob == null) {
-            throw new DdlException("There is not operable routine load job with name " + resumeRoutineLoadStmt.getName() + ".");
-        }
-        // check auth
-        String dbFullName;
-        String tableName;
-        try {
-            dbFullName = routineLoadJob.getDbFullName();
-            tableName = routineLoadJob.getTableName();
-        } catch (MetaNotFoundException e) {
-            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
-        }
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                dbFullName,
-                                                                tableName,
-                                                                PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tableName);
-        }
+        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
+                resumeRoutineLoadStmt.getName());
+
         routineLoadJob.autoResumeCount = 0;
         routineLoadJob.firstResumeTimestamp = 0;
         routineLoadJob.autoResumeLock = false;
@@ -273,31 +263,12 @@ public class RoutineLoadManager implements Writable {
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
             throws UserException {
-        RoutineLoadJob routineLoadJob = getJob(stopRoutineLoadStmt.getDbFullName(), stopRoutineLoadStmt.getName());
-        if (routineLoadJob == null) {
-            throw new DdlException("There is not operable routine load job with name " + stopRoutineLoadStmt.getName());
-        }
-        // check auth
-        String dbFullName;
-        String tableName;
-        try {
-            dbFullName = routineLoadJob.getDbFullName();
-            tableName = routineLoadJob.getTableName();
-        } catch (MetaNotFoundException e) {
-            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
-        }
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                dbFullName,
-                                                                tableName,
-                                                                PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tableName);
-        }
+        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(stopRoutineLoadStmt.getDbFullName(),
+                stopRoutineLoadStmt.getName());
         routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
-                                    new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR, "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
-                                   false /* not replay */);
+                new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR,
+                        "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
+                false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
                          .add("user", ConnectContext.get().getQualifiedUser())
@@ -601,6 +572,24 @@ public class RoutineLoadManager implements Writable {
                  .add("current_state", operation.getJobState())
                  .add("msg", "replay change routine load job")
                  .build());
+    }
+    
+    /**
+     * Enter of altering a routine load job
+     */
+    public void alterRoutineLoadJob(AlterRoutineLoadStmt stmt) throws UserException {
+        RoutineLoadJob job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
+        if (stmt.hasDataSourceProperty()
+                && !stmt.getDataSourceProperties().getType().equalsIgnoreCase(job.dataSourceType.name())) {
+            throw new DdlException("The specified job type is not: " + stmt.getDataSourceProperties().getType());
+        }
+        job.modifyProperties(stmt);
+    }
+
+    public void replayAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {
+        RoutineLoadJob job = getJob(log.getJobId());
+        Preconditions.checkNotNull(job, log.getJobId());
+        job.replayModifyProperties(log);
     }
 
     @Override

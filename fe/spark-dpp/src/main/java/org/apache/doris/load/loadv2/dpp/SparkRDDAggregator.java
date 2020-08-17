@@ -18,12 +18,12 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFunction;
-import org.apache.spark.sql.Row;
 import scala.Tuple2;
 
 import java.io.ByteArrayInputStream;
@@ -125,60 +125,59 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
 
 }
 
-class EncodeDuplicateTableFunction extends EncodeAggregateTableFunction {
-
-    private int valueLen;
-
-    public EncodeDuplicateTableFunction(int keyLen, int valueLen) {
-        super(keyLen);
-        this.valueLen = valueLen;
-    }
+// just used for duplicate table, default logic is enough
+class DefaultSparkRDDAggregator extends SparkRDDAggregator {
 
     @Override
-    public Tuple2<List<Object>, Object[]> call(Row row) throws Exception {
-        List<Object> keys = new ArrayList(keyLen);
-        Object[] values = new Object[valueLen];
-
-        for (int i = 0; i < keyLen; i++) {
-            keys.add(row.get(i));
-        }
-
-        for (int i = keyLen; i < row.length(); i++) {
-            values[i - keyLen] = row.get(i);
-        }
-
-        return new Tuple2<>(keys, values);
+    Object update(Object v1, Object v2) {
+        return null;
     }
 }
 
-class EncodeAggregateTableFunction implements PairFunction<Row, List<Object>, Object[]> {
+// just encode value column,used for base rollup
+class EncodeBaseAggregateTableFunction implements PairFunction<Tuple2<List<Object>, Object[]>, List<Object>, Object[]> {
 
     private SparkRDDAggregator[] valueAggregators;
-    // include bucket id
-    protected int keyLen;
 
-    public EncodeAggregateTableFunction(int keyLen) {
-        this.keyLen = keyLen;
-    }
-
-    public EncodeAggregateTableFunction(SparkRDDAggregator[] valueAggregators, int keyLen) {
+    public EncodeBaseAggregateTableFunction(SparkRDDAggregator[] valueAggregators) {
         this.valueAggregators = valueAggregators;
-        this.keyLen = keyLen;
     }
 
-    // TODO(wb): use a custom class as key to instead of List to save space
-    @Override
-    public Tuple2<List<Object>, Object[]> call(Row row) throws Exception {
-        List<Object> keys = new ArrayList(keyLen);
-        Object[] values = new Object[valueAggregators.length];
 
-        for (int i = 0; i < keyLen; i++) {
-            keys.add(row.get(i));
+    @Override
+    public Tuple2<List<Object>, Object[]> call(Tuple2<List<Object>, Object[]> srcPair) throws Exception {
+        for (int i = 0; i < srcPair._2().length; i++) {
+            srcPair._2()[i] = valueAggregators[i].init(srcPair._2()[i]);
+        }
+        return srcPair;
+    }
+}
+
+// just map column from parent rollup index to child rollup index,used for child rollup
+class EncodeRollupAggregateTableFunction implements PairFunction<Tuple2<List<Object>, Object[]>, List<Object>, Object[]> {
+
+    Pair<Integer[], Integer[]> columnIndexInParentRollup;
+
+    public EncodeRollupAggregateTableFunction(Pair<Integer[], Integer[]> columnIndexInParentRollup) {
+        this.columnIndexInParentRollup = columnIndexInParentRollup;
+    }
+
+    @Override
+    public Tuple2<List<Object>, Object[]> call(Tuple2<List<Object>, Object[]> parentRollupKeyValuePair) throws Exception {
+        Integer[] keyColumnIndexMap = columnIndexInParentRollup.getKey();
+        Integer[] valueColumnIndexMap = columnIndexInParentRollup.getValue();
+
+        List<Object> keys = new ArrayList();
+        Object[] values = new Object[valueColumnIndexMap.length];
+
+        // deal bucket_id column
+        keys.add(parentRollupKeyValuePair._1().get(0));
+        for (int i = 0; i < keyColumnIndexMap.length; i++) {
+            keys.add(parentRollupKeyValuePair._1().get(keyColumnIndexMap[i] + 1));
         }
 
-        for (int i = keyLen; i < row.size(); i++) {
-            int valueIdx = i - keyLen;
-            values[valueIdx] = valueAggregators[valueIdx].init(row.get(i));
+        for (int i = 0; i < valueColumnIndexMap.length; i++) {
+            values[i] = parentRollupKeyValuePair._2()[valueColumnIndexMap[i]];
         }
         return new Tuple2<>(keys, values);
     }

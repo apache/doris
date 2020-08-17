@@ -94,7 +94,18 @@ import io.netty.handler.stream.ChunkedWriteHandler;
 
 public class HttpServer {
     private static final Logger LOG = LogManager.getLogger(HttpServer.class);
-    private int port;
+
+    /**
+     * The default netty param, witch is the same as `HttpServerCodec`.
+     */
+    public static final int DEFAULT_MAX_LINE_LENGTH = 4096;
+    public static final int DEFAULT_MAX_HEADER_SIZE = 8192;
+    public static final int DEFAULT_MAX_CHUNK_SIZE = 8192;
+
+    private final int port;
+    private final int maxInitialLineLength;
+    private final int maxHeaderSize;
+    private final int maxChunkSize;
     private ActionController controller;
 
     private Thread serverThread;
@@ -102,7 +113,14 @@ public class HttpServer {
     private AtomicBoolean isStarted = new AtomicBoolean(false);
 
     public HttpServer(int port) {
+        this(port, DEFAULT_MAX_LINE_LENGTH, DEFAULT_MAX_HEADER_SIZE, DEFAULT_MAX_CHUNK_SIZE);
+    }
+
+    public HttpServer(int port, int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
         this.port = port;
+        this.maxInitialLineLength = maxInitialLineLength;
+        this.maxHeaderSize = maxHeaderSize;
+        this.maxChunkSize = maxChunkSize;
         controller = new ActionController();
     }
 
@@ -188,7 +206,7 @@ public class HttpServer {
     protected class PaloHttpServerInitializer extends ChannelInitializer<SocketChannel> {
         @Override
         protected void initChannel(SocketChannel ch) throws Exception {
-            ch.pipeline().addLast(new HttpServerCodec());
+            ch.pipeline().addLast(new HttpServerCodec(maxInitialLineLength, maxHeaderSize, maxChunkSize));
             ch.pipeline().addLast(new DorisHttpPostObjectAggregator(100 * 65536));
             ch.pipeline().addLast(new ChunkedWriteHandler());
             ch.pipeline().addLast(new HttpServerHandler(controller));

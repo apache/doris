@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -100,11 +101,11 @@ public class DeleteStmt extends DdlStmt {
             BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
             Expr leftExpr = binaryPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
-                throw new AnalysisException("Left expr should be column name");
+                throw new AnalysisException("Left expr of binary predicate should be column name");
             }
             Expr rightExpr = binaryPredicate.getChild(1);
             if (!(rightExpr instanceof LiteralExpr)) {
-                throw new AnalysisException("Right expr should be value");
+                throw new AnalysisException("Right expr of binary predicate should be value");
             }
             deleteConditions.add(binaryPredicate);
         } else if (predicate instanceof CompoundPredicate) {
@@ -119,11 +120,29 @@ public class DeleteStmt extends DdlStmt {
             IsNullPredicate isNullPredicate = (IsNullPredicate) predicate;
             Expr leftExpr = isNullPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
-                throw new AnalysisException("Left expr should be column name");
+                throw new AnalysisException("Left expr of is_null predicate should be column name");
             }
             deleteConditions.add(isNullPredicate);
+        } else if (predicate instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) predicate;
+            Expr leftExpr = inPredicate.getChild(0);
+            if (!(leftExpr instanceof SlotRef)) {
+                throw new AnalysisException("Left expr of in predicate should be column name");
+            }
+            int inElementNum = inPredicate.getInElementNum();
+            int maxAllowedInElementNumOfDelete = Config.max_allowed_in_element_num_of_delete;
+            if (inElementNum > maxAllowedInElementNumOfDelete) {
+                throw new AnalysisException("Element num of in predicate should not be more than " + maxAllowedInElementNumOfDelete);
+            }
+            for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
+                Expr expr = inPredicate.getChild(i);
+                if (!(expr instanceof LiteralExpr)) {
+                    throw new AnalysisException("Child of in predicate should be value");
+                }
+            }
+            deleteConditions.add(inPredicate);
         } else {
-            throw new AnalysisException("Where clause should be compound or binary predicate");
+            throw new AnalysisException("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate");
         }
     }
 

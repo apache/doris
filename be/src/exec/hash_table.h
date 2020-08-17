@@ -94,7 +94,7 @@ public:
         int num_build_tuples, bool stores_nulls, 
         const std::vector<bool>& finds_nulls,
         int32_t initial_seed,
-        MemTracker* mem_tracker,
+        const std::shared_ptr<MemTracker>& mem_tracker,
         int64_t num_buckets);
 
     ~HashTable();
@@ -401,7 +401,7 @@ private:
 
     bool _exceeded_limit;   // true if any of _mem_trackers[].limit_exceeded()
 
-    MemTracker* _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // Set to true if the hash table exceeds the memory limit. If this is set,
     // subsequent calls to Insert() will be ignored.
     bool _mem_limit_exceeded;

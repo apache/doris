@@ -31,7 +31,6 @@
 #include "exec/tablet_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/palo_internal_service.pb.h"
 #include "util/bitmap.h"
 #include "util/ref_count_closure.h"
 #include "util/thrift_util.h"
@@ -186,6 +185,7 @@ public:
 
     Status none_of(std::initializer_list<bool> vars);
 
+    // TODO(HW): remove after mem tracker shared
     void clear_all_batches();
 
 private:
@@ -224,7 +224,7 @@ private:
     std::queue<AddBatchReq> _pending_batches;
     std::atomic<int> _pending_batches_num{0};
 
-    palo::PInternalService_Stub* _stub = nullptr;
+    PBackendService_Stub* _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
     ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 
@@ -315,6 +315,8 @@ private:
     friend class NodeChannel;
     friend class IndexChannel;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
+
     ObjectPool* _pool;
     const RowDescriptor& _input_row_desc;
 
@@ -350,7 +352,6 @@ private:
     DorisNodesInfo* _nodes_info = nullptr;
 
     RuntimeProfile* _profile = nullptr;
-    MemTracker* _mem_tracker = nullptr;
 
     std::set<int64_t> _partition_ids;
 

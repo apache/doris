@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
@@ -158,6 +159,15 @@ public class PushTask extends AgentTask {
                         tCondition.setColumn_name(columnName);
                         tCondition.setCondition_op(op);
                         conditionValues.add(value);
+                    } else if (condition instanceof InPredicate) {
+                        InPredicate inPredicate = (InPredicate) condition;
+                        String columnName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
+                        String op = inPredicate.isNotIn() ? "!*=" : "*=";
+                        tCondition.setColumn_name(columnName);
+                        tCondition.setCondition_op(op);
+                        for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
+                            conditionValues.add(((LiteralExpr)inPredicate.getChild(i)).getStringValue());
+                        }
                     }
 
                     tCondition.setCondition_values(conditionValues);

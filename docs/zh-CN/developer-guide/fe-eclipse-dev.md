@@ -34,23 +34,22 @@ under the License.
 
 ### 代码生成
 
-FE 模块需要部分生成代码，如 Thrift、Protobuf 等框架的生成代码。这部分需要在 Linux 环境中通过编译 `gensrc/` 目录中的内容生成。
+FE 模块需要部分生成代码，如 Thrift、Protobuf, jflex, cup 等框架的生成代码。这部分需要在 Linux 或者 Mac环境生成。
 
-1. 在 Linux 下，进入到源码目录，执行下面的命令：
-
-    ```
-    sh build.sh --clean --fe
-    ```
+1. 在 Linux 下， 进入 `fe 目录下执行以下命令：
+   ```
+   mvn  generate-sources
+   ```
     
-2. 然后将生成的 `gensrc/build/java` 目录打包：
+2. 如果使用window开发 需要将生成的 `fe/fe-core/target/generated-sources` 目录打包：
 
-    `cd gensrc/build/ && tar czf java.tar.gz java/`
+    `fe/fe-core/target/ && tar czf java.tar.gz generated-sources/`
 
-3. 将 `java.tar.gz` 拷贝到开发环境的 `fe/` 目录下，并解压
+3. 将 `java.tar.gz` 拷贝到开发环境的 `fe/fe-core/target/` 目录下，并解压
 
     ```
-    cp java.tar.gz /path/to/doris/fe/
-    cd /path/to/doris/fe/ && tar xzf java.tar.gz
+    cp java.tar.gz /path/to/doris/fe/fe-core/target/
+    cd /path/to/doris/fe/fe-core/target/ && tar xzf java.tar.gz
     ```
 
 ## 导入 FE 工程
@@ -126,13 +125,12 @@ java.lang.Exception: Method xxxx should have no parameters
 
 ## 代码更新
 
-1. 更新词法、语法文件
+1. 更新词法、语法文件或者thrift 和proto 文件
 
-    如果修改了 `fe/src/main/cup/sql_parser.cup` 或者 `fe/src/main/jflex/sql_scanner.flex` 文件。则需在 `fe/` 目录下执行以下命令：
+    如果修改了 `fe/fe-core/src/main/cup/sql_parser.cup` 或者 `fe/fe-core/src/main/jflex/sql_scanner.flex`文件或者proto 和thrift 文件。则需在 `fe` 目录下执行以下命令：
     
     ```
-    mvn de.jflex:maven-jflex-plugin:1.4.3:generate
-    mvn net.sourceforge.czt.dev:cup-maven-plugin:1.6-cdh:generate
+    mvn  generate-sources
     ```
     
     之后在 Eclipse 中刷新工程即可。

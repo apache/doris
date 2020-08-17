@@ -39,19 +39,22 @@ public class MVColumnItem {
     private AggregateType aggregationType;
     private boolean isAggregationTypeImplicit;
     private Expr defineExpr;
+    private String baseColumnName;
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr) {
+            Expr defineExpr, String baseColumnName) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
         this.defineExpr = defineExpr;
+        this.baseColumnName = baseColumnName;
     }
 
     public MVColumnItem(String name, Type type) {
         this.name = name;
         this.type = type;
+        this.baseColumnName = name;
     }
 
     public String getName() {
@@ -95,6 +98,10 @@ public class MVColumnItem {
         this.defineExpr = defineExpr;
     }
 
+    public String getBaseColumnName() {
+        return baseColumnName;
+    }
+
     public Column toMVColumn(OlapTable olapTable) throws DdlException {
         Column baseColumn = olapTable.getBaseColumn(name);
         if (baseColumn == null) {
@@ -105,6 +112,9 @@ public class MVColumnItem {
         } else {
             Column result = new Column(baseColumn);
             result.setIsKey(isKey);
+            // If the mv column type is inconsistent with the base column type, the daily test will core.
+            // So, I comment this line firstly.
+//            result.setType(type);
             result.setAggregationType(aggregationType, isAggregationTypeImplicit);
             return result;
         }

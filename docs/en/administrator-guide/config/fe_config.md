@@ -333,6 +333,16 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### `http_port`
 
+HTTP bind port. Defaults to 8030.
+
+### `http_max_line_length`
+
+The max length of an HTTP URL. The unit of this configuration is BYTE. Defaults to 4096.
+
+### `http_max_header_size`
+
+The max size of allowed HTTP headers. The unit of this configuration is BYTE. Defaults to 8192.
+
 ### `ignore_meta_check`
 
 ### `init_connect`
@@ -378,6 +388,10 @@ This variable is a dynamic configuration, and users can modify the configuration
 ### `master_sync_policy`
 
 ### `max_agent_task_threads_num`
+
+### `max_allowed_in_element_num_of_delete`
+    
+This configuration is used to limit element num of InPredicate in delete statement. The default value is 1024.
 
 ### `max_allowed_packet`
 

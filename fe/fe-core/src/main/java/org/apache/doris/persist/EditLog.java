@@ -515,7 +515,7 @@ public class EditLog {
                 case OperationType.OP_META_VERSION: {
                     String versionString = ((Text) journal.getData()).toString();
                     int version = Integer.parseInt(versionString);
-                    if (MetaContext.get().getMetaVersion() > FeConstants.meta_version) {
+                    if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
                                         + "please update FeConstants.meta_version and restart.",
                                 MetaContext.get().getMetaVersion(), FeConstants.meta_version);
@@ -782,6 +782,11 @@ public class EditLog {
                         default:
                             break;
                     }
+                    break;
+                }
+                case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
+                    AlterRoutineLoadJobOperationLog log = (AlterRoutineLoadJobOperationLog) journal.getData();
+                    catalog.getRoutineLoadManager().replayAlterRoutineLoadJob(log);
                     break;
                 }
                 default: {
@@ -1345,5 +1350,9 @@ public class EditLog {
 
     public void logRemoveExpiredAlterJobV2(RemoveAlterJobV2OperationLog log) {
         logEdit(OperationType.OP_REMOVE_ALTER_JOB_V2, log);
+    }
+
+    public void logAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {
+        logEdit(OperationType.OP_ALTER_ROUTINE_LOAD_JOB, log);
     }
 }

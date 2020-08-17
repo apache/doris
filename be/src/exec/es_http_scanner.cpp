@@ -30,37 +30,33 @@
 
 namespace doris {
 
-EsHttpScanner::EsHttpScanner(
-            RuntimeState* state,
-            RuntimeProfile* profile,
-            TupleId tuple_id,
-            const std::map<std::string, std::string>& properties,
-            const std::vector<ExprContext*>& conjunct_ctxs,
-            EsScanCounter* counter,
-            bool doc_value_mode) :
-        _state(state),
-        _profile(profile),
-        _tuple_id(tuple_id),
-        _properties(properties),
-        _conjunct_ctxs(conjunct_ctxs),
-        _next_range(0),
-        _line_eof(false),
-        _batch_eof(false),
+EsHttpScanner::EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
+                             const std::map<std::string, std::string>& properties,
+                             const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
+                             bool doc_value_mode)
+        : _state(state),
+          _profile(profile),
+          _tuple_id(tuple_id),
+          _properties(properties),
+          _conjunct_ctxs(conjunct_ctxs),
+          _next_range(0),
+          _line_eof(false),
+          _batch_eof(false),
 #if BE_TEST
-        _mem_tracker(new MemTracker()),
-        _mem_pool(_mem_tracker.get()),
-#else 
-        _mem_tracker(new MemTracker(-1, "EsHttp Scanner", state->instance_mem_tracker())),
-        _mem_pool(_state->instance_mem_tracker()),
+          _mem_tracker(new MemTracker()),
+#else
+          _mem_tracker(
+                  MemTracker::CreateTracker(-1, "EsHttp Scanner", state->instance_mem_tracker())),
 #endif
-        _tuple_desc(nullptr),
-        _counter(counter),
-        _es_reader(nullptr),
-        _es_scroll_parser(nullptr),
-        _doc_value_mode(doc_value_mode),
-        _rows_read_counter(nullptr),
-        _read_timer(nullptr),
-        _materialize_timer(nullptr) {
+          _mem_pool(_mem_tracker.get()),
+          _tuple_desc(nullptr),
+          _counter(counter),
+          _es_reader(nullptr),
+          _es_scroll_parser(nullptr),
+          _doc_value_mode(doc_value_mode),
+          _rows_read_counter(nullptr),
+          _read_timer(nullptr),
+          _materialize_timer(nullptr) {
 }
 
 EsHttpScanner::~EsHttpScanner() {

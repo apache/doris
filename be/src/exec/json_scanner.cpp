@@ -73,8 +73,8 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         }
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
-            break;// break if true
+        if (fill_dest_tuple(tuple, tuple_pool)) {
+            break; // break if true
         }
     }
     if (_scanner_eof) {
@@ -399,6 +399,15 @@ void JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator value
 
 // for simple format json
 void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool *valid) {
+    if (!objectValue.IsObject()) {
+        // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"},
+        // not other type of Json format.
+        _state->append_error_msg_to_file(_print_json_value(objectValue), "Expect json object value");
+        _counter->num_rows_filtered++;
+        *valid = false; // current row is invalid
+        return;
+    }
+
     int nullcount = 0;
     for (auto v : slot_descs) {
         if (objectValue.HasMember(v->col_name().c_str())) {
@@ -443,20 +452,29 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, c
 Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
     do {
         bool valid = false;
-        if (_next_line >= _total_lines) {//parse json and generic document
+        if (_next_line >= _total_lines) { // parse json and generic document
             Status st = _parse_json_doc(eof);
             if (st.is_data_quality_error()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st); // terminate if encounter other errors
-            if (*eof) {// read all data, then return
+            if (*eof) { // read all data, then return
                 return Status::OK();
             }
             if (_json_doc->IsArray()) {
                 _total_lines = _json_doc->Size();
+                if (_total_lines == 0) {
+                    // may be passing an empty json, such as "[]"
+                    std::stringstream str_error;
+                    str_error << "Empty json line";
+                    _state->append_error_msg_to_file(_print_json_value(*_json_doc), str_error.str());
+                    _counter->num_rows_filtered++;
+                    continue;
+                }
             } else {
                 _total_lines = 1; // only one row
             }
+
             _next_line = 0;
         }
 
@@ -534,7 +552,7 @@ Status JsonReader::_handle_nested_complex_json(Tuple* tuple, const std::vector<S
         if (*eof) {
             return Status::OK();// read over,then return
         }
-        break; //read a valid row
+        break; // read a valid row
     }
     _write_values_by_jsonpath(*_json_doc, tuple_pool, tuple, slot_descs);
     return Status::OK();
@@ -558,7 +576,7 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple, const std::vect
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st); // terminate if encounter other errors
-            if (*eof) {// read all data, then return
+            if (*eof) { // read all data, then return
                 return Status::OK();
             }
             _total_lines = _json_doc->Size();

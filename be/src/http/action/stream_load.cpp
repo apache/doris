@@ -59,10 +59,10 @@
 
 namespace doris {
 
-METRIC_DEFINE_INT_COUNTER(streaming_load_requests_total, MetricUnit::REQUESTS);
-METRIC_DEFINE_INT_COUNTER(streaming_load_bytes, MetricUnit::BYTES);
-METRIC_DEFINE_INT_COUNTER(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
-METRIC_DEFINE_INT_GAUGE(streaming_load_current_processing, MetricUnit::REQUESTS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::REQUESTS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
@@ -88,17 +88,15 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_requests_total",
-                                            &streaming_load_requests_total);
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_bytes",
-                                            &streaming_load_bytes);
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_duration_ms",
-                                            &streaming_load_duration_ms);
-    DorisMetrics::instance()->metrics()->register_metric("streaming_load_current_processing",
-                                            &streaming_load_current_processing);
+    _stream_load_entity = DorisMetrics::instance()->metric_registry()->register_entity("stream_load", {});
+    METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
+    METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
+    METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
+    METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
 }
 
 StreamLoadAction::~StreamLoadAction() {
+    DorisMetrics::instance()->metric_registry()->deregister_entity("stream_load");
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {
@@ -218,7 +216,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             LOG(WARNING) << "body exceed max size." << ctx->brief();
 
             std::stringstream ss;
-            ss << "body exceed max size, max_body_bytes=" << max_body_bytes;
+            ss << "body exceed max size: " << max_body_bytes << ", limit: " << max_body_bytes;
             return Status::InternalError(ss.str());
         }
     } else {
@@ -234,10 +232,19 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     } else {
         ctx->format = parse_format(http_req->header(HTTP_FORMAT_KEY));
         if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-            LOG(WARNING) << "unknown data format." << ctx->brief();
             std::stringstream ss;
             ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
             return Status::InternalError(ss.str());
+        }
+
+        if (ctx->format == TFileFormatType::FORMAT_JSON) {
+            size_t max_body_bytes = config::streaming_load_max_batch_size_mb * 1024 * 1024;
+            if (ctx->body_bytes > max_body_bytes) {
+                std::stringstream ss;
+                ss << "The size of this batch exceed the max size [" << max_body_bytes
+                   << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
+                return Status::InternalError(ss.str());
+            }
         }
     }
 
@@ -312,7 +319,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.formatType = ctx->format;
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<StreamLoadPipe>();
+        auto pipe = std::make_shared<StreamLoadPipe>(
+                1024 * 1024 /* max_buffered_bytes */,
+                64 * 1024 /* min_chunk_size */,
+                ctx->body_bytes /* total_length */);
         RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe));
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;

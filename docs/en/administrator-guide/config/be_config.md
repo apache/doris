@@ -132,6 +132,14 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `create_tablet_worker_count`
 
+### `disable_auto_compaction`
+
+* Type: bool
+* Description: Whether disable automatic compaction task
+* Default value: false
+
+Generally it needs to be turned off. When you want to manually operate the compaction task in the debugging or test environment, you can turn on the configuration.
+
 ### `cumulative_compaction_budgeted_bytes`
 
 ### `cumulative_compaction_check_interval_seconds`
@@ -436,6 +444,22 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `storage_root_path`
 
 ### `streaming_load_max_mb`
+
+* Type: int64
+* Description: Used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 10240
+* Dynamically modify: yes
+
+Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
+
+### `streaming_load_max_batch_size_mb`
+
+* Type: int64
+* Description: For some data formats, such as JSON, it is used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 100
+* Dynamically modify: yes
+
+Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
 
 ### `streaming_load_rpc_max_alive_time_sec`
 

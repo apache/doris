@@ -256,6 +256,9 @@ namespace config {
     CONF_Bool(disable_storage_page_cache, "false");
 
     // be policy
+    // whether disable automatic compaction task
+    CONF_mBool(disable_auto_compaction, "false");
+
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");
     CONF_mInt32(base_compaction_check_interval_seconds, "60");
@@ -303,11 +306,14 @@ namespace config {
     CONF_Int64(load_data_reserve_hours, "4");
     // log error log will be removed after this time
     CONF_mInt64(load_error_log_reserve_hours, "48");
-    // Deprecated, use streaming_load_max_mb instead
-    // CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
+    // The maximum amount of data that can be processed by a stream load
     CONF_mInt64(streaming_load_max_mb, "10240");
+    // Some data formats, such as JSON, cannot be streamed.
+    // Therefore, it is necessary to limit the maximum number of
+    // such data when using stream load to prevent excessive memory consumption.
+    CONF_mInt64(streaming_load_max_batch_size_mb, "100");
     // the alive time of a TabletsChannel.
     // If the channel does not receive any data till this time,
     // the channel will be removed.
@@ -544,6 +550,8 @@ namespace config {
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_rowset_stale_unconsistent_delete, "false");
 
+    // Soft memory limit as a fraction of hard memory limit.
+    CONF_Double(soft_mem_limit_frac, "0.9");
 } // namespace config
 
 } // namespace doris

@@ -138,8 +138,7 @@ public:
     RequestContext(DiskIoMgr* parent, int num_disks);
 
     // Resets this object.
-    // void reset(MemTracker* tracker);
-    void reset(MemTracker* tracker);
+    void reset(std::shared_ptr<MemTracker> tracker);
 
     // Decrements the number of active disks for this reader.  If the disk count
     // goes to 0, the disk complete condition variable is signaled.
@@ -196,8 +195,7 @@ private:
     DiskIoMgr* _parent;
 
     // Memory used for this reader.  This is unowned by this object.
-    // MemTracker* _mem_tracker;
-    MemTracker* _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // Total bytes read for this reader
     RuntimeProfile::Counter* _bytes_read_counter;

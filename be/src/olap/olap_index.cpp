@@ -35,14 +35,13 @@ using std::vector;
 namespace doris {
 
 MemIndex::MemIndex()
-    : _key_length(0),
-      _num_entries(0),
-      _index_size(0),
-      _data_size(0),
-      _num_rows(0) {
-    _tracker.reset(new MemTracker(-1));
-    _mem_pool.reset(new MemPool(_tracker.get()));
-}
+        : _key_length(0),
+          _num_entries(0),
+          _index_size(0),
+          _data_size(0),
+          _num_rows(0),
+          _tracker(new MemTracker(-1)),
+          _mem_pool(new MemPool(_tracker.get())) {}
 
 MemIndex::~MemIndex() {
     _num_entries = 0;

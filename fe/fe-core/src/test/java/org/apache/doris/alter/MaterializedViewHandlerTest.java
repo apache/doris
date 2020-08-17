@@ -189,12 +189,37 @@ public class MaterializedViewHandlerTest {
                 result = mvName;
                 createMaterializedViewStmt.getMVColumnItemList();
                 result = Lists.newArrayList(mvColumnItem);
+                createMaterializedViewStmt.getMVKeysType();
+                result = KeysType.AGG_KEYS;
                 olapTable.getColumn(columnName);
                 result = baseColumn;
                 olapTable.getKeysType();
                 result = KeysType.AGG_KEYS;
             }
         };
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        try {
+            Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
+                                   createMaterializedViewStmt, olapTable);
+            Assert.fail();
+        } catch (Exception e) {
+            System.out.print(e.getMessage());
+        }
+    }
+
+
+    @Test
+    public void testInvalidKeysType(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
+                                    @Injectable OlapTable olapTable) {
+        new Expectations() {
+            {
+                createMaterializedViewStmt.getMVKeysType();
+                result = KeysType.DUP_KEYS;
+                olapTable.getKeysType();
+                result = KeysType.AGG_KEYS;
+            }
+        };
+
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
@@ -244,6 +269,43 @@ public class MaterializedViewHandlerTest {
             Assert.fail(e.getMessage());
         }
     }
+
+
+    @Test
+    public void checkInvalidPartitionKeyMV(@Injectable CreateMaterializedViewStmt createMaterializedViewStmt,
+                                           @Injectable OlapTable olapTable) {
+        final String mvName = "mv1";
+        final String columnName1 = "k1";
+        Column baseColumn1 = new Column(columnName1, Type.VARCHAR, true, null, "", "");
+        MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
+        mvColumnItem.setIsKey(false);
+        mvColumnItem.setAggregationType(AggregateType.SUM, false);
+        List<String> partitionColumnNames = Lists.newArrayList();
+        partitionColumnNames.add(columnName1);
+        new Expectations() {
+            {
+                olapTable.hasMaterializedIndex(mvName);
+                result = false;
+                createMaterializedViewStmt.getMVName();
+                result = mvName;
+                createMaterializedViewStmt.getMVColumnItemList();
+                result = Lists.newArrayList(mvColumnItem);
+                olapTable.getKeysType();
+                result = KeysType.DUP_KEYS;
+                olapTable.getPartitionColumnNames();
+                result = partitionColumnNames;
+            }
+        };
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        try {
+            Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
+                                                            createMaterializedViewStmt, olapTable);
+            Assert.fail();
+        } catch (Exception e) {
+            System.out.print(e.getMessage());
+        }
+    }
+
 
     @Test
     public void testCheckDropMaterializedView(@Injectable OlapTable olapTable, @Injectable Partition partition,

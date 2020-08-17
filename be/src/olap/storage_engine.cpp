@@ -83,6 +83,9 @@ using strings::Substitute;
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
+
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
 static Status _validate_options(const EngineOptions& options) {
@@ -109,7 +112,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(NULL),
           _file_cache(nullptr),
-          _compaction_mem_tracker(-1, "compaction mem tracker(unlimited)"),
+          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "compaction mem tracker(unlimited)")),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
@@ -120,18 +123,20 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
-    REGISTER_GAUGE_DORIS_METRIC(unused_rowsets_count, [this]() {
+    REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         MutexLock lock(&_gc_mutex);
         return _unused_rowsets.size();
     });
-    REGISTER_GAUGE_DORIS_METRIC(compaction_mem_current_consumption, [this]() {
-        return _compaction_mem_tracker.consumption();
+    REGISTER_HOOK_METRIC(compaction_mem_current_consumption, [this]() {
+        return _compaction_mem_tracker->consumption();
         // We can get each compaction's detail usage
-        LOG(INFO) << _compaction_mem_tracker.LogUsage(2);
+        // LOG(INFO) << _compaction_mem_tracker=>LogUsage(2);
     });
 }
 
 StorageEngine::~StorageEngine() {
+    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
+    DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
 }
 
@@ -313,6 +318,14 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
     // 2. get total tablets' size of each data dir
     size_t tablet_count = 0;
     _tablet_manager->update_root_path_info(&path_map, &tablet_count);
+
+    // 3. update metrics in DataDir
+    for (auto& path : path_map) {
+        std::lock_guard<std::mutex> l(_store_lock);
+        auto data_dir = _store_map.find(path.first);
+        DCHECK(data_dir != _store_map.end());
+        data_dir->second->update_user_data_size(path.second.data_used_capacity);
+    }
 
     // add path info to data_dir_infos
     for (auto& entry : path_map) {
@@ -539,7 +552,7 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     DorisMetrics::instance()->cumulative_compaction_request_total.increment(1);
 
     std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
-    CumulativeCompaction cumulative_compaction(best_tablet, tracker_label, &_compaction_mem_tracker);
+    CumulativeCompaction cumulative_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
@@ -575,7 +588,7 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     DorisMetrics::instance()->base_compaction_request_total.increment(1);
 
     std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
-    BaseCompaction base_compaction(best_tablet, tracker_label, &_compaction_mem_tracker);
+    BaseCompaction base_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
         best_tablet->set_last_base_compaction_failure_time(UnixMillis());

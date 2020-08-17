@@ -146,18 +146,18 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
-    _curr_tuple_pool.reset(new MemPool(mem_tracker()));
-    _prev_tuple_pool.reset(new MemPool(mem_tracker()));
-    _mem_pool.reset(new MemPool(mem_tracker()));
+    _curr_tuple_pool.reset(new MemPool(mem_tracker().get()));
+    _prev_tuple_pool.reset(new MemPool(mem_tracker().get()));
+    _mem_pool.reset(new MemPool(mem_tracker().get()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
 
     for (int i = 0; i < _evaluators.size(); ++i) {
         doris_udf::FunctionContext* ctx;
-        RETURN_IF_ERROR(_evaluators[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
-                _intermediate_tuple_desc->slots()[i], _result_tuple_desc->slots()[i],
-                mem_tracker(), &ctx));
+        RETURN_IF_ERROR(_evaluators[i]->prepare(
+                state, child(0)->row_desc(), _mem_pool.get(), _intermediate_tuple_desc->slots()[i],
+                _result_tuple_desc->slots()[i], mem_tracker(), &ctx));
         _fn_ctxs.push_back(ctx);
         state->obj_pool()->add(ctx);
     }
@@ -171,13 +171,13 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 
         if (_partition_by_eq_expr_ctx != NULL) {
             RETURN_IF_ERROR(
-                _partition_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+                    _partition_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
             //AddExprCtxToFree(_partition_by_eq_expr_ctx);
         }
 
         if (_order_by_eq_expr_ctx != NULL) {
             RETURN_IF_ERROR(
-                _order_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+                    _order_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
             //AddExprCtxToFree(_order_by_eq_expr_ctx);
         }
     }
@@ -238,8 +238,8 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
 
     // Fetch the first input batch so that some _prev_input_row can be set here to avoid
     // special casing in GetNext().
-    _prev_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
-    _curr_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
+    _prev_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _curr_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
 
     while (!_input_eos && _prev_input_row == NULL) {
         RETURN_IF_ERROR(child(0)->get_next(state, _curr_child_batch.get(), &_input_eos));
@@ -744,7 +744,7 @@ Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* ou
     ExprContext** ctxs = &_conjunct_ctxs[0];
     int num_ctxs = _conjunct_ctxs.size();
 
-    RowBatch input_batch(child(0)->row_desc(), output_batch->capacity(), mem_tracker());
+    RowBatch input_batch(child(0)->row_desc(), output_batch->capacity(), mem_tracker().get());
     int64_t stream_idx = _input_stream->rows_returned();
     RETURN_IF_ERROR(_input_stream->get_next(&input_batch, eos));
 

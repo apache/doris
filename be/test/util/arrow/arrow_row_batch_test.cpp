@@ -19,15 +19,15 @@
 
 #include <gtest/gtest.h>
 
-#include <string>
 #include <sstream>
+#include <string>
 
 #include "common/logging.h"
 
 #define ARROW_UTIL_LOGGING_H
+#include <arrow/buffer.h>
 #include <arrow/json/api.h>
 #include <arrow/json/test_common.h>
-#include <arrow/buffer.h>
 #include <arrow/pretty_print.h>
 
 #include "common/object_pool.h"
@@ -37,8 +37,7 @@
 
 namespace doris {
 
-class ArrowRowBatchTest : public testing::Test {
-};
+class ArrowRowBatchTest : public testing::Test {};
 
 std::string test_str() {
     return R"(
@@ -58,10 +57,9 @@ TEST_F(ArrowRowBatchTest, PrettyPrint) {
     std::shared_ptr<arrow::Buffer> buffer;
     MakeBuffer(test_str(), &buffer);
     arrow::json::ParseOptions parse_opts = arrow::json::ParseOptions::Defaults();
-    parse_opts.explicit_schema = arrow::schema(
-        {
-        arrow::field("c1", arrow::int64()),
-        });
+    parse_opts.explicit_schema = arrow::schema({
+            arrow::field("c1", arrow::int64()),
+    });
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     auto arrow_st = arrow::json::ParseOne(parse_opts, buffer, &record_batch);
@@ -71,9 +69,9 @@ TEST_F(ArrowRowBatchTest, PrettyPrint) {
     RowDescriptor* row_desc;
     auto doris_st = convert_to_row_desc(&obj_pool, *record_batch->schema(), &row_desc);
     ASSERT_TRUE(doris_st.ok());
-    MemTracker tracker;
+    auto tracker = std::make_shared<MemTracker>(-1, "PrettyPrintTest");
     std::shared_ptr<RowBatch> row_batch;
-    doris_st = convert_to_row_batch(*record_batch, *row_desc, &tracker, &row_batch);
+    doris_st = convert_to_row_batch(*record_batch, *row_desc, tracker, &row_batch);
     ASSERT_TRUE(doris_st.ok());
 
     {
@@ -90,7 +88,7 @@ TEST_F(ArrowRowBatchTest, PrettyPrint) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

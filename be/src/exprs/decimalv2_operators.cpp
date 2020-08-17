@@ -147,6 +147,24 @@ DateTimeVal DecimalV2Operators::cast_to_datetime_val(
     return result;
 }
 
+DateTimeVal DecimalV2Operators::cast_to_date_val(
+        FunctionContext* context, const DecimalV2Val& val) {
+    if (val.is_null) {
+        return DateTimeVal::null();
+    }
+
+    // convert from DecimalV2Val to DecimalV2Value for caculation
+    const DecimalV2Value& dv = DecimalV2Value::from_decimal_val(val);
+    DateTimeValue dt;
+    if (!dt.from_date_int64(dv)) {
+        return DateTimeVal::null();
+    }
+    dt.cast_to_date();
+    DateTimeVal result;
+    dt.to_datetime_val(&result);
+    return result;
+}
+
 DecimalVal DecimalV2Operators::cast_to_decimal_val(
             FunctionContext* context, const DecimalV2Val& val) {
     if (val.is_null) return DecimalVal::null();

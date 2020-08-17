@@ -48,7 +48,7 @@ public class SelectStmtTest {
         UtFrameUtils.createMinDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        String createBaseAllStmtStr = "create table db1.baseall(k1 int) distributed by hash(k1) "
+        String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
                 + "buckets 3 properties('replication_num' = '1');";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
@@ -335,6 +335,19 @@ public class SelectStmtTest {
     @Test
     public void testGroupByConstantExpression() throws Exception {
         String sql = "SELECT k1 - 4*60*60 FROM baseall GROUP BY k1 - 4*60*60";
+        dorisAssert.query(sql).explainQuery();
+    }
+
+    @Test
+    public void testMultrGroupByInCorrelationSubquery() throws Exception {
+        String sql = "SELECT * from baseall where k1 > (select min(k1) from tbl1 where baseall.k1 = tbl1.k4 and baseall.k2 = tbl1.k2)";
+        dorisAssert.query(sql).explainQuery();
+    }
+
+    @Test
+    public void testOuterJoinNullUnionView() throws Exception{
+        String sql = "WITH test_view(k) AS(SELECT NULL AS k UNION ALL SELECT NULL AS k )\n" +
+                "SELECT v1.k FROM test_view AS v1 LEFT OUTER JOIN test_view AS v2 ON v1.k=v2.k";
         dorisAssert.query(sql).explainQuery();
     }
 }

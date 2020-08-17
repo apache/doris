@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
@@ -48,6 +49,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -279,6 +281,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getMaxBatchSize() != -1) {
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
+        jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
@@ -1242,6 +1245,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
         jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
         jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
+        jobProperties.put("desireTaskConcurrentNum", String.valueOf(desireTaskConcurrentNum));
+        jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
     }
@@ -1408,6 +1413,38 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt, e);
+        }
+    }
+
+    abstract public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException;
+
+    abstract public void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
+
+    // for ALTER ROUTINE LOAD
+    protected void modifyCommonJobProperties(Map<String, String> jobProperties) {
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
+            this.desireTaskConcurrentNum = Integer.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
+            this.maxErrorNum = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
+            this.maxBatchIntervalS = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)) {
+            this.maxBatchRows = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)) {
+            this.maxBatchSizeBytes = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY));
         }
     }
 }

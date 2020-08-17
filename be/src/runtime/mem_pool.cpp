@@ -49,7 +49,7 @@ MemPool::~MemPool() {
         total_bytes_released += chunk.chunk.size;
         ChunkAllocator::instance()->free(chunk.chunk);
     }
-    mem_tracker_->release(total_bytes_released);
+    mem_tracker_->Release(total_bytes_released);
     DorisMetrics::instance()->memory_pool_bytes_total.increment(-total_bytes_released);
 }
 
@@ -75,7 +75,7 @@ void MemPool::free_all() {
     total_allocated_bytes_ = 0;
     total_reserved_bytes_ = 0;
 
-    mem_tracker_->release(total_bytes_released);
+    mem_tracker_->Release(total_bytes_released);
     DorisMetrics::instance()->memory_pool_bytes_total.increment(-total_bytes_released);
 }
 
@@ -119,15 +119,15 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
     if (check_limits) {
-        if (!mem_tracker_->try_consume(chunk_size)) return false;
+        if (!mem_tracker_->TryConsume(chunk_size)) return false;
     } else {
-        mem_tracker_->consume(chunk_size);
+        mem_tracker_->Consume(chunk_size);
     }
 
     // Allocate a new chunk. Return early if allocate fails.
     Chunk chunk;
     if (!ChunkAllocator::instance()->allocate(chunk_size, &chunk)) {
-        mem_tracker_->release(chunk_size);
+        mem_tracker_->Release(chunk_size);
         return false;
     }
     ASAN_POISON_MEMORY_REGION(chunk.data, chunk_size);
@@ -174,8 +174,8 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
 
     // Skip unnecessary atomic ops if the mem_trackers are the same.
     if (src->mem_tracker_ != mem_tracker_) {
-        src->mem_tracker_->release(total_transfered_bytes);
-        mem_tracker_->consume(total_transfered_bytes);
+        src->mem_tracker_->Release(total_transfered_bytes);
+        mem_tracker_->Consume(total_transfered_bytes);
     }
 
     // insert new chunks after current_chunk_idx_
@@ -213,8 +213,8 @@ void MemPool::exchange_data(MemPool* other) {
     std::swap(chunks_, other->chunks_);
 
     // update MemTracker
-    mem_tracker_->consume(delta_size);
-    other->mem_tracker_->release(delta_size);
+    mem_tracker_->Consume(delta_size);
+    other->mem_tracker_->Release(delta_size);
 }
 
 string MemPool::debug_string() {

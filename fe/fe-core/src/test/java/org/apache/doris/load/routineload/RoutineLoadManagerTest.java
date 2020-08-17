@@ -867,4 +867,47 @@ public class RoutineLoadManagerTest {
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
+    @Test
+    public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt,
+            @Mocked Catalog catalog,
+            @Mocked Database database,
+            @Mocked PaloAuth paloAuth,
+            @Mocked ConnectContext connectContext) throws UserException {
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        routineLoadJobList.add(routineLoadJob);
+        nameToRoutineLoadJob.put("", routineLoadJobList);
+        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+
+        new Expectations() {
+            {
+                stopRoutineLoadStmt.getDbFullName();
+                minTimes = 0;
+                result = "";
+                stopRoutineLoadStmt.getName();
+                minTimes = 0;
+                result = "";
+                catalog.getDb("");
+                minTimes = 0;
+                result = database;
+                database.getId();
+                minTimes = 0;
+                result = 1L;
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+            }
+        };
+
+        routineLoadManager.stopRoutineLoadJob(stopRoutineLoadStmt);
+
+        Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
+    }
 }

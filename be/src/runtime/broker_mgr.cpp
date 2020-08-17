@@ -30,15 +30,18 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(broker_count, MetricUnit::NOUNIT);
+
 BrokerMgr::BrokerMgr(ExecEnv* exec_env) : 
         _exec_env(exec_env), _thread_stop(false), _ping_thread(&BrokerMgr::ping_worker, this) {
-    REGISTER_GAUGE_DORIS_METRIC(broker_count, [this]() {
+    REGISTER_HOOK_METRIC(broker_count, [this]() {
         std::lock_guard<std::mutex> l(_mutex);
         return _broker_set.size();
     });
 }
 
 BrokerMgr::~BrokerMgr() {
+    DEREGISTER_HOOK_METRIC(broker_count);
     _thread_stop = true;
     _ping_thread.join();
 }

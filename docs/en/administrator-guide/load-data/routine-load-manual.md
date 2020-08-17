@@ -237,6 +237,10 @@ Specific commands and examples for viewing the **Task** status can be viewed wit
 
 You can only view tasks that are currently running, and tasks that have ended and are not started cannot be viewed.
 
+### Alter job
+
+Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data Manipulation/alter-routine-load.md).
+
 ### Job Control
 
 The user can control the stop, pause and restart of the job by the three commands `STOP/PAUSE/RESUME`. You can view help and examples with the three commands `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` and `HELP RESUME ROUTINE LOAD;`.

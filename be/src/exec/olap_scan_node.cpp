@@ -954,7 +954,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
 }
 
 void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str) {
-    if (Expr::type_without_cast(expr) != TExprNodeType::SLOT_REF) {
+    if (expr->node_type() != TExprNodeType::SLOT_REF) {
         return;
     }
 
@@ -1258,7 +1258,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             break;
         }
         RowBatch *row_batch = new RowBatch(
-                this->row_desc(), state->batch_size(), _runtime_state->fragment_mem_tracker());
+                this->row_desc(), state->batch_size(), _runtime_state->fragment_mem_tracker().get());
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {

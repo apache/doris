@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_COMMON_UTIL_DEFAULT_PATH_HANDLERS_H
 
 #include <stdio.h>
+#include <memory>
 
 namespace doris {
 
@@ -27,7 +28,8 @@ class WebPageHandler;
 
 // Adds a set of default path handlers to the webserver to display
 // logs and configuration flags
-void add_default_path_handlers(WebPageHandler* web_page_handler, MemTracker* process_mem_tracker);
-}
+void add_default_path_handlers(WebPageHandler* web_page_handler,
+                               const std::shared_ptr<MemTracker>& process_mem_tracker);
+} // namespace doris
 
 #endif // IMPALA_UTIL_DEFAULT_PATH_HANDLERS_H

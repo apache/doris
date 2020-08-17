@@ -29,6 +29,7 @@
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
+#include "http/action/tablets_info_action.h"
 
 namespace doris {
 
@@ -72,9 +73,9 @@ void config_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* 
 }
 
 // Registered to handle "/memz", and prints out memory allocation statistics.
-void mem_usage_handler(MemTracker* mem_tracker, const WebPageHandler::ArgumentMap& args,
-                       std::stringstream* output) {
-    if (mem_tracker != NULL) {
+void mem_usage_handler(const std::shared_ptr<MemTracker>& mem_tracker,
+                       const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
+    if (mem_tracker != nullptr) {
         (*output) << "<pre>"
                   << "Mem Limit: " << PrettyPrinter::print(mem_tracker->limit(), TUnit::BYTES)
                   << std::endl
@@ -100,13 +101,28 @@ void mem_usage_handler(MemTracker* mem_tracker, const WebPageHandler::ArgumentMa
 #endif
 }
 
-void add_default_path_handlers(WebPageHandler* web_page_handler, MemTracker* process_mem_tracker) {
+void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
+    TabletsInfoAction tablet_info_action;
+    std::string tablet_num_to_return;
+    WebPageHandler::ArgumentMap::const_iterator it = args.find("limit");
+    if (it != args.end()) {
+        tablet_num_to_return = it->second;
+    } else {
+        tablet_num_to_return = "";
+    }
+    (*ej) = tablet_info_action.get_tablets_info(tablet_num_to_return);
+}
+
+void add_default_path_handlers(WebPageHandler* web_page_handler,
+                               const std::shared_ptr<MemTracker>& process_mem_tracker) {
     // TODO(yingchun): logs_handler is not implemented yet, so not show it on navigate bar
     web_page_handler->register_page("/logs", "Logs", logs_handler, false /* is_on_nav_bar */);
     web_page_handler->register_page("/varz", "Configs", config_handler, true /* is_on_nav_bar */);
-    web_page_handler->register_page("/memz", "Memory",
-        boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2), true /* is_on_nav_bar */);
+    web_page_handler->register_page(
+            "/memz", "Memory", boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2),
+            true /* is_on_nav_bar */);
     register_thread_display_page(web_page_handler);
+    web_page_handler->register_template_page("/tablets_page", "Tablets", boost::bind<void>(&display_tablets_callback, _1, _2), true /* is_on_nav_bar */);
 }
 
 } // namespace doris
