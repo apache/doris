@@ -78,6 +78,7 @@ import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
@@ -210,6 +211,7 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -225,7 +227,6 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -3973,43 +3974,55 @@ public class Catalog {
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
             if (bfColumnNames != null) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
-                sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
+                appendProperties(sb, PropertyAnalyzer.PROPERTIES_BF_COLUMNS, Joiner.on(", ").join(olapTable.getCopiedBfColumns()));
             }
 
             if (separatePartition) {
                 // version info
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
-                Partition partition = null;
+                Partition partition;
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     partition = olapTable.getPartition(olapTable.getName());
                 } else {
                     Preconditions.checkState(partitionId.size() == 1);
                     partition = olapTable.getPartition(partitionId.get(0));
                 }
-                sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
-                        .append("\"");
+                appendProperties(sb, PropertyAnalyzer.PROPERTIES_VERSION_INFO, Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()));
             }
 
             // colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
-                sb.append(colocateTable).append("\"");
+                appendProperties(sb, PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateTable);
             }
 
             // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
-                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
+                DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
+                appendProperties(sb, DynamicPartitionProperty.ENABLE, dynamicPartitionProperty.getEnable());
+                appendProperties(sb, DynamicPartitionProperty.TIME_UNIT, dynamicPartitionProperty.getTimeUnit());
+                appendProperties(sb, DynamicPartitionProperty.TIME_ZONE, dynamicPartitionProperty.getTimeZone());
+                appendProperties(sb, DynamicPartitionProperty.START, dynamicPartitionProperty.getStart());
+                appendProperties(sb, DynamicPartitionProperty.END, dynamicPartitionProperty.getEnd());
+                appendProperties(sb, DynamicPartitionProperty.PREFIX, dynamicPartitionProperty.getPrefix());
+                int dynamicPartitionReplicationNum = dynamicPartitionProperty.getReplicationNum();
+                if (dynamicPartitionProperty.getReplicationNum() == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) {
+                    // use table replicationNum if not set dynamicPartitionReplicationNum
+                    dynamicPartitionReplicationNum = replicationNum;
+                }
+                appendProperties(sb, DynamicPartitionProperty.REPLICATION_NUM, dynamicPartitionReplicationNum);
+                appendProperties(sb, DynamicPartitionProperty.BUCKETS, dynamicPartitionProperty.getBuckets());
+                if (TimestampArithmeticExpr.TimeUnit.WEEK.toString().equalsIgnoreCase(dynamicPartitionProperty.getTimeUnit())) {
+                    appendProperties(sb, DynamicPartitionProperty.START_DAY_OF_WEEK, dynamicPartitionProperty.getStartOfWeek().dayOfWeek);
+                } else if (TimestampArithmeticExpr.TimeUnit.MONTH.toString().equalsIgnoreCase(dynamicPartitionProperty.getTimeUnit())) {
+                    appendProperties(sb, DynamicPartitionProperty.START_DAY_OF_WEEK, dynamicPartitionProperty.getStartOfMonth().day);
+                }
             }
 
             // in memory
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
-            sb.append(olapTable.isInMemory()).append("\"");
+            appendProperties(sb, PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory());
 
             // storage type
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
-            sb.append(olapTable.getStorageFormat()).append("\"");
+            appendProperties(sb, PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, olapTable.getStorageFormat());
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -4145,6 +4158,10 @@ public class Catalog {
                 createRollupStmt.add(sb.toString());
             }
         }
+    }
+
+    private static void appendProperties(StringBuilder sb, String key, Object value) {
+        sb.append(",\n\"").append(key).append("\" = \"").append(value).append("\"");
     }
 
     public void replayCreateTable(String dbName, Table table) {
