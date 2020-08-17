@@ -95,7 +95,7 @@ You can try to compile Doris directly in your own Linux environment.
 
     If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
     
-    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev`
+    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev`
 
     After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
 

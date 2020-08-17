@@ -52,6 +52,8 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(plan_fragment_count, MetricUnit::NOUNIT);
+
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
         return "";
@@ -380,7 +382,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
           _fragment_map(),
           _stop(false),
           _cancel_thread(std::bind<void>(&FragmentMgr::cancel_worker, this)) {
-    REGISTER_GAUGE_DORIS_METRIC(plan_fragment_count, [this]() {
+    REGISTER_HOOK_METRIC(plan_fragment_count, [this]() {
         std::lock_guard<std::mutex> lock(_lock);
         return _fragment_map.size();
     });
@@ -394,6 +396,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 }
 
 FragmentMgr::~FragmentMgr() {
+    DEREGISTER_HOOK_METRIC(plan_fragment_count);
     // stop thread
     _stop = true;
     _cancel_thread.join();

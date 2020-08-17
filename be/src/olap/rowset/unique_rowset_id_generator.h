@@ -26,7 +26,7 @@ namespace doris {
 class UniqueRowsetIdGenerator : public RowsetIdGenerator {
 public:
     UniqueRowsetIdGenerator(const UniqueId& backend_uid);
-    ~UniqueRowsetIdGenerator() {}
+    ~UniqueRowsetIdGenerator();
 
     RowsetId next_id() override;
 

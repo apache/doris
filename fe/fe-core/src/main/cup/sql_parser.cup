@@ -3933,6 +3933,8 @@ non_pred_expr ::=
   {: RESULT = new FunctionCallExpr(new FunctionName(null, id), params); :}
   | KW_DATABASE LPAREN RPAREN
   {: RESULT = new InformationFunction("DATABASE"); :}
+  | KW_SCHEMA LPAREN RPAREN
+  {: RESULT = new InformationFunction("SCHEMA"); :}
   | KW_USER LPAREN RPAREN
   {: RESULT = new InformationFunction("USER"); :}
   | KW_CURRENT_USER LPAREN RPAREN

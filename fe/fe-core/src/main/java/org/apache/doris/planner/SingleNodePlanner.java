@@ -208,27 +208,6 @@ public class SingleNodePlanner {
      */
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException {
-        if (analyzer.hasEmptyResultSet()) {
-            PlanNode node = createEmptyNode(stmt, analyzer);
-
-            // handle window function with limit zero
-            if (stmt instanceof SelectStmt) {
-                SelectStmt selectStmt = (SelectStmt) stmt;
-                if (selectStmt.getAnalyticInfo() != null) {
-                    AnalyticInfo analyticInfo = selectStmt.getAnalyticInfo();
-                    AnalyticPlanner analyticPlanner = new AnalyticPlanner(analyticInfo, analyzer, ctx_);
-                    List<Expr> inputPartitionExprs = Lists.newArrayList();
-                    AggregateInfo aggInfo = selectStmt.getAggInfo();
-                    PlanNode root = analyticPlanner.createSingleNodePlan(node,
-                            aggInfo != null ? aggInfo.getGroupingExprs() : null, inputPartitionExprs);
-
-                    // In order to substitute the analytic expr with slot in result exprs
-                    node.setOutputSmap(root.outputSmap);
-                }
-            }
-            return node;
-        }
-
         long newDefaultOrderByLimit = defaultOrderByLimit;
         if (newDefaultOrderByLimit == -1) {
             newDefaultOrderByLimit = 65535;
@@ -300,6 +279,21 @@ public class SingleNodePlanner {
         if (stmt.getAssertNumRowsElement() != null) {
             root = createAssertRowCountNode(root, stmt.getAssertNumRowsElement(), analyzer);
         }
+
+        if (analyzer.hasEmptyResultSet()) {
+            // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
+            scanNodes.clear();
+            PlanNode node = createEmptyNode(stmt, analyzer);
+            // Ensure result exprs will be substituted by right outputSmap
+            node.setOutputSmap(root.outputSmap);
+            // Currently, getMaterializedTupleIds for AnalyticEvalNode is wrong,
+            // So we explicitly add AnalyticEvalNode tuple ids to EmptySetNode
+            if (root instanceof AnalyticEvalNode) {
+                node.getTupleIds().addAll(root.tupleIds);
+            }
+            return node;
+        }
+
         return root;
     }
 
@@ -687,7 +681,7 @@ public class SingleNodePlanner {
             rowTuples.addAll(tblRef.getMaterializedTupleIds());
         }
 
-        if (analyzer.hasEmptySpjResultSet()) {
+        if (analyzer.hasEmptySpjResultSet() && selectStmt.getAggInfo() != null) {
             final PlanNode emptySetNode = new EmptySetNode(ctx_.getNextNodeId(), rowTuples);
             emptySetNode.init(analyzer);
             emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
@@ -807,6 +801,9 @@ public class SingleNodePlanner {
                 // if the new selected index id is different from the old one, scan node will be updated.
                 olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
                         bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+                if (selectStmt.getAggInfo() != null) {
+                    selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                }
             }
 
         } else {
@@ -2051,6 +2048,11 @@ public class SingleNodePlanner {
                 Expr sourceExpr = slotDesc.getSourceExprs().get(0);
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null
+                if (stmt.getGroupByClause() == null) {
+                    //group by clause may be null when distinct grouping. 
+                    //eg: select distinct c from ( select distinct c from table) t where c > 1;
+                    continue;
+                }
                 if (stmt.getGroupByClause().isGroupByExtension()
                         && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
                     // if grouping type is CUBE or ROLLUP will definitely produce null

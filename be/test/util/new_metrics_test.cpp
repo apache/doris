@@ -36,7 +36,7 @@ public:
 
 TEST_F(MetricsTest, Counter) {
     {
-        IntCounter counter(MetricUnit::NOUNIT);
+        IntCounter counter;
         ASSERT_EQ(0, counter.value());
         counter.increment(100);
         ASSERT_EQ(100, counter.value());
@@ -44,7 +44,7 @@ TEST_F(MetricsTest, Counter) {
         ASSERT_STREQ("100", counter.to_string().c_str());
     }
     {
-        IntAtomicCounter counter(MetricUnit::NOUNIT);
+        IntAtomicCounter counter;
         ASSERT_EQ(0, counter.value());
         counter.increment(100);
         ASSERT_EQ(100, counter.value());
@@ -52,7 +52,7 @@ TEST_F(MetricsTest, Counter) {
         ASSERT_STREQ("100", counter.to_string().c_str());
     }
     {
-        UIntCounter counter(MetricUnit::NOUNIT);
+        UIntCounter counter;
         ASSERT_EQ(0, counter.value());
         counter.increment(100);
         ASSERT_EQ(100, counter.value());
@@ -60,8 +60,8 @@ TEST_F(MetricsTest, Counter) {
         ASSERT_STREQ("100", counter.to_string().c_str());
     }
     {
-        DoubleCounter counter(MetricUnit::NOUNIT);
-        ASSERT_EQ(0.0, counter.value());
+        DoubleCounter counter;
+        ASSERT_EQ(0, counter.value());
         counter.increment(1.23);
         ASSERT_EQ(1.23, counter.value());
 
@@ -98,7 +98,7 @@ TEST_F(MetricsTest, CounterPerf) {
     }
     // IntAtomicCounter
     {
-        IntAtomicCounter counter(MetricUnit::NOUNIT);
+        IntAtomicCounter counter;
         MonotonicStopWatch watch;
         watch.start();
         for (int i = 0; i < kLoopCount; ++i) {
@@ -111,7 +111,7 @@ TEST_F(MetricsTest, CounterPerf) {
     }
     // IntCounter
     {
-        IntCounter counter(MetricUnit::NOUNIT);
+        IntCounter counter;
         MonotonicStopWatch watch;
         watch.start();
         for (int i = 0; i < kLoopCount; ++i) {
@@ -125,7 +125,7 @@ TEST_F(MetricsTest, CounterPerf) {
 
     // multi-thread for IntCounter
     {
-        IntCounter mt_counter(MetricUnit::NOUNIT);
+        IntCounter mt_counter;
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
@@ -140,7 +140,7 @@ TEST_F(MetricsTest, CounterPerf) {
     }
     // multi-thread for IntAtomicCounter
     {
-        IntAtomicCounter mt_counter(MetricUnit::NOUNIT);
+        IntAtomicCounter mt_counter;
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
@@ -158,7 +158,7 @@ TEST_F(MetricsTest, CounterPerf) {
 TEST_F(MetricsTest, Gauge) {
     // IntGauge
     {
-        IntGauge gauge(MetricUnit::NOUNIT);
+        IntGauge gauge;
         ASSERT_EQ(0, gauge.value());
         gauge.set_value(100);
         ASSERT_EQ(100, gauge.value());
@@ -167,7 +167,7 @@ TEST_F(MetricsTest, Gauge) {
     }
     // UIntGauge
     {
-        UIntGauge gauge(MetricUnit::NOUNIT);
+        UIntGauge gauge;
         ASSERT_EQ(0, gauge.value());
         gauge.set_value(100);
         ASSERT_EQ(100, gauge.value());
@@ -176,7 +176,7 @@ TEST_F(MetricsTest, Gauge) {
     }
     // DoubleGauge
     {
-        DoubleGauge gauge(MetricUnit::NOUNIT);
+        DoubleGauge gauge;
         ASSERT_EQ(0.0, gauge.value());
         gauge.set_value(1.23);
         ASSERT_EQ(1.23, gauge.value());
@@ -185,170 +185,212 @@ TEST_F(MetricsTest, Gauge) {
     }
 }
 
-TEST_F(MetricsTest, MetricLabel) {
-    std::string put("put");
-    MetricLabel label("type", put);
+TEST_F(MetricsTest, MetricPrototype) {
+    {
+        MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "fragment_requests_total",
+                                      "Total fragment requests received.");
 
-    ASSERT_TRUE(label == MetricLabel("type", "put"));
-    ASSERT_TRUE(label != MetricLabel("type", "get"));
-    ASSERT_TRUE(label < MetricLabel("type", "quit"));
-    ASSERT_TRUE(label < MetricLabel("typee", "put"));
-    ASSERT_TRUE(label.compare(MetricLabel("type", "put")) == 0);
-    ASSERT_TRUE(label.compare(MetricLabel("typee", "put")) < 0);
+        ASSERT_EQ("fragment_requests_total", cpu_idle_type.simple_name());
+        ASSERT_EQ("fragment_requests_total", cpu_idle_type.combine_name(""));
+        ASSERT_EQ("doris_be_fragment_requests_total", cpu_idle_type.combine_name("doris_be"));
+    }
+    {
+        MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "cpu_idle",
+                                      "CPU's idle time percent", "cpu");
 
-    ASSERT_STREQ("type=put", label.to_string().c_str());
+        ASSERT_EQ("cpu", cpu_idle_type.simple_name());
+        ASSERT_EQ("cpu", cpu_idle_type.combine_name(""));
+        ASSERT_EQ("doris_be_cpu", cpu_idle_type.combine_name("doris_be"));
+    }
 }
 
-TEST_F(MetricsTest, MetricLabels) {
-    MetricLabels empty_labels;
+TEST_F(MetricsTest, MetricEntityWithMetric) {
+    MetricEntity entity("test_entity", {});
 
-    ASSERT_TRUE(empty_labels == MetricLabels());
-    ASSERT_TRUE(empty_labels < MetricLabels().add("type", "put"));
-    ASSERT_TRUE(empty_labels.empty());
+    IntCounter cpu_idle;
+    MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "cpu_idle");
 
-    ASSERT_STREQ("", empty_labels.to_string().c_str());
+    // Before register
+    Metric* metric = entity.get_metric("cpu_idle");
+    ASSERT_EQ(nullptr, metric);
 
-    MetricLabels labels;
-    labels.add("path", "/home").add("type", "put");
-
-    ASSERT_TRUE(labels == MetricLabels().add("path", "/home").add("type", "put"));
-    ASSERT_FALSE(labels == MetricLabels().add("path", "/home").add("type", "get"));
-    ASSERT_FALSE(labels == MetricLabels().add("path", "/home"));
-    ASSERT_TRUE(labels < MetricLabels().add("path", "/sports"));
-    ASSERT_TRUE(labels < MetricLabels().add("path", "/home").add("type", "put").add("xstatus", "404"));
-    ASSERT_FALSE(labels < MetricLabels().add("path", "/abc"));
-    ASSERT_FALSE(labels < MetricLabels().add("path", "/home").add("type", "put"));
-
-    ASSERT_STREQ("path=/home,type=put", labels.to_string().c_str());
-}
-
-class TestMetricsVisitor : public MetricsVisitor {
-public:
-    virtual ~TestMetricsVisitor() { }
-    void visit(const std::string& prefix, const std::string& name,
-               MetricCollector* collector) {
-        for (auto& it : collector->metrics()) {
-            Metric* metric = it.second;
-            auto& labels = it.first;
-            switch (metric->type()) {
-            case MetricType::COUNTER: {
-                bool has_prev = false;
-                if (!prefix.empty()) {
-                    _ss << prefix;
-                    has_prev = true;
-                }
-                if (!name.empty()) {
-                    if (has_prev) {
-                        _ss << "_";
-                    }
-                    _ss << name;
-                }
-                if (!labels.empty()) {
-                    if (has_prev) {
-                        _ss << "_";
-                    }
-                    _ss << labels.to_string();
-                }
-                _ss << " " << metric->to_string() << std::endl;
-                break;
-            }
-            default:
-                break;
-            }
-        }
-    }
-    std::string to_string() {
-        return _ss.str();
-    }
-private:
-    std::stringstream _ss;
-};
-
-TEST_F(MetricsTest, MetricCollector) {
-    IntCounter puts(MetricUnit::NOUNIT);
-    puts.increment(101);
-    IntCounter gets(MetricUnit::NOUNIT);
-    gets.increment(201);
-    MetricCollector collector;
-    ASSERT_TRUE(collector.add_metic(MetricLabels().add("type", "put"), &puts));
-    ASSERT_TRUE(collector.add_metic(MetricLabels().add("type", "get"), &gets));
-    ASSERT_FALSE(collector.add_metic(MetricLabels().add("type", "get"), &gets));
-
-    {
-        // Can't add different type to one collector
-        IntGauge post(MetricUnit::NOUNIT);
-        ASSERT_FALSE(collector.add_metic(MetricLabels().add("type", "post"), &post));
-    }
-
-    {
-        TestMetricsVisitor visitor;
-        collector.collect("", "", &visitor);
-        ASSERT_STREQ("type=get 201\ntype=put 101\n", visitor.to_string().c_str());
-    }
-    collector.remove_metric(&puts);
-    {
-        TestMetricsVisitor visitor;
-        collector.collect("", "", &visitor);
-        ASSERT_STREQ("type=get 201\n", visitor.to_string().c_str());
-    }
-    // test get_metric
-    ASSERT_TRUE(collector.get_metric(MetricLabels()) == nullptr);
-    ASSERT_TRUE(collector.get_metric(MetricLabels().add("type" ,"get")) != nullptr);
-    std::vector<Metric*> metrics;
-    collector.get_metrics(&metrics);
-    ASSERT_EQ(1, metrics.size());
-}
-
-TEST_F(MetricsTest, MetricRegistry) {
-    MetricRegistry registry("test");
-    IntCounter cpu_idle(MetricUnit::PERCENT);
+    // Register
+    entity.register_metric(&cpu_idle_type, &cpu_idle);
     cpu_idle.increment(12);
-    ASSERT_TRUE(registry.register_metric("cpu_idle", &cpu_idle));
-    // registry failed
-    IntCounter dummy(MetricUnit::PERCENT);
-    ASSERT_FALSE(registry.register_metric("cpu_idle", &dummy));
-    IntCounter memory_usage(MetricUnit::BYTES);
-    memory_usage.increment(24);
-    ASSERT_TRUE(registry.register_metric("memory_usage", &memory_usage));
-    {
-        TestMetricsVisitor visitor;
-        registry.collect(&visitor);
-        ASSERT_STREQ("test_cpu_idle 12\ntest_memory_usage 24\n", visitor.to_string().c_str());
-    }
-    registry.deregister_metric(&memory_usage);
-    {
-        TestMetricsVisitor visitor;
-        registry.collect(&visitor);
-        ASSERT_STREQ("test_cpu_idle 12\n", visitor.to_string().c_str());
-    }
-    // test get_metric
-    ASSERT_TRUE(registry.get_metric("cpu_idle") != nullptr);
-    ASSERT_TRUE(registry.get_metric("memory_usage") == nullptr);
+
+    metric = entity.get_metric("cpu_idle");
+    ASSERT_NE(nullptr, metric);
+    ASSERT_EQ("12", metric->to_string());
+
+    cpu_idle.increment(8);
+    ASSERT_EQ("20", metric->to_string());
+
+    // Deregister
+    entity.deregister_metric(&cpu_idle_type);
+
+    // After deregister
+    metric = entity.get_metric("cpu_idle");
+    ASSERT_EQ(nullptr, metric);
 }
 
-TEST_F(MetricsTest, MetricRegistry2) {
-    MetricRegistry registry("test");
-    IntCounter cpu_idle(MetricUnit::PERCENT);
-    cpu_idle.increment(12);
-    ASSERT_TRUE(registry.register_metric("cpu_idle", &cpu_idle));
+TEST_F(MetricsTest, MetricEntityWithHook) {
+    MetricEntity entity("test_entity", {});
 
-    {
-        // memory_usage will deregister after this block
-        IntCounter memory_usage(MetricUnit::BYTES);
-        memory_usage.increment(24);
-        ASSERT_TRUE(registry.register_metric("memory_usage", &memory_usage));
-        TestMetricsVisitor visitor;
-        registry.collect(&visitor);
-        ASSERT_STREQ("test_cpu_idle 12\ntest_memory_usage 24\n", visitor.to_string().c_str());
-    }
+    IntCounter cpu_idle;
+    MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "cpu_idle");
 
-    {
-        TestMetricsVisitor visitor;
-        registry.collect(&visitor);
-        ASSERT_STREQ("test_cpu_idle 12\n", visitor.to_string().c_str());
-    }
+    // Register
+    entity.register_metric(&cpu_idle_type, &cpu_idle);
+    entity.register_hook("test_hook", [&cpu_idle]() {
+        cpu_idle.increment(6);
+    });
+
+    // Before hook
+    Metric* metric = entity.get_metric("cpu_idle");
+    ASSERT_NE(nullptr, metric);
+    ASSERT_EQ("0", metric->to_string());
+
+    // Hook
+    entity.trigger_hook_unlocked(true);
+    ASSERT_EQ("6", metric->to_string());
+
+    entity.trigger_hook_unlocked(true);
+    ASSERT_EQ("12", metric->to_string());
+
+    // Deregister hook
+    entity.deregister_hook("test_hook");
+    // Hook but no effect
+    entity.trigger_hook_unlocked(true);
+    ASSERT_EQ("12", metric->to_string());
 }
 
+TEST_F(MetricsTest, MetricRegistryRegister) {
+    MetricRegistry registry("test_registry");
+
+    // No entity
+    ASSERT_EQ("", registry.to_prometheus());
+    ASSERT_EQ("[]", registry.to_json());
+    ASSERT_EQ("", registry.to_core_string());
+
+    // Before register
+    auto entity = registry.get_entity("test_entity").get();
+    ASSERT_EQ(nullptr, entity);
+
+    // Register
+    entity = registry.register_entity("test_entity", {});
+    ASSERT_NE(nullptr, entity);
+
+    // After register
+    auto entity1 = registry.get_entity("test_entity").get();
+    ASSERT_NE(nullptr, entity1);
+    ASSERT_EQ(entity, entity1);
+
+    registry.deregister_entity("test_entity");
+    entity = registry.get_entity("test_entity").get();
+    ASSERT_EQ(nullptr, entity);
+}
+
+TEST_F(MetricsTest, MetricRegistryOutput) {
+    MetricRegistry registry("test_registry");
+
+    {
+        // No entity
+        ASSERT_EQ("", registry.to_prometheus());
+        ASSERT_EQ("[]", registry.to_json());
+        ASSERT_EQ("", registry.to_core_string());
+    }
+
+    {
+        // Register one common metric to the entity
+        auto entity = registry.register_entity("test_entity", {});
+
+        IntGauge cpu_idle;
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "", {}, true);
+        entity->register_metric(&cpu_idle_type, &cpu_idle);
+        cpu_idle.increment(8);
+
+        ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
+test_registry_cpu_idle 8
+)", registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])", registry.to_json());
+        ASSERT_EQ("test_registry_cpu_idle LONG 8\n", registry.to_core_string());
+        registry.deregister_entity("test_entity");
+    }
+
+    {
+        // Register one metric with group name to the entity
+        auto entity = registry.register_entity("test_entity", {});
+
+        IntGauge cpu_idle;
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}}, false);
+        entity->register_metric(&cpu_idle_type, &cpu_idle);
+        cpu_idle.increment(18);
+
+        ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
+test_registry_cpu{mode="idle"} 18
+)", registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])", registry.to_json());
+        ASSERT_EQ("", registry.to_core_string());
+        registry.deregister_entity("test_entity");
+    }
+
+    {
+        // Register one common metric to an entity with label
+        auto entity = registry.register_entity("test_entity", {{"name", "lable_test"}});
+
+        IntGauge cpu_idle;
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle");
+        entity->register_metric(&cpu_idle_type, &cpu_idle);
+        cpu_idle.increment(28);
+
+        ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
+test_registry_cpu_idle{name="lable_test"} 28
+)", registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle","name":"lable_test"},"unit":"percent","value":28}])", registry.to_json());
+        ASSERT_EQ("", registry.to_core_string());
+        registry.deregister_entity("test_entity");
+    }
+
+    {
+        // Register one common metric with group name to an entity with label
+        auto entity = registry.register_entity("test_entity", {{"name", "lable_test"}});
+
+        IntGauge cpu_idle;
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}});
+        entity->register_metric(&cpu_idle_type, &cpu_idle);
+        cpu_idle.increment(38);
+
+        ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
+test_registry_cpu{name="lable_test",mode="idle"} 38
+)", registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle","name":"lable_test"},"unit":"percent","value":38}])", registry.to_json());
+        ASSERT_EQ("", registry.to_core_string());
+        registry.deregister_entity("test_entity");
+    }
+
+    {
+        // Register two common metrics to one entity
+        auto entity = registry.register_entity("test_entity", {});
+
+        IntGauge cpu_idle;
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}});
+        entity->register_metric(&cpu_idle_type, &cpu_idle);
+        cpu_idle.increment(48);
+
+        IntGauge cpu_guest;
+        MetricPrototype cpu_guest_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_guest", "", "cpu", {{"mode", "guest"}});
+        entity->register_metric(&cpu_guest_type, &cpu_guest);
+        cpu_guest.increment(58);
+
+        ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
+test_registry_cpu{mode="idle"} 48
+test_registry_cpu{mode="guest"} 58
+)", registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"guest"},"unit":"percent","value":58},{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":48}])", registry.to_json());
+        ASSERT_EQ("", registry.to_core_string());
+        registry.deregister_entity("test_entity");
+    }
+}
 }
 
 int main(int argc, char** argv) {

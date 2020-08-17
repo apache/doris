@@ -35,6 +35,9 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(data_stream_receiver_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(fragment_endpoint_count, MetricUnit::NOUNIT);
+
 using boost::mutex;
 using boost::shared_ptr;
 using boost::unique_lock;
@@ -42,16 +45,20 @@ using boost::try_mutex;
 using boost::lock_guard;
 
 DataStreamMgr::DataStreamMgr() {
-    REGISTER_GAUGE_DORIS_METRIC(data_stream_receiver_count, [this]() {
+    REGISTER_HOOK_METRIC(data_stream_receiver_count, [this]() {
         lock_guard<mutex> l(_lock);
         return _receiver_map.size();
     });
-    REGISTER_GAUGE_DORIS_METRIC(fragment_endpoint_count, [this]() {
+    REGISTER_HOOK_METRIC(fragment_endpoint_count, [this]() {
         lock_guard<mutex> l(_lock);
         return _fragment_stream_set.size();
     });
 }
 
+DataStreamMgr::~DataStreamMgr() {
+    DEREGISTER_HOOK_METRIC(data_stream_receiver_count);
+    DEREGISTER_HOOK_METRIC(fragment_endpoint_count);
+}
 inline uint32_t DataStreamMgr::get_hash_value(
         const TUniqueId& fragment_instance_id, PlanNodeId node_id) {
     uint32_t value = RawValue::get_hash_value(&fragment_instance_id.lo, TYPE_BIGINT, 0);

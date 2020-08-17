@@ -34,6 +34,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -226,11 +227,39 @@ public class OlapScanNode extends ScanNode {
             this.selectedIndexId = selectedIndexId;
             this.isPreAggregation = isPreAggregation;
             this.reasonOfPreAggregation = reasonOfDisable;
-            long start = System.currentTimeMillis();
-            LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
+            updateColumnType();
             LOG.info("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
         } else {
             LOG.warn("Using the old scan range info instead of the new one. {}, {}", situation, scanRangeInfo);
+        }
+    }
+
+    /**
+     * In some situation, the column type between base and mv is different.
+     * If mv selector selects the mv index, the type of column should be changed to the type of mv column.
+     * For example:
+     * base table: k1 int, k2 int
+     * mv table: k1 int, k2 bigint sum
+     * The type of `k2` column between base and mv is different.
+     * When mv selector selects the mv table to scan, the type of column should be changed to bigint in here.
+     * Currently, only `SUM` aggregate type could match this changed.
+     */
+    private void updateColumnType() {
+        if (selectedIndexId == olapTable.getBaseIndexId()) {
+            return;
+        }
+        MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(selectedIndexId);
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
+            Column baseColumn = slotDescriptor.getColumn();
+            Preconditions.checkNotNull(baseColumn);
+            Column mvColumn = meta.getColumnByName(baseColumn.getName());
+            Preconditions.checkNotNull(mvColumn);
+            if (mvColumn.getType() != baseColumn.getType()) {
+                slotDescriptor.setColumn(mvColumn);
+            }
         }
     }
 
@@ -443,6 +472,10 @@ public class OlapScanNode extends ScanNode {
         // Step2: select best rollup
         long start = System.currentTimeMillis();
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
+            //This function is compatible with the INDEX selection logic of ROLLUP, 
+            //so the Duplicate table here returns base index directly
+            //and the selection logic of materialized view is selected in "MaterializedViewSelector"
+            selectedIndexId = olapTable.getBaseIndexId();
             LOG.debug("The best index will be selected later in mv selector");
             return;
         }

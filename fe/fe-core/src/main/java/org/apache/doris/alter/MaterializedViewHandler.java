@@ -432,6 +432,9 @@ public class MaterializedViewHandler extends AlterHandler {
         List<Column> newMVColumns = Lists.newArrayList();
         int numOfKeys = 0;
         if (olapTable.getKeysType().isAggregationFamily()) {
+            if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS) {
+                throw new DdlException("The materialized view of aggregation or unique table must has grouping columns");
+            }
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 String mvColumnName = mvColumnItem.getName();
                 Column baseColumn = olapTable.getColumn(mvColumnName);
@@ -458,7 +461,14 @@ public class MaterializedViewHandler extends AlterHandler {
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         } else {
+            Set<String> partitionOrDistributedColumnName = olapTable.getPartitionColumnNames();
+            partitionOrDistributedColumnName.addAll(olapTable.getDistributionColumnNames());
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                if (partitionOrDistributedColumnName.contains(mvColumnItem.getBaseColumnName().toLowerCase())
+                        && mvColumnItem.getAggregationType() != null) {
+                    throw new DdlException("The partition and distributed columns " + mvColumnItem.getBaseColumnName()
+                                                   + " must be key column in mv");
+                }
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         }

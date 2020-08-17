@@ -343,4 +343,11 @@ public class SelectStmtTest {
         String sql = "SELECT * from baseall where k1 > (select min(k1) from tbl1 where baseall.k1 = tbl1.k4 and baseall.k2 = tbl1.k2)";
         dorisAssert.query(sql).explainQuery();
     }
+
+    @Test
+    public void testOuterJoinNullUnionView() throws Exception{
+        String sql = "WITH test_view(k) AS(SELECT NULL AS k UNION ALL SELECT NULL AS k )\n" +
+                "SELECT v1.k FROM test_view AS v1 LEFT OUTER JOIN test_view AS v2 ON v1.k=v2.k";
+        dorisAssert.query(sql).explainQuery();
+    }
 }

@@ -239,6 +239,7 @@ public class StmtExecutor {
         // set query id
         UUID uuid = UUID.randomUUID();
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
         try {
             // analyze this query
             analyze(context.getSessionVariable().toThrift());
@@ -255,6 +256,11 @@ public class StmtExecutor {
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i++) {
                     try {
+                        //reset query id for each retry
+                        if (i > 0) {
+                            uuid = UUID.randomUUID();
+                            context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+                        }
                         if (!handleQueryStmt() && context.getSessionVariable().isReportSucc()) {
                             writeProfile(beginTimeInNanoSecond);
                         }
@@ -712,10 +718,6 @@ public class StmtExecutor {
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }
-
-        // assign query id before explain query return
-        UUID uuid = insertStmt.getUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
         if (insertStmt.getQueryStmt().isExplain()) {
             String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);

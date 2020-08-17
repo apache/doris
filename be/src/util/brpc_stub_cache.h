@@ -22,7 +22,6 @@
 
 #include "gen_cpp/Types_types.h" // TNetworkAddress
 #include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/palo_internal_service.pb.h"
 #include "service/brpc.h"
 #include "util/doris_metrics.h"
 #include "util/spinlock.h"
@@ -32,20 +31,10 @@ namespace doris {
 // map used 
 class BrpcStubCache {
 public:
-    BrpcStubCache() {
-        _stub_map.init(239);
-        REGISTER_GAUGE_DORIS_METRIC(brpc_endpoint_stub_count, [this]() {
-            std::lock_guard<SpinLock> l(_lock);
-            return _stub_map.size();
-        });
-    }
-    ~BrpcStubCache() {
-        for (auto& stub : _stub_map) {
-            delete stub.second;
-        }
-    }
+    BrpcStubCache();
+    ~BrpcStubCache();
 
-    palo::PInternalService_Stub* get_stub(const butil::EndPoint& endpoint) {
+    PBackendService_Stub* get_stub(const butil::EndPoint& endpoint) {
         std::lock_guard<SpinLock> l(_lock);
         auto stub_ptr = _stub_map.seek(endpoint);
         if (stub_ptr != nullptr) {
@@ -57,13 +46,13 @@ public:
         if (channel->Init(endpoint, &options)) {
             return nullptr;
         }
-        auto stub = new palo::PInternalService_Stub(
+        auto stub = new PBackendService_Stub(
             channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
         _stub_map.insert(endpoint, stub);
         return stub;
     }
 
-    palo::PInternalService_Stub* get_stub(const TNetworkAddress& taddr) {
+    PBackendService_Stub* get_stub(const TNetworkAddress& taddr) {
         butil::EndPoint endpoint;
         if (str2endpoint(taddr.hostname.c_str(), taddr.port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << taddr.hostname;
@@ -72,7 +61,7 @@ public:
         return get_stub(endpoint);
     }
 
-    palo::PInternalService_Stub* get_stub(const std::string& host, int port) {
+    PBackendService_Stub* get_stub(const std::string& host, int port) {
         butil::EndPoint endpoint;
         if (str2endpoint(host.c_str(), port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << host;
@@ -83,7 +72,7 @@ public:
 
 private:
     SpinLock _lock;
-    butil::FlatMap<butil::EndPoint, palo::PInternalService_Stub*> _stub_map;
+    butil::FlatMap<butil::EndPoint, PBackendService_Stub*> _stub_map;
 };
 
 }

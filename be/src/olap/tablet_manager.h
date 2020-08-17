@@ -132,6 +132,8 @@ public:
 
     void do_tablet_meta_checkpoint(DataDir* data_dir);
 
+    void  obtain_all_tablets(vector<TabletInfo> &tablets_info);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
