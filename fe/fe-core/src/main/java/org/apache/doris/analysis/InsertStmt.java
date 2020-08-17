@@ -35,6 +35,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
@@ -63,7 +64,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Insert into is performed to load data from the result of query stmt.
@@ -100,8 +100,6 @@ public class InsertStmt extends DdlStmt {
     private boolean isStreaming = false;
     private String label = null;
     private boolean isUserSpecifiedLabel = false;
-    // uuid will be generated at analysis phase, and be used as loadid and query id of insert plan
-    private UUID uuid;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -237,10 +235,6 @@ public class InsertStmt extends DdlStmt {
         return isUserSpecifiedLabel;
     }
 
-    public UUID getUUID() {
-        return uuid;
-    }
-
     public DataSink getDataSink() {
         return dataSink;
     }
@@ -285,13 +279,12 @@ public class InsertStmt extends DdlStmt {
         createDataSink();
 
         db = analyzer.getCatalog().getDb(tblName.getDb());
-        uuid = UUID.randomUUID();
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         if (!isExplain() && !isTransactionBegin) {
             if (Strings.isNullOrEmpty(label)) {
-                label = "insert_" + uuid.toString();
+                label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
             }
 
             if (targetTable instanceof OlapTable) {
@@ -308,7 +301,7 @@ public class InsertStmt extends DdlStmt {
         // init data sink
         if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
-            TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            TUniqueId loadId = analyzer.getContext().queryId();
             sink.init(loadId, transactionId, db.getId(), timeoutSecond);
         }
     }

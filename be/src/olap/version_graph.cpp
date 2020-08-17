@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <queue>
+#include <cctz/time_zone.h>
 
 #include "common/logging.h"
 #include "util/time.h"
@@ -62,7 +63,11 @@ void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Docum
         item.AddMember("path id", path_id_value, path_arr.GetAllocator());
 
         // add max create time to item
-        std::string create_time_str = ToStringFromUnix(path_version_path->max_create_time());
+        auto time_zone = cctz::local_time_zone();
+
+        auto tp = std::chrono::system_clock::from_time_t(path_version_path->max_create_time());
+        auto create_time_str = cctz::format("%Y-%m-%d %H:%M:%S %z", tp, time_zone);
+
         rapidjson::Value create_time_value;
         create_time_value.SetString(create_time_str.c_str(), create_time_str.length(), path_arr.GetAllocator());
         item.AddMember("last create time", create_time_value, path_arr.GetAllocator());

@@ -48,7 +48,7 @@ public class InformationFunction extends Expr {
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (funcType.equalsIgnoreCase("DATABASE")) {
+        if (funcType.equalsIgnoreCase("DATABASE") || funcType.equalsIgnoreCase("SCHEMA")) {
             type = Type.VARCHAR;
             strValue = analyzer.getDefaultDb();
         } else if (funcType.equalsIgnoreCase("USER")) {

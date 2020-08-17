@@ -2048,6 +2048,11 @@ public class SingleNodePlanner {
                 Expr sourceExpr = slotDesc.getSourceExprs().get(0);
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null
+                if (stmt.getGroupByClause() == null) {
+                    //group by clause may be null when distinct grouping. 
+                    //eg: select distinct c from ( select distinct c from table) t where c > 1;
+                    continue;
+                }
                 if (stmt.getGroupByClause().isGroupByExtension()
                         && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
                     // if grouping type is CUBE or ROLLUP will definitely produce null
