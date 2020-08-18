@@ -639,11 +639,6 @@ OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
     return _tablet_meta->set_alter_state(state);
 }
 
-OLAPStatus Tablet::recover_tablet_until_specfic_version(const int64_t& spec_version,
-                                                        const int64_t& version_hash) {
-    return OLAP_SUCCESS;
-}
-
 bool Tablet::can_do_compaction() {
     // 如果table正在做schema change，则通过选路判断数据是否转换完成
     // 如果选路成功，则转换完成，可以进行compaction

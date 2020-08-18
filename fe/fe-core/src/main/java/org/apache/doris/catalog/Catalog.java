@@ -210,6 +210,8 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -225,7 +227,6 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -6470,20 +6471,56 @@ public class Catalog {
 
     public void replayBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         List<Pair<Long, Integer>> tabletsWithSchemaHash = backendTabletsInfo.getTabletSchemaHash();
-        for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
-            Replica replica = tabletInvertedIndex.getReplica(tabletInfo.first,
-                    backendTabletsInfo.getBackendId());
-            if (replica == null) {
-                LOG.warn("replica does not found when replay. tablet {}, backend {}",
-                        tabletInfo.first, backendTabletsInfo.getBackendId());
+        if (!tabletsWithSchemaHash.isEmpty()) {
+            // In previous version, we save replica info in `tabletsWithSchemaHash`,
+            // but it is wrong because we can not get replica from `tabletInvertedIndex` when doing checkpoint,
+            // because when doing checkpoint, the tabletInvertedIndex is not initialized at all.
+            //
+            // So we can only discard this information, in this case, it is equivalent to losing the record of these operations.
+            // But it doesn't matter, these records are currently only used to record whether a replica is in a bad state.
+            // This state has little effect on the system, and it can be restored after the system has processed the bad state replica.
+            for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
+                LOG.warn("find an old backendTabletsInfo for tablet {}, ignore it", tabletInfo.first);
+            }
+            return;
+        }
+
+        // in new version, replica info is saved here.
+        // but we need to get replica from db->tbl->partition->...
+        List<ReplicaPersistInfo> replicaPersistInfos = backendTabletsInfo.getReplicaPersistInfos();
+        for (ReplicaPersistInfo info : replicaPersistInfos) {
+            long dbId = info.getDbId();
+            Database db = getDb(dbId);
+            if (db == null) {
                 continue;
             }
-
-            if (replica.getSchemaHash() != tabletInfo.second) {
-                continue;
+            db.writeLock();
+            try {
+                OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
+                if (tbl == null) {
+                    continue;
+                }
+                Partition partition = tbl.getPartition(info.getPartitionId());
+                if (partition == null) {
+                    continue;
+                }
+                MaterializedIndex mindex = partition.getIndex(info.getIndexId());
+                if (mindex == null) {
+                    continue;
+                }
+                Tablet tablet = mindex.getTablet(info.getTabletId());
+                if (tablet == null) {
+                    continue;
+                }
+                Replica replica = tablet.getReplicaById(info.getReplicaId());
+                if (replica != null) {
+                    replica.setBad(true);
+                    LOG.debug("get replica {} of tablet {} on backend {} to bad when replaying",
+                            info.getReplicaId(), info.getTabletId(), info.getBackendId());
+                }
+            } finally {
+                db.writeUnlock();
             }
-
-            replica.setBad(backendTabletsInfo.isBad());
         }
     }
 

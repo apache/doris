@@ -27,12 +27,12 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TStorageFormat;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -79,6 +79,9 @@ public class CreateReplicaTask extends AgentTask {
 
     private TStorageFormat storageFormat = null;
 
+    // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
+    private boolean isRecoverTask = false;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
@@ -110,7 +113,15 @@ public class CreateReplicaTask extends AgentTask {
         this.isInMemory = isInMemory;
         this.tabletType = tabletType;
     }
-    
+
+    public void setIsRecoverTask(boolean isRecoverTask) {
+        this.isRecoverTask = isRecoverTask;
+    }
+
+    public boolean isRecoverTask() {
+        return isRecoverTask;
+    }
+
     public void countDownLatch(long backendId, long tabletId) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {

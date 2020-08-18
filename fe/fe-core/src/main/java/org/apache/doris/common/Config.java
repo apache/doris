@@ -1208,4 +1208,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_allowed_in_element_num_of_delete = 1024;
 
+    /**
+     * In some cases, some tablets may have all replicas damaged or lost.
+     * At this time, the data has been lost, and the damaged tablets
+     * will cause the entire query to fail, and the remaining healthy tablets cannot be queried.
+     * In this case, you can set this configuration to true.
+     * The system will replace damaged tablets with empty tablets to ensure that the query
+     * can be executed. (but at this time the data has been lost, so the query results may be inaccurate)
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean recover_with_empty_tablet = false;
 }

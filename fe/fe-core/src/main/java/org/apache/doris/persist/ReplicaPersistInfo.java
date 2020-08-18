@@ -40,7 +40,8 @@ public class ReplicaPersistInfo implements Writable {
         // the old image and old persist log does not have op field, so the op field is null when upgrate to fe meta 45
         // then fe will dump image and want to write op type to image, op type is null and then throw null pointer exception
         // add the default op, when read from image and op type == null ,set op type to default op to skip the exception
-        DEFAULT_OP(8); 
+        DEFAULT_OP(8),
+        TABLET_INFO(9);
 
         private final int value;
 
@@ -51,30 +52,32 @@ public class ReplicaPersistInfo implements Writable {
         public int getValue() {
           return value;
         }
-        
-        public static ReplicaOperationType findByValue(int value) { 
-          switch (value) {
-            case 0:
-              return ADD;
-            case 1:
-              return CROND_DELETE;
-            case 2:
-              return DELETE;
-            case 3:
-              return CLONE;
-            case 4:
-              return LOAD;
-            case 5:
-              return ROLLUP;
-            case 6:
-              return SCHEMA_CHANGE;
-            case 7:
-              return CLEAR_ROLLUPINFO;
-            case 8:
-              return DEFAULT_OP;
-            default:
-              return null;
-          }
+
+        public static ReplicaOperationType findByValue(int value) {
+            switch (value) {
+                case 0:
+                    return ADD;
+                case 1:
+                    return CROND_DELETE;
+                case 2:
+                    return DELETE;
+                case 3:
+                    return CLONE;
+                case 4:
+                    return LOAD;
+                case 5:
+                    return ROLLUP;
+                case 6:
+                    return SCHEMA_CHANGE;
+                case 7:
+                    return CLEAR_ROLLUPINFO;
+                case 8:
+                    return DEFAULT_OP;
+                case 9:
+                    return TABLET_INFO;
+                default:
+                    return null;
+            }
         }
       }
     
@@ -192,6 +195,13 @@ public class ReplicaPersistInfo implements Writable {
         return new ReplicaPersistInfo(ReplicaOperationType.CLEAR_ROLLUPINFO,
                 dbId, tableId, partitionId, indexId, -1L, -1L, -1L, -1L, -1L, -1, -1L, -1L, -1L, 0L, -1L, 0L);
     }
+
+    public static ReplicaPersistInfo createForReport(long dbId, long tblId, long partitionId, long indexId, long tabletId,
+                                                     long backendId, long replicaId) {
+        return new ReplicaPersistInfo(ReplicaOperationType.TABLET_INFO, dbId, tblId, partitionId, indexId, tabletId, backendId, replicaId,
+                -1L, -1L, -1, -1L, -1L, -1L, 0L, -1L, 0L);
+    }
+
 
     private ReplicaPersistInfo() {
     }
