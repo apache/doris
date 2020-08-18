@@ -43,4 +43,4 @@ mysql> select replace("http://www.baidu.com:9090", "9090", "");
 +------------------------------------------------------+
 ```
 ## keyword
-STR_REPLACE
+REPLACE
