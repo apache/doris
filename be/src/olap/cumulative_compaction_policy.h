@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_POLICY_H
-#define DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_POLICY_H
+#ifndef OLAP_CUMULATIVE_COMPACTION_POLICY_H
+#define OLAP_CUMULATIVE_COMPACTION_POLICY_H
 
 #include <string>
 
@@ -30,17 +30,17 @@ namespace doris {
 
 class Tablet;
 
-/// This CompactionPolicyType enum is used to represent the type of compaction policy.
-/// Now it has two values, CUMULATIVE_NUM_BASED_POLICY and CUMULATIVE_SIZE_BASED_POLICY.
-/// CUMULATIVE_NUM_BASED_POLICY means current compaction policy implemented by num based policy.
-/// CUMULATIVE_SIZE_BASED_POLICY means current comapction policy implemented by size_based policy.
-enum CompactionPolicyType {
-    CUMULATIVE_NUM_BASED_POLICY = 0,
-    CUMULATIVE_SIZE_BASED_POLICY = 1,
+/// This CompactionPolicy enum is used to represent the type of compaction policy.
+/// Now it has two values, NUM_BASED_POLICY and SIZE_BASED_POLICY.
+/// NUM_BASED_POLICY means current compaction policy implemented by num based policy.
+/// SIZE_BASED_POLICY means current comapction policy implemented by size_based policy.
+enum CompactionPolicy {
+    NUM_BASED_POLICY = 0,
+    SIZE_BASED_POLICY = 1,
 };
 
-const static std::string CUMULATIVE_NUM_BASED_POLICY_TYPE = "NUM_BASED";
-const static std::string CUMULATIVE_SIZE_BASED_POLICY_TYPE = "SIZE_BASED";
+const static std::string CUMULATIVE_NUM_BASED_POLICY = "NUM_BASED";
+const static std::string CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
 /// It defines the policy to do cumulative compaction. It has different derived classes, which implements 
 /// concrete cumulative compaction algorithm. The policy is configured by conf::cumulative_compaction_policy.
@@ -177,13 +177,13 @@ public:
     SizeBasedCumulativeCompactionPolicy(
             std::shared_ptr<Tablet> tablet,
             int64_t size_based_promotion_size =
-                    config::cumulative_compaction_size_based_promotion_size_mbytes * 1024 * 1024,
+                    config::cumulative_size_based_promotion_size_mbytes * 1024 * 1024,
             double size_based_promotion_ratio =
-                    config::cumulative_compaction_size_based_promotion_ratio,
+                    config::cumulative_size_based_promotion_ratio,
             int64_t size_based_promotion_min_size =
-                    config::cumulative_compaction_size_based_promotion_min_size_mbytes * 1024 * 1024,
+                    config::cumulative_size_based_promotion_min_size_mbytes * 1024 * 1024,
             int64_t size_based_compaction_lower_bound_size =
-                    config::cumulative_compaction_size_based_compaction_lower_bound_size_mbytes * 1024 * 1024);
+                    config::cumulative_size_based_compaction_lower_size_mbytes * 1024 * 1024);
     
     /// Destructor function of SizeBasedCumulativeCompactionPolicy.
     ~SizeBasedCumulativeCompactionPolicy() {}
@@ -222,8 +222,8 @@ private:
     void _calc_promotion_size(RowsetMetaSharedPtr base_rowset_meta, int64_t* promotion_size);
 
     /// calculate the disk size belong to which level, the level is divide by power of 2
-    /// between cumulative_compaction_size_based_promotion_min_size_mbytes
-    /// and cumulative_compaction_size_based_promotion_size_mbytes
+    /// between cumulative_size_based_promotion_min_size_mbytes
+    /// and cumulative_size_based_promotion_size_mbytes
     int _level_size(const int64_t size);
 
     /// when policy calcalute cumulative_compaction_score, update promotion size at the same time
@@ -254,10 +254,10 @@ public:
             std::string policy, std::shared_ptr<Tablet> tablet);
 
 private:
-    /// It is a static function to help to check the policy config and convert to CompactionPolicyType enum variable
+    /// It is a static function to help to check the policy config and convert to CompactionPolicy enum variable
     static void _parse_cumulative_compaction_policy(std::string policy,
-                                                    CompactionPolicyType* policy_type);
+                                                    CompactionPolicy* policy_type);
 };
 
 }
-#endif // DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_POLICY_H
+#endif // OLAP_CUMULATIVE_COMPACTION_POLICY_H

@@ -208,7 +208,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score)
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
 
     const uint32_t score = _tablet->calc_cumulative_compaction_score();
@@ -225,7 +225,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, calculate_cumulative_point) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     
@@ -241,7 +241,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_candicate_rowsets) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -260,7 +260,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -290,7 +290,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -317,10 +317,10 @@ class TestSizeBasedCumulativeCompactionPolicy : public testing::Test {
 public:
     TestSizeBasedCumulativeCompactionPolicy() {}
     void SetUp() {
-        config::cumulative_compaction_size_based_promotion_size_mbytes = 1024;
-        config::cumulative_compaction_size_based_promotion_ratio = 0.05;
-        config::cumulative_compaction_size_based_promotion_min_size_mbytes = 64;
-        config::cumulative_compaction_size_based_compaction_lower_bound_size_mbytes = 64;
+        config::cumulative_size_based_promotion_size_mbytes = 1024;
+        config::cumulative_size_based_promotion_ratio = 0.05;
+        config::cumulative_size_based_promotion_min_size_mbytes = 64;
+        config::cumulative_size_based_compaction_lower_size_mbytes = 64;
 
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
@@ -652,7 +652,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -670,7 +670,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     const uint32_t score = _tablet->calc_cumulative_compaction_score();
@@ -687,7 +687,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calculate_cumulative_point_big_b
         _tablet_meta->add_rs_meta(rowset);
     }
  
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     
@@ -703,7 +703,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calculate_cumulative_point_overl
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     
@@ -719,7 +719,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candicate_rowsets) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -738,7 +738,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candicate_rowsets_big_base)
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -757,7 +757,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -786,7 +786,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -815,7 +815,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -844,7 +844,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_same_leve
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -873,7 +873,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -902,7 +902,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -931,7 +931,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -961,7 +961,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_big) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -981,7 +981,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -1000,7 +1000,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY_TYPE));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
 
     SizeBasedCumulativeCompactionPolicy* policy =

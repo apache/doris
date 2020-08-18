@@ -292,18 +292,25 @@ void StorageEngine::_check_cumulative_compaction_config() {
     boost::to_upper(cumulative_compaction_type);
 
     // if size_based policy is used, check size_based policy configs
-    if (cumulative_compaction_type == CUMULATIVE_SIZE_BASED_POLICY_TYPE) {
+    if (cumulative_compaction_type == CUMULATIVE_SIZE_BASED_POLICY) {
         int64_t size_based_promotion_size =
-                config::cumulative_compaction_size_based_promotion_size_mbytes;
+                config::cumulative_size_based_promotion_size_mbytes;
         int64_t size_based_promotion_min_size =
-                config::cumulative_compaction_size_based_promotion_min_size_mbytes;
+                config::cumulative_size_based_promotion_min_size_mbytes;
         int64_t size_based_compaction_lower_bound_size =
-                config::cumulative_compaction_size_based_compaction_lower_bound_size_mbytes;
+                config::cumulative_size_based_compaction_lower_size_mbytes;
 
-        // check size_based_promotion_size must be greater than size_based_promotion_min_size
-        CHECK(size_based_promotion_size >= size_based_promotion_min_size);
-        // check size_based_promotion_size must be greater than size_based compaction_lower_bound_size twice 
-        CHECK(size_based_promotion_size >= 2 * size_based_compaction_lower_bound_size);
+        // check size_based_promotion_size must be greater than size_based_promotion_min_size and 2 * size_based_compaction_lower_bound_size
+        int64_t should_min_size_based_promotion_size =
+                std::max(size_based_promotion_min_size, 2 * size_based_compaction_lower_bound_size);
+
+        if (size_based_promotion_size < should_min_size_based_promotion_size) {
+            size_based_promotion_size = should_min_size_based_promotion_size;
+            LOG(WARNING) << "the config size_based_promotion_size is adjusted to "
+                            "size_based_promotion_min_size or  2 * size_based_compaction_lower_bound_size "
+                         << should_min_size_based_promotion_size
+                         << ", because size_based_promotion_size is small";
+        }
     }
 }
 

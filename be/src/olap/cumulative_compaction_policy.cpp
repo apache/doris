@@ -440,27 +440,27 @@ void CumulativeCompactionPolicy::pick_candicate_rowsets(int64_t skip_window_sec,
 std::unique_ptr<CumulativeCompactionPolicy> CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(std::string type,
                             std::shared_ptr<Tablet> tablet) {
 
-    CompactionPolicyType policy_type;
+    CompactionPolicy policy_type;
     _parse_cumulative_compaction_policy(type, &policy_type);
 
-    if (policy_type == CUMULATIVE_NUM_BASED_POLICY) {
+    if (policy_type == NUM_BASED_POLICY) {
         return std::unique_ptr<CumulativeCompactionPolicy>(new NumBasedCumulativeCompactionPolicy(tablet));
     }
-    else if(policy_type == CUMULATIVE_SIZE_BASED_POLICY) {
+    else if(policy_type == SIZE_BASED_POLICY) {
         return std::unique_ptr<CumulativeCompactionPolicy>(new SizeBasedCumulativeCompactionPolicy(tablet));
     }
 
     return std::unique_ptr<CumulativeCompactionPolicy>(new NumBasedCumulativeCompactionPolicy(tablet));
 }
 
-void CumulativeCompactionPolicyFactory::_parse_cumulative_compaction_policy(std::string type, CompactionPolicyType *policy_type) {
+void CumulativeCompactionPolicyFactory::_parse_cumulative_compaction_policy(std::string type, CompactionPolicy *policy_type) {
 
     boost::to_upper(type);
-    if (type == CUMULATIVE_NUM_BASED_POLICY_TYPE) {
-        *policy_type = CUMULATIVE_NUM_BASED_POLICY;
+    if (type == CUMULATIVE_NUM_BASED_POLICY) {
+        *policy_type = NUM_BASED_POLICY;
     }
-    else if (type == CUMULATIVE_SIZE_BASED_POLICY_TYPE) {
-        *policy_type = CUMULATIVE_SIZE_BASED_POLICY;
+    else if (type == CUMULATIVE_SIZE_BASED_POLICY) {
+        *policy_type = SIZE_BASED_POLICY;
     } else {
         LOG(FATAL) << "parse cumulative compaction policy error " << type;
     }
