@@ -30,12 +30,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.thrift.TTabletType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -400,7 +400,7 @@ public class PropertyAnalyzer {
             storageFormat = properties.get(PROPERTIES_STORAGE_FORMAT);
             properties.remove(PROPERTIES_STORAGE_FORMAT);
         } else {
-            return TStorageFormat.DEFAULT;
+            return TStorageFormat.V2;
         }
 
         if (storageFormat.equalsIgnoreCase("v1")) {
@@ -408,7 +408,7 @@ public class PropertyAnalyzer {
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;
         } else if (storageFormat.equalsIgnoreCase("default")) {
-            return TStorageFormat.DEFAULT;
+            return TStorageFormat.V2;
         } else {
             throw new AnalysisException("unknown storage format: " + storageFormat);
         }

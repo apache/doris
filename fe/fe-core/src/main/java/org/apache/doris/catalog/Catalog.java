@@ -210,6 +210,8 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -225,7 +227,6 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -3714,7 +3715,7 @@ public class Catalog {
         Preconditions.checkNotNull(versionInfo);
 
         // get storage format
-        TStorageFormat storageFormat = TStorageFormat.DEFAULT; // default means it's up to BE's config
+        TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
         try {
             storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
         } catch (AnalysisException e) {
