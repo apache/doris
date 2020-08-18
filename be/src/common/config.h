@@ -446,9 +446,6 @@ namespace config {
     // result buffer cancelled time (unit: second)
     CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 
-    // can perform recovering tablet
-    CONF_Bool(force_recovery, "false");
-
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
     CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
