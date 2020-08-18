@@ -1259,6 +1259,8 @@ public class OlapTable extends Table {
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : mIndex.getTablets()) {
                     if (tabletScheduler.containsTablet(tablet.getId())) {
+                        LOG.info("table {} is not stable because tablet {} is in tablet scheduler. replicas: {}",
+                                id, tablet.getId(), tablet.getReplicas());
                         return false;
                     }
 
