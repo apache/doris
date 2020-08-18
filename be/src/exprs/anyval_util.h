@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
 
 #include "runtime/primitive_type.h"
+#include "runtime/array_value.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
@@ -227,6 +228,9 @@ public:
         case TYPE_DECIMALV2:
             return sizeof(doris_udf::DecimalV2Val);
 
+        case TYPE_ARRAY:
+            return sizeof(doris_udf::ArrayVal);
+
         default:
             DCHECK(false) << t;
             return 0;
@@ -254,6 +258,7 @@ public:
           return alignof(DateTimeVal);
         case TYPE_DECIMAL: return alignof(DecimalVal);
         case TYPE_DECIMALV2: return alignof(DecimalV2Val);
+        case TYPE_ARRAY: return alignof(doris_udf::ArrayVal);
         default:
             DCHECK(false) << t;
             return 0;
@@ -307,59 +312,63 @@ public:
         switch (type.type) {
         case TYPE_NULL: return;
         case TYPE_BOOLEAN:
-            reinterpret_cast<doris_udf::BooleanVal*>(dst)->val = 
-                *reinterpret_cast<const bool*>(slot);
+            reinterpret_cast<doris_udf::BooleanVal*>(dst)->val =
+                    *reinterpret_cast<const bool*>(slot);
             return;
         case TYPE_TINYINT:
             reinterpret_cast<doris_udf::TinyIntVal*>(dst)->val =
-                 *reinterpret_cast<const int8_t*>(slot);
+                    *reinterpret_cast<const int8_t*>(slot);
             return;
         case TYPE_SMALLINT:
             reinterpret_cast<doris_udf::SmallIntVal*>(dst)->val =
-                 *reinterpret_cast<const int16_t*>(slot);
+                    *reinterpret_cast<const int16_t*>(slot);
             return;
         case TYPE_INT:
             reinterpret_cast<doris_udf::IntVal*>(dst)->val =
-                 *reinterpret_cast<const int32_t*>(slot);
+                    *reinterpret_cast<const int32_t*>(slot);
             return;
         case TYPE_BIGINT:
-            reinterpret_cast<doris_udf::BigIntVal*>(dst)->val = 
-                *reinterpret_cast<const int64_t*>(slot);
+            reinterpret_cast<doris_udf::BigIntVal*>(dst)->val =
+                    *reinterpret_cast<const int64_t*>(slot);
             return;
         case TYPE_LARGEINT:
             memcpy(&reinterpret_cast<doris_udf::LargeIntVal*>(dst)->val, slot, sizeof(__int128));
             return;
         case TYPE_FLOAT:
-            reinterpret_cast<doris_udf::FloatVal*>(dst)->val = 
-                *reinterpret_cast<const float*>(slot);
+            reinterpret_cast<doris_udf::FloatVal*>(dst)->val =
+                    *reinterpret_cast<const float*>(slot);
             return;
         case TYPE_TIME:
         case TYPE_DOUBLE:
-            reinterpret_cast<doris_udf::DoubleVal*>(dst)->val = 
-                *reinterpret_cast<const double*>(slot);
+            reinterpret_cast<doris_udf::DoubleVal*>(dst)->val =
+                    *reinterpret_cast<const double*>(slot);
             return;
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
-            reinterpret_cast<doris_udf::StringVal*>(dst));
+                    reinterpret_cast<doris_udf::StringVal*>(dst));
             return;
         case TYPE_DECIMAL:
             reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
-            reinterpret_cast<doris_udf::DecimalVal*>(dst));
-            return; 
+                    reinterpret_cast<doris_udf::DecimalVal*>(dst));
+            return;
         case TYPE_DECIMALV2:
-            reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val = 
-                reinterpret_cast<const PackedInt128*>(slot)->value;
-            return; 
+            reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val =
+                    reinterpret_cast<const PackedInt128*>(slot)->value;
+            return;
         case TYPE_DATE:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
-            reinterpret_cast<doris_udf::DateTimeVal*>(dst));
-        return;
+                    reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+            return;
         case TYPE_DATETIME:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
-            reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+                    reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+            return;
+        case TYPE_ARRAY:
+            reinterpret_cast<const ArrayValue*>(slot)->to_array_val(
+                    reinterpret_cast<ArrayVal*>(dst));
             return;
         default:
         DCHECK(false) << "NYI";

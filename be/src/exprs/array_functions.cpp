@@ -15,37 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "exprs/array_functions.h"
+#include "runtime/array_value.h"
 
-#include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include "common/logging.h"
 
 namespace doris {
 
-class Status;
-class RowBatch;
-class RuntimeState;
-class TypeDescriptor;
+void ArrayFunctions::init() { }
 
-// abstract class of the result writer
-class ResultWriter {
-public:
-    ResultWriter() {};
-    ~ResultWriter() {};
-
-    virtual Status init(RuntimeState* state) = 0;
-    // convert and write one row batch 
-    virtual Status append_row_batch(const RowBatch* batch) = 0;
-
-    virtual Status close() = 0;
-
-    int64_t get_written_rows() const { return _written_rows; }
-
-    static const std::string NULL_IN_CSV;
-
-protected:
-    int64_t _written_rows = 0; // number of rows written
-};
-
+#define ARRAY_FUNCTION(TYPE, PRIMARY_TYPE)  \
+ArrayVal ArrayFunctions::array(FunctionContext *context, int num_children, const TYPE *values) {  \
+    DCHECK_EQ(context->get_return_type().children.size(), 1);  \       
+    ArrayValue v;  \
+    ArrayValue::init_array(context, num_children, PRIMARY_TYPE, &v);  \
+    for (int i = 0; i < num_children; ++i) {  \
+        v.set(i, PRIMARY_TYPE, values + i);  \
+    }  \
+    ArrayVal ret;  \
+    v.to_array_val(&ret);  \
+    return ret;  \
 }
 
+ARRAY_FUNCTION(IntVal, TYPE_INT);
+ARRAY_FUNCTION(StringVal, TYPE_VARCHAR);
+
+}

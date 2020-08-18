@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.doris.catalog.MultiRowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,8 +103,8 @@ public class Subquery extends Expr {
             type = createStructTypeFromExprList();
         }
 
-        // If the subquery returns many rows, set its type to ArrayType.
-        if (!((SelectStmt)stmt).returnsSingleRow()) type = new ArrayType(type);
+        // If the subquery returns many rows, set its type to MultiRowType.
+        if (!((SelectStmt)stmt).returnsSingleRow()) type = new MultiRowType(type);
 
         // Preconditions.checkNotNull(type);
         // type.analyze();

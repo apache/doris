@@ -17,11 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.google.common.base.Preconditions;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -49,6 +53,8 @@ public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
+    private static final String COLUMN_ARRAY_CHILDREN = "item";
+
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
@@ -74,6 +80,8 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    @SerializedName(value = "children")
+    private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
     // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
     // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being relayed.
@@ -88,6 +96,7 @@ public class Column implements Writable {
         this.isKey = false;
         this.stats = new ColumnStats();
         this.visible = true;
+        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -129,9 +138,10 @@ public class Column implements Writable {
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
         this.comment = comment;
-
         this.stats = new ColumnStats();
         this.visible = visible;
+        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        createChildrenColumn(this.type, this);
     }
 
     public Column(Column column) {
@@ -145,6 +155,22 @@ public class Column implements Writable {
         this.comment = column.getComment();
         this.stats = column.getStats();
         this.visible = column.visible;
+        this.children = column.getChildren();
+    }
+
+    public void createChildrenColumn(Type type, Column column) {
+        if (type.isArrayType()) {
+            Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            column.addChildrenColumn(c);
+        }
+    }
+
+    public List<Column> getChildren() {
+        return children;
+    }
+
+    private void addChildrenColumn(Column column) {
+        this.children.add(column);
     }
 
     public void setName(String newName) {
@@ -284,17 +310,44 @@ public class Column implements Writable {
 
         tColumn.setColumnType(tColumnType);
         if (null != this.aggregationType) {
-            tColumn.setAggregationType(this.aggregationType.toThrift());
+            tColumn.setAggregation_type(this.aggregationType.toThrift());
         }
-        tColumn.setIsKey(this.isKey);
-        tColumn.setIsAllowNull(this.isAllowNull);
-        tColumn.setDefaultValue(this.defaultValue);
-        tColumn.setVisible(visible);
+        tColumn.setIs_key(this.isKey);
+        tColumn.setIs_allow_null(this.isAllowNull);
+        tColumn.setDefault_value(this.defaultValue);
+        toChildrenThrift(this, tColumn);
+
         // The define expr does not need to be serialized here for now.
         // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
         // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
+        if (this.defineExpr != null) {
+            tColumn.setDefine_expr(this.defineExpr.treeToThrift());
+        }
         return tColumn;
     }
+
+    private void toChildrenThrift(Column column, TColumn tColumn) {
+        if (column.type.isArrayType()) {
+            Column children = column.getChildren().get(0);
+        
+            TColumn childrenTColumn = new TColumn();
+            childrenTColumn.setColumn_name(children.name);
+
+            TColumnType childrenTColumnType = new TColumnType();
+            childrenTColumnType.setType(children.getDataType().toThrift());
+            childrenTColumnType.setType(children.getDataType().toThrift());
+            childrenTColumnType.setLen(children.getStrLen());
+            childrenTColumnType.setPrecision(children.getPrecision());
+            childrenTColumnType.setScale(children.getScale());
+
+            childrenTColumnType.setIndex_len(children.getOlapColumnIndexSize());
+            childrenTColumn.setColumn_type(childrenTColumnType);
+
+            tColumn.children_column.add(childrenTColumn);
+
+            toChildrenThrift(children, childrenTColumn);
+        }
+    }    
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {
@@ -475,6 +528,16 @@ public class Column implements Writable {
             return false;
         }
 
+        if (children.size() != other.children.size()) {
+            return false;
+        }
+
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(other.getChildren().get(i))) {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -482,6 +545,13 @@ public class Column implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+        if (Config.array_type_enable) {
+            out.writeInt(children.size());
+
+            for (Column child : children) {
+                child.write(out);
+            }
+        }
     }
 
     @Deprecated
@@ -521,6 +591,19 @@ public class Column implements Writable {
             comment = Text.readString(in);
         } else {
             comment = "";
+        }
+
+        //        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+        if (Config.array_type_enable) {
+            int childrenSize = in.readInt();
+
+            for (int i = 0; i < childrenSize; i++) {
+                children.add(Column.read(in));
+            }
+
+            if (type.isArrayType()) {
+                ((ArrayType)type).setItemType(children.get(0).type);
+            }
         }
     }
 

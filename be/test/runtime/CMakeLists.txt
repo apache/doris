@@ -62,3 +62,4 @@ ADD_BE_TEST(external_scan_context_mgr_test)
 
 ADD_BE_TEST(memory/chunk_allocator_test)
 ADD_BE_TEST(memory/system_allocator_test)
+ADD_BE_TEST(array_value_test)

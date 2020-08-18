@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rewrite.FEFunction;
+import org.apache.doris.rewrite.FEFunctionList;
 import org.apache.doris.rewrite.FEFunctions;
 
 import com.google.common.base.Joiner;
@@ -143,18 +144,28 @@ public enum ExpressionFunctions {
         for (Method method : clazz.getDeclaredMethods()) {
             FEFunction annotation = method.getAnnotation(FEFunction.class);
             if (annotation != null) {
-                String name = annotation.name();
-                ScalarType returnType = ScalarType.createType(annotation.returnType());
-                List<ScalarType> argTypes = new ArrayList<>();
-                for (String type : annotation.argTypes()) {
-                    argTypes.add(ScalarType.createType(type));
+                for (FEFunction f : annotationList.value()) {
+                    registerFEFunction(mapBuilder, method, f);
                 }
-                FEFunctionSignature signature = new FEFunctionSignature(name,
-                        argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
-                mapBuilder.put(name, new FEFunctionInvoker(method, signature));
             }
+            registerFEFunction(mapBuilder, method, method.getAnnotation(FEFunction.class));
         }
         this.functions = mapBuilder.build();
+    }
+
+    private void registerFEFunction(ImmutableMultimap.Builder<String, FEFunctionInvoker> mapBuilder,
+                                    Method method, FEFunction annotation) {
+        if (annotation != null) {
+            String name = annotation.name();
+            ScalarType returnType = ScalarType.createType(annotation.returnType());
+            List<ScalarType> argTypes = new ArrayList<>();
+            for (String type : annotation.argTypes()) {
+                argTypes.add(ScalarType.createType(type));
+            }
+            FEFunctionSignature signature = new FEFunctionSignature(name,
+                    argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
+            mapBuilder.put(name, new FEFunctionInvoker(method, signature));
+        }
     }
 
     public static class FEFunctionInvoker {
@@ -233,6 +244,11 @@ public enum ExpressionFunctions {
             }
             args.toArray(exprs);
             return exprs;
+        }
+
+        // if args all is NullLiteral
+        if (args.size() == args.stream().filter(e -> e instanceof NullLiteral).count()) {
+            exprs = new NullLiteral[args.size()];
         }
     }
 

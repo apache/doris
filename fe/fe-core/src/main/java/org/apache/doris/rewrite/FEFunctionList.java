@@ -15,37 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.rewrite;
 
-#include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-namespace doris {
-
-class Status;
-class RowBatch;
-class RuntimeState;
-class TypeDescriptor;
-
-// abstract class of the result writer
-class ResultWriter {
-public:
-    ResultWriter() {};
-    ~ResultWriter() {};
-
-    virtual Status init(RuntimeState* state) = 0;
-    // convert and write one row batch 
-    virtual Status append_row_batch(const RowBatch* batch) = 0;
-
-    virtual Status close() = 0;
-
-    int64_t get_written_rows() const { return _written_rows; }
-
-    static const std::string NULL_IN_CSV;
-
-protected:
-    int64_t _written_rows = 0; // number of rows written
-};
-
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface FEFunctionList {
+    FEFunction[] value();
 }
-

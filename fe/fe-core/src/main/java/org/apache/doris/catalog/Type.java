@@ -49,7 +49,7 @@ public abstract class Type {
     // generating and scanning deeply nested Parquet and Avro files. In those experiments,
     // we exceeded the stack space in the scanner (which uses recursion for dealing with
     // nested types) at a nesting depth between 200 and 300 (200 worked, 300 crashed).
-    public static int MAX_NESTING_DEPTH = 100;
+    public static int MAX_NESTING_DEPTH = 2;
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
@@ -274,7 +274,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType();
+        return isMapType() || isArrayType() || isMultiRowType();
     }
 
     public boolean isMapType() {
@@ -283,6 +283,10 @@ public abstract class Type {
 
     public boolean isArrayType() {
         return this instanceof ArrayType;
+    }
+
+    public boolean isMultiRowType() {
+        return this instanceof MultiRowType;
     }
 
     public boolean isStructType() {
@@ -440,6 +444,11 @@ public abstract class Type {
             if (mapType.getValueType().exceedsMaxNestingDepth(d + 1)) {
                 return true;
             }
+        } else if (isMultiRowType()) {
+            MultiRowType multiRowType = (MultiRowType) this;
+            if (multiRowType.getItemType().exceedsMaxNestingDepth(d + 1)) {
+                return true;
+            }
         } else {
             Preconditions.checkState(isScalarType());
         }
@@ -481,6 +490,8 @@ public abstract class Type {
                 return Type.VARCHAR;
             case HLL:
                 return Type.HLL;
+            case ARRAY:
+                return ScalarType.createArrayType();
             case BITMAP:
                 return Type.BITMAP;
             default:
@@ -930,6 +941,7 @@ public abstract class Type {
                         t2 == PrimitiveType.INVALID_TYPE) continue;
                 if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
                 if (t1 == PrimitiveType.DECIMAL || t2 == PrimitiveType.DECIMAL) continue;
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
                 if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
                 if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);

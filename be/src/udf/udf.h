@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <string.h>
+#include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
@@ -44,6 +45,7 @@ struct DateTimeVal;
 struct DecimalVal;
 struct DecimalV2Val;
 struct HllVal;
+struct ArrayVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -74,7 +76,8 @@ public:
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
         TYPE_DECIMALV2,
-        TYPE_OBJECT
+        TYPE_OBJECT,
+        TYPE_ARRAY
     };
 
     struct TypeDesc {
@@ -86,6 +89,9 @@ public:
 
         /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
         int len;
+
+        // only vaild if type == TYPE_ARRAY
+        std::vector<TypeDesc> children;
     };
 
     struct UniqueId {
@@ -744,7 +750,6 @@ struct DecimalV2Val : public AnyVal {
 
 };
 
-
 struct LargeIntVal : public AnyVal {
     __int128 val;
 
@@ -786,7 +791,31 @@ struct HllVal : public StringVal {
     void agg_merge(const HllVal &other);
 };
 
+struct ArrayVal : public AnyVal {
+    // array size
+    int length;
+    // null signs
+    bool* null_signs;
+    // data(include null)
+    // TYPE_INT: bool
+    // TYPE_TINYINT: int8_t
+    // TYPE_SMALLINT: int16_t
+    // TYPE_INT: int32_t
+    // TYPE_BIGINT: int64_t
+    // TYPE_CHAR/VARCHAR/OBJECT: StringValue 
+    void* data;
 
+    ArrayVal() : length(0), null_signs(NULL), data(NULL) {};
+
+    ArrayVal(int len, bool* null_signs, void* data) : length(len), null_signs(null_signs),
+                                                               data(NULL) {};
+
+    static ArrayVal null() {
+        ArrayVal val;
+        val.is_null = true;
+        return val;
+    }
+};
 typedef uint8_t* BufferVal;
 }
 
@@ -804,5 +833,6 @@ using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
+using doris_udf::ArrayVal;
 
 #endif

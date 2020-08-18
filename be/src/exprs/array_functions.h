@@ -15,37 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_COLLECTION_FUNCTIONS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_COLLECTION_FUNCTIONS_H
 
-#include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
+
+#include "anyval_util.h"
 
 namespace doris {
 
-class Status;
-class RowBatch;
-class RuntimeState;
-class TypeDescriptor;
+class ArrayFunctions {
 
-// abstract class of the result writer
-class ResultWriter {
 public:
-    ResultWriter() {};
-    ~ResultWriter() {};
+    static void init();
 
-    virtual Status init(RuntimeState* state) = 0;
-    // convert and write one row batch 
-    virtual Status append_row_batch(const RowBatch* batch) = 0;
+    /**
+     * array construct functions, create array with the children values
+     */
+    static ArrayVal array(FunctionContext* context, int num_children, const IntVal* values);
 
-    virtual Status close() = 0;
-
-    int64_t get_written_rows() const { return _written_rows; }
-
-    static const std::string NULL_IN_CSV;
-
-protected:
-    int64_t _written_rows = 0; // number of rows written
+    static ArrayVal array(FunctionContext* context, int num_children, const StringVal* values);
 };
-
 }
 
+#endif 

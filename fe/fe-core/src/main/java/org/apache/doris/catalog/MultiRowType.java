@@ -25,22 +25,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 /**
- * Describes an ARRAY type.
+ * Describes a multi-row type in sub-query.
  */
-public class ArrayType extends ScalarType {
+public class MultiRowType extends Type {
     private final Type itemType;
 
-    public ArrayType() {
-        super(PrimitiveType.ARRAY);
-        this.itemType = NULL;
-    }
-
-    public ArrayType(Type itemType) {
-        super(PrimitiveType.ARRAY);
-        this.itemType = itemType;
-    }
-
-    public void setItemType(Type itemType) {
+    public MultiRowType(Type itemType) {
         this.itemType = itemType;
     }
 
@@ -49,44 +39,20 @@ public class ArrayType extends ScalarType {
     }
 
     @Override
-    public PrimitiveType getPrimitiveType() {
-        return PrimitiveType.ARRAY;
-    }
-
-    @Override
-    public boolean matchesType(Type t) {
-        if (equals(t)) {
-            return true;
-        }
-
-        if (!t.isArrayType()) {
-            return false;
-        }
-
-        if (itemType.isNull()) {
-            return true;
-        }
-
-        return itemType.matchesType(((ArrayType) t).itemType);
-    }
-
-    @Override
     public String toSql(int depth) {
         if (depth >= MAX_NESTING_DEPTH) {
             return "ARRAY<...>";
         }
-        return true;
-//        ArrayType otherArrayType = (ArrayType) other;
-//        return otherArrayType.itemType.equals(itemType);
+        return String.format("ARRAY<%s>", itemType.toSql(depth + 1));
     }
 
     @Override
     public boolean equals(Object other) {
-        if (!(other instanceof ArrayType)) {
+        if (!(other instanceof MultiRowType)) {
             return false;
         }
-        ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType);
+        MultiRowType otherMultiRowType = (MultiRowType) other;
+        return otherMultiRowType.itemType.equals(itemType);
     }
 
     @Override
@@ -109,11 +75,5 @@ public class ArrayType extends ScalarType {
         String structStr = itemType.prettyPrint(lpad);
         structStr = structStr.substring(lpad);
         return String.format("%sARRAY<%s>", leftPadding, structStr);
-    }
-}
-
-@Override
-    public String toString() {
-        return toSql(0);
     }
 }
