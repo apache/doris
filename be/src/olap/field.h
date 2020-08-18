@@ -264,7 +264,6 @@ private:
     std::string _name;
     uint16_t _index_size;
     bool _is_nullable;
-    std::string _name;
 
 protected:
     const AggregateInfo* _agg_info;
