@@ -705,7 +705,7 @@ build_cctz() {
 # we just comment it, instead of remove it.
 # build_llvm
 
-build_libodbc
+build_libunixodbc
 build_libevent
 build_zlib
 build_lz4
