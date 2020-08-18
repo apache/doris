@@ -176,7 +176,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
                          << " origin_type="                                                     \
                          << ref_block->tablet_schema().column(ref_column).type()                \
                          << ", alter_type=" << mutable_block->tablet_schema().column(i).type(); \
-            return OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID;                                                                       \
+            return OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID;                                         \
         }                                                                                       \
         break;                                                                                  \
     }
@@ -479,7 +479,6 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
 
                     if (!_do_materialized_transform(&read_helper, &write_helper,
                                                     ref_block->tablet_schema().column(ref_column), i, _schema_mapping[i].ref_column, mem_pool)) {
-                        std::cout << "_do_materialized_transform : data quality error" << std::endl;
                         return OLAP_ERR_DATE_QUALITY_ERR;
                     }
                 }
@@ -924,7 +923,6 @@ OLAPStatus LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
                      << ", base_tablet=" << base_tablet->full_name()
                      << ", version=" << new_rowset_writer->version().first << "-"
                      << new_rowset_writer->version().second;
-
     }
     return status;
 }
