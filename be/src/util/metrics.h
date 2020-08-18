@@ -284,10 +284,17 @@ struct MetricPrototypeEqualTo {
 
 using MetricMap = std::unordered_map<const MetricPrototype*, Metric*, MetricPrototypeHash, MetricPrototypeEqualTo>;
 
+enum class MetricEntityType {
+    kServer,
+    kTablet
+};
+
 class MetricEntity {
 public:
-    MetricEntity(const std::string& name, const Labels& labels)
-        : _name(name), _labels(labels) {}
+    MetricEntity(MetricEntityType type, const std::string& name, const Labels& labels)
+        : _type(type), _name(name), _labels(labels) {}
+
+    const std::string& name() const { return _name; }
 
     void register_metric(const MetricPrototype* metric_type, Metric* metric);
     void deregister_metric(const MetricPrototype* metric_type);
@@ -301,6 +308,7 @@ public:
 private:
     friend class MetricRegistry;
 
+    MetricEntityType _type;
     std::string _name;
     Labels _labels;
 
@@ -316,14 +324,14 @@ public:
     MetricRegistry(const std::string& name) : _name(name) {}
     ~MetricRegistry();
 
-    MetricEntity* register_entity(const std::string& name, const Labels& labels);
+    MetricEntity* register_entity(const std::string& name, const Labels& labels, MetricEntityType type = MetricEntityType::kServer);
     void deregister_entity(const std::string& name);
     std::shared_ptr<MetricEntity> get_entity(const std::string& name);
 
     void trigger_all_hooks(bool force) const;
 
-    std::string to_prometheus() const;
-    std::string to_json() const;
+    std::string to_prometheus(bool with_tablet_metrics = false) const;
+    std::string to_json(bool with_tablet_metrics = false) const;
     std::string to_core_string() const;
 
 private:
