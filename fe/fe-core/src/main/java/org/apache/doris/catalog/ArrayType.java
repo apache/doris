@@ -28,7 +28,7 @@ import com.google.common.base.Strings;
  * Describes an ARRAY type.
  */
 public class ArrayType extends ScalarType {
-    private final Type itemType;
+    private Type itemType;
 
     public ArrayType() {
         super(PrimitiveType.ARRAY);
@@ -75,7 +75,7 @@ public class ArrayType extends ScalarType {
         if (depth >= MAX_NESTING_DEPTH) {
             return "ARRAY<...>";
         }
-        return true;
+        return "";
 //        ArrayType otherArrayType = (ArrayType) other;
 //        return otherArrayType.itemType.equals(itemType);
     }
@@ -110,9 +110,8 @@ public class ArrayType extends ScalarType {
         structStr = structStr.substring(lpad);
         return String.format("%sARRAY<%s>", leftPadding, structStr);
     }
-}
 
-@Override
+    @Override
     public String toString() {
         return toSql(0);
     }

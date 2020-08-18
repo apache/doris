@@ -142,8 +142,8 @@ public enum ExpressionFunctions {
                 new ImmutableMultimap.Builder<String, FEFunctionInvoker>();
         Class clazz = FEFunctions.class;
         for (Method method : clazz.getDeclaredMethods()) {
-            FEFunction annotation = method.getAnnotation(FEFunction.class);
-            if (annotation != null) {
+            FEFunctionList annotationList = method.getAnnotation(FEFunctionList.class);
+            if (annotationList != null) {
                 for (FEFunction f : annotationList.value()) {
                     registerFEFunction(mapBuilder, method, f);
                 }
@@ -242,13 +242,14 @@ public enum ExpressionFunctions {
             } else {
                 throw new IllegalArgumentException("Doris does't support type:" + argType);
             }
+        
+            // if args all is NullLiteral
+            long size = args.stream().filter(e -> e instanceof NullLiteral).count();
+            if (args.size() == size) {
+                exprs = new NullLiteral[args.size()];
+            }
             args.toArray(exprs);
             return exprs;
-        }
-
-        // if args all is NullLiteral
-        if (args.size() == args.stream().filter(e -> e instanceof NullLiteral).count()) {
-            exprs = new NullLiteral[args.size()];
         }
     }
 

@@ -357,8 +357,8 @@ public class CreateTableStmt extends DdlStmt {
                         tp.getItemType().getPrimitiveType() != PrimitiveType.VARCHAR) {
                     throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
                 }
-                if (columnDef.getAggregateType() != null) {
-                    throw new AnalysisException("Array column can't support aggregation");
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                    throw new AnalysisException("Array column can't support aggregation " + columnDef.getAggregateType());
                 }
             }
 

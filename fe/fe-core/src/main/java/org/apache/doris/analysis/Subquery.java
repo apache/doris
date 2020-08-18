@@ -24,7 +24,6 @@ import org.apache.doris.catalog.MultiRowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;

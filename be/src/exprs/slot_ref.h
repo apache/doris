@@ -81,8 +81,8 @@ public:
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
-
+    virtual doris_udf::ArrayVal get_array_val(ExprContext *context, TupleRow *);
+    
 private:
     int _tuple_idx;  // within row
     int _slot_offset;  // within tuple
