@@ -171,6 +171,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
@@ -2229,6 +2230,10 @@ public class Catalog {
 
     public void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
         VariableMgr.replayGlobalVariable(variable);
+    }
+
+    public void replayGlobalVariableV2(GlobalVarPersistInfo info) throws IOException, DdlException {
+        VariableMgr.replayGlobalVariableV2(info);
     }
 
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
