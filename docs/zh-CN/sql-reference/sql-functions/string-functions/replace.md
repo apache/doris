@@ -1,6 +1,6 @@
 ---
 {
-    "title": "str_replace",
+    "title": "replace",
     "language": "zh-CN"
 }
 ---
@@ -24,23 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# str_replace
+# replace
 ## description
 ### Syntax
 
-`VARCHAR STR_REPLACE (VARCHAR str, VARCHAR old, VARCHAR new)`
+`VARCHAR REPLACE (VARCHAR str, VARCHAR old, VARCHAR new)`
 
-replace all old substring with new substring in str 
+将str字符串中的old子串全部替换为new串
 
 ## example
 
 ```
-mysql> select str_replace("http://www.baidu.com:9090", "9090", "");
+mysql> select replace("http://www.baidu.com:9090", "9090", "");
 +------------------------------------------------------+
-| str_replace('http://www.baidu.com:9090', '9090', '') |
+| replace('http://www.baidu.com:9090', '9090', '') |
 +------------------------------------------------------+
 | http://www.baidu.com:                                |
 +------------------------------------------------------+
 ```
 ## keyword
-STR_REPLACE
+REPLACE
