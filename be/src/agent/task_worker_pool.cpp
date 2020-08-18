@@ -513,6 +513,11 @@ void TaskWorkerPool::_alter_tablet(TaskWorkerPool* worker_pool_this,
                                           &error_msgs, process_name);
         OLAPStatus sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
         if (sc_status != OLAP_SUCCESS) {
+            if (sc_status == OLAP_ERR_DATE_QUALITY_ERR) {
+                std::cout << "_alter_tablet : data quality error" << std::endl;
+                error_msgs.push_back("The data quality does not satisfy, please check your data. ");
+            }
+            std::cout << "_alter_tablet : not data quality error" << sc_status << std::endl;
             status = DORIS_ERROR;
         } else {
             status = DORIS_SUCCESS;
