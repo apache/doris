@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.Config;
@@ -14,6 +31,7 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
 import java.io.File;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import javax.xml.parsers.DocumentBuilder;
@@ -47,6 +65,7 @@ public class SparkYarnConfigFiles {
     }
 
     private void createConfigFiles(Map<String, String> properties) {
+        LOG.info("create config file, properties size: {}", properties.size());
         configFiles.add(new XMLConfigFile(configDir + "/" + HADOOP_CONF_FILE,
                 getPropertiesByPrefix(properties, HADOOP_PREFIX)));
         configFiles.add(new XMLConfigFile(configDir + "/" + YARN_CONF_FILE,
@@ -92,6 +111,7 @@ public class SparkYarnConfigFiles {
         if (!configDir.exists() || !configDir.isDirectory()) {
             result = false;
         }
+        LOG.info("check yarn client config dir exists, result: {}", result);
         return result;
     }
 
@@ -101,6 +121,7 @@ public class SparkYarnConfigFiles {
         if (!configFile.exists() || !configFile.isFile()) {
             result = false;
         }
+        LOG.info("check yarn client config file path exists, result: {}, path: {}", result, filePath);
         return result;
     }
 
@@ -112,17 +133,20 @@ public class SparkYarnConfigFiles {
         for (ConfigFile configFile : configFiles) {
             configFile.createFile();
         }
+        LOG.info("finished to update yarn client config dir, dir={}", configDir);
     }
 
     private Map<String, String> getPropertiesByPrefix(Map<String, String> properties, String prefix) {
         Map<String, String> result = Maps.newHashMap();
-        for (Map.Entry<String, String> property : properties.entrySet()) {
+        Iterator<Map.Entry<String, String>> iterator = properties.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, String> property = iterator.next();
             String key = property.getKey();
             if (key.startsWith(SPARK_HADOOP_PREFIX)) {
                 String newKey = key.substring(SPARK_HADOOP_PREFIX.length());
                 if (newKey.startsWith(prefix)) {
                     result.put(newKey, property.getValue());
-                    properties.remove(key);
+                    iterator.remove();
                 }
             }
         }
@@ -147,7 +171,7 @@ public class SparkYarnConfigFiles {
 
     private void mkdir(String configDir) {
         File file = new File(configDir);
-        file.mkdir();
+        file.mkdirs();
     }
 
     public static class XMLConfigFile implements ConfigFile {
