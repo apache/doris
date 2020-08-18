@@ -82,7 +82,7 @@ public class AlterTableStmt extends DdlStmt {
             if (alterClause instanceof EnableFeatureClause
                     && ((EnableFeatureClause) alterClause).getFeature() == EnableFeatureClause.Features.BATCH_DELETE) {
                 if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
-                    throw new AnalysisException("Batch delete only support in unique tables.");
+                    throw new AnalysisException("Batch delete only supported in unique tables.");
                 }
                 // has rollup table
                 if (table.getVisibleIndex().size() > 1) {
@@ -121,7 +121,6 @@ public class AlterTableStmt extends DdlStmt {
 
 
     @Override
-
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ").append(tbl.toSql()).append(" ");

@@ -184,8 +184,7 @@ public class DataDescription {
         this.whereExpr = whereExpr;
         this.srcTableName = srcTableName;
         this.mergeType = mergeType;
-        this.deleteCondition = deleteCondition
-        ;
+        this.deleteCondition = deleteCondition;
     }
 
     public String getTableName() {
