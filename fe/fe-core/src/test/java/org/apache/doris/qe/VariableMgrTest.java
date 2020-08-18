@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import mockit.Expectations;
 import mockit.Mocked;
+
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -27,6 +28,9 @@ import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 
 import org.junit.Assert;
@@ -43,6 +47,8 @@ public class VariableMgrTest {
     private Catalog catalog;
     @Mocked
     private EditLog editLog;
+    @Mocked
+    private PaloAuth auth;
 
     @Before
     public void setUp() {
@@ -54,6 +60,14 @@ public class VariableMgrTest {
 
                 editLog.logGlobalVariable((SessionVariable) any);
                 minTimes = 0;
+
+                catalog.getAuth();
+                minTimes = 0;
+                result = auth;
+
+                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
             }
         };
 
@@ -67,7 +81,7 @@ public class VariableMgrTest {
     }
 
     @Test
-    public void testNormal() throws IllegalAccessException, DdlException, NoSuchFieldException, AnalysisException {
+    public void testNormal() throws IllegalAccessException, NoSuchFieldException, UserException {
         SessionVariable var = VariableMgr.newSessionVariable();
         Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
         Assert.assertEquals(300, var.getQueryTimeoutS());
@@ -90,24 +104,28 @@ public class VariableMgrTest {
 
         // Set global variable
         SetVar setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
+        setVar.analyze(null);
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
 
         SetVar setVar2 = new SetVar(SetType.GLOBAL, "parallel_fragment_exec_instance_num", new IntLiteral(5L));
+        setVar2.analyze(null);
         VariableMgr.setVar(var, setVar2);
         Assert.assertEquals(1L, var.getParallelExecInstanceNum());
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(5L, var.getParallelExecInstanceNum());
 
         SetVar setVar3 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Asia/Shanghai"));
+        setVar3.analyze(null);
         VariableMgr.setVar(var, setVar3);
         Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
 
         setVar3 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("CST"));
+        setVar3.analyze(null);
         VariableMgr.setVar(var, setVar3);
         Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
         var = VariableMgr.newSessionVariable();
@@ -115,10 +133,12 @@ public class VariableMgrTest {
 
         // Set session variable
         setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
+        setVar.analyze(null);
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
 
         setVar3 = new SetVar(SetType.SESSION, "time_zone", new StringLiteral("Asia/Jakarta"));
+        setVar3.analyze(null);
         VariableMgr.setVar(var, setVar3);
         Assert.assertEquals("Asia/Jakarta", var.getTimeZone());
 
@@ -128,60 +148,58 @@ public class VariableMgrTest {
 
         SetVar setVar4 = new SetVar(SetType.SESSION, "sql_mode", new StringLiteral(
                 SqlModeHelper.encode("PIPES_AS_CONCAT").toString()));
+        setVar4.analyze(null);
         VariableMgr.setVar(var, setVar4);
         Assert.assertEquals(2L, var.getSqlMode());
 
         // Test checkTimeZoneValidAndStandardize
         SetVar setVar5 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("+8:00"));
+        setVar5.analyze(null);
         VariableMgr.setVar(var, setVar5);
         Assert.assertEquals("+08:00", VariableMgr.newSessionVariable().getTimeZone());
 
         SetVar setVar6 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("8:00"));
+        setVar6.analyze(null);
         VariableMgr.setVar(var, setVar6);
         Assert.assertEquals("+08:00", VariableMgr.newSessionVariable().getTimeZone());
 
         SetVar setVar7 = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("-8:00"));
+        setVar7.analyze(null);
         VariableMgr.setVar(var, setVar7);
         Assert.assertEquals("-08:00", VariableMgr.newSessionVariable().getTimeZone());
     }
 
-    @Test(expected = DdlException.class)
-    public void testInvalidType() throws DdlException {
+    @Test(expected = UserException.class)
+    public void testInvalidType() throws UserException {
         // Set global variable
-        SetVar setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new StringLiteral("abc"));
-        SessionVariable var = VariableMgr.newSessionVariable();
+        SetVar setVar = new SetVar(SetType.SESSION, "exec_mem_limit", new StringLiteral("abc"));
         try {
-            VariableMgr.setVar(var, setVar);
-        } catch (DdlException e) {
-            LOG.warn("VariableMgr throws", e);
+            setVar.analyze(null);
+        } catch (Exception e) {
             throw e;
         }
         Assert.fail("No exception throws.");
     }
 
-    @Test(expected = DdlException.class)
-    public void testInvalidTimeZoneRegion() throws DdlException {
+    @Test(expected = UserException.class)
+    public void testInvalidTimeZoneRegion() throws UserException {
         // Set global variable
-        SetVar setVar = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("Hongkong"));
-        SessionVariable var = VariableMgr.newSessionVariable();
+        SetVar setVar = new SetVar(SetType.SESSION, "time_zone", new StringLiteral("Hongkong"));
         try {
-            VariableMgr.setVar(var, setVar);
-        } catch (DdlException e) {
-            LOG.warn("VariableMgr throws", e);
+            setVar.analyze(null);
+        } catch (Exception e) {
             throw e;
         }
         Assert.fail("No exception throws.");
     }
 
-    @Test(expected = DdlException.class)
-    public void testInvalidTimeZoneOffset() throws DdlException {
+    @Test(expected = UserException.class)
+    public void testInvalidTimeZoneOffset() throws UserException {
         // Set global variable
-        SetVar setVar = new SetVar(SetType.GLOBAL, "time_zone", new StringLiteral("+15:00"));
-        SessionVariable var = VariableMgr.newSessionVariable();
+        SetVar setVar = new SetVar(SetType.SESSION, "time_zone", new StringLiteral("+15:00"));
         try {
-            VariableMgr.setVar(var, setVar);
-        } catch (DdlException e) {
-            LOG.warn("VariableMgr throws", e);
+            setVar.analyze(null);
+        } catch (Exception e) {
             throw e;
         }
         Assert.fail("No exception throws.");
@@ -193,9 +211,9 @@ public class VariableMgrTest {
         LOG.info(VariableMgr.getValue(null, desc));
 
         // Set global variable
-        SetVar setVar = new SetVar(SetType.GLOBAL, "version_comment", null);
+        SetVar setVar = new SetVar(SetType.SESSION, "version_comment", null);
         VariableMgr.setVar(null, setVar);
-
         Assert.fail("No exception throws.");
     }
 }
+
