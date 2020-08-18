@@ -999,7 +999,7 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     return StringVal(content.ptr + start_pos, len);
 }
 
-StringVal StringFunctions::str_replace(FunctionContext *context, const StringVal &origStr, const StringVal &oldStr, const StringVal &newStr) {
+StringVal StringFunctions::replace(FunctionContext *context, const StringVal &origStr, const StringVal &oldStr, const StringVal &newStr) {
     if (origStr.is_null || oldStr.is_null || newStr.is_null) {
         return StringVal::null();
     }

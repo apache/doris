@@ -191,7 +191,7 @@ public:
     static StringVal split_part(FunctionContext* context, const StringVal& content,
                              const StringVal& delimiter, const IntVal& field);
 
-    static StringVal str_replace(FunctionContext *context, const StringVal &origStr,
+    static StringVal replace(FunctionContext *context, const StringVal &origStr,
                                            const StringVal &oldStr, const StringVal &newStr);
 };
 }
