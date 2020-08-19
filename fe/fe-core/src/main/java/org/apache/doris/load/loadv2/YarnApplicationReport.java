@@ -89,7 +89,7 @@ public class YarnApplicationReport {
         // Application-Id : application_1573630236805_6763648 ==> (Application-Id, application_1573630236805_6763648)
         for (String line : lines) {
             List<String> entry = Splitter.onPattern(":").limit(2).trimResults().splitToList(line);
-            Preconditions.checkState(entry.size() <= 2);
+            Preconditions.checkState(entry.size() <= 2, line);
             if (entry.size() > 1) {
                 reportMap.put(entry.get(0), entry.get(1));
             } else {

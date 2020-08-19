@@ -169,7 +169,7 @@ public class SparkResource extends Resource {
     }
 
     // Each SparkResource has and only has one yarn config to run yarn command
-    // This method will write all the configuration into config files in a specific directory
+    // This method will write all the configuration start with "spark.hadoop." into config files in a specific directory
     public synchronized String prepareYarnConfig() throws LoadException {
         SparkYarnConfigFiles yarnConfigFiles = new SparkYarnConfigFiles(name, getSparkHadoopConfigs(sparkConfigs));
         yarnConfigFiles.prepare();

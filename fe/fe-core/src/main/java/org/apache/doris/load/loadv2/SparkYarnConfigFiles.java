@@ -64,6 +64,13 @@ public class SparkYarnConfigFiles {
         createConfigFiles(properties);
     }
 
+    // for unit test
+    public SparkYarnConfigFiles(String resourceName, String parentDir, Map<String, String> properties) {
+        this.configDir = parentDir + "/" + resourceName;
+        this.configFiles = Lists.newArrayList();
+        createConfigFiles(properties);
+    }
+
     private void createConfigFiles(Map<String, String> properties) {
         LOG.info("create config file, properties size: {}", properties.size());
         configFiles.add(new XMLConfigFile(configDir + "/" + HADOOP_CONF_FILE,

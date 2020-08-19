@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.CommandResult;
@@ -39,12 +38,9 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
-import org.apache.hadoop.yarn.client.api.YarnClient;
-import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.launcher.SparkAppHandle;
@@ -330,21 +326,6 @@ public class SparkEtlJobHandler {
         } catch (UserException e) {
             LOG.warn("delete path failed. path: {}", outputPath, e);
         }
-    }
-
-    private YarnClient startYarnClient(SparkResource resource) {
-        YarnClient client = YarnClient.createYarnClient();
-        Configuration conf = new YarnConfiguration();
-        // set yarn.resourcemanager.address
-        Pair<String, String> pair = resource.getYarnResourcemanagerAddressPair();
-        conf.set(pair.first, pair.second);
-        client.init(conf);
-        client.start();
-        return client;
-    }
-
-    private void stopYarnClient(YarnClient client) {
-        client.stop();
     }
 
     private TEtlState fromYarnState(YarnApplicationState state, FinalApplicationStatus faStatus) {

@@ -33,6 +33,8 @@ import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.CommandResult;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -46,12 +48,6 @@ import org.apache.doris.thrift.TPaloBrokerService;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.hadoop.yarn.api.records.ApplicationId;
-import org.apache.hadoop.yarn.api.records.ApplicationReport;
-import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
-import org.apache.hadoop.yarn.api.records.YarnApplicationState;
-import org.apache.hadoop.yarn.client.api.YarnClient;
-import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.spark.launcher.SparkAppHandle;
 import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
@@ -75,6 +71,52 @@ public class SparkEtlJobHandlerTest {
     private String dppVersion;
     private String remoteArchivePath;
     private SparkRepository.SparkArchive archive;
+
+    private final String runningReport = "Application Report :\n" +
+            "Application-Id : application_15888888888_0088\n" +
+            "Application-Name : label0\n" +
+            "Application-Type : SPARK-2.4.1\n" +
+            "User : test\n" +
+            "Queue : test-queue\n" +
+            "Start-Time : 1597654469958\n" +
+            "Finish-Time : 0\n" +
+            "Progress : 50%\n" +
+            "State : RUNNING\n" +
+            "Final-State : UNDEFINED\n" +
+            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
+            "RPC Port : 40236\n" +
+            "AM Host : host-name";
+
+    private final String failedReport = "Application Report :\n" +
+            "Application-Id : application_15888888888_0088\n" +
+            "Application-Name : label0\n" +
+            "Application-Type : SPARK-2.4.1\n" +
+            "User : test\n" +
+            "Queue : test-queue\n" +
+            "Start-Time : 1597654469958\n" +
+            "Finish-Time : 1597654801939\n" +
+            "Progress : 100%\n" +
+            "State : FINISHED\n" +
+            "Final-State : FAILED\n" +
+            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
+            "RPC Port : 40236\n" +
+            "AM Host : host-name";
+
+    private final String finishReport = "Application Report :\n" +
+            "Application-Id : application_15888888888_0088\n" +
+            "Application-Name : label0\n" +
+            "Application-Type : SPARK-2.4.1\n" +
+            "User : test\n" +
+            "Queue : test-queue\n" +
+            "Start-Time : 1597654469958\n" +
+            "Finish-Time : 1597654801939\n" +
+            "Progress : 100%\n" +
+            "State : FINISHED\n" +
+            "Final-State : SUCCEEDED\n" +
+            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
+            "RPC Port : 40236\n" +
+            "AM Host : host-name";
+
 
     @Before
     public void setUp() {
@@ -166,23 +208,32 @@ public class SparkEtlJobHandlerTest {
     }
 
     @Test
-    public void testGetEtlJobStatus(@Mocked BrokerUtil brokerUtil, @Mocked YarnClient client,
-                                    @Injectable ApplicationReport report)
-            throws IOException, YarnException, UserException {
+    public void testGetEtlJobStatus(@Mocked BrokerUtil brokerUtil, @Mocked Util util, @Mocked CommandResult commandResult,
+                                    @Mocked SparkYarnConfigFiles sparkYarnConfigFiles)
+            throws IOException, UserException {
+
         new Expectations() {
             {
-                YarnClient.createYarnClient();
-                result = client;
-                client.getApplicationReport((ApplicationId) any);
-                result = report;
-                report.getYarnApplicationState();
-                returns(YarnApplicationState.RUNNING, YarnApplicationState.FINISHED, YarnApplicationState.FINISHED);
-                report.getFinalApplicationStatus();
-                returns(FinalApplicationStatus.UNDEFINED, FinalApplicationStatus.FAILED, FinalApplicationStatus.SUCCEEDED);
-                report.getTrackingUrl();
-                result = trackingUrl;
-                report.getProgress();
-                returns(0.5f, 1f, 1f);
+                sparkYarnConfigFiles.prepare();
+                sparkYarnConfigFiles.getConfigDir();
+                result = "./yarn_config";
+            }
+        };
+
+        new Expectations() {
+            {
+                commandResult.getReturnCode();
+                result = 0;
+                commandResult.getStdout();
+                returns(runningReport, runningReport, failedReport, failedReport, finishReport, finishReport);
+            }
+        };
+
+        new Expectations() {
+            {
+                Util.executeCommand(anyString, (String[]) any);
+                minTimes = 0;
+                result = commandResult;
                 BrokerUtil.readFile(anyString, (BrokerDesc) any);
                 result = "{'normal_rows': 10, 'abnormal_rows': 0, 'failed_reason': 'etl job failed'}";
             }
@@ -217,13 +268,69 @@ public class SparkEtlJobHandlerTest {
     }
 
     @Test
-    public void testKillEtlJob(@Mocked YarnClient client) throws IOException, YarnException {
+    public void testGetEtlJobStatusFailed(@Mocked Util util, @Mocked CommandResult commandResult,
+                                          @Mocked SparkYarnConfigFiles sparkYarnConfigFiles)
+            throws IOException, UserException {
+
         new Expectations() {
             {
-                YarnClient.createYarnClient();
-                result = client;
-                client.killApplication((ApplicationId) any);
-                times = 1;
+                sparkYarnConfigFiles.prepare();
+                sparkYarnConfigFiles.getConfigDir();
+                result = "./yarn_config";
+            }
+        };
+
+        new Expectations() {
+            {
+                commandResult.getReturnCode();
+                result = -1;
+            }
+        };
+
+        new Expectations() {
+            {
+                Util.executeCommand(anyString, (String[]) any);
+                minTimes = 0;
+                result = commandResult;
+            }
+        };
+
+        SparkResource resource = new SparkResource(resourceName);
+        Map<String, String> sparkConfigs = resource.getSparkConfigs();
+        sparkConfigs.put("spark.master", "yarn");
+        sparkConfigs.put("spark.submit.deployMode", "cluster");
+        sparkConfigs.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+        BrokerDesc brokerDesc = new BrokerDesc(broker, Maps.newHashMap());
+        SparkEtlJobHandler handler = new SparkEtlJobHandler();
+
+        // yarn finished and spark failed
+        EtlStatus status = handler.getEtlJobStatus(null, appId, loadJobId, etlOutputPath, resource, brokerDesc);
+        Assert.assertEquals(TEtlState.CANCELLED, status.getState());
+    }
+
+    @Test
+    public void testKillEtlJob(@Mocked Util util, @Mocked CommandResult commandResult,
+                               @Mocked SparkYarnConfigFiles sparkYarnConfigFiles) throws IOException, UserException {
+        new Expectations() {
+            {
+                sparkYarnConfigFiles.prepare();
+                sparkYarnConfigFiles.getConfigDir();
+                result = "./yarn_config";
+            }
+        };
+
+        new Expectations() {
+            {
+                commandResult.getReturnCode();
+                result = 0;
+            }
+        };
+
+        new Expectations() {
+            {
+                Util.executeCommand(anyString, (String[]) any);
+                minTimes = 0;
+                result = commandResult;
             }
         };
 
