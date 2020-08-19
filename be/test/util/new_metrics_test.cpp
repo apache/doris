@@ -205,7 +205,7 @@ TEST_F(MetricsTest, MetricPrototype) {
 }
 
 TEST_F(MetricsTest, MetricEntityWithMetric) {
-    MetricEntity entity(MetricEntityType::kServer, "test_entity", {});
+    MetricEntity entity("test_entity", {});
 
     IntCounter cpu_idle;
     MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "cpu_idle");
@@ -234,7 +234,7 @@ TEST_F(MetricsTest, MetricEntityWithMetric) {
 }
 
 TEST_F(MetricsTest, MetricEntityWithHook) {
-    MetricEntity entity(MetricEntityType::kServer, "test_entity", {});
+    MetricEntity entity("test_entity", {});
 
     IntCounter cpu_idle;
     MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "cpu_idle");

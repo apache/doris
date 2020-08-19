@@ -156,8 +156,8 @@ void MetricEntity::trigger_hook_unlocked(bool force) const {
 MetricRegistry::~MetricRegistry() {
 }
 
-MetricEntity* MetricRegistry::register_entity(const std::string& name, const Labels& labels, MetricEntityType type) {
-    std::shared_ptr<MetricEntity> entity = std::make_shared<MetricEntity>(type, name, labels);
+MetricEntity* MetricRegistry::register_entity(const std::string& name, const Labels& labels) {
+    std::shared_ptr<MetricEntity> entity = std::make_shared<MetricEntity>(name, labels);
 
     std::lock_guard<SpinLock> l(_lock);
     DCHECK(_entities.find(name) == _entities.end()) << name;
@@ -187,15 +187,12 @@ void MetricRegistry::trigger_all_hooks(bool force) const {
     }
 }
 
-std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
+std::string MetricRegistry::to_prometheus() const {
     std::stringstream ss;
     // Reorder by MetricPrototype
     EntityMetricsByType entity_metrics_by_types;
     std::lock_guard<SpinLock> l(_lock);
     for (const auto& entity : _entities) {
-        if (entity.second->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
-            continue;
-        }
         std::lock_guard<SpinLock> l(entity.second->_lock);
         entity.second->trigger_hook_unlocked(false);
         for (const auto& metric : entity.second->_metrics) {
@@ -227,14 +224,11 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
     return ss.str();
 }
 
-std::string MetricRegistry::to_json(bool with_tablet_metrics) const {
+std::string MetricRegistry::to_json() const {
     rj::Document doc{rj::kArrayType};
     rj::Document::AllocatorType& allocator = doc.GetAllocator();
     std::lock_guard<SpinLock> l(_lock);
     for (const auto& entity : _entities) {
-        if (entity.second->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
-            continue;
-        }
         std::lock_guard<SpinLock> l(entity.second->_lock);
         entity.second->trigger_hook_unlocked(false);
         for (const auto& metric : entity.second->_metrics) {
