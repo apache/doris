@@ -300,10 +300,6 @@ private:
     std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
-
-public:
-    IntCounter flush_bytes;
-    IntCounter flush_count;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

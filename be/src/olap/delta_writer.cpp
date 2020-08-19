@@ -60,10 +60,6 @@ DeltaWriter::~DeltaWriter() {
     if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
-
-        const FlushStatistic& stat = _flush_token->get_stats();
-        _tablet->flush_bytes.increment(stat.flush_size_bytes);
-        _tablet->flush_count.increment(stat.flush_count);
     }
 
     if (_tablet != nullptr) {
@@ -96,7 +92,7 @@ OLAPStatus DeltaWriter::init() {
     TabletManager* tablet_mgr = _storage_engine->tablet_manager();
     _tablet = tablet_mgr->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
-        LOG(WARNING) << "fail to find tablet. tablet_id=" << _req.tablet_id
+        LOG(WARNING) << "fail to find tablet . tablet_id=" << _req.tablet_id
                      << ", schema_hash=" << _req.schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }

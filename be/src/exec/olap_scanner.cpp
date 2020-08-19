@@ -479,9 +479,6 @@ void OlapScanner::update_counter() {
     DorisMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
     DorisMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
 
-    _tablet->query_scan_bytes.increment(_compressed_bytes_read);
-    _tablet->query_scan_rows.increment(_raw_rows_read);
-
     _has_update_counter = true;
 }
 
