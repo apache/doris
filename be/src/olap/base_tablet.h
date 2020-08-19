@@ -23,7 +23,6 @@
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
-#include "util/metrics.h"
 
 namespace doris {
 
@@ -74,12 +73,6 @@ protected:
 
     DataDir* _data_dir;
     std::string _tablet_path;
-
-    // metrics of this tablet
-    MetricEntity* _metric_entity = nullptr;
-public:
-    IntCounter query_scan_bytes;
-    IntCounter query_scan_rows;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(BaseTablet);

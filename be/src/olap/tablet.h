@@ -291,10 +291,6 @@ private:
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
-
-public:
-    IntCounter flush_bytes;
-    IntCounter flush_count;
 };
 
 inline bool Tablet::init_succeeded() {

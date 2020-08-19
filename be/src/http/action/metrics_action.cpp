@@ -34,14 +34,13 @@ namespace doris {
 
 void MetricsAction::handle(HttpRequest* req) {
     const std::string& type = req->param("type");
-    const std::string& with_tablet = req->param("with_tablet");
     std::string str;
     if (type == "core") {
         str = _metric_registry->to_core_string();
     } else if (type == "json") {
-        str = _metric_registry->to_json(with_tablet == "true");
+        str = _metric_registry->to_json();
     } else {
-        str = _metric_registry->to_prometheus(with_tablet == "true");
+        str = _metric_registry->to_prometheus();
     }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
