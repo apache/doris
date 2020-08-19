@@ -17,18 +17,21 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ParseUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.HeartbeatFlags;
+
+import com.google.common.base.Strings;
 
 // change one variable.
 public class SetVar {
@@ -124,6 +127,24 @@ public class SetVar {
             if (result != null && !HeartbeatFlags.isValidRowsetType(result.getStringValue())) {
                 throw new AnalysisException("Invalid rowset type, now we support {alpha, beta}.");
             }
+        }
+
+        if (getVariable().toLowerCase().equals("prefer_join_method")) {
+            String value = getValue().getStringValue();
+            if (!value.toLowerCase().equals("broadcast") && !value.toLowerCase().equals("shuffle")) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, "prefer_join_method", value);
+            }
+        }
+
+        // Check variable time_zone value is valid
+        if (getVariable().toLowerCase().equals("time_zone")) {
+            this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getValue().getStringValue()));
+            this.result = (LiteralExpr) this.value;
+        }
+
+        if (getVariable().toLowerCase().equals("exec_mem_limit")) {
+            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
+            this.result = (LiteralExpr) this.value;
         }
     }
 

@@ -109,7 +109,6 @@ private:
     static void* _make_snapshot_thread_callback(void* arg_this);
     static void* _release_snapshot_thread_callback(void* arg_this);
     static void* _move_dir_thread_callback(void* arg_this);
-    static void* _recover_tablet_thread_callback(void* arg_this);
     static void* _update_tablet_meta_worker_thread_callback(void* arg_this);
 
     void _alter_tablet(

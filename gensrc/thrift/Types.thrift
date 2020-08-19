@@ -163,7 +163,7 @@ enum TTaskType {
     PUBLISH_VERSION,
     CLEAR_ALTER_TASK,
     CLEAR_TRANSACTION_TASK,
-    RECOVER_TABLET,
+    RECOVER_TABLET, // deprecated
     STREAM_LOAD,
     UPDATE_TABLET_META_INFO,
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
