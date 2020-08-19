@@ -268,6 +268,27 @@ namespace config {
     CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
     CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
+    // config the cumulative compaction policy
+    // Valid configs: num_base, size_based
+    // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
+    // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring 
+    // lower write amplification, trading off read amplification and space amplification.
+    CONF_String(cumulative_compaction_policy, "num_based");
+
+    // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size, 
+    // this rowset will be given to base compaction, unit is m byte.
+    CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+    // In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
+    // base rowset's total disk size, this rowset will be given to base compaction. The value must be between 
+    // 0 and 1.
+    CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
+    // In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this 
+    // rowset will be not given to base compaction. The unit is m byte.
+    CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
+    // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than 
+    // this size, size_based policy also does cumulative compaction. The unit is m byte.
+    CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
+
     // cumulative compaction policy: max delta file's size unit:B
     CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");

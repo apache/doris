@@ -230,6 +230,8 @@ private:
     void* _base_compaction_thread_callback(void* arg, DataDir* data_dir);
     // cumulative process function
     void* _cumulative_compaction_thread_callback(void* arg, DataDir* data_dir);
+    // check cumulative compaction config
+    void _check_cumulative_compaction_config();
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void* _garbage_sweeper_thread_callback(void* arg);
