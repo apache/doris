@@ -150,7 +150,9 @@ module.exports = [
           {
             title: "Users contribute UDF",
             directoryPath: "contrib/",
-            children:[],       
+            children:[
+                "udaf-orthogonal-bitmap-manual",
+            ],
           },          
         ],
       },

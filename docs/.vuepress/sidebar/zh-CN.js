@@ -154,7 +154,9 @@ module.exports = [
           {
             title: "用户贡献的 UDF",
             directoryPath: "contrib/",
-            children:[],       
+            children:[
+                "udaf-orthogonal-bitmap-manual",
+            ],
           },          
         ],
       },
