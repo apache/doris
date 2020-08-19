@@ -42,6 +42,11 @@ public class DataProperty implements Writable {
         // for persist
     }
 
+    public DataProperty(DataProperty other) {
+        this.storageMedium = other.storageMedium;
+        this.cooldownTimeMs = other.cooldownTimeMs;
+    }
+
     public DataProperty(TStorageMedium medium) {
         this(medium, MAX_COOLDOWN_TIME_MS);
     }

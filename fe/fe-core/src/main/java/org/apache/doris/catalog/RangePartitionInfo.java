@@ -61,6 +61,25 @@ public class RangePartitionInfo extends PartitionInfo {
         this.isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
+    public RangePartitionInfo(RangePartitionInfo other) {
+        super(other);
+        this.partitionColumns = Lists.newArrayList();
+        for (Column column : other.partitionColumns) {
+            this.partitionColumns.add(new Column(column));
+        }
+        this.idToRange = Maps.newHashMapWithExpectedSize(other.idToRange.size());
+        for (Map.Entry<Long, Range<PartitionKey>> entry : other.idToRange.entrySet()) {
+            Range<PartitionKey> value = entry.getValue();
+            Range<PartitionKey> newValue;
+            if (value.hasUpperBound()) {
+                newValue = Range.closedOpen(value.lowerEndpoint(), value.upperEndpoint());
+            } else {
+                newValue = Range.atLeast(value.lowerEndpoint());
+            }
+            this.idToRange.put(entry.getKey(), newValue);
+        }
+    }
+
     public List<Column> getPartitionColumns() {
         return partitionColumns;
     }
@@ -216,7 +235,7 @@ public class RangePartitionInfo extends PartitionInfo {
             tmpMap = idToTempRange;
         }
         List<Map.Entry<Long, Range<PartitionKey>>> sortedList = Lists.newArrayList(tmpMap.entrySet());
-        Collections.sort(sortedList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        sortedList.sort(RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
         return sortedList;
     }
 
@@ -297,6 +316,7 @@ public class RangePartitionInfo extends PartitionInfo {
         }
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

@@ -56,6 +56,11 @@ public class TableIndexes implements Writable {
         this.properties = properties;
     }
 
+    public TableIndexes(TableIndexes other) {
+        this.indexes = other.getCopiedIndexes();
+        this.properties = other.getCopiedProperties();
+    }
+
     public List<Index> getIndexes() {
         if (indexes == null) {
             indexes = Lists.newArrayList();

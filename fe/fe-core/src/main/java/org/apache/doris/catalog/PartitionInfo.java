@@ -71,6 +71,20 @@ public class PartitionInfo implements Writable {
         this.idToTabletType = new HashMap<>();
     }
 
+    public PartitionInfo(PartitionInfo info) {
+        this.type = info.type;
+        this.idToDataProperty = new HashMap<>(info.idToDataProperty.size());
+        for (Map.Entry<Long, DataProperty> entry : info.idToDataProperty.entrySet()) {
+            this.idToDataProperty.put(entry.getKey(), new DataProperty(entry.getValue()));
+        }
+        this.idToReplicationNum = new HashMap<>(info.idToReplicationNum.size());
+        this.idToReplicationNum.putAll(info.idToReplicationNum);
+        this.idToInMemory = new HashMap<>(info.idToInMemory.size());
+        this.idToInMemory.putAll(info.idToInMemory);
+        this.idToTabletType = new HashMap<>(info.idToTabletType.size());
+        this.idToTabletType.putAll(info.idToTabletType);
+    }
+
     public PartitionType getType() {
         return type;
     }

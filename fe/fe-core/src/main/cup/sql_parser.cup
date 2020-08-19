@@ -1083,6 +1083,10 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
     :}
+    | KW_CREATE KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
+    {:
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name);
+    :}
     /* User */
     | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
     {:

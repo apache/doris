@@ -97,10 +97,10 @@ public class OlapTable extends Table {
 
     private OlapTableState state;
 
-    // index id -> index meta
-    private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
     // index name -> index id
     private Map<String, Long> indexNameToId = Maps.newHashMap();
+    // index id -> index meta
+    private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
 
     private KeysType keysType;
     private PartitionInfo partitionInfo;
@@ -168,6 +168,40 @@ public class OlapTable extends Table {
         this.indexes = indexes;
 
         this.tableProperty = null;
+    }
+
+    public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
+                     PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo,
+                     TableIndexes indexes, String comment, Long baseIndexId, Set<String> bfColumns, double bfFpp,
+                     String colocateGroup, Map<String, Long> indexNameToId, Map<Long, MaterializedIndexMeta> indexIdToMeta,
+                     TableProperty tableProperty) {
+        super(id, tableName, TableType.OLAP, baseSchema);
+
+        this.state = OlapTableState.NORMAL;
+
+        this.keysType = keysType;
+        this.partitionInfo = partitionInfo;
+
+        this.defaultDistributionInfo = defaultDistributionInfo;
+
+        this.bfColumns = bfColumns;
+        this.bfFpp = bfFpp;
+
+        this.colocateGroup = colocateGroup;
+
+        this.indexes = indexes;
+
+        this.comment = comment;
+        this.baseIndexId = baseIndexId;
+
+
+        this.indexNameToId = Maps.newHashMap(indexNameToId);
+        this.indexIdToMeta = Maps.newHashMapWithExpectedSize(indexIdToMeta.size());
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            this.indexIdToMeta.put(entry.getKey(), new MaterializedIndexMeta(entry.getValue()));
+        }
+
+        this.tableProperty = tableProperty;
     }
 
     public void setTableProperty(TableProperty tableProperty) {
@@ -764,7 +798,7 @@ public class OlapTable extends Table {
 
     public void setIndexes(List<Index> indexes) {
         if (this.indexes == null) {
-            this.indexes = new TableIndexes(null);
+            this.indexes = new TableIndexes();
         }
         this.indexes.setIndexes(indexes);
     }

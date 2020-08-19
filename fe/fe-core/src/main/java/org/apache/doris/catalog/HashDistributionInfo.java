@@ -41,13 +41,22 @@ public class HashDistributionInfo extends DistributionInfo {
 
     public HashDistributionInfo() {
         super();
-        this.distributionColumns = new ArrayList<Column>();
+        this.distributionColumns = new ArrayList<>();
     }
 
     public HashDistributionInfo(int bucketNum, List<Column> distributionColumns) {
         super(DistributionInfoType.HASH);
         this.distributionColumns = distributionColumns;
         this.bucketNum = bucketNum;
+    }
+
+    public HashDistributionInfo(HashDistributionInfo info) {
+        super(DistributionInfoType.HASH);
+        this.bucketNum = info.bucketNum;
+        this.distributionColumns = new ArrayList<>();
+        for (Column distributionColumn : info.getDistributionColumns()) {
+            this.distributionColumns.add(new Column(distributionColumn));
+        }
     }
 
     public List<Column> getDistributionColumns() {

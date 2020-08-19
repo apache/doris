@@ -51,7 +51,7 @@ public class TableProperty implements Writable {
 
     private boolean isInMemory = false;
 
-    /*
+    /**
      * the default storage format of this table.
      * DEFAULT: depends on BE's config 'default_rowset_type'
      * V1: alpha rowset
@@ -63,6 +63,14 @@ public class TableProperty implements Writable {
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
+    }
+
+    public TableProperty(TableProperty other) {
+        this.properties = (other.getProperties() == null) ? Maps.newHashMap() : Maps.newHashMap(other.getProperties());
+        buildDynamicProperty();
+        buildReplicationNum();
+        buildInMemory();
+        buildStorageFormat();
     }
 
     public static boolean isSamePrefixProperties(Map<String, String> properties, String prefix) {

@@ -75,6 +75,17 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         this.defineStmt = defineStmt;
     }
 
+    public MaterializedIndexMeta(MaterializedIndexMeta other) {
+        this.indexId = other.indexId;
+        this.schema = other.schema;
+        this.schemaVersion = other.schemaVersion;
+        this.schemaHash = other.schemaHash;
+        this.shortKeyColumnCount = other.shortKeyColumnCount;
+        this.storageType = other.storageType;
+        this.keysType = other.keysType;
+        this.defineStmt = new OriginStatement(other.defineStmt);
+    }
+
     public long getIndexId() {
         return indexId;
     }

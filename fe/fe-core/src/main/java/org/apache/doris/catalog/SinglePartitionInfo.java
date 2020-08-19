@@ -26,6 +26,10 @@ public class SinglePartitionInfo extends PartitionInfo {
         super(PartitionType.UNPARTITIONED);
     }
 
+    public SinglePartitionInfo(SinglePartitionInfo other) {
+        super(other);
+    }
+
     public static PartitionInfo read(DataInput in) throws IOException {
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.readFields(in);
@@ -37,6 +41,7 @@ public class SinglePartitionInfo extends PartitionInfo {
         super.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
     }

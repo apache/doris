@@ -48,6 +48,7 @@ import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -247,6 +248,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -2994,34 +2996,7 @@ public class Catalog {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
 
-        // check if db exists
-        Database db = getDb(stmt.getDbName());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-
-        // only internal table should check quota and cluster capacity
-        if (!stmt.isExternal()) {
-            // check cluster capacity
-            Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
-            // check db quota
-            db.checkQuota();
-        }
-
-        // check if table exists in db
-        db.readLock();
-        try {
-            if (db.getTable(tableName) != null) {
-                if (stmt.isSetIfNotExists()) {
-                    LOG.info("create table[{}] which already exists", tableName);
-                    return;
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
+        Database db = checkExistedBeforeCreateTable(stmt.getClusterName(), dbName, tableName, stmt.isExternal(), stmt.isSetIfNotExists());
 
         if (engineName.equals("olap")) {
             createOlapTable(db, stmt);
@@ -3042,7 +3017,239 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
         Preconditions.checkState(false);
-        return;
+    }
+
+    /**
+     * There are two way to clone a OlapTable, first is let OlapTable class implements Cloneable and override clone method
+     * But I think it is violates the open-close principle and error-prone because the clone action not only change the
+     * data in FE but also need to create tablet in BE, so it is not a normal clone action, the better way is to create
+     * a new table manual, all information we need can get from existed table.
+     *
+     * Following is the step to create an olap table:
+     * 1. create columns
+     * 2. create partition info
+     * 3. create distribution info
+     * 4. set table id and base index id
+     * 5. set bloom filter columns
+     * 6. set and build TableProperty includes:
+     *     6.1. dynamicProperty
+     *     6.2. replicationNum
+     *     6.3. inMemory
+     *     6.4. storageFormat
+     * 7. set index meta
+     * 8. check colocation properties
+     * 9. create tablet in BE
+     * 10. add this table to FE's meta
+     * 11. add this table to ColocateGroup if necessary
+     */
+    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        String dbName = stmt.getDbName();
+        String tableName = stmt.getTableName();
+        String existedDbName = stmt.getExistedDbName();
+        String existedTableName = stmt.getExistedTableName();
+
+        Database db = checkExistedBeforeCreateTable(stmt.getClusterName(), dbName, tableName, false, stmt.isSetIfNotExists());
+
+        // check table existed && get create table info
+        Database existedDb = getDb(existedDbName);
+        if (existedDb == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+        OlapTable olapTable;
+        List<Long> partitionIds = Lists.newArrayList();
+        PartitionInfo partitionInfo;
+        DistributionInfo distributionInfo;
+        Set<String> bfColumns;
+        Map<Long, String> partitionIdToName = Maps.newHashMap();
+        double bfFpp;
+        long tableId;
+        long existedTableId;
+        existedDb.readLock();
+        try {
+            if (existedDb.getTable(existedTableName) == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_NOT_EXISTS_ERROR, existedTableName);
+            }
+            if (existedDb.getTable(existedTableName).getType() != TableType.OLAP) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_ONLY_SUPPORT_OLAP_TABLE, existedTableName);
+            }
+            // 1. create columns
+            OlapTable existedTable = (OlapTable) existedDb.getTable(existedTableName);
+            existedTableId = existedTable.getId();
+            List<Column> baseSchema = new ArrayList<>();
+            for (Column column : existedTable.getBaseSchema()) {
+                baseSchema.add(new Column(column));
+            }
+            // 2. create partition info
+            if (existedTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                partitionInfo = new RangePartitionInfo((RangePartitionInfo) existedTable.getPartitionInfo());
+            } else {
+                partitionInfo = new SinglePartitionInfo((SinglePartitionInfo) existedTable.getPartitionInfo());
+            }
+            // 3. create distribution info
+            if (existedTable.getDefaultDistributionInfo().getType() == DistributionInfoType.HASH) {
+                distributionInfo = new HashDistributionInfo((HashDistributionInfo) existedTable.getDefaultDistributionInfo());
+            } else {
+                // Can not go to this branch
+                ErrorReport.reportDdlException(ErrorCode.ERR_ONLY_SUPPORT_HASH_DISTRIBUTION, existedTableName);
+                return;
+            }
+            // 4. set table id and base index id
+            tableId = getNextId();
+            long baseIndexId = getNextId();
+            TableIndexes indexes = new TableIndexes(existedTable.getTableIndexes());
+            String comment = existedTable.getComment();
+            // 5. set bloom filter columns
+            bfColumns = existedTable.getCopiedBfColumns();
+            bfFpp = existedTable.getBfFpp();
+            // 6. set and build TableProperty
+            TableProperty tableProperty = new TableProperty(existedTable.getTableProperty());
+            // 7. set index meta
+            Map<String, Long> indexNameToId = existedTable.getIndexNameToId();
+            Map<Long, MaterializedIndexMeta> indexIdToMeta = existedTable.getIndexIdToMeta();
+            String colocateGroup = existedTable.getColocateGroup();
+            olapTable = new OlapTable(tableId, tableName, baseSchema, existedTable.getKeysType(), partitionInfo, distributionInfo,
+                    indexes, comment, baseIndexId, bfColumns, bfFpp, colocateGroup, indexNameToId, indexIdToMeta, tableProperty);
+            // 8. check colocation properties
+            checkColocateGroupBeforeCreateTable(colocateGroup, db.getId(), olapTable);
+            if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                Optional<Partition> partition = olapTable.getPartitions().stream().findFirst();
+                Preconditions.checkArgument(partition.isPresent());
+                partitionIds.add(partition.get().getId());
+            } else if (partitionInfo.getType() == PartitionType.RANGE) {
+                for (Partition existedTablePartition : existedTable.getPartitions()) {
+                    partitionIds.add(existedTablePartition.getId());
+                    partitionIdToName.put(existedTablePartition.getId(), existedTablePartition.getName());
+                }
+            } else {
+                throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
+            }
+        } finally {
+            existedDb.readUnlock();
+        }
+
+        // 9. create tablet in BE
+        Set<Long> tabletIdSet = new HashSet<>();
+        try {
+            if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                // this is a 1-level partitioned table
+                // use table name as partition name
+                String partitionName = olapTable.getName();
+
+                // create partition
+                long partitionId = partitionIds.get(0);
+                Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
+                        olapTable.getId(), olapTable.getBaseIndexId(),
+                        partitionId, partitionName,
+                        olapTable.getIndexIdToMeta(),
+                        olapTable.getKeysType(),
+                        distributionInfo,
+                        partitionInfo.getDataProperty(partitionId).getStorageMedium(),
+                        partitionInfo.getReplicationNum(partitionId),
+                        null, bfColumns, bfFpp,
+                        tabletIdSet, olapTable.getCopiedIndexes(),
+                        olapTable.isInMemory(), olapTable.getStorageFormat(), partitionInfo.getTabletType(partitionId));
+                olapTable.addPartition(partition);
+            } else if (partitionInfo.getType() == PartitionType.RANGE) {
+                // this is a 2-level partitioned tables
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+                for (Long partitionId : partitionIds) {
+                    DataProperty dataProperty = rangePartitionInfo.getDataProperty(partitionId);
+                    String partitionName = partitionIdToName.get(partitionId);
+                    Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
+                            olapTable.getId(), olapTable.getBaseIndexId(),
+                            partitionId, partitionName,
+                            olapTable.getIndexIdToMeta(),
+                            olapTable.getKeysType(),
+                            distributionInfo,
+                            dataProperty.getStorageMedium(),
+                            partitionInfo.getReplicationNum(partitionId),
+                            null, bfColumns, bfFpp,
+                            tabletIdSet, olapTable.getCopiedIndexes(),
+                            olapTable.isInMemory(), olapTable.getStorageFormat(),
+                            partitionInfo.getTabletType(partitionId));
+                    olapTable.addPartition(partition);
+                }
+            } else {
+                throw new DdlException("Unsupport partition method: " + partitionInfo.getType().name());
+            }
+
+            if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
+            }
+            // we have added these index to memory, only need to persist here
+            if (getColocateTableIndex().isColocateTable(tableId)) {
+                GroupId groupId = getColocateTableIndex().getGroup(tableId);
+                List<List<Long>> backendsPerBucketSeq = getColocateTableIndex().getBackendsPerBucketSeq(groupId);
+                ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
+                editLog.logColocateAddTable(info);
+            }
+            LOG.info("successfully create table [{};{}] like [{};{}]", tableName, tableId, existedTableName, existedTableId);
+            // register or remove table from DynamicPartition after table created
+            DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable);
+            dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
+                    tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+        } catch (DdlException e) {
+            for (Long tabletId : tabletIdSet) {
+                Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+            if (getColocateTableIndex().isColocateTable(tableId)) {
+                getColocateTableIndex().removeTable(tableId);
+            }
+            throw e;
+        }
+    }
+
+    private Database checkExistedBeforeCreateTable(String clusterName,
+                                                   String dbName,
+                                                   String tableName,
+                                                   boolean isExternal,
+                                                   boolean isSetIfNotExists) throws DdlException {
+        // check if db exists
+        Database db = getDb(dbName);
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+
+        // only internal table should check quota and cluster capacity
+        if (!isExternal) {
+            // check cluster capacity
+            Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
+            // check db quota
+            db.checkQuota();
+        }
+
+        // check if table exists in db
+        db.readLock();
+        try {
+            if (db.getTable(tableName) != null) {
+                if (isSetIfNotExists) {
+                    LOG.info("create table[{}] which already exists", tableName);
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
+        return db;
+    }
+
+    private void checkColocateGroupBeforeCreateTable(String colocateGroup, long dbId, OlapTable olapTable) throws DdlException {
+        if (colocateGroup != null) {
+            if (Config.disable_colocate_join) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_FEATURE_DISABLED);
+            }
+            String fullGroupName = dbId + "_" + colocateGroup;
+            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
+            if (groupSchema != null) {
+                // group already exist, check if this table can be added to this group
+                groupSchema.checkColocateSchema(olapTable);
+            }
+            // add table to this group, if group does not exist, create a new one
+            getColocateTableIndex().addTableToGroup(dbId, olapTable, colocateGroup,
+                    null /* generate group id inside */);
+            olapTable.setColocateGroup(colocateGroup);
+        }
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
@@ -3643,21 +3850,7 @@ public class Catalog {
         // check colocation properties
         try {
             String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
-            if (colocateGroup != null) {
-                if (Config.disable_colocate_join) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_FEATURE_DISABLED);
-                }
-                String fullGroupName = db.getId() + "_" + colocateGroup;
-                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
-                if (groupSchema != null) {
-                    // group already exist, check if this table can be added to this group
-                    groupSchema.checkColocateSchema(olapTable);
-                }
-                // add table to this group, if group does not exist, create a new one
-                getColocateTableIndex().addTableToGroup(db.getId(), olapTable, colocateGroup,
-                        null /* generate group id inside */);
-                olapTable.setColocateGroup(colocateGroup);
-            }
+            checkColocateGroupBeforeCreateTable(colocateGroup, db.getId(), olapTable);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -3724,7 +3917,7 @@ public class Catalog {
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
-        Set<Long> tabletIdSet = new HashSet<Long>();
+        Set<Long> tabletIdSet = new HashSet<>();
 
         // create partition
         try {
@@ -3778,7 +3971,7 @@ public class Catalog {
                     olapTable.addPartition(partition);
                 }
             } else {
-                throw new DdlException("Unsupport partition method: " + partitionInfo.getType().name());
+                throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
 
             if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {

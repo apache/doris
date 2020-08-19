@@ -27,7 +27,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/*
+/**
  * This class represents an origin statement
  * in multiple statements. 
  */
@@ -43,6 +43,11 @@ public class OriginStatement implements Writable {
     public OriginStatement(String originStmt, int idx) {
         this.originStmt = originStmt;
         this.idx = idx;
+    }
+
+    public OriginStatement(OriginStatement other) {
+        this.originStmt = other.originStmt;
+        this.idx = other.idx;
     }
 
     public static OriginStatement read(DataInput in) throws IOException {

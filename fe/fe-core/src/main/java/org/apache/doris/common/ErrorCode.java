@@ -31,6 +31,7 @@ public enum ErrorCode {
             "Access denied for user '%s' (using password: %s)"),
     ERR_NO_DB_ERROR(1046, new byte[] {'3', 'D', '0', '0', '0'}, "No database selected"),
     ERR_UNKNOWN_COM_ERROR(1047, new byte[] {'0', '8', 'S', '0', '1'}, "Unknown command"),
+    ERR_TABLE_NOT_EXISTS_ERROR(1048, new byte[] {'4', '2', 'S', '0', '1'}, "Table '%s' not exists"),
     ERR_BAD_DB_ERROR(1049, new byte[] {'4', '2', '0', '0', '0'}, "Unknown database '%s'"),
     ERR_TABLE_EXISTS_ERROR(1050, new byte[] {'4', '2', 'S', '0', '1'}, "Table '%s' already exists"),
     ERR_BAD_TABLE_ERROR(1051, new byte[] {'4', '2', 'S', '0', '2'}, "Unknown table '%s'"),
@@ -236,7 +237,9 @@ public enum ErrorCode {
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO(5071, new byte[] {'4', '2', '0', '0', '0'},
             "Dynamic partition replication num must greater than 0"),
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT(5072, new byte[] {'4', '2', '0', '0', '0'},
-            "Invalid dynamic partition replication num: %s.");
+            "Invalid dynamic partition replication num: %s."),
+    ERR_ONLY_SUPPORT_OLAP_TABLE(5073, new byte[] {'4', '2', '0', '0', '0'}, "Table %s is not an OLAP"),
+    ERR_ONLY_SUPPORT_HASH_DISTRIBUTION(5074, new byte[] {'4', '2', '0', '0', '0'}, "Table %s's not hash distribution OLAP table");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;
