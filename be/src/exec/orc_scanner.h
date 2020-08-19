@@ -19,6 +19,7 @@
 #define ORC_SCANNER_H
 
 #include <orc/OrcFile.hh>
+
 #include "exec/base_scanner.h"
 
 namespace doris {

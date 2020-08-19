@@ -674,3 +674,11 @@ The time interval of the latest partitioned version of the table refers to the t
 ### `cache_result_max_row_count`
 
 In order to avoid occupying too much memory, the maximum number of rows that can be cached is 2000 by default. If this threshold is exceeded, the cache cannot be set.
+
+### `recover_with_empty_tablet`
+
+In some very special circumstances, such as code bugs, or human misoperation, etc., all replicas of some tablets may be lost. In this case, the data has been substantially lost. However, in some scenarios, the business still hopes to ensure that the query will not report errors even if there is data loss, and reduce the perception of the user layer. At this point, we can use the blank Tablet to fill the missing replica to ensure that the query can be executed normally.
+
+Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing.
+
+Default is false.

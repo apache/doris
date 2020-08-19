@@ -119,8 +119,6 @@ public:
     void start_delete_unused_rowset();
     void add_unused_rowset(RowsetSharedPtr rowset);
 
-    OLAPStatus recover_tablet_until_specfic_version(const TRecoverTabletReq& recover_tablet_req);
-
     // Obtain shard path for new tablet.
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
@@ -232,6 +230,8 @@ private:
     void* _base_compaction_thread_callback(void* arg, DataDir* data_dir);
     // cumulative process function
     void* _cumulative_compaction_thread_callback(void* arg, DataDir* data_dir);
+    // check cumulative compaction config
+    void _check_cumulative_compaction_config();
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void* _garbage_sweeper_thread_callback(void* arg);

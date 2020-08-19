@@ -167,6 +167,7 @@ void TimestampedVersionTracker::capture_expired_paths(
         }
         iter++;
     }
+    
 }
 
 PathVersionListSharedPtr TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_id) {
@@ -417,11 +418,11 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
                 if (_version_graph[top_vertex_index].value > _version_graph[it].value) {
                     continue;
                 }
-
                 visited[it] = true;
                 predecessor[it] = top_vertex_index;
                 bfs_queue.push(it);
             }
+            
         }
     }
 

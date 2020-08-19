@@ -95,6 +95,7 @@ module.exports = [
           "multi-tenant",
           "tablet-meta-tool",
           "tablet-repair-and-balance",
+          "tablet-restore-tool",
           {
             title: "Metrics",
             directoryPath: "monitor-metrics/",

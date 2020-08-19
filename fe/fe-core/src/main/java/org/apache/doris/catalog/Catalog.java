@@ -78,7 +78,6 @@ import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
@@ -172,6 +171,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
@@ -212,6 +212,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -398,7 +399,7 @@ public class Catalog {
     private SmallFileMgr smallFileMgr;
 
     private DynamicPartitionScheduler dynamicPartitionScheduler;
-    
+
     private PluginMgr pluginMgr;
 
     private AuditEventProcessor auditEventProcessor;
@@ -528,7 +529,7 @@ public class Catalog {
 
         this.metaContext = new MetaContext();
         this.metaContext.setThreadLocalInfo();
-        
+
         this.stat = new TabletSchedulerStat();
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
@@ -546,7 +547,7 @@ public class Catalog {
 
         this.dynamicPartitionScheduler = new DynamicPartitionScheduler("DynamicPartitionScheduler",
                 Config.dynamic_partition_check_interval_seconds * 1000L);
-        
+
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;
         this.imageDir = this.metaDir + IMAGE_DIR;
@@ -676,7 +677,7 @@ public class Catalog {
                             LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                         }
                     }
-                    
+
                     if (mustLock) {
                         continue;
                     } else {
@@ -781,7 +782,7 @@ public class Catalog {
             LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
         }
     }
-    
+
     public boolean isReady() {
         return isReady.get();
     }
@@ -1583,7 +1584,7 @@ public class Catalog {
                 Frontend fe = Frontend.read(dis);
                 replayAddFrontend(fe);
             }
-            
+
             size = dis.readInt();
             newChecksum ^= size;
             for (int i = 0; i < size; i++) {
@@ -2231,12 +2232,16 @@ public class Catalog {
         VariableMgr.replayGlobalVariable(variable);
     }
 
+    public void replayGlobalVariableV2(GlobalVarPersistInfo info) throws IOException, DdlException {
+        VariableMgr.replayGlobalVariableV2(info);
+    }
+
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getLoadManager().write(out);
         return checksum;
     }
 
-	public long saveResources(DataOutputStream out, long checksum) throws IOException {
+    public long saveResources(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getResourceMgr().write(out);
         return checksum;
     }
@@ -2682,9 +2687,9 @@ public class Catalog {
             try {
                 if (!stmt.isForceDrop()) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
-                       throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
-                               "The database [" + dbName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                               " please use \"DROP database FORCE\".");
+                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
+                                "The database [" + dbName +"] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
+                                " please use \"DROP database FORCE\".");
                     }
                 }
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
@@ -3178,7 +3183,7 @@ public class Catalog {
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType()
-                    );
+            );
 
             // check again
             db.writeLock();
@@ -3974,55 +3979,43 @@ public class Catalog {
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
             if (bfColumnNames != null) {
-                appendProperties(sb, PropertyAnalyzer.PROPERTIES_BF_COLUMNS, Joiner.on(", ").join(olapTable.getCopiedBfColumns()));
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
+                sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
             }
 
             if (separatePartition) {
                 // version info
-                Partition partition;
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
+                Partition partition = null;
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     partition = olapTable.getPartition(olapTable.getName());
                 } else {
                     Preconditions.checkState(partitionId.size() == 1);
                     partition = olapTable.getPartition(partitionId.get(0));
                 }
-                appendProperties(sb, PropertyAnalyzer.PROPERTIES_VERSION_INFO, Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()));
+                sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
+                        .append("\"");
             }
 
             // colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
-                appendProperties(sb, PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateTable);
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
+                sb.append(colocateTable).append("\"");
             }
 
             // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
-                DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
-                appendProperties(sb, DynamicPartitionProperty.ENABLE, dynamicPartitionProperty.getEnable());
-                appendProperties(sb, DynamicPartitionProperty.TIME_UNIT, dynamicPartitionProperty.getTimeUnit());
-                appendProperties(sb, DynamicPartitionProperty.TIME_ZONE, dynamicPartitionProperty.getTimeZone());
-                appendProperties(sb, DynamicPartitionProperty.START, dynamicPartitionProperty.getStart());
-                appendProperties(sb, DynamicPartitionProperty.END, dynamicPartitionProperty.getEnd());
-                appendProperties(sb, DynamicPartitionProperty.PREFIX, dynamicPartitionProperty.getPrefix());
-                int dynamicPartitionReplicationNum = dynamicPartitionProperty.getReplicationNum();
-                if (dynamicPartitionProperty.getReplicationNum() == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) {
-                    // use table replicationNum if not set dynamicPartitionReplicationNum
-                    dynamicPartitionReplicationNum = replicationNum;
-                }
-                appendProperties(sb, DynamicPartitionProperty.REPLICATION_NUM, dynamicPartitionReplicationNum);
-                appendProperties(sb, DynamicPartitionProperty.BUCKETS, dynamicPartitionProperty.getBuckets());
-                if (TimestampArithmeticExpr.TimeUnit.WEEK.toString().equalsIgnoreCase(dynamicPartitionProperty.getTimeUnit())) {
-                    appendProperties(sb, DynamicPartitionProperty.START_DAY_OF_WEEK, dynamicPartitionProperty.getStartOfWeek().dayOfWeek);
-                } else if (TimestampArithmeticExpr.TimeUnit.MONTH.toString().equalsIgnoreCase(dynamicPartitionProperty.getTimeUnit())) {
-                    appendProperties(sb, DynamicPartitionProperty.START_DAY_OF_WEEK, dynamicPartitionProperty.getStartOfMonth().day);
-                }
+                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicationNum));
             }
 
             // in memory
-            appendProperties(sb, PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory());
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+            sb.append(olapTable.isInMemory()).append("\"");
 
             // storage type
-            appendProperties(sb, PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, olapTable.getStorageFormat());
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
+            sb.append(olapTable.getStorageFormat()).append("\"");
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -4160,10 +4153,6 @@ public class Catalog {
         }
     }
 
-    private static void appendProperties(StringBuilder sb, String key, Object value) {
-        sb.append(",\n\"").append(key).append("\" = \"").append(value).append("\"");
-    }
-
     public void replayCreateTable(String dbName, Table table) {
         Database db = this.fullNameToDb.get(dbName);
         db.createTableWithLock(table, true, false);
@@ -4251,7 +4240,7 @@ public class Catalog {
                     // get backends from existing backend sequence
                     chosenBackendIds = backendsPerBucketSeq.get(i);
                 }
-                
+
                 // create replicas
                 for (long backendId : chosenBackendIds) {
                     long replicaId = getNextId();
@@ -5020,7 +5009,7 @@ public class Catalog {
 
     // the invoker should keep db write lock
     public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
-            GroupId assignedGroupId)
+                                    GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
@@ -5041,7 +5030,7 @@ public class Catalog {
                         } else if (bucketsNum != partition.getDistributionInfo().getBucketNum()) {
                             throw new DdlException("Partitions in table " + table.getName() + " have different buckets number");
                         }
-                        
+
                         if (replicationNum == -1) {
                             replicationNum = partitionInfo.getReplicationNum(partition.getId());
                         } else if (replicationNum != partitionInfo.getReplicationNum(partition.getId())) {
@@ -5053,7 +5042,7 @@ public class Catalog {
                 // set to an already exist colocate group, check if this table can be added to this group.
                 groupSchema.checkColocateSchema(table);
             }
-            
+
             List<List<Long>> backendsPerBucketSeq = null;
             if (groupSchema == null) {
                 // assign to a newly created group, set backends sequence.
@@ -5465,7 +5454,7 @@ public class Catalog {
         } catch (UserException e) {
             throw new DdlException("failed to init view stmt", e);
         }
-      
+
         if (!db.createTableWithLock(newView, false, stmt.isSetIfNotExists())) {
             throw new DdlException("Failed to create view[" + tableName + "].");
         }
@@ -6223,13 +6212,13 @@ public class Catalog {
     /*
      * Truncate specified table or partitions.
      * The main idea is:
-     * 
+     *
      * 1. using the same schema to create new table(partitions)
      * 2. use the new created table(partitions) to replace the old ones.
-     * 
+     *
      * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
      * otherwise, it will only truncate those specified partitions.
-     * 
+     *
      */
     public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
         TableRef tblRef = truncateTableStmt.getTblRef();
@@ -6259,14 +6248,14 @@ public class Catalog {
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
             }
-            
+
             if (!truncateEntireTable) {
                 for (String partName : tblRef.getPartitionNames().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
                     }
-                    
+
                     origPartitions.put(partName, partition.getId());
                 }
             } else {
@@ -6274,12 +6263,12 @@ public class Catalog {
                     origPartitions.put(partition.getName(), partition.getId());
                 }
             }
-            
+
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true, IndexExtState.VISIBLE);
         } finally {
             db.readUnlock();
         }
-        
+
         // 2. use the copied table to create partitions
         List<Partition> newPartitions = Lists.newArrayList();
         // tabletIdSet to save all newly created tablet ids.
@@ -6329,7 +6318,7 @@ public class Catalog {
             if (olapTable == null) {
                 throw new DdlException("Table[" + copiedTbl.getName() + "] is dropped");
             }
-            
+
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
             }
@@ -6377,7 +6366,7 @@ public class Catalog {
         } finally {
             db.writeUnlock();
         }
-        
+
         LOG.info("finished to truncate table {}, partitions: {}",
                 tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
@@ -6487,20 +6476,56 @@ public class Catalog {
 
     public void replayBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         List<Pair<Long, Integer>> tabletsWithSchemaHash = backendTabletsInfo.getTabletSchemaHash();
-        for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
-            Replica replica = tabletInvertedIndex.getReplica(tabletInfo.first,
-                    backendTabletsInfo.getBackendId());
-            if (replica == null) {
-                LOG.warn("replica does not found when replay. tablet {}, backend {}",
-                        tabletInfo.first, backendTabletsInfo.getBackendId());
+        if (!tabletsWithSchemaHash.isEmpty()) {
+            // In previous version, we save replica info in `tabletsWithSchemaHash`,
+            // but it is wrong because we can not get replica from `tabletInvertedIndex` when doing checkpoint,
+            // because when doing checkpoint, the tabletInvertedIndex is not initialized at all.
+            //
+            // So we can only discard this information, in this case, it is equivalent to losing the record of these operations.
+            // But it doesn't matter, these records are currently only used to record whether a replica is in a bad state.
+            // This state has little effect on the system, and it can be restored after the system has processed the bad state replica.
+            for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
+                LOG.warn("find an old backendTabletsInfo for tablet {}, ignore it", tabletInfo.first);
+            }
+            return;
+        }
+
+        // in new version, replica info is saved here.
+        // but we need to get replica from db->tbl->partition->...
+        List<ReplicaPersistInfo> replicaPersistInfos = backendTabletsInfo.getReplicaPersistInfos();
+        for (ReplicaPersistInfo info : replicaPersistInfos) {
+            long dbId = info.getDbId();
+            Database db = getDb(dbId);
+            if (db == null) {
                 continue;
             }
-
-            if (replica.getSchemaHash() != tabletInfo.second) {
-                continue;
+            db.writeLock();
+            try {
+                OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
+                if (tbl == null) {
+                    continue;
+                }
+                Partition partition = tbl.getPartition(info.getPartitionId());
+                if (partition == null) {
+                    continue;
+                }
+                MaterializedIndex mindex = partition.getIndex(info.getIndexId());
+                if (mindex == null) {
+                    continue;
+                }
+                Tablet tablet = mindex.getTablet(info.getTabletId());
+                if (tablet == null) {
+                    continue;
+                }
+                Replica replica = tablet.getReplicaById(info.getReplicaId());
+                if (replica != null) {
+                    replica.setBad(true);
+                    LOG.debug("get replica {} of tablet {} on backend {} to bad when replaying",
+                            info.getReplicaId(), info.getTabletId(), info.getBackendId());
+                }
+            } finally {
+                db.writeUnlock();
             }
-
-            replica.setBad(backendTabletsInfo.isBad());
         }
     }
 

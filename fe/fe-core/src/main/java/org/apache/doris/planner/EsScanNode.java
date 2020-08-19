@@ -204,13 +204,14 @@ public class EsScanNode extends ScanNode {
                     String.join(",", unPartitionedIndices),
                     String.join(",", partitionedIndices));
         }
-        int beIndex = random.nextInt(backendList.size());
+        int size = backendList.size();
+        int beIndex = random.nextInt(size);
         List<TScanRangeLocations> result = Lists.newArrayList();
         for (EsShardPartitions indexState : selectedIndex) {
             for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
                 // get backends
                 Set<Backend> colocatedBes = Sets.newHashSet();
-                int numBe = Math.min(3, backendMap.size());
+                int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
                     shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress() : item.getAddress());
@@ -224,7 +225,7 @@ public class EsScanNode extends ScanNode {
                 List<Backend> candidateBeList = Lists.newArrayList();
                 if (usingRandomBackend) {
                     for (int i = 0; i < numBe; ++i) {
-                        candidateBeList.add(backendList.get(beIndex++ % numBe));
+                        candidateBeList.add(backendList.get(beIndex++ % size));
                     }
                 } else {
                     candidateBeList.addAll(colocatedBes);
