@@ -114,9 +114,6 @@ public:
                                             int64_t current_cumulative_point,
                                             int64_t* cumulative_point) = 0;
 
-protected:
-    /// tablet pointer
-    std::weak_ptr<Tablet> _tablet;
 };
 
 /// Num based cumulative compcation policy implemention. Num based policy which derives CumulativeCompactionPolicy is early 
