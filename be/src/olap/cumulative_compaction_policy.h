@@ -114,7 +114,7 @@ public:
 
 protected:
     /// tablet pointer
-    std::shared_ptr<Tablet> _tablet;
+    std::weak_ptr<Tablet> _tablet;
 };
 
 /// Num based cumulative compcation policy implemention. Num based policy which derives CumulativeCompactionPolicy is early 

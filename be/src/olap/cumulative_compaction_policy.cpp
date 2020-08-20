@@ -75,6 +75,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
     int64_t promotion_size = 0;
     _calc_promotion_size(*base_rowset_meta, &promotion_size);
 
+    auto tablet = _tablet.lock();
     int64_t prev_version = -1;
     for (const RowsetMetaSharedPtr& rs : existing_rss) {
         if (rs->version().first > prev_version + 1) {
@@ -82,7 +83,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
             break;
         }
 
-        bool is_delete = _tablet->version_for_delete_predicate(rs->version());
+        bool is_delete = tablet->version_for_delete_predicate(rs->version());
 
         // break the loop if segments in this rowset is overlapping, or is a singleton.
         if (!is_delete && (rs->is_segments_overlapping() || rs->is_singleton_delta())) {
@@ -101,7 +102,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
     }
     VLOG(3) << "cumulative compaction size_based policy, calculate cumulative point value = "
               << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
-              << " tablet = " << _tablet->full_name();
+              << " tablet = " << tablet->full_name();
 }
 
 void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(RowsetMetaSharedPtr base_rowset_meta,
@@ -126,16 +127,16 @@ void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_size_based_promotion_s
 void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         const std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr output_rowset,
         Version& last_delete_version) {
-
+    auto tablet = _tablet.lock();
     // if rowsets have delete version, move to the last directly
     if (last_delete_version.first != -1) {
-        _tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
+        tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
     } else {
         // if rowsets have not delete version, check output_rowset total disk size 
         // satisfies promotion size.
         size_t total_size = output_rowset->rowset_meta()->total_disk_size();
         if (total_size >= _tablet_size_based_promotion_size) {
-            _tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
+            tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
         }
     }
 }
@@ -208,10 +209,11 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
+    auto tablet = _tablet.lock();
     for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
         RowsetSharedPtr rowset = candidate_rowsets[i];
         // check whether this rowset is delete version
-        if (_tablet->version_for_delete_predicate(rowset->version())) {
+        if (tablet->version_for_delete_predicate(rowset->version())) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.
@@ -273,7 +275,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     LOG(INFO) << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
               << ", total_size = " << total_size
               << ", calc promotion size value = " << promotion_size
-              << ", tablet = " << _tablet->full_name() << ", input_rowset size "
+              << ", tablet = " << tablet->full_name() << ", input_rowset size "
               << input_rowsets->size();
 
     // empty return
@@ -312,9 +314,10 @@ int SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
 void NumBasedCumulativeCompactionPolicy::update_cumulative_point(
         const std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr _output_rowset,
         Version& last_delete_version) {
+    auto tablet = _tablet.lock();
     // use the version after end version of the last input rowsets to update cumulative point
     int64_t cumulative_point = input_rowsets.back()->end_version() + 1;
-    _tablet->set_cumulative_layer_point(cumulative_point);
+    tablet->set_cumulative_layer_point(cumulative_point);
 }
 
 int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
@@ -323,10 +326,11 @@ int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
         Version* last_delete_version, size_t* compaction_score) {
     *compaction_score = 0;
     int transient_size = 0;
+    auto tablet = _tablet.lock();
     for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
         RowsetSharedPtr rowset = candidate_rowsets[i];
         // check whether this rowset is delete version
-        if (_tablet->version_for_delete_predicate(rowset->version())) {
+        if (tablet->version_for_delete_predicate(rowset->version())) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.
@@ -462,7 +466,8 @@ void CumulativeCompactionPolicyFactory::_parse_cumulative_compaction_policy(std:
     else if (type == CUMULATIVE_SIZE_BASED_POLICY) {
         *policy_type = SIZE_BASED_POLICY;
     } else {
-        LOG(FATAL) << "parse cumulative compaction policy error " << type;
+        LOG(WARNING) << "parse cumulative compaction policy error " << type << ", default use " << CUMULATIVE_NUM_BASED_POLICY;
+        *policy_type = NUM_BASED_POLICY;
     }
 }
 }
