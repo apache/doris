@@ -137,6 +137,37 @@ public class CreateTableLikeTest {
         String newTblName5 = "testTbl5_like";
         String existedTblName5 = "testTbl5";
         checkCreateTableLike(createTableFromDiffDb5, createTableLikeSql5, newDbName5, existedDbName5, newTblName5, existedTblName5);
+        // 6. create table from dynamic partition table
+        String createDynamicTblSql = "CREATE TABLE test.`dynamic_partition_normal` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        String createTableLikeSql6 = "create table test.dynamic_partition_normal_like like test.dynamic_partition_normal";
+        String newDbName6 = "test";
+        String newTblName6 = "dynamic_partition_normal_like";
+        String existedTblName6 = "dynamic_partition_normal";
+        checkCreateTableLike(createDynamicTblSql, createTableLikeSql6, newDbName6, newDbName6, newTblName6, existedTblName6);
     }
 
     @Test
