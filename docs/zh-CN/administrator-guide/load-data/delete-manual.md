@@ -140,13 +140,13 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
 
 总体来说，Doris的删除作业的超时时间限制在30秒到5分钟时间内，具体时间可通过下面配置项调整
 
-* tablet\_delete\_timeout\_second
+* `tablet_delete_timeout_second`
 
    delete自身的超时时间是可受指定分区下tablet的数量弹性改变的，此项配置为平均一个tablet所贡献的timeout时间，默认值为2。
    
    假设此次删除所指定分区下有5个tablet，那么可提供给delete的timeout时间为10秒，由于低于最低超时时间30秒，因此最终超时时间为30秒。
    
-* load\_straggler\_wait\_second
+* `load_straggler_wait_second`
 
   如果用户预估的数据量确实比较大，使得5分钟的上限不足时，用户可以通过此项调整timeout上限，默认值为300。
   
@@ -154,13 +154,13 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
   
   `TIMEOUT = MIN(load_straggler_wait_second, MAX(30, tablet_delete_timeout_second * tablet_num))`
   
-* query_timeout
+* `query_timeout`
   
   因为delete本身是一个SQL命令，因此删除语句也会受session限制，timeout还受Session中的`query_timeout`值影响，可以通过`SET query_timeout = xxx`来增加超时时间，单位是秒。
   
 **IN谓词配置**
 
-* max_allowed_in_element_num_of_delete
+* `max_allowed_in_element_num_of_delete`
    
   如果用户在使用in谓词时需要占用的元素比较多，用户可以通过此项调整允许携带的元素上限，默认值为1024。
    
