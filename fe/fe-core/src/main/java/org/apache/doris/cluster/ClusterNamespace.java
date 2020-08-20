@@ -56,7 +56,7 @@ public class ClusterNamespace {
             return false;
         }
         final String[] ele = str.split(CLUSTER_DELIMITER);
-        return (ele.length > 1) ? true : false;
+        return ele.length > 1;
     }
 
     private static String linkString(String cluster, String name) {

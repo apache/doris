@@ -31,18 +31,24 @@ import org.apache.logging.log4j.Logger;
 public class CreateTableLikeStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableLikeStmt.class);
 
+    private boolean isExternal;
     private boolean ifNotExists;
     private TableName tableName;
     private TableName existedTableName;
 
-    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName) {
+    public CreateTableLikeStmt(boolean ifNotExists, boolean isExternal, TableName tableName, TableName existedTableName) {
         this.ifNotExists = ifNotExists;
+        this.isExternal = isExternal;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
     }
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean isExternal() {
+        return isExternal;
     }
 
     public String getDbName() {
@@ -64,18 +70,23 @@ public class CreateTableLikeStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        existedTableName.analyze(analyzer);
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), existedTableName.getDb(),
+                existedTableName.getTbl(), PrivPredicate.SELECT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+        }
+
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(getTableName());
-
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
     }
 
     @Override
     public String toSql() {
-        return String.format("CREATE TABLE %s AS %s", tableName.toSql(), existedTableName.toSql());
+        return String.format("CREATE TABLE %s LIKE %s", tableName.toSql(), existedTableName.toSql());
     }
 
     @Override

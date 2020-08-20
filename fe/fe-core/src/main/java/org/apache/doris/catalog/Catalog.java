@@ -3019,6 +3019,17 @@ public class Catalog {
         Preconditions.checkState(false);
     }
 
+    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        if (stmt.isExternal()) {
+            createExternalTableLike(stmt);
+        } else {
+            createOlapTableLike(stmt);
+        }
+    }
+
+    private void createExternalTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        // TODO(WC): Support create external table by existed external table
+    }
     /**
      * There are two way to clone a OlapTable, first is let OlapTable class implements Cloneable and override clone method
      * But I think it is violates the open-close principle and error-prone because the clone action not only change the
@@ -3042,7 +3053,7 @@ public class Catalog {
      * 10. add this table to FE's meta
      * 11. add this table to ColocateGroup if necessary
      */
-    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+    private void createOlapTableLike(CreateTableLikeStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
         String existedDbName = stmt.getExistedDbName();
@@ -3053,7 +3064,7 @@ public class Catalog {
         // check table existed && get create table info
         Database existedDb = getDb(existedDbName);
         if (existedDb == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, existedDbName);
         }
         OlapTable olapTable;
         List<Long> partitionIds = Lists.newArrayList();
@@ -3095,7 +3106,6 @@ public class Catalog {
             }
             // 4. set table id and base index id
             tableId = getNextId();
-            long baseIndexId = getNextId();
             TableIndexes indexes = new TableIndexes(existedTable.getTableIndexes());
             String comment = existedTable.getComment();
             // 5. set bloom filter columns
@@ -3108,13 +3118,12 @@ public class Catalog {
             Map<Long, MaterializedIndexMeta> indexIdToMeta = existedTable.getIndexIdToMeta();
             String colocateGroup = existedTable.getColocateGroup();
             olapTable = new OlapTable(tableId, tableName, baseSchema, existedTable.getKeysType(), partitionInfo, distributionInfo,
-                    indexes, comment, baseIndexId, bfColumns, bfFpp, colocateGroup, indexNameToId, indexIdToMeta, tableProperty);
+                    indexes, comment, existedTable.getBaseIndexId(), bfColumns, bfFpp, colocateGroup, indexNameToId, indexIdToMeta, tableProperty);
             // 8. check colocation properties
             checkColocateGroupBeforeCreateTable(colocateGroup, db.getId(), olapTable);
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 Optional<Partition> partition = olapTable.getPartitions().stream().findFirst();
-                Preconditions.checkArgument(partition.isPresent());
-                partitionIds.add(partition.get().getId());
+                partition.ifPresent(value -> partitionIds.add(value.getId()));
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 for (Partition existedTablePartition : existedTable.getPartitions()) {
                     partitionIds.add(existedTablePartition.getId());
@@ -3136,19 +3145,21 @@ public class Catalog {
                 String partitionName = olapTable.getName();
 
                 // create partition
-                long partitionId = partitionIds.get(0);
-                Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
-                        olapTable.getId(), olapTable.getBaseIndexId(),
-                        partitionId, partitionName,
-                        olapTable.getIndexIdToMeta(),
-                        olapTable.getKeysType(),
-                        distributionInfo,
-                        partitionInfo.getDataProperty(partitionId).getStorageMedium(),
-                        partitionInfo.getReplicationNum(partitionId),
-                        null, bfColumns, bfFpp,
-                        tabletIdSet, olapTable.getCopiedIndexes(),
-                        olapTable.isInMemory(), olapTable.getStorageFormat(), partitionInfo.getTabletType(partitionId));
-                olapTable.addPartition(partition);
+                if (!partitionIds.isEmpty()) {
+                    long partitionId = partitionIds.get(0);
+                    Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
+                            olapTable.getId(), olapTable.getBaseIndexId(),
+                            partitionId, partitionName,
+                            olapTable.getIndexIdToMeta(),
+                            olapTable.getKeysType(),
+                            distributionInfo,
+                            partitionInfo.getDataProperty(partitionId).getStorageMedium(),
+                            partitionInfo.getReplicationNum(partitionId),
+                            null, bfColumns, bfFpp,
+                            tabletIdSet, olapTable.getCopiedIndexes(),
+                            olapTable.isInMemory(), olapTable.getStorageFormat(), partitionInfo.getTabletType(partitionId));
+                    olapTable.addPartition(partition);
+                }
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 // this is a 2-level partitioned tables
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
