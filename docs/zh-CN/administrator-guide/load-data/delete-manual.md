@@ -62,7 +62,7 @@ DELETE FROM my_table PARTITION p1 WHERE k1 < 3 AND k2 = "abc";
 
 说明：
 
-1. `Where`语句中的op的类型可包括`=,>,<,>=,<=,!=`，目前暂时不支持 where key in (value1, value2, value3) 的方式选定范围，后续将加上此功能。
+1. `Where`语句中的op的类型可包括`=, >, <, >=, <=, !=, in, not in`。
 2. `Where`语句中的列只能是`key`列
 3.  当选定的`key`列不存在某个rollup表内时，无法进行delete
 4.  条件语句中各个条件只能是`and`关系，如希望达成`or`可将条件分别写入两个delete语句中
@@ -90,7 +90,7 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
     ```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
     Query OK, 0 rows affected (0.04 sec)
-    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
+    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'COMMITTED', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
 	```
 	
     结果会同时返回一个json字符串：
@@ -158,6 +158,12 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
   
   因为delete本身是一个SQL命令，因此删除语句也会受session限制，timeout还受Session中的`query_timeout`值影响，可以通过`SET query_timeout = xxx`来增加超时时间，单位是秒。
   
+**IN谓词配置**
+
+* max_allowed_in_element_num_of_delete
+   
+  如果用户在使用in谓词时需要占用的元素比较多，用户可以通过此项调整允许携带的元素上限，默认值为1024。
+   
 ## 查看历史记录
 	
 1. 用户可以通过show delete语句查看历史上已执行完成的删除记录
