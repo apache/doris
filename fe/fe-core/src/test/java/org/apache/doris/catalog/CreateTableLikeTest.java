@@ -168,6 +168,23 @@ public class CreateTableLikeTest {
         String newTblName6 = "dynamic_partition_normal_like";
         String existedTblName6 = "dynamic_partition_normal";
         checkCreateTableLike(createDynamicTblSql, createTableLikeSql6, newDbName6, newDbName6, newTblName6, existedTblName6);
+        // 7. create table from colocate table
+        String createColocateTblSql = "create table test.colocateTbl (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"test_group\"\n" +
+                ");";
+        String createTableLikeSql7 = "create table test.colocateTbl_like like test.colocateTbl";
+        String newDbName7 = "test";
+        String newTblName7 = "colocateTbl_like";
+        String existedTblName7 = "colocateTbl";
+        checkCreateTableLike(createColocateTblSql, createTableLikeSql7, newDbName7, newDbName7, newTblName7, existedTblName7);
     }
 
     @Test
