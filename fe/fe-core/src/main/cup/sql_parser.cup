@@ -4606,6 +4606,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_AUTHORS:id
     {: RESULT = id; :}
+    | KW_ARRAY:id
+    {: RESULT = id; :}
     | KW_BACKUP:id
     {: RESULT = id; :}
     | KW_BEGIN:id

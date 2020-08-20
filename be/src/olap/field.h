@@ -41,7 +41,7 @@ namespace doris {
 class Field {
 public:
     explicit Field(const TabletColumn& column)
-        : _type_info(get_type_info(column.type())),
+        : _type_info(get_type_info(&column)),
         _key_coder(get_key_coder(column.type())),
         _name(column.name()),
         _index_size(column.index_length()),
@@ -257,9 +257,10 @@ public:
     Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
         return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
     }
+protected:
+    const TypeInfo* _type_info;
 private:
     // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
-    const TypeInfo* _type_info;
     const KeyCoder* _key_coder;
     std::string _name;
     uint16_t _index_size;
@@ -361,6 +362,21 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
     }
     return _type_info->hash_code(cell.cell_ptr(), seed);
 }
+
+class ArrayField: public Field {
+public:
+    explicit ArrayField(const TabletColumn& column) : Field(column) {
+    }
+
+    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) const override {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            return;
+        }
+        LOG(WARNING) << "aaaa consume " << _type_info->type();
+        _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+    }
+};
 
 class CharField: public Field {
 public:
@@ -512,6 +528,8 @@ public:
                         return new CharField(column);
                     case OLAP_FIELD_TYPE_VARCHAR:
                         return new VarcharField(column);
+                    case OLAP_FIELD_TYPE_ARRAY:
+                        return new ArrayField(column);
                     default:
                         return new Field(column);
                 }

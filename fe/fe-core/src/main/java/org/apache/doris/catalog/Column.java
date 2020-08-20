@@ -315,6 +315,7 @@ public class Column implements Writable {
         tColumn.setIs_key(this.isKey);
         tColumn.setIs_allow_null(this.isAllowNull);
         tColumn.setDefault_value(this.defaultValue);
+        tColumn.setChildren_column(new ArrayList<>());
         toChildrenThrift(this, tColumn);
 
         // The define expr does not need to be serialized here for now.

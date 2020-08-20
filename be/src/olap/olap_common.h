@@ -132,7 +132,7 @@ enum FieldType {
     OLAP_FIELD_TYPE_VARCHAR = 17,
 
     OLAP_FIELD_TYPE_STRUCT = 18,        // Struct
-    OLAP_FIELD_TYPE_LIST = 19,          // LIST
+    OLAP_FIELD_TYPE_ARRAY = 19,          // ARRAY
     OLAP_FIELD_TYPE_MAP = 20,           // Map
     OLAP_FIELD_TYPE_UNKNOWN = 21,       // UNKNOW Type
     OLAP_FIELD_TYPE_NONE = 22,

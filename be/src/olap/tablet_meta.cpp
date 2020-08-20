@@ -120,46 +120,17 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     for (TColumn tcolumn : tablet_schema.columns) {
         ColumnPB* column = schema->add_column();
         uint32_t unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
-        column->set_unique_id(unique_id);
-        column->set_name(tcolumn.column_name);
-        column->set_has_bitmap_index(false);
-        string data_type;
-        EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
-        column->set_type(data_type);
-        if (tcolumn.column_type.type == TPrimitiveType::DECIMAL ||
-            tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
-            column->set_precision(tcolumn.column_type.precision);
-            column->set_frac(tcolumn.column_type.scale);
-        }
-        uint32_t length = TabletColumn::get_field_length_by_type(
-                tcolumn.column_type.type, tcolumn.column_type.len);
-                column->set_length(length);
-        column->set_index_length(length);
-        if (tcolumn.column_type.type == TPrimitiveType::VARCHAR) {
-            if (!tcolumn.column_type.__isset.index_len) {
-                column->set_index_length(10);
-            } else {
-                column->set_index_length(tcolumn.column_type.index_len);
-            }
-        }
-        if (!tcolumn.is_key) {
-            column->set_is_key(false);
-            string aggregation_type;
-            EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
-            column->set_aggregation(aggregation_type);
-        } else {
+
+        _init_column_from_tcolumn(unique_id, tcolumn, column);
+
+        if (column->is_key()) {
             ++key_count;
-            column->set_is_key(true);
-            column->set_aggregation("NONE");
         }
-        column->set_is_nullable(tcolumn.is_allow_null);
-        if (tcolumn.__isset.default_value) {
-            column->set_default_value(tcolumn.default_value);
-        }
-        if (tcolumn.__isset.is_bloom_filter_column) {
-            column->set_is_bf_column(tcolumn.is_bloom_filter_column);
+
+        if (column->is_bf_column()) {
             has_bf_columns = true;
         }
+
         if (tablet_schema.__isset.indexes) {
             for (auto& index : tablet_schema.indexes) {
                 if (index.index_type == TIndexType::type::BITMAP) {
@@ -170,6 +141,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                     }
                 }
             }
+        }
+        
+        if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
+            ColumnPB* children_column = column->add_children_columns();
+            _init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
         }
     }
 
@@ -187,6 +163,53 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     }
 
     init_from_pb(tablet_meta_pb);
+}
+
+void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column) {
+
+    column->set_unique_id(unique_id);
+    column->set_name(tcolumn.column_name);
+    column->set_has_bitmap_index(false);
+    string data_type;
+    EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
+    column->set_type(data_type);
+
+    if (tcolumn.column_type.type == TPrimitiveType::DECIMAL ||
+            tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
+        column->set_precision(tcolumn.column_type.precision);
+        column->set_frac(tcolumn.column_type.scale);
+    }
+
+    uint32_t length = TabletColumn::get_field_length_by_type(
+                tcolumn.column_type.type, tcolumn.column_type.len);
+    column->set_length(length);
+    column->set_index_length(length);
+    if (tcolumn.column_type.type == TPrimitiveType::VARCHAR) {
+        if (!tcolumn.column_type.__isset.index_len) {
+            column->set_index_length(10);
+        } else {
+            column->set_index_length(tcolumn.column_type.index_len);
+        }
+    }
+
+    if (!tcolumn.is_key) {
+        column->set_is_key(false);
+        string aggregation_type;
+        EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
+        column->set_aggregation(aggregation_type);
+    } else {
+        column->set_is_key(true);
+        column->set_aggregation("NONE");
+    }
+
+    column->set_is_nullable(tcolumn.is_allow_null);
+    if (tcolumn.__isset.default_value) {
+        column->set_default_value(tcolumn.default_value);
+    }
+
+    if (tcolumn.__isset.is_bloom_filter_column) {
+        column->set_is_bf_column(tcolumn.is_bloom_filter_column);
+    }
 }
 
 OLAPStatus TabletMeta::create_from_file(const string& file_path) {

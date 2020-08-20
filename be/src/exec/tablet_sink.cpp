@@ -208,8 +208,11 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
 
         row_no = _cur_batch->add_row();
     }
+    LOG(WARNING) << "Aaaaaaaaaaaaaaaaaaaaaaa  before ";
     DCHECK_NE(row_no, RowBatch::INVALID_ROW_INDEX);
     auto tuple = input_tuple->deep_copy(*_tuple_desc, _cur_batch->tuple_data_pool());
+    LOG(WARNING) << "Aaaaaaaaaaaaaaaaaaaaaaa  after ";
+
     _cur_batch->get_row(row_no)->set_tuple(0, tuple);
     _cur_batch->commit_last_row();
     _cur_add_batch_request.add_tablet_ids(tablet_id);

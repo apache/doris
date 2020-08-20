@@ -347,6 +347,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         } else {
             val->shallow_copy(src);
         }
+        LOG(WARNING) << "aaa RawValue::write  aaaaaaaaaa  ";
         break;
     }
     default:

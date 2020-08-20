@@ -134,7 +134,7 @@ public:
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
         // write bloom filters
-        const TypeInfo* bf_typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        const TypeInfo* bf_typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         IndexedColumnWriterOptions options;
         options.write_ordinal_index = true;
         options.write_value_index = false;

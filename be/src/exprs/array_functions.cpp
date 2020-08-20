@@ -29,6 +29,7 @@ ArrayVal ArrayFunctions::array(FunctionContext *context, int num_children, const
     DCHECK_EQ(context->get_return_type().children.size(), 1);  \
     ArrayValue v;  \
     ArrayValue::init_array(context, num_children, PRIMARY_TYPE, &v);  \
+    LOG(WARNING) << "ArrayValue  aaaaaa   " << num_children;   \
     for (int i = 0; i < num_children; ++i) {  \
         v.set(i, PRIMARY_TYPE, values + i);  \
     }  \

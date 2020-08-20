@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_COLLECTION_VALUE_H
-#define DORIS_BE_RUNTIME_COLLECTION_VALUE_H
+#ifndef DORIS_BE_RUNTIME_ARRAY_VALUE_H
+#define DORIS_BE_RUNTIME_ARRAY_VALUE_H
 
 #include "udf/udf.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/mem_pool.h"
-#include "runtime/types.h"
+#include "runtime/primitive_type.h"
 
 namespace doris {
 
@@ -40,7 +40,7 @@ class ArrayIterator;
  * 
  * A new array need initialization memory before used
  */
-class ArrayValue {
+struct ArrayValue {
 
 public:
     ArrayValue() : _length(0), _null_signs(NULL), _data(NULL) {};
@@ -142,4 +142,4 @@ private:
 
 }
 
-#endif // DORIS_BE_RUNTIME_COLLECTION_VALUE_H
+#endif // DORIS_BE_RUNTIME_ARRAY_VALUE_H

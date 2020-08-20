@@ -193,7 +193,7 @@ if [ ${FE_MODULES}x != ""x ]; then
     if [ ${CLEAN} -eq 1 ]; then
         ${MVN_CMD} clean
     fi
-    ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests
+    ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests 
     cd ${DORIS_HOME}
 fi
 

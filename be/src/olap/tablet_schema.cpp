@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vector>
-
 #include "olap/tablet_schema.h"
 #include "tablet_meta.h"
 
@@ -67,8 +65,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_HLL;
     } else if (0 == upper_type_str.compare("STRUCT")) {
         type = OLAP_FIELD_TYPE_STRUCT;
-    } else if (0 == upper_type_str.compare("LIST")) {
-        type = OLAP_FIELD_TYPE_LIST;
+    } else if (0 == upper_type_str.compare("ARRAY")) {
+        type = OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("MAP")) {
         type = OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
@@ -172,8 +170,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
         case OLAP_FIELD_TYPE_STRUCT:
             return "STRUCT";
 
-        case OLAP_FIELD_TYPE_LIST:
-            return "LIST";
+        case OLAP_FIELD_TYPE_ARRAY:
+            return "ARRAY";
 
         case OLAP_FIELD_TYPE_MAP:
             return "MAP";
@@ -245,6 +243,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         case TPrimitiveType::VARCHAR:
         case TPrimitiveType::HLL:
             return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
+        case TPrimitiveType::ARRAY:
+            return string_length;
         case TPrimitiveType::DECIMAL:
         case TPrimitiveType::DECIMALV2:
             return 12; // use 12 bytes in olap engine.
@@ -267,6 +267,15 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
     _type = filed_type;
     _length = get_type_info(filed_type)->size();
     _is_nullable = is_nullable;
+}
+
+TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable,
+                           int32_t unique_id, size_t length) {
+    _aggregation = agg;
+    _type = filed_type;
+    _is_nullable = is_nullable;
+    _unique_id = unique_id;
+    _length = length;
 }
 
 void TabletColumn::init_from_pb(const ColumnPB& column) {
@@ -312,6 +321,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_visible()) {
         _visible = column.visible();
     }
+    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        DCHECK(column.children_columns_size() == 1) << "LIST type has more than 1 children types.";
+        TabletColumn child_column;
+        child_column.init_from_pb(column.children_columns(0));
+        add_sub_column(child_column);
+    }
 }
 
 void TabletColumn::to_schema_pb(ColumnPB* column) {
@@ -340,6 +355,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
     column->set_visible(_visible);
+}
+
+void TabletColumn::add_sub_column(TabletColumn& sub_column) {
+    _sub_columns.push_back(sub_column);
+    sub_column._parent = this;
+    _sub_column_count += 1;
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {

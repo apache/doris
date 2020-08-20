@@ -121,7 +121,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
 }
 
 void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
-    DCHECK(!is_complex_type()) << "Don't support complex type now, type=" << type;
+    DCHECK(!is_complex_type() || type == TYPE_ARRAY) << "Don't support complex type now, type=" << type;
     auto node = ptype->add_types();
     node->set_type(TTypeNodeType::SCALAR);
     auto scalar_type = node->mutable_scalar_type();
@@ -133,6 +133,8 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         DCHECK_NE(scale, -1);
         scalar_type->set_precision(precision);
         scalar_type->set_scale(scale);
+    } else if (type == TYPE_ARRAY) {
+        node->set_type(TTypeNodeType::ARRAY);
     }
 }
 
@@ -158,6 +160,10 @@ TypeDescriptor::TypeDescriptor(
             precision = scalar_type.precision();
             scale = scalar_type.scale();
         }
+        break;
+    }
+    case TTypeNodeType::ARRAY: {
+        type = TYPE_ARRAY;
         break;
     }
     default:

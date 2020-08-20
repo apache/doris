@@ -63,6 +63,8 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool,
                      bool convert_ptrs) {
     memory_copy(dst, this, desc.byte_size());
 
+    LOG(WARNING) << "aaaaaaaaaaaaaaaaa sdfsdfsdfsd " << desc.byte_size();
+
     // allocate in the same pool and then copy all non-null string slots
     for (std::vector<SlotDescriptor*>::const_iterator i = desc.string_slots().begin();
             i != desc.string_slots().end(); ++i) {

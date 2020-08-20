@@ -116,4 +116,5 @@ add_library(Olap STATIC
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
     olap_snapshot_converter.cpp
+    column_vector.cpp
 )

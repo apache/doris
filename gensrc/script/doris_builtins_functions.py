@@ -99,6 +99,12 @@ visible_functions = [
         '_ZN5doris9Operators20bitnot_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValE'],
 
+    # array functions
+    [['array'], 'ARRAY', ['INT', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_6IntValE'],
+    [['array'], 'ARRAY', ['VARCHAR', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE'],
@@ -773,7 +779,8 @@ non_null_result_with_null_param_functions = [
     'concat_ws',
     'ifnull',
     'null_or_empty',
-    'coalesce'
+    'coalesce',
+    'array'
 ]
 
 invisible_functions = [

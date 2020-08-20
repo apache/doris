@@ -257,7 +257,8 @@ message ColumnPB {
     optional string referenced_column = 14; // ColumnMessage.referenced_column?
     optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
     optional bool visible = 16 [default=true];
-
+    repeated ColumnPB children_columns = 17;
+    repeated string children_column_names = 18;
 }
 
 message TabletSchemaPB {
