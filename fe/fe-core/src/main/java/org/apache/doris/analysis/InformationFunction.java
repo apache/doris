@@ -80,5 +80,3 @@ public class InformationFunction extends Expr {
         return funcType + "()";
     }
 }
-
-
