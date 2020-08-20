@@ -445,6 +445,7 @@ public class Column implements Writable {
         Text.writeString(out, json);
     }
 
+    @Deprecated
     private void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);
