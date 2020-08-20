@@ -605,6 +605,8 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE'],
     [['concat'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+    [['replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'],
+            '_ZN5doris15StringFunctions7replaceEPN9doris_udf15FunctionContextERKNS1_9StringValES6_S6_'],
     [['concat_ws'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'],
             '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValEiPS5_'],
