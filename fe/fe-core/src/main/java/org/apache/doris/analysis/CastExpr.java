@@ -72,7 +72,7 @@ public class CastExpr extends Expr {
     /**
      * Copy c'tor used in clone().
      */
-    protected CastExpr(TypeDef targetTypeDef, Expr e) {
+    public CastExpr(TypeDef targetTypeDef, Expr e) {
         Preconditions.checkNotNull(targetTypeDef);
         Preconditions.checkNotNull(e);
         this.targetTypeDef = targetTypeDef;
