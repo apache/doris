@@ -635,6 +635,8 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(
         const string& path, TTabletId* tablet_id, TSchemaHash* schema_hash) {
     static re2::RE2 normal_re("/data/\\d+/(\\d+)/(\\d+)($|/)");
+    // match tablet schema hash data path, for example, the path is /data/1/16791/29998
+    // 1 is shard id , 16791 is tablet id, 29998 is schema hash
     if (RE2::PartialMatch(path, normal_re, tablet_id, schema_hash)) {
         return true;
     }
@@ -810,6 +812,12 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         LOG(WARNING) << "fail to load tablet. tablet_id=" << tablet_id
                      << ", schema_hash:" << schema_hash;
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
+    }
+
+    // check if the tablet path exists since the path maybe deleted by gc thread
+    if (!Env::Default()->path_exists(tablet->tablet_path()).ok()) {
+        LOG(WARNING) << "tablet path not exists, create tablet failed, path=" << tablet->tablet_path();
+        return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
     }
 
     if (tablet_meta->tablet_state() == TABLET_SHUTDOWN) {
@@ -1085,6 +1093,52 @@ OLAPStatus TabletManager::start_trash_sweep() {
     } while (clean_num >= 200);
     return OLAP_SUCCESS;
 } // start_trash_sweep
+
+void TabletManager::register_clone_tablet(int64_t tablet_id) {
+    RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
+    ReadLock rlock(&tablet_map_lock);
+    _tablets_under_clone.insert(tablet_id);
+}
+
+void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
+    RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
+    ReadLock rlock(&tablet_map_lock);
+    _tablets_under_clone.erase(tablet_id);
+}
+
+void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
+        SchemaHash schema_hash, const string& schema_hash_path) {
+    // acquire the read lock, so that there is no creating tablet or load tablet from meta tasks
+    // create tablet and load tablet task should check whether the dir exists
+    RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
+    ReadLock rlock(&tablet_map_lock);
+
+    // check if meta already exists
+    TabletMetaSharedPtr tablet_meta(new TabletMeta());
+    OLAPStatus check_st = TabletMetaManager::get_meta(data_dir, tablet_id, 
+        schema_hash, tablet_meta);
+    if (check_st == OLAP_SUCCESS) {
+        LOG(INFO) << "tablet meta exist is meta store, skip delete the path " << schema_hash_path;
+        return;
+    }
+
+    if (_tablets_under_clone.count(tablet_id) > 0) {
+        LOG(INFO) << "tablet is under clone, skip delete the path " << schema_hash_path;
+        return;
+    }
+
+    // TODO(ygl): may do other checks in the future
+    if (Env::Default()->path_exists(schema_hash_path).ok()) {
+        LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
+        OLAPStatus rm_st = move_to_trash(schema_hash_path, schema_hash_path);
+        if (rm_st != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to move dir to trash. dir=" << schema_hash_path;
+        } else {
+            LOG(INFO) << "move path " << schema_hash_path << " to trash successfully";
+        }
+    }
+    return;
+}
 
 bool TabletManager::try_schema_change_lock(TTabletId tablet_id) {
     bool res = false;

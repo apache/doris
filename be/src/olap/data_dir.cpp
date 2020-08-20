@@ -759,6 +759,55 @@ void DataDir::remove_pending_ids(const std::string& id) {
     _pending_path_ids.erase(id);
 }
 
+// gc unused tablet schemahash dir
+void DataDir::perform_path_gc_by_tablet() {
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    _cv.wait(lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
+    if (_stop_bg_worker) {
+        return;
+    }
+    LOG(INFO) << "start to path gc by tablet schemahash.";
+    int counter = 0;
+    for (auto& path : _all_tablet_schemahash_paths) {
+        ++counter;
+        if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
+            SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
+        }
+        TTabletId tablet_id = -1;
+        TSchemaHash schema_hash = -1;
+        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
+                                                                                 &schema_hash);
+        if (!is_valid) {
+            LOG(WARNING) << "unknown path:" << path;
+            continue;
+        }
+        // should not happen, because already check it is a valid tablet schema hash path in previous step
+        // so that log fatal here
+        if (tablet_id < 1 || schema_hash < 1) {
+            LOG(WARN) << "invalid tablet id " << tablet_id << " or schema hash " << schema_hash
+                << ", path=" << path;
+            continue;
+        }
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+        if (tablet != nullptr) {
+            // could find the tablet, then skip check it
+            continue;
+        }
+        boost::filesystem::path tablet_path(path);
+        boost::filesystem::path data_dir_path = 
+            tablet_path.parent_path().parent_path().parent_path().parent_path();
+        std::string data_dir_string = data_dir_path.string();
+        DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
+        if (data_dir == nullptr) {
+            LOG(WARNING) << "could not find data dir for tablet path " << path;
+            continue;
+        }
+        _tablet_manager->try_delete_unused_tablet_path(data_dir, tablet_id, schema_hash, path);
+    }
+    _all_tablet_schemahash_paths.clear();
+    LOG(INFO) << "finished one time path gc by tablet.";
+}
+
 void DataDir::perform_path_gc_by_rowsetid() {
     // init the set of valid path
     // validate the path in data dir
@@ -833,7 +882,6 @@ void DataDir::perform_path_scan() {
             }
             for (const auto& tablet_id : tablet_ids) {
                 std::string tablet_id_path = shard_path + "/" + tablet_id;
-                _all_check_paths.insert(tablet_id_path);
                 std::set<std::string> schema_hashes;
                 ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
                                                  Env::Default());
@@ -844,7 +892,7 @@ void DataDir::perform_path_scan() {
                 }
                 for (const auto& schema_hash : schema_hashes) {
                     std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
-                    _all_check_paths.insert(tablet_schema_hash_path);
+                    _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
                     std::set<std::string> rowset_files;
 
                     ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr,
@@ -877,15 +925,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
 bool DataDir::_check_pending_ids(const std::string& id) {
     ReadLock rd_lock(&_pending_path_mutex);
     return _pending_path_ids.find(id) != _pending_path_ids.end();
-}
-
-void DataDir::_remove_check_paths_no_lock(const std::set<std::string>& paths) {
-    for (const auto& path : paths) {
-        auto path_iter = _all_check_paths.find(path);
-        if (path_iter != _all_check_paths.end()) {
-            _all_check_paths.erase(path_iter);
-        }
-    }
 }
 
 Status DataDir::update_capacity() {
