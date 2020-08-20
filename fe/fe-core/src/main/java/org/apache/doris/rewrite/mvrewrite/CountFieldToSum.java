@@ -60,6 +60,9 @@ public class CountFieldToSum implements ExprRewriteRule {
         if (fnExpr.getChildren().size() != 1 || !(fnExpr.getChild(0) instanceof SlotRef)) {
             return expr;
         }
+        if (fnExpr.getParams().isDistinct()) {
+            return expr;
+        }
         SlotRef fnChild0 = (SlotRef) fnExpr.getChild(0);
         Column column = fnChild0.getColumn();
         Table table = fnChild0.getTable();
