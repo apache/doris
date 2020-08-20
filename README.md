@@ -156,7 +156,7 @@ If you find any bugs, please file a [GitHub issue](https://github.com/apache/inc
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
-* Developer Mailing list - Subscribe to <dev@doris.incubator.apache.org> to discuss with us.
+* Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
 * Gitter channel - <https://gitter.im/apache-doris/Lobby> - Online chat room with Doris developers.
 * Overview - <https://github.com/apache/incubator-doris/wiki/Doris-Overview>
 * Compile and install - <https://github.com/apache/incubator-doris/wiki/Doris-Install>
