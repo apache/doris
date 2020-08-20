@@ -61,7 +61,7 @@ The following describes the parameters used in the delete statement:
 	
 	The conditiona of the delete statement. All delete statements must specify a where condition.
 
-说明：
+Explanation:
 
 1. The type of `OP` in the WHERE condition can only include `=, >, <, >=, <=, !=, in, not in`.
 2. The column in the WHERE condition can only be the `key` column.
