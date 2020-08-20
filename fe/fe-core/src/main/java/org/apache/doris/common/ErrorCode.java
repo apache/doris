@@ -238,7 +238,6 @@ public enum ErrorCode {
             "Dynamic partition replication num must greater than 0"),
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT(5072, new byte[] {'4', '2', '0', '0', '0'},
             "Invalid dynamic partition replication num: %s."),
-    ERR_ONLY_SUPPORT_OLAP_TABLE(5073, new byte[] {'4', '2', '0', '0', '0'}, "Table %s is not an OLAP table"),
     ERR_ONLY_SUPPORT_HASH_DISTRIBUTION(5074, new byte[] {'4', '2', '0', '0', '0'}, "Table %s's not hash distribution OLAP table");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {

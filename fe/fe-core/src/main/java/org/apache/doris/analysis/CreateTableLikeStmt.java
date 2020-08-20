@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;

@@ -3078,10 +3078,10 @@ public class Catalog {
         existedDb.readLock();
         try {
             if (existedDb.getTable(existedTableName) == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_NOT_EXISTS_ERROR, existedTableName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, existedTableName);
             }
             if (existedDb.getTable(existedTableName).getType() != TableType.OLAP) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_ONLY_SUPPORT_OLAP_TABLE, existedTableName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, existedTableName);
             }
             // 1. create columns
             OlapTable existedTable = (OlapTable) existedDb.getTable(existedTableName);
