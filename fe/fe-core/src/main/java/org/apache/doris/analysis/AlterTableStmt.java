@@ -87,6 +87,8 @@ public class AlterTableStmt extends DdlStmt {
                 // has rollup table
                 if (table.getVisibleIndex().size() > 1) {
                     for (MaterializedIndex idx : table.getVisibleIndex()) {
+                        // add a column to rollup index it will add to base table automaticlly,
+                        // if add a column here it will duplicated
                         if (idx.getId() == table.getBaseIndexId()) {
                             continue;
                         }
