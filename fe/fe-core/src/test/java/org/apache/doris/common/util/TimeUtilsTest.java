@@ -161,9 +161,9 @@ public class TimeUtilsTest {
     @Test
     public void testTimezone() throws AnalysisException {
         try {
-            Assert.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("Asia/Shanghai"));
-            Assert.assertEquals("UTC", TimeUtils.checkTimeZoneValidAndStandardize("Africa/Abidjan"));
-            Assert.assertEquals("PRC", TimeUtils.checkTimeZoneValidAndStandardize("Asia/Shanghai"));
+            Assert.assertEquals("Asia/Shanghai", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
+            Assert.assertEquals("Africa/Abidjan", TimeUtils.checkTimeZoneValidAndStandardize("UTC"));
+            Assert.assertEquals("Asia/Shanghai", TimeUtils.checkTimeZoneValidAndStandardize("PRC"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
             Assert.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
