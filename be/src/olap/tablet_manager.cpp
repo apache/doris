@@ -1096,13 +1096,13 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
 void TabletManager::register_clone_tablet(int64_t tablet_id) {
     RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
-    ReadLock rlock(&tablet_map_lock);
+    WriteLock wlock(&tablet_map_lock);
     _tablets_under_clone.insert(tablet_id);
 }
 
 void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
     RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
-    ReadLock rlock(&tablet_map_lock);
+    WriteLock wlock(&tablet_map_lock);
     _tablets_under_clone.erase(tablet_id);
 }
 
