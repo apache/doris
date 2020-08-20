@@ -998,4 +998,23 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     int len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
     return StringVal(content.ptr + start_pos, len);
 }
+
+StringVal StringFunctions::replace(FunctionContext *context, const StringVal &origStr, const StringVal &oldStr, const StringVal &newStr) {
+    if (origStr.is_null || oldStr.is_null || newStr.is_null) {
+        return StringVal::null();
+    }
+    std::string orig_str = std::string(reinterpret_cast<const char *>(origStr.ptr), origStr.len);
+    std::string old_str = std::string(reinterpret_cast<const char *>(oldStr.ptr), oldStr.len);
+    std::string new_str = std::string(reinterpret_cast<const char *>(newStr.ptr), newStr.len);
+    std::string::size_type pos = 0;
+    std::string::size_type oldLen = old_str.size();
+    std::string::size_type newLen = new_str.size();
+    while ((pos = orig_str.find(old_str, pos)))
+    {
+        if(pos == std::string::npos) break;
+        orig_str.replace(pos, oldLen, new_str);
+        pos += newLen;
+    }
+    return AnyValUtil::from_string_temp(context, orig_str);
+}
 }
