@@ -531,6 +531,7 @@ bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPoo
     if (nullcount == column_num) {
         _state->append_error_msg_to_file(_print_json_value(objectValue), "All fields is null or not matched, this is a invalid row.");
         _counter->num_rows_filtered++;
+        valid = false;
     }
     return valid;
 }
@@ -550,11 +551,15 @@ Status JsonReader::_handle_nested_complex_json(Tuple* tuple, const std::vector<S
         }
         RETURN_IF_ERROR(st);
         if (*eof) {
-            return Status::OK();// read over,then return
+            return Status::OK(); // read over,then return
         }
         break; // read a valid row
     }
-    _write_values_by_jsonpath(*_json_doc, tuple_pool, tuple, slot_descs);
+    if (!_write_values_by_jsonpath(*_json_doc, tuple_pool, tuple, slot_descs)) {
+        // there is only one line in this case, so if it return false, just set eof = true
+        // so that the caller will continue reading next line.
+        *eof = true;
+    }
     return Status::OK();
 }
 
