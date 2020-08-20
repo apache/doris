@@ -207,5 +207,22 @@ public class CreateTableLikeTest {
         String existedTblName2 = "testAbTbl1";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown database 'default_cluster:fake_test'",
                 () -> checkCreateTableLike(createTableSql2, createTableLikeSql2, newDbName2, existedDbName2, newTblName2, existedTblName2));
+        // 3. creat non-OLAP table
+        String createNonOlapTableSql = "create table test.testMysqlTbl\n" +
+                "(k1 DATE, k2 INT, k3 SMALLINT, k4 VARCHAR(2048), k5 DATETIME)\n" +
+                "ENGINE=mysql\nPROPERTIES(\n"+
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"8239\",\n" +
+                "\"user\" = \"mysql_passwd\",\n" +
+                "\"password\" = \"mysql_passwd\",\n" +
+                "\"database\" = \"mysql_db_test\",\n" +
+                "\"table\" = \"mysql_table_test\");";
+        String createTableLikeSql3 = "create table test.testMysqlTbl_like like test.testMysqlTbl";
+        String newDbName3 = "test";
+        String existedDbName3 = "test";
+        String newTblName3 = "testMysqlTbl_like";
+        String existedTblName3 = "testMysqlTbl";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Table testMysqlTbl is not an OLAP table",
+                () -> checkCreateTableLike(createNonOlapTableSql, createTableLikeSql3, newDbName3, existedDbName3, newTblName3, existedTblName3));
     }
 }
