@@ -264,7 +264,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    NumBasedCumulativeCompactionPolicy policy(_tablet.get());
+    NumBasedCumulativeCompactionPolicy policy;
     std::vector<RowsetSharedPtr> candidate_rowsets;
     
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(1000, &candidate_rowsets);
@@ -272,7 +272,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
-    policy.pick_input_rowsets(candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
+    policy.pick_input_rowsets(_tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
                               &compaction_score);
 
     ASSERT_EQ(2, input_rowsets.size());
@@ -294,7 +294,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    NumBasedCumulativeCompactionPolicy policy(_tablet.get());
+    NumBasedCumulativeCompactionPolicy policy;
     std::vector<RowsetSharedPtr> candidate_rowsets;
     
     _tablet->pick_candicate_rowsets_to_cumulative_compaction(1000, &candidate_rowsets);
@@ -303,7 +303,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
 
-    policy.pick_input_rowsets(candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
+    policy.pick_input_rowsets(_tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
                               &compaction_score);
 
     ASSERT_EQ(1, input_rowsets.size());
@@ -768,7 +768,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
-    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(_tablet.get(), 
             candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version, &compaction_score);
 
     ASSERT_EQ(4, input_rowsets.size());
@@ -797,7 +797,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
-    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(_tablet.get(), 
             candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version, &compaction_score);
 
     ASSERT_EQ(3, input_rowsets.size());
@@ -826,7 +826,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
-    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(_tablet.get(), 
             candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version, &compaction_score);
 
     ASSERT_EQ(2, input_rowsets.size());
@@ -855,7 +855,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_same_leve
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
-    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(_tablet.get(), 
             candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version, &compaction_score);
 
     ASSERT_EQ(4, input_rowsets.size());
@@ -884,7 +884,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty) {
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
-    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(_tablet.get(), 
             candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version, &compaction_score);
 
     ASSERT_EQ(0, input_rowsets.size());
@@ -913,7 +913,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
-    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(_tablet.get(), 
             candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version, &compaction_score);
 
     ASSERT_EQ(0, input_rowsets.size());
@@ -943,7 +943,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     Version last_delete_version{-1, -1};
     size_t compaction_score = 0;
 
-    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(_tablet.get(), 
             candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version, &compaction_score);
 
     ASSERT_EQ(2, input_rowsets.size());
