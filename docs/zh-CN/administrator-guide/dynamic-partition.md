@@ -124,12 +124,13 @@ under the License.
 1. 表 tbl1 分区列 k1 类型为 DATE，创建一个动态分区规则。按天分区，只保留最近7天的分区，并且预先创建未来3天的分区。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -157,12 +158,13 @@ under the License.
 2. 表 tbl1 分区列 k1 类型为 DATETIME，创建一个动态分区规则。按星期分区，只保留最近2个星期的分区，并且预先创建未来2个星期的分区。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATETIME,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -201,12 +203,13 @@ under the License.
 3. 表 tbl1 分区列 k1 类型为 DATE，创建一个动态分区规则。按月分区，不删除历史分区，并且预先创建未来2个月的分区。同时设定以每月3号为起始日。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
