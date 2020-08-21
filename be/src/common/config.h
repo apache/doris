@@ -278,8 +278,9 @@ namespace config {
     // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size, 
     // this rowset will be given to base compaction, unit is m byte.
     CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+
     // In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
-    // base rowset's total disk size, this rowset will be given to base compaction. The value must be between 
+    // base rowset's total disk size, this rowset will be given to base compaction. The value must be between
     // 0 and 1.
     CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
     // In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this 

@@ -23,6 +23,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace doris {
 class Status;
@@ -58,14 +59,37 @@ public:
         Field field(ftype, fname, fstorage, fdefval, fvalmutable);
         _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
+
 };
 
-#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                    \
+/// RegisterCheckFunction class is used to store check function of registed config fields in Register::_s_field_map
+/// and we can find check function which can use to check whether it can ben updated before assgined from  _s_field_check_func.
+class RegisterCheckFunction {
+public:
+    // class static property map from string to check function
+    static std::map<std::string, std::function<Status(void*)>>* _s_field_check_func;
+
+public:
+    RegisterCheckFunction(const char* fname, std::function<Status(void*)> check_function) {
+        if (_s_field_check_func == nullptr) {
+            _s_field_check_func = new std::map<std::string, std::function<Status(void*)>>();
+        }
+        // register check_function to _s_field_check_func
+        _s_field_check_func->insert(std::make_pair(std::string(fname), check_function));
+    }
+};
+
+#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)        \
     FIELD_TYPE FIELD_NAME;                                                                 \
     static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &FIELD_NAME, FIELD_DEFAULT, \
                                      VALMUTABLE);
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
+
+#define DEFINE_CHECK_FUNCTION(FIELD_NAME, CHECK_FUNC) \
+    static RegisterCheckFunction reg_function_##FIELD_NAME(#FIELD_NAME, CHECK_FUNC);
+
+#define DECLARE_CHECK_FUNCTION(FIELD_NAME) ;
 
 #ifdef __IN_CONFIGBASE_CPP__
 #define CONF_Bool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, false)
@@ -86,6 +110,8 @@ public:
 #define CONF_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
 #define CONF_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
 #define CONF_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
+#define CONF_Update_Check(name, check_func) DEFINE_CHECK_FUNCTION(name, check_func)
+
 #else
 #define CONF_Bool(name, defaultstr) DECLARE_FIELD(bool, name)
 #define CONF_Int16(name, defaultstr) DECLARE_FIELD(int16_t, name)
@@ -104,6 +130,7 @@ public:
 #define CONF_mInt32(name, defaultstr) DECLARE_FIELD(int32_t, name)
 #define CONF_mInt64(name, defaultstr) DECLARE_FIELD(int64_t, name)
 #define CONF_mDouble(name, defaultstr) DECLARE_FIELD(double, name)
+#define CONF_Update_Check(name, check_func) DECLARE_CHECK_FUNCTION(name)
 #endif
 
 // configuration properties load from config file.
