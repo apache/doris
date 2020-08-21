@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -436,11 +437,10 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
-
+        // do this before whereClause.analyze , some expr is not analyzed, this may cause some
+        // function not work as expected such as equals;
+        whereClauseRewrite();
         if (whereClause != null) {
-            // do this before whereClause.analyze , some expr is not analyzed, this may cause some
-            // function not work as expected such as equals;
-            whereClauseRewrite();
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
             }
@@ -526,16 +526,31 @@ public class SelectStmt extends QueryStmt {
     }
 
     private void whereClauseRewrite() {
-        Expr deDuplicatedWhere = deduplicateOrs(whereClause);
-        if (deDuplicatedWhere != null) {
-            whereClause = deDuplicatedWhere;
-        }
         if (whereClause instanceof IntLiteral) {
             if (((IntLiteral) whereClause).getLongValue() == 0) {
                 whereClause = new BoolLiteral(false);
             } else {
                 whereClause = new BoolLiteral(true);
             }
+        }
+        // filter deleted data by and DELETE_SIGN column = 0, DELETE_SIGN is a hidden column
+        // that indicates whether the row is delete
+        for (TableRef tableRef : fromClause_.getTableRefs()) {
+            if (!isForbiddenMVRewrite() && tableRef instanceof BaseTableRef && tableRef.getTable() instanceof OlapTable
+                    && ((OlapTable) tableRef.getTable()).getKeysType() == KeysType.UNIQUE_KEYS
+                    && ((OlapTable) tableRef.getTable()).hasDeleteSign()) {
+                BinaryPredicate filterDeleteExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                        new SlotRef(tableRef.getName(), Column.DELETE_SIGN), new IntLiteral(0));
+                if (whereClause == null) {
+                    whereClause = filterDeleteExpr;
+                } else {
+                    whereClause = new CompoundPredicate(CompoundPredicate.Operator.AND, filterDeleteExpr, whereClause);
+                }
+            }
+        }
+        Expr deDuplicatedWhere = deduplicateOrs(whereClause);
+        if (deDuplicatedWhere != null) {
+            whereClause = deDuplicatedWhere;
         }
     }
 
@@ -568,7 +583,9 @@ public class SelectStmt extends QueryStmt {
      * identical term, and pull out the duplicated terms.
      */
     private Expr deduplicateOrs(Expr expr) {
-        if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
+        if (expr == null) {
+            return null;
+        } else if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
             Expr rewritedExpr = processDuplicateOrs(extractDuplicateOrs((CompoundPredicate) expr));
             if (rewritedExpr != null) {
                 return rewritedExpr;
@@ -958,7 +975,7 @@ public class SelectStmt extends QueryStmt {
      * refs for each column to selectListExprs.
      */
     private void expandStar(TableName tblName, TupleDescriptor desc) {
-        for (Column col : desc.getTable().getBaseSchema()) {
+        for (Column col : desc.getTable().getBaseSchema(false)) {
             resultExprs.add(new SlotRef(tblName, col.getName()));
             colLabels.add(col.getName());
         }

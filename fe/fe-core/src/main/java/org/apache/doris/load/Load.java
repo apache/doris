@@ -660,7 +660,7 @@ public class Load {
             }
 
             // get table schema
-            List<Column> baseSchema = table.getBaseSchema();
+            List<Column> baseSchema = table.getBaseSchema(false);
             // fill the column info if user does not specify them
             dataDescription.fillColumnInfoIfNotSpecified(baseSchema);
 
@@ -979,7 +979,7 @@ public class Load {
         // So that the following process can be unified
         boolean specifyFileFieldNames = copiedColumnExprs.stream().anyMatch(p -> p.isColumn());
         if (!specifyFileFieldNames) {
-            List<Column> columns = tbl.getBaseSchema();
+            List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
                 LOG.debug("add base column {} to stream load task", column.getName());

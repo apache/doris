@@ -552,6 +552,8 @@ struct TStreamLoadPutRequest {
     24: optional string jsonpaths
     25: optional i64 thrift_rpc_timeout_ms
     26: optional string json_root
+    27: optional Types.TMergeType merge_type
+    28: optional string delete_condition
 }
 
 struct TStreamLoadPutResult {

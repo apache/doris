@@ -124,7 +124,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
             Set<String> bfColumns = null;
             if (table.getType() == TableType.OLAP) {
                 OlapTable olapTable = (OlapTable) table;
-                schema = olapTable.getSchemaByIndexId(idxId);
+                schema = olapTable.getSchemaByIndexId(idxId, false);
                 if (schema == null) {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }

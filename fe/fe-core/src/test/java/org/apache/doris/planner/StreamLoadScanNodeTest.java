@@ -160,6 +160,7 @@ public class StreamLoadScanNodeTest {
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
         new Expectations() {{
             dstTable.getBaseSchema(); result = columns;
+            dstTable.getBaseSchema(anyBoolean); result = columns;
             dstTable.getFullSchema(); result = columns;
             dstTable.getColumn("k1"); result = columns.get(0);
             dstTable.getColumn("k2"); result = columns.get(1);

@@ -138,7 +138,14 @@ public abstract class BulkLoadJob extends LoadJob {
         // check data source info
         db.readLock();
         try {
+            LoadTask.MergeType mergeType = null;
             for (DataDescription dataDescription : dataDescriptions) {
+                if (mergeType == null) {
+                    mergeType = dataDescription.getMergeType();
+                }
+                if (mergeType != dataDescription.getMergeType()) {
+                    throw new DdlException("merge type in all statement must be the same.");
+                }
                 BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
                 fileGroup.parse(db, dataDescription);
                 fileGroupAggInfo.addFileGroup(fileGroup);

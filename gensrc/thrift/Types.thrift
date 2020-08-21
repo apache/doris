@@ -387,6 +387,12 @@ enum TLoadSourceType {
     KAFKA,
 }
 
+enum TMergeType {
+  APPEND,
+  MERGE,
+  DELETE
+}
+
 // represent a user identity
 struct TUserIdentity {
     1: optional string username

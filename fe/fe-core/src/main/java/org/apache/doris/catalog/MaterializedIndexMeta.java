@@ -57,6 +57,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "keysType")
     private KeysType keysType;
     @SerializedName(value = "defineStmt")
+
     private OriginStatement defineStmt;
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,

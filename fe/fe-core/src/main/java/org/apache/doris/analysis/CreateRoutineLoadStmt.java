@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -89,6 +90,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_INTERVAL_SEC_PROPERTY = "max_batch_interval";
     public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
+    public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
 
     public static final String FORMAT = "format";// the value is csv or json, default is csv
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
@@ -118,6 +120,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
+            .add(EXEC_MEM_LIMIT_PROPERTY)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -145,6 +148,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
     private boolean strictMode = true;
+    private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     /**
      * RoutineLoad support json data.
@@ -165,22 +169,26 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     // custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
+    private LoadTask.MergeType mergeType;
+    private Expr deleteCondition;
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> { return v >= 5 && v <= 60; };
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v >= 200000; };
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
+    public static final Predicate<Long>  EXEC_MEM_LIMIT_PRED = (v) -> { return v >= 0L; };
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
-                                 Map<String, String> jobProperties,
-                                 String typeName, Map<String, String> dataSourceProperties) {
+                                 Map<String, String> jobProperties, String typeName,
+                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType) {
         this.labelName = labelName;
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = dataSourceProperties;
+        this.mergeType = mergeType;
     }
 
     public String getName() {
@@ -221,6 +229,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public long getMaxBatchSize() {
         return maxBatchSizeBytes;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
     }
 
     public boolean isStrictMode() {
@@ -295,6 +307,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt importWhereStmt = null;
         PartitionNames partitionNames = null;
+        ImportDeleteOnStmt importDeleteOnStmt = null;
         for (ParseNode parseNode : loadPropertyList) {
             if (parseNode instanceof ColumnSeparator) {
                 // check column separator
@@ -322,10 +335,16 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
                 partitionNames = (PartitionNames) parseNode;
                 partitionNames.analyze(null);
+            } else if (parseNode instanceof ImportDeleteOnStmt) {
+                // check delete expr
+                if (importDeleteOnStmt != null) {
+                    throw new AnalysisException("repeat setting of delete predicate");
+                }
+                importDeleteOnStmt = (ImportDeleteOnStmt) parseNode;
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
-                partitionNames);
+                partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType);
     }
 
     private void checkJobProperties() throws UserException {
@@ -358,7 +377,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
                                                       RoutineLoadJob.DEFAULT_STRICT_MODE,
                                                       LoadStmt.STRICT_MODE + " should be a boolean");
-
+        execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
+                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
