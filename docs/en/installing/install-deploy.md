@@ -40,7 +40,7 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 
 | Linux System | Version|
 |---|---|
-| Centers | 7.1 and above |
+| Centos | 7.1 and above |
 | Ubuntu | 16.04 and above |
 
 #### Software requirements
