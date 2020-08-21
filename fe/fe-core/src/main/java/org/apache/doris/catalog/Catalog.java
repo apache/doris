@@ -3173,7 +3173,6 @@ public class Catalog {
                     olapTable.getBaseIndexId(),
                     partitionId, partitionName,
                     indexIdToMeta,
-                    olapTable.getKeysType(),
                     distributionInfo,
                     dataProperty.getStorageMedium(),
                     singlePartitionDesc.getReplicationNum(),
@@ -3395,7 +3394,6 @@ public class Catalog {
     private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId,
                                                  long baseIndexId, long partitionId, String partitionName,
                                                  Map<Long, MaterializedIndexMeta> indexIdToMeta,
-                                                 KeysType keysType,
                                                  DistributionInfo distributionInfo,
                                                  TStorageMedium storageMedium,
                                                  short replicationNum,
@@ -3453,6 +3451,7 @@ public class Catalog {
             short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
             TStorageType storageType = indexMeta.getStorageType();
             List<Column> schema = indexMeta.getSchema();
+            KeysType keysType = indexMeta.getKeysType();
             int totalTaskNum = index.getTablets().size() * replicationNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
             AgentBatchTask batchTask = new AgentBatchTask();
@@ -3744,7 +3743,6 @@ public class Catalog {
                         olapTable.getId(), olapTable.getBaseIndexId(),
                         partitionId, partitionName,
                         olapTable.getIndexIdToMeta(),
-                        keysType,
                         distributionInfo,
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicationNum(partitionId),
@@ -3773,8 +3771,7 @@ public class Catalog {
                     DataProperty dataProperty = rangePartitionInfo.getDataProperty(entry.getValue());
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
-                            olapTable.getIndexIdToMeta(),
-                            keysType, distributionInfo,
+                            olapTable.getIndexIdToMeta(), distributionInfo,
                             dataProperty.getStorageMedium(),
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
@@ -6286,7 +6283,6 @@ public class Catalog {
                         db.getId(), copiedTbl.getId(), copiedTbl.getBaseIndexId(),
                         newPartitionId, entry.getKey(),
                         copiedTbl.getIndexIdToMeta(),
-                        copiedTbl.getKeysType(),
                         copiedTbl.getDefaultDistributionInfo(),
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
                         copiedTbl.getPartitionInfo().getReplicationNum(oldPartitionId),
