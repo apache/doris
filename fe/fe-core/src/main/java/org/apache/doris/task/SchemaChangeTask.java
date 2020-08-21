@@ -83,17 +83,23 @@ public class SchemaChangeTask extends AgentTask {
         tSchema.setSchema_hash(newSchemaHash);
         tSchema.setStorage_type(storageType);
         tSchema.setKeys_type(keysType);
-
+        int deleteSign = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();
-        for (Column column : newColumns) {
+        for (int i = 0; i < newColumns.size(); i++) {
+            Column column = newColumns.get(i);
             TColumn tColumn = column.toThrift();
             // is bloom filter column
             if (bfColumns != null && bfColumns.contains(column.getName())) {
                 tColumn.setIs_bloom_filter_column(true);
             }
+            tColumn.setVisible(column.isVisible());
+            if (column.isDeleteSignColumn()) {
+                deleteSign = i;
+            }
             tColumns.add(tColumn);
         }
         tSchema.setColumns(tColumns);
+        tSchema.setDelete_sign_idx(deleteSign);
 
         if (bfColumns != null) {
             tSchema.setBloom_filter_fpp(bfFpp);

@@ -165,9 +165,10 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setSchema_hash(schemaHash);
         tSchema.setKeys_type(keysType.toThrift());
         tSchema.setStorage_type(storageType);
-
+        int deleteSign = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();
-        for (Column column : columns) {
+        for (int i = 0; i < columns.size(); i++) {
+            Column column = columns.get(i);
             TColumn tColumn = column.toThrift();
             // is bloom filter column
             if (bfColumns != null && bfColumns.contains(column.getName())) {
@@ -178,9 +179,14 @@ public class CreateReplicaTask extends AgentTask {
             if(column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
                 tColumn.setColumn_name(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
             }
+            tColumn.setVisible(column.isVisible());
             tColumns.add(tColumn);
+            if (column.isDeleteSignColumn()) {
+                deleteSign = i;
+            }
         }
         tSchema.setColumns(tColumns);
+        tSchema.setDelete_sign_idx(deleteSign);
 
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();

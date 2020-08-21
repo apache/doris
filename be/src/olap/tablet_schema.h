@@ -51,6 +51,7 @@ public:
     FieldAggregationMethod aggregation() const { return _aggregation; }
     int precision() const { return _precision; }
     int frac() const { return _frac; }
+    inline bool visible() { return _visible; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
     friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
@@ -86,6 +87,7 @@ private:
     std::string _referenced_column;
 
     bool _has_bitmap_index = false;
+    bool _visible = true;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -111,6 +113,8 @@ public:
     inline double bloom_filter_fpp() const { return _bf_fpp; }
     inline bool is_in_memory() const { return _is_in_memory; }
     inline void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
+    inline int32_t delete_sign_idx() const { return _delete_sign_idx; }
+    inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -130,6 +134,7 @@ private:
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
+    int32_t _delete_sign_idx = -1;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

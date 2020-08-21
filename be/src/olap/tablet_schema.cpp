@@ -308,6 +308,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
     }
+    if (column.has_visible()) {
+        _visible = column.visible();
+    }
 }
 
 void TabletColumn::to_schema_pb(ColumnPB* column) {
@@ -335,6 +338,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
+    column->set_visible(_visible);
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
@@ -367,6 +371,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
     }
     _is_in_memory = schema.is_in_memory();
+    _delete_sign_idx = schema.delete_sign_idx();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
@@ -383,6 +388,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     }
     tablet_meta_pb->set_next_column_unique_id(_next_column_unique_id);
     tablet_meta_pb->set_is_in_memory(_is_in_memory);
+    tablet_meta_pb->set_delete_sign_idx(_delete_sign_idx);
 }
 
 size_t TabletSchema::row_size() const {
@@ -468,6 +474,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
         if (std::abs(a._bf_fpp - b._bf_fpp) > 1e-6) return false;
     }
     if (a._is_in_memory != b._is_in_memory) return false;
+    if (a._delete_sign_idx != b._delete_sign_idx) return false;
     return true;
 }
 
