@@ -37,6 +37,7 @@ add_library(Olap STATIC
     comparison_predicate.cpp
     compress.cpp
     cumulative_compaction.cpp
+    cumulative_compaction_policy.cpp
     delete_handler.cpp
     delta_writer.cpp
     file_helper.cpp

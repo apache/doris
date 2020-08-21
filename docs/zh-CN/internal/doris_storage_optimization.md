@@ -115,21 +115,23 @@ non-nullable data page结构如下：
 该格式设计支持后续扩展其他的索引信息，比如bitmap索引，spatial索引等等，只需要将需要的数据写到现有的列数据后面，并且添加对应的元数据字段到FileFooterPB中
 
 ### 元数据定义 ###
-FileFooterPB的定义为：
+SegmentFooterPB的定义为：
 
 ```
 message ColumnPB {
-    optional uint32 column_id = 1; // 这里使用column id，不使用column name是因为计划支持修改列名
-    optional string type = 2; // 列类型
-    optional string aggregation = 3; // 是否聚合
-    optional uint32 length = 4; // 长度
-    optional bool is_key = 5; // 是否是主键列
-    optional string default_value = 6; // 默认值
-    optional uint32 precision = 9 [default = 27]; // 精度
-    optional uint32 frac = 10 [default = 9];
-    optional bool is_nullable = 11 [default=false]; // 是否有null
-    optional bool is_bf_column = 15 [default=false]; // 是否有bf词典
-	optional bool is_bitmap_column = 16 [default=false]; // 是否有bitmap索引
+    required int32 unique_id = 1;   // 这里使用column id, 不使用column name是因为计划支持修改列名
+    optional string name = 2;   // 列的名字,  当name为__DORIS_DELETE_SIGN__, 表示该列为隐藏的删除列
+    required string type = 3;   // 列类型
+    optional bool is_key = 4;   // 是否是主键列
+    optional string aggregation = 5;    // 聚合方式
+    optional bool is_nullable = 6;      // 是否有null
+    optional bytes default_value = 7;   // 默认值
+    optional int32 precision = 8;       // 精度
+    optional int32 frac = 9;
+    optional int32 length = 10;         // 长度
+    optional int32 index_length = 11;   // 索引长度
+    optional bool is_bf_column = 12;    // 是否有bf词典
+    optional bool has_bitmap_index = 15 [default=false];  // 是否有bitmap索引
 }
 
 // page偏移
@@ -163,16 +165,16 @@ message ColumnMetaPB {
 	repeated MetadataPairPB column_meta_datas;
 }
 
-message FileFooterPB {
+message SegmentFooterPB {
 	optional uint32 version = 2 [default = 1]; // 用于版本兼容和升级使用
 	repeated ColumnPB schema = 5; // 列Schema
-    optional uint64 num_values = 4; // 文件中保存的行数
-    optional uint64 index_footprint = 7; // 索引大小
-    optional uint64 data_footprint = 8; // 数据大小
+  optional uint64 num_values = 4; // 文件中保存的行数
+  optional uint64 index_footprint = 7; // 索引大小
+  optional uint64 data_footprint = 8; // 数据大小
 	optional uint64 raw_data_footprint = 8; // 原始数据大小
 
-    optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
-    repeated ColumnMetaPB column_metas = 10; // 列元数据
+  optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
+  repeated ColumnMetaPB column_metas = 10; // 列元数据
 	optional PagePointerPB key_index_page; // short key索引page
 }
 

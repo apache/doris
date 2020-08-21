@@ -31,9 +31,13 @@ public class BackendTabletsInfo implements Writable {
 
     private long backendId;
     // tablet id , schema hash
+    // this structure is deprecated and be replaced by 'replicaPersistInfos'
+    @Deprecated
     private List<Pair<Long, Integer>> tabletSchemaHash = Lists.newArrayList();
 
     private boolean bad;
+
+    private List<ReplicaPersistInfo> replicaPersistInfos = Lists.newArrayList();
 
     private BackendTabletsInfo() {
 
@@ -43,8 +47,12 @@ public class BackendTabletsInfo implements Writable {
         this.backendId = backendId;
     }
 
-    public void addTabletWithSchemaHash(long tabletId, int schemaHash) {
-        tabletSchemaHash.add(Pair.create(tabletId, schemaHash));
+    public void addReplicaInfo(ReplicaPersistInfo info) {
+        replicaPersistInfos.add(info);
+    }
+
+    public List<ReplicaPersistInfo> getReplicaPersistInfos() {
+        return replicaPersistInfos;
     }
 
     public long getBackendId() {
@@ -64,7 +72,7 @@ public class BackendTabletsInfo implements Writable {
     }
 
     public boolean isEmpty() {
-        return tabletSchemaHash.isEmpty();
+        return tabletSchemaHash.isEmpty() && replicaPersistInfos.isEmpty();
     }
 
     public static BackendTabletsInfo read(DataInput in) throws IOException {
@@ -85,6 +93,12 @@ public class BackendTabletsInfo implements Writable {
         out.writeBoolean(bad);
 
         // this is for further extension
+        out.writeBoolean(true);
+        out.writeInt(replicaPersistInfos.size());
+        for (ReplicaPersistInfo info : replicaPersistInfos) {
+            info.write(out);
+        }
+        // this is for further extension
         out.writeBoolean(false);
     }
 
@@ -99,6 +113,16 @@ public class BackendTabletsInfo implements Writable {
         }
 
         bad = in.readBoolean();
+
+        if (in.readBoolean()) {
+            size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                ReplicaPersistInfo replicaPersistInfo = ReplicaPersistInfo.read(in);
+                replicaPersistInfos.add(replicaPersistInfo);
+            }
+        } else {
+            replicaPersistInfos = Lists.newArrayList();
+        }
 
         if (in.readBoolean()) {
 

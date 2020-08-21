@@ -20,6 +20,11 @@ package org.apache.doris.qe;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.common.collect.Lists;
+
+import java.lang.reflect.Field;
+import java.util.List;
+
 // You can place your global variable in this class with public and VariableMgr.VarAttr annotation.
 // You can get this variable from MySQL client with statement `SELECT @@variable_name`,
 // and change its value through `SET variable_name = xxx`
@@ -72,5 +77,17 @@ public final class GlobalVariable {
     // Don't allow create instance.
     private GlobalVariable() {
 
+    }
+
+    public static List<String> getAllGlobalVarNames() {
+        List<String> varNames = Lists.newArrayList();
+        for (Field field : GlobalVariable.class.getDeclaredFields()) {
+            VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
+            if (attr == null || attr.flag() != VariableMgr.GLOBAL) {
+                continue;
+            }
+            varNames.add(attr.name());
+        }
+        return varNames;
     }
 }

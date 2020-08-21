@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -237,7 +238,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                     List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
-                    int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
+                    long originIndexId = indexIdMap.get(shadowIdxId);
+                    int originSchemaHash = tbl.getSchemaHashByIndexId(originIndexId);
+                    KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
                     
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
                         long shadowTabletId = shadowTablet.getId();
@@ -249,7 +252,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
-                                    tbl.getKeysType(), TStorageType.COLUMN, storageMedium,
+                                    originKeysType, TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
                                     tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId));
@@ -338,7 +341,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
-                    indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN, null);
+                    indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
+                             tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)));
         }
 
         tbl.rebuildFullSchema();

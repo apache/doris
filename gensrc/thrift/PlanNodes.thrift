@@ -26,6 +26,7 @@ include "Partitions.thrift"
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
   MYSQL_SCAN_NODE,
+  ODBC_SCAN_NODE,
   CSV_SCAN_NODE,
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
@@ -197,6 +198,16 @@ struct TMySQLScanNode {
   3: required list<string> columns
   4: required list<string> filters
 }
+
+struct TOdbcScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
+  3: optional string driver
+  4: optional Types.TOdbcTableType type
+  5: optional list<string> columns
+  6: optional list<string> filters
+}
+
 
 struct TBrokerScanNode {
     1: required Types.TTupleId tuple_id
@@ -680,6 +691,7 @@ struct TPlanNode {
   32: optional TAssertNumRowsNode assert_num_rows_node
   33: optional TIntersectNode intersect_node
   34: optional TExceptNode except_node
+  35: optional TOdbcScanNode odbc_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first
