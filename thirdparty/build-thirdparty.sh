@@ -520,6 +520,19 @@ build_librdkafka() {
     make -j$PARALLEL && make install
 }
 
+# libunixodbc
+build_libunixodbc() {
+    check_if_source_exist $ODBC_SOURCE
+
+    cd $TP_SOURCE_DIR/$ODBC_SOURCE
+
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    CFLAGS="-fPIC" \
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static=yes 
+    make -j$PARALLEL && make install
+}
+  
 # flatbuffers
 build_flatbuffers() {
   check_if_source_exist $FLATBUFFERS_SOURCE
@@ -692,6 +705,7 @@ build_cctz() {
 # we just comment it, instead of remove it.
 # build_llvm
 
+build_libunixodbc
 build_libevent
 build_zlib
 build_lz4
