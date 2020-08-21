@@ -556,7 +556,9 @@ public class OlapTable extends Table {
     }
 
     public KeysType getKeysTypeByIndexId(long indexId) {
-        return indexIdToMeta.get(indexId).getKeysType();
+        MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+        Preconditions.checkNotNull(indexMeta, "index id:" + indexId + " meta is null");
+         return indexMeta.getKeysType();
     }
 
     public PartitionInfo getPartitionInfo() {
