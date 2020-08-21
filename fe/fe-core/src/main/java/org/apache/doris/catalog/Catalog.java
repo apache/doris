@@ -3605,11 +3605,13 @@ public class Catalog {
         // analyze replication_num
         short replicationNum = FeConstants.default_replication_num;
         try {
-            boolean isReplicationNumSet = properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
-            replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
-            if (isReplicationNumSet) {
-                olapTable.setReplicationNum(replicationNum);
+            int backendNum = getCluster(stmt.getClusterName()).getBackendIdList().size();
+            if (replicationNum > backendNum && backendNum > 0) {
+                replicationNum = (short) backendNum;
             }
+
+            replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
+            olapTable.setReplicationNum(replicationNum);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
