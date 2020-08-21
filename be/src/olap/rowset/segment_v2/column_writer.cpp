@@ -460,7 +460,7 @@ Status ArrayColumnWriter::put_page_footer_info(DataPageFooterPB* footer) {
 // Now we can only write data one by one.
 Status ArrayColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
-    const auto* col_cursor = reinterpret_cast<const Collection*>(*ptr);
+    const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
     while (remaining > 0) {
         // TODO llj: bulk write
         size_t num_written = 1;

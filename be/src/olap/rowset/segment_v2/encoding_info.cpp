@@ -81,7 +81,7 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 };
 
 template<>
-struct TypeEncodingTraits<OLAP_FIELD_TYPE_ARRAY, BIT_SHUFFLE, Collection> {
+struct TypeEncodingTraits<OLAP_FIELD_TYPE_ARRAY, BIT_SHUFFLE, CollectionValue> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         *builder = new BitshufflePageBuilder<OLAP_FIELD_TYPE_BIGINT>(opts);
         return Status::OK();

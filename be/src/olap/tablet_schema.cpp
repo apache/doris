@@ -355,6 +355,13 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
     column->set_visible(_visible);
+
+    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        DCHECK(_sub_columns.size() == 1) << "LIST type has more than 1 children types.";
+        LOG(WARNING) << "aaaa   children_columns_size  aaaa " << _sub_columns.size();
+        ColumnPB* child = column->add_children_columns();
+        _sub_columns[0].to_schema_pb(child);
+    }
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {

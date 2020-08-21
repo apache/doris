@@ -154,8 +154,8 @@ public:
     }
 
     inline bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const Collection*>(left);
-        auto r_value = reinterpret_cast<const Collection*>(right);
+        auto l_value = reinterpret_cast<const CollectionValue*>(left);
+        auto r_value = reinterpret_cast<const CollectionValue*>(right);
         if (l_value->length != r_value->length) {
             return false;
         }
@@ -180,8 +180,8 @@ public:
     }
 
     inline int cmp(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const Collection*>(left);
-        auto r_value = reinterpret_cast<const Collection*>(right);
+        auto l_value = reinterpret_cast<const CollectionValue*>(left);
+        auto r_value = reinterpret_cast<const CollectionValue*>(right);
         size_t l_length = l_value->length;
         size_t r_length = r_value->length;
         size_t cur = 0;
@@ -212,12 +212,12 @@ public:
     }
 
     inline void shallow_copy(void* dest, const void* src) const override {
-        *reinterpret_cast<Collection*>(dest) = *reinterpret_cast<const Collection*>(src);
+        *reinterpret_cast<CollectionValue*>(dest) = *reinterpret_cast<const CollectionValue*>(src);
     }
 
     inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
-        auto dest_value = reinterpret_cast<Collection*>(dest);
-        auto src_value = reinterpret_cast<const Collection*>(src);
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
         LOG(WARNING) << "aaaa deep_copy " << src_value->length;
         dest_value->length = src_value->length;
@@ -247,8 +247,8 @@ public:
 
     // TODO llj: How to ensure sufficient length of item
     inline void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<Collection*>(dest);
-        auto src_value = reinterpret_cast<const Collection*>(src);
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
         dest_value->length = src_value->length;
 
@@ -272,7 +272,7 @@ public:
     }
 
     std::string to_string(const void* src) const override {
-        auto src_value = reinterpret_cast<const Collection*>(src);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
         std::string result = "[";
 
         for (size_t i = 0; i< src_value->length; ++i) {
@@ -296,7 +296,7 @@ public:
     }
 
     inline uint32_t hash_code(const void* data, uint32_t seed) const override {
-        auto value = reinterpret_cast<const Collection*>(data);
+        auto value = reinterpret_cast<const CollectionValue*>(data);
         uint32_t result = HashUtil::hash(&(value->length), sizeof(size_t), seed);
         for (size_t i = 0; i < value->length; ++i) {
             if (value->null_signs[i]) {
@@ -309,7 +309,7 @@ public:
         return result;
     }
 
-    inline const size_t size() const override { return sizeof(Collection); }
+    inline const size_t size() const override { return sizeof(CollectionValue); }
 
     inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
@@ -406,7 +406,7 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
     using CppType = Slice;
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
-    using CppType = Collection;
+    using CppType = CollectionValue;
 };
 
 template<FieldType field_type>

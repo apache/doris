@@ -22,29 +22,29 @@
 namespace doris {
 
 // cpp type for ARRAY
-struct Collection {
+struct CollectionValue {
     size_t length;
         // null bitmap
     bool* null_signs;
     // child column data
     void* data;
 
-    Collection(): length(0), null_signs(nullptr), data(nullptr) {}
+    CollectionValue(): length(0), null_signs(nullptr), data(nullptr) {}
 
-    explicit Collection(size_t length) : length(length), null_signs(nullptr), data(nullptr) {}
+    explicit CollectionValue(size_t length) : length(length), null_signs(nullptr), data(nullptr) {}
 
-    Collection(void* data, size_t length ) : length(length), null_signs(nullptr), data(data) {}
+    CollectionValue(void* data, size_t length ) : length(length), null_signs(nullptr), data(data) {}
 
-    Collection(void* data, size_t length, bool* null_signs)
+    CollectionValue(void* data, size_t length, bool* null_signs)
     : length(length), null_signs(null_signs), data(data) {}
 
-    bool operator==(const Collection& y) const;
-    bool operator!=(const Collection& value) const;
-    bool operator<(const Collection& value) const;
-    bool operator<=(const Collection& value) const;
-    bool operator>(const Collection& value) const;
-    bool operator>=(const Collection& value) const;
-    int32_t cmp(const Collection& other) const;
+    bool operator==(const CollectionValue& y) const;
+    bool operator!=(const CollectionValue& value) const;
+    bool operator<(const CollectionValue& value) const;
+    bool operator<=(const CollectionValue& value) const;
+    bool operator>(const CollectionValue& value) const;
+    bool operator>=(const CollectionValue& value) const;
+    int32_t cmp(const CollectionValue& other) const;
 };
 
 }  // namespace doris

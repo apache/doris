@@ -154,7 +154,7 @@ void ArrayColumnVectorBatch::transform_offsets_and_elements_to_data(size_t start
     for (size_t idx = start_idx; idx < end_idx; ++idx) {
         if (!is_null_at(idx)) {
             _data[idx] =
-                    Collection(_elements->mutable_cell_ptr(_item_offsets[idx]),
+                    CollectionValue(_elements->mutable_cell_ptr(_item_offsets[idx]),
                                _item_offsets[idx + 1] - _item_offsets[idx],
                                const_cast<bool*>(&_elements->null_signs()[_item_offsets[idx]]));
         }

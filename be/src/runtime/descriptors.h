@@ -82,6 +82,9 @@ public:
     TupleId parent() const {
         return _parent;
     }
+    // const TupleDescriptor* collection_item_descriptor() const {
+    //     return _collection_item_descriptor;
+    // }
     // Returns the column index of this slot, including partition keys.
     // (e.g., col_pos - num_partition_keys = the table column this slot corresponds to)
     int col_pos() const {
@@ -129,6 +132,7 @@ private:
     const SlotId _id;
     const TypeDescriptor _type;
     const TupleId _parent;
+    // const TupleDescriptor* _collection_item_descriptor;
     const int _col_pos;
     const int _tuple_offset;
     const NullIndicatorOffset _null_indicator_offset;

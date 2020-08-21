@@ -78,7 +78,7 @@ template class DataBuffer<double>;
 template class DataBuffer<decimal12_t>;
 template class DataBuffer<uint24_t>;
 template class DataBuffer<Slice>;
-template class DataBuffer<Collection>;
+template class DataBuffer<CollectionValue>;
 
 // struct that contains column data(null bitmap), data array in sub class.
 class ColumnVectorBatch {
@@ -180,7 +180,7 @@ public:
 
     // Get the start of the data.
     uint8_t* data() const override {
-        return reinterpret_cast<uint8 *>(const_cast<Collection *>(_data.data()));
+        return reinterpret_cast<uint8 *>(const_cast<CollectionValue *>(_data.data()));
     }
 
     // Get the idx's cell_ptr
@@ -208,7 +208,7 @@ public:
     void transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx);
 
 private:
-    DataBuffer<Collection> _data;
+    DataBuffer<CollectionValue> _data;
 
     std::unique_ptr<ColumnVectorBatch> _elements;
 
