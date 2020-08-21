@@ -72,6 +72,7 @@ public class DropPartitionInfo implements Writable {
         return forceDrop;
     }
 
+    @Deprecated
     private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
