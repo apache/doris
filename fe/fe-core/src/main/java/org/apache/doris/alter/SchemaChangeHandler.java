@@ -129,7 +129,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Set<String> newColNameSet = Sets.newHashSet(column.getName());
         addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId,
-                          baseIndexName, indexSchemaMap, newColNameSet);
+                          indexSchemaMap, newColNameSet);
     }
 
     private void processAddColumns(AddColumnsClause alterClause, OlapTable olapTable,
@@ -154,7 +154,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Column column : columns) {
             addColumnInternal(olapTable, column, null, targetIndexId, baseIndexId,
-                    baseIndexName, indexSchemaMap, newColNameSet);
+                    indexSchemaMap, newColNameSet);
         }
     }
 
@@ -531,7 +531,7 @@ public class SchemaChangeHandler extends AlterHandler {
      * Modified schema will be saved in 'indexSchemaMap'
      */
     private void addColumnInternal(OlapTable olapTable, Column newColumn, ColumnPosition columnPos,
-                                   long targetIndexId, long baseIndexId, String baseIndexName,
+                                   long targetIndexId, long baseIndexId,
                                    Map<Long, LinkedList<Column>> indexSchemaMap,
                                    Set<String> newColNameSet) throws DdlException {
         
@@ -556,6 +556,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not assign aggregation method on column in Duplicate data model table: " + newColName);
             }
             if (!newColumn.isKey()) {
+                if (targetIndexId != -1L &&
+                        olapTable.getIndexMetaByIndexId(targetIndexId).getKeysType() == KeysType.AGG_KEYS) {
+                    throw new DdlException("Please add non-key column on base table directly");
+                }
                 newColumn.setAggregationType(AggregateType.NONE, true);
             }
         }
