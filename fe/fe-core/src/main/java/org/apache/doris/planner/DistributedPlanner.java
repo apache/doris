@@ -361,13 +361,17 @@ public class DistributedPlanner {
         //   side to be partitioned for correctness)
         // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
         // we set partition join as default when broadcast join cost equals partition join cost
-        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
-                && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN
-                && (perNodeMemLimit == 0 || Math.round(
-                (double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
-                && (node.getInnerRef().isBroadcastJoin() || (!node.getInnerRef().isPartitionJoin()
-                && isBroadcastCostSmaller(broadcastCost, partitionCost)))) {
-            doBroadcast = true;
+        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
+            if (node.getInnerRef().isBroadcastJoin()) {
+                // explicitly told
+                doBroadcast = true;
+            } else if ((perNodeMemLimit == 0 ||
+                        Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
+                    && (!node.getInnerRef().isPartitionJoin() && isBroadcastCostSmaller(broadcastCost, partitionCost))) {
+                doBroadcast = true;
+            } else {
+                doBroadcast = false;
+            }
         } else {
             doBroadcast = false;
         }
