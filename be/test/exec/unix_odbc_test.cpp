@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "sql.h"
+#include <sql.h>
 
 int main(int argc, char* argv[]) {
     SQLRETURN ret;
