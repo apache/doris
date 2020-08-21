@@ -18,7 +18,8 @@
                 "aggregation": "NONE",
                 "is_nullable": false,
                 "length": 8,
-                "index_length": 8
+                "index_length": 8,
+                "visible": true
             },
             {
                 "unique_id": 1,
@@ -29,7 +30,8 @@
                 "is_nullable": false,
                 "default_value": "MA==",
                 "length": 16387,
-                "index_length": 16
+                "index_length": 16,
+                "visible": true
             },
             {
                 "unique_id": 2,
@@ -39,14 +41,16 @@
                 "aggregation": "SUM",
                 "is_nullable": false,
                 "length": 4,
-                "index_length": 4
+                "index_length": 4,
+                "visible": true
             }
         ],
         "num_short_key_columns": 1,
         "num_rows_per_row_block": 1024,
         "compress_kind": "COMPRESS_LZ4",
         "next_column_unique_id": 3,
-        "is_in_memory": false
+        "is_in_memory": false,
+        "delete_sign_idx": -1
     },
     "rs_metas": [
         {

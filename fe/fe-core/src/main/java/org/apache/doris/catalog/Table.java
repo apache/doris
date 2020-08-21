@@ -38,6 +38,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
@@ -145,6 +146,13 @@ public class Table extends MetaObject implements Writable {
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
         return fullSchema;
+    }
+    public List<Column> getBaseSchema(boolean full) {
+        if (full) {
+            return fullSchema;
+        } else {
+            return fullSchema.stream().filter(column -> column.isVisible()).collect(Collectors.toList());
+        }
     }
 
     public void setNewFullSchema(List<Column> newSchema) {

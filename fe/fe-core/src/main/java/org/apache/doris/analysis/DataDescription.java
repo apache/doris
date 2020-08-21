@@ -23,10 +23,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+
 // used to describe data info which is needed to import.
 //
 //      data_desc:
@@ -120,6 +121,9 @@ public class DataDescription {
 
     private boolean isHadoopLoad = false;
 
+    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+    private Expr deleteCondition;
+
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
@@ -128,7 +132,8 @@ public class DataDescription {
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
-        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null, isNegative, columnMappingList, null);
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
+                isNegative, columnMappingList, null, LoadTask.MergeType.APPEND, null);
     }
 
     public DataDescription(String tableName,
@@ -140,7 +145,9 @@ public class DataDescription {
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
-                           Expr whereExpr) {
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -152,6 +159,8 @@ public class DataDescription {
         this.columnMappingList = columnMappingList;
         this.whereExpr = whereExpr;
         this.srcTableName = null;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
     }
 
     // data from table external_hive_table
@@ -160,7 +169,9 @@ public class DataDescription {
                            String srcTableName,
                            boolean isNegative,
                            List<Expr> columnMappingList,
-                           Expr whereExpr) {
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = null;
@@ -172,6 +183,8 @@ public class DataDescription {
         this.columnMappingList = columnMappingList;
         this.whereExpr = whereExpr;
         this.srcTableName = srcTableName;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
     }
 
     public String getTableName() {
@@ -184,6 +197,17 @@ public class DataDescription {
 
     public Expr getWhereExpr(){
         return whereExpr;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        if (mergeType == null) {
+            return LoadTask.MergeType.APPEND;
+        }
+        return mergeType;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
     }
 
     public List<String> getFilePaths() {
@@ -582,8 +606,20 @@ public class DataDescription {
     }
 
     public void analyze(String fullDbName) throws AnalysisException {
+        if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
+            throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE");
+        }
+        if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
+            throw new AnalysisException("Except DELETE ON clause where merge type is MERGE");
+        }
+        if (mergeType != LoadTask.MergeType.APPEND && isNegative) {
+            throw new AnalysisException("not support MERGE or DELETE with NEGATIVE");
+        }
         checkLoadPriv(fullDbName);
         analyzeWithoutCheckPriv();
+        if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
+            throw new AnalysisException("Negative is only used when merge type is append.");
+        }
     }
 
     public void analyzeWithoutCheckPriv() throws AnalysisException {
@@ -628,7 +664,7 @@ public class DataDescription {
      *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
      * 
      */
-    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) throws DdlException {
+    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) {
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             return;
         }
@@ -653,9 +689,11 @@ public class DataDescription {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (isLoadFromTable()) {
-            sb.append("DATA FROM TABLE ").append(srcTableName);
+            sb.append(mergeType.toString());
+            sb.append(" DATA FROM TABLE ").append(srcTableName);
         } else {
-            sb.append("DATA INFILE (");
+            sb.append(mergeType.toString());
+            sb.append(" DATA INFILE (");
             Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
                 @Override
                 public String apply(String s) {
@@ -690,6 +728,12 @@ public class DataDescription {
                     return expr.toSql();
                 }
             })).append(")");
+        }
+        if (whereExpr != null) {
+            sb.append(" WHERE ").append(whereExpr.toSql());
+        }
+        if (deleteCondition != null && mergeType == LoadTask.MergeType.MERGE) {
+            sb.append(" DELETE ON ").append(deleteCondition.toSql());
         }
         return sb.toString();
     }
