@@ -53,7 +53,7 @@ public:
     /// Constructor function of CumulativeCompactionPolicy, 
     /// it needs tablet pointer to access tablet method. 
     /// param tablet, the shared pointer of tablet
-    CumulativeCompactionPolicy(std::shared_ptr<Tablet> tablet) : _tablet(tablet){}
+    CumulativeCompactionPolicy() {}
 
     /// Destructor function of CumulativeCompactionPolicy.
     virtual ~CumulativeCompactionPolicy() {}
@@ -74,30 +74,31 @@ public:
     /// param skip_window_sec, it means skipping the rowsets which use create time plus skip_window_sec is greater than now.
     /// param rs_version_map, mapping from version to rowset
     /// param cumulative_point,  current cumulative point of tablet
-    /// return candidate_rowsets, the container of candidate rowsets 
+    /// return candidate_rowsets, the container of candidate rowsets
     virtual void pick_candicate_rowsets(
             int64_t skip_window_sec,
             const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
             int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets);
-    
+
     /// Pick input rowsets from candidate rowsets for compaction. This function is pure virtual function. 
     /// Its implemention depands on concrete compaction policy.
     /// param candidate_rowsets, the candidate_rowsets vector container to pick input rowsets
     /// return input_rowsets, the vector container as return
     /// return last_delete_version, if has delete rowset, record the delete version from input_rowsets
     /// return compaction_score, calculate the compaction score of picked input rowset
-    virtual int pick_input_rowsets(const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                                    const int64_t max_compaction_score,
-                                    const int64_t min_compaction_score,
-                                    std::vector<RowsetSharedPtr>* input_rowsets,
-                                    Version* last_delete_version, size_t* compaction_score) = 0;
+    virtual int pick_input_rowsets(Tablet* tablet,
+                                   const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                                   const int64_t max_compaction_score,
+                                   const int64_t min_compaction_score,
+                                   std::vector<RowsetSharedPtr>* input_rowsets,
+                                   Version* last_delete_version, size_t* compaction_score) = 0;
 
     /// Update tablet's cumulative point after cumulative compaction finished. This function is pure virtual function.
     /// Each derived has its own update policy which deponds on its concrete algorithm. When the cumulative point moves 
     /// after output rowset, then output rowset will do base compaction next time.
     /// param input_rowsets, the picked input rowset to do compaction just now
     /// param output_rowset, the result rowset after compaction
-    virtual void update_cumulative_point(const std::vector<RowsetSharedPtr>& input_rowsets,
+    virtual void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
                                          RowsetSharedPtr output_rowset,
                                          Version& last_delete_version) = 0;
 
@@ -108,13 +109,11 @@ public:
     /// param all_rowsets, all rowsets in the tablet
     /// param current_cumulative_point, current cumulative position
     /// return cumulative_point, the result of calculating cumulative point position
-    virtual void calculate_cumulative_point(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    virtual void calculate_cumulative_point(Tablet* tablet,
+                                            const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                             int64_t current_cumulative_point,
                                             int64_t* cumulative_point) = 0;
 
-protected:
-    /// tablet pointer
-    std::shared_ptr<Tablet> _tablet;
 };
 
 /// Num based cumulative compcation policy implemention. Num based policy which derives CumulativeCompactionPolicy is early 
@@ -126,8 +125,8 @@ public:
     /// Constructor function of NumBasedCumulativeCompactionPolicy, 
     /// it needs tablet pointer to access tablet method. 
     /// param tablet, the shared pointer of tablet
-    NumBasedCumulativeCompactionPolicy(std::shared_ptr<Tablet> tablet)
-            : CumulativeCompactionPolicy(tablet){}
+    NumBasedCumulativeCompactionPolicy()
+            : CumulativeCompactionPolicy(){}
 
     /// Destructor function of NumBasedCumulativeCompactionPolicy.
     ~NumBasedCumulativeCompactionPolicy() {}
@@ -135,23 +134,22 @@ public:
     /// Num based cumulative compaction policy implements pick input rowsets function.
     /// Its main policy is picking rowsets from candidate rowsets by comparing accumulative compaction_score and
     /// max_cumulative_compaction_num_singleton_deltas or checking whether there is delete version rowset.
-    int pick_input_rowsets(const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                            const int64_t max_compaction_score,
-                            const int64_t min_compaction_score,
-                            std::vector<RowsetSharedPtr>* input_rowsets,
-                            Version* last_delete_version, size_t* compaction_score) override;
+    int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                           const int64_t max_compaction_score, const int64_t min_compaction_score,
+                           std::vector<RowsetSharedPtr>* input_rowsets,
+                           Version* last_delete_version, size_t* compaction_score) override;
 
     /// Num based cumulative compaction policy implements update cumulative point function.
     /// Its main policy is using the last input version to update the cumulative point. It aims that every rowsets only 
     /// do compact once.
-    void update_cumulative_point(const std::vector<RowsetSharedPtr>& input_rowsets,
+    void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
                                  RowsetSharedPtr _output_rowset,
                                  Version& last_delete_version) override;
 
     /// Num based cumulative compaction policy implements calculate cumulative point function.
     /// When the first time the tablet does compact, this calculation is executed. Its main policy is to find first rowset
     /// which is segments_overlapping type, it represent this rowset is not compacted and use this version as cumulative point. 
-    void calculate_cumulative_point(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calculate_cumulative_point(Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                      int64_t current_cumulative_point,
                                      int64_t* cumulative_point) override;
 
@@ -175,7 +173,6 @@ public:
     /// it needs tablet pointer to access tablet method.
     /// param tablet, the shared pointer of tablet 
     SizeBasedCumulativeCompactionPolicy(
-            std::shared_ptr<Tablet> tablet,
             int64_t size_based_promotion_size =
                     config::cumulative_size_based_promotion_size_mbytes * 1024 * 1024,
             double size_based_promotion_ratio =
@@ -191,7 +188,7 @@ public:
     /// SizeBased cumulative compaction policy implements calculate cumulative point function.
     /// When the first time the tablet does compact, this calculation is executed. Its main policy is to find first rowset
     /// which does not satifie the promotion conditions. 
-    void calculate_cumulative_point(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calculate_cumulative_point(Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                     int64_t current_cumulative_point,
                                     int64_t* cumulative_point) override;
 
@@ -199,16 +196,15 @@ public:
     /// Its main policy is picking rowsets from candidate rowsets by comparing accumulative compaction_score,
     /// max_cumulative_compaction_num_singleton_deltas or checking whether there is delete version rowset,
     /// and choose those rowset in the same level to do cumulative compaction.
-    int pick_input_rowsets(const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                            const int64_t max_compaction_score,
-                            const int64_t min_compaction_score,
-                            std::vector<RowsetSharedPtr>* input_rowsets,
-                            Version* last_delete_version, size_t* compaction_score) override;
+    int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                           const int64_t max_compaction_score, const int64_t min_compaction_score,
+                           std::vector<RowsetSharedPtr>* input_rowsets,
+                           Version* last_delete_version, size_t* compaction_score) override;
 
     /// SizeBased cumulative compaction policy implements update cumulative point function.
     /// Its main policy is judging the output rowset size whether satifies the promotion size.
     /// If it satified, this policy will update the cumulative point.
-    void update_cumulative_point(const std::vector<RowsetSharedPtr>& input_rowsets,
+    void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
                                  RowsetSharedPtr _output_rowset, Version& last_delete_version);
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
@@ -251,7 +247,7 @@ public:
     /// Static factory function. It can product diffrent policy according to the `policy` parameter and use tablet ptr 
     /// to construct the policy. Now it can product size based and num based policies.
     static std::unique_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy(
-            std::string policy, std::shared_ptr<Tablet> tablet);
+            std::string policy);
 
 private:
     /// It is a static function to help to check the policy config and convert to CompactionPolicy enum variable
