@@ -72,6 +72,9 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
+    // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
+    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being relayed.
     private Expr defineExpr; // use to define column in materialize view
 
     public Column() {
@@ -259,9 +262,9 @@ public class Column implements Writable {
         tColumn.setIs_key(this.isKey);
         tColumn.setIs_allow_null(this.isAllowNull);
         tColumn.setDefault_value(this.defaultValue);
-        if (this.defineExpr != null) {
-            tColumn.setDefine_expr(this.defineExpr.treeToThrift());
-        }
+        // The define expr does not need to be serialized here for now.
+        // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
+        // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
         return tColumn;
     }
 
