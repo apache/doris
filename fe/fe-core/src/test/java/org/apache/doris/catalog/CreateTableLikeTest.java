@@ -222,7 +222,7 @@ public class CreateTableLikeTest {
         String existedDbName3 = "test";
         String newTblName3 = "testMysqlTbl_like";
         String existedTblName3 = "testMysqlTbl";
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Table testMysqlTbl is not an OLAP table",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Table 'testMysqlTbl' is not a OLAP table",
                 () -> checkCreateTableLike(createNonOlapTableSql, createTableLikeSql3, newDbName3, existedDbName3, newTblName3, existedTblName3));
     }
 }
