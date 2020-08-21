@@ -63,6 +63,26 @@ There are two ways to configure BE configuration items:
     ```
     curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true'
     ```
+Before starting, you can view the be configuration items through this document and conf/be.conf.
+After startup, you can view the configuration items currently by the be process through VIEW UPDATE CONFIG api. You can view the api description in the VIEW UPDATE CONFIG document.
+
+## Set configuration items
+
+Before starting, the configuration can be set through conf/be.conf. Configurations that are not set will be processed according to default values. The configuration format is as follows:
+
+```
+# INFO, WARNING, ERROR, FATAL
+sys_log_level = INFO
+
+# ports for admin, web, heartbeat service
+be_port = 9060
+be_rpc_port = 9070
+webserver_port = 8040
+```
+
+## Dynamically update configuration items
+
+After startup, the configuration can be dynamically modified through VIEW UPDATE CONFIG api. The prerequisite for modification requires the configuration to support dynamic modification. For the method of dynamic modification, you can view the api description in the VIEW UPDATE CONFIG document.
 
 ## Examples
 
@@ -114,6 +134,7 @@ There are two ways to configure BE configuration items:
 * Type: int32
 * Description: Threshold to logging base compaction's trace information, in seconds
 * Default value: 10
+* Dynamically modify: true
 
 Base compaction is a long time cost background task, this configuration is the threshold to logging trace information. Trace information in log file looks like:
 
@@ -254,6 +275,7 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * Type: bool
 * Description: Whether disable automatic compaction task
 * Default value: false
+* Dynamically modify: true
 
 Generally it needs to be turned off. When you want to manually operate the compaction task in the debugging or test environment, you can turn on the configuration.
 
@@ -270,6 +292,7 @@ Generally it needs to be turned off. When you want to manually operate the compa
 * Type: int32
 * Description: Threshold to logging cumulative compaction's trace information, in seconds
 * Default value: 10
+* Dynamically modify: true
 
 Similar to `base_compaction_trace_threshold`.
 
@@ -278,6 +301,7 @@ Similar to `base_compaction_trace_threshold`.
 * Type: string
 * Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
 * Default value: size_based
+* Dynamically modify: false
 
 In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satisfies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
 
@@ -286,6 +310,7 @@ In detail, ordinary is the initial version of the cumulative compaction merge po
 * Type: int64
 * Description: Under the size_based policy, the total disk size of the output rowset of cumulative compaction exceeds this configuration size, and the rowset will be used for base compaction. The unit is m bytes.
 * Default value: 1024
+* Dynamically modify: true
 
 In general, if the configuration is less than 2G, in order to prevent the cumulative compression time from being too long, resulting in the version backlog.
 
@@ -294,6 +319,7 @@ In general, if the configuration is less than 2G, in order to prevent the cumula
 * Type: double
 * Description: Under the size_based policy, when the total disk size of the cumulative compaction output rowset exceeds the configuration ratio of the base version rowset, the rowset will be used for base compaction.
 * Default value: 0.05
+* Dynamically modify: true
 
 Generally, it is recommended that the configuration should not be higher than 0.1 and lower than 0.02.
 
@@ -302,6 +328,7 @@ Generally, it is recommended that the configuration should not be higher than 0.
 * Type: int64
 * Description: Under the size_based strategy, if the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
 * Default value: 64
+* Dynamically modify: true
 
 Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
 
@@ -310,6 +337,7 @@ Generally, the configuration is within 512m. If the configuration is too large, 
 * Type: int64
 * Description: Under the size_based strategy, when the cumulative compaction is merged, the selected rowsets to be merged have a larger disk size than this configuration, then they are divided and merged according to the level policy. When it is smaller than this configuration, merge directly. The unit is m bytes.
 * Default value: 64
+* Dynamically modify: true
 
 Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.
 
@@ -358,6 +386,7 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 * Type: int
 * Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../variables.md).
 * Default value: 1024
+* Dynamically modify: true
 
 When the concurrency cannot be improved in high concurrency scenarios, try to reduce this value and observe the impact.
 
@@ -475,6 +504,7 @@ The default value is `false`.
 * Type: boolean
 * Description:It is used to decide whether to delete the outdated merged rowset if it cannot form a consistent version path.
 * Default: false
+* Dynamically modify: false
 
 The merged expired rowset version path will be deleted after half an hour. In abnormal situations, deleting these versions will result in the problem that the consistent path of the query cannot be constructed. When the configuration is false, the program check is strict and the program will directly report an error and exit.
 When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispatched by fe, -230 error will appear.
@@ -543,6 +573,7 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 * Type: int
 * Description: Used to limit the maximum number of conditions that can be pushed down to the storage engine for a single column in a query request. During the execution of the query plan, the filter conditions on some columns can be pushed down to the storage engine, so that the index information in the storage engine can be used for data filtering, reducing the amount of data that needs to be scanned by the query. Such as equivalent conditions, conditions in IN predicates, etc. In most cases, this parameter only affects queries containing IN predicates. Such as `WHERE colA IN (1,2,3,4, ...)`. A larger number means that more conditions in the IN predicate can be pushed to the storage engine, but too many conditions may cause an increase in random reads, and in some cases may reduce query efficiency. This configuration can be individually configured for session level. For details, please refer to the description of `max_pushdown_conditions_per_column` in [Variables](../ variables.md).
 * Default value: 1024
+* Dynamically modify: true
 
 * Example
 
@@ -737,7 +768,7 @@ process will log fatal and exit. When config is false, process will only log war
 * Type: int64
 * Description: Used to limit the maximum amount of csv data allowed in one Stream load. The unit is MB.
 * Default value: 10240
-* Dynamically modify: yes
+* Dynamically modify: true
 
 Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
 
@@ -746,7 +777,7 @@ Stream Load is generally suitable for loading data less than a few GB, not suita
 * Type: int64
 * Description: it is used to limit the maximum amount of json data allowed in one Stream load. The unit is MB.
 * Default value: 100
-* Dynamically modify: yes
+* Dynamically modify: ture
 
 Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
 
@@ -789,6 +820,7 @@ Some data formats, such as JSON, cannot be split. Doris must read all the data i
 * Type: int64
 * Description: It is used to control the expiration time of cleaning up the merged rowset version. When the current time now() minus the max created rowset‘s create time in a version path is greater than tablet_rowset_stale_sweep_time_sec, the current path is cleaned up and these merged rowsets are deleted, the unit is second.
 * Default: 1800
+* Dynamically modify: true
 
 When writing is too frequent and the disk time is insufficient, you can configure less tablet_rowset_stale_sweep_time_sec. However, if this time is less than 5 minutes, it may cause fe to query the version that has been merged, causing a query -230 error.
 
@@ -809,6 +841,7 @@ When meet '[E1011]The server is overcrowded' error, you can tune the configurati
 * Type: int64
 * Description: Used to limit the total thread cache size in tcmalloc. This limit is not a hard limit, so the actual thread cache usage may exceed this limit. For details, please refer to [TCMALLOC\_MAX\_TOTAL\_THREAD\_CACHE\_BYTES](https://gperftools.github.io/gperftools/tcmalloc.html)
 * Default: 1073741824
+* Dynamically modify: false
 
 If the system is found to be in a high-stress scenario and a large number of threads are found in the tcmalloc lock competition phase through the BE thread stack, such as a large number of `SpinLock` related stacks, you can try increasing this parameter to improve system performance. [Reference] (https://github.com/gperftools/gperftools/issues/1111)
 
@@ -819,6 +852,7 @@ If the system is found to be in a high-stress scenario and a large number of thr
 * Type: int64
 * Description: Used to set retry interval for thrift client in be to avoid avalanche disaster in fe thrift server, the unit is ms.
 * Default: 1000
+* Dynamically modify: true
 
 ### `thrift_connect_timeout_seconds`
 

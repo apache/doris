@@ -26,6 +26,7 @@
 
 #define __IN_CONFIGBASE_CPP__
 #include "common/config.h"
+#include "common/config_update_func.h"
 #undef __IN_CONFIGBASE_CPP__
 
 #include "common/status.h"
@@ -36,6 +37,7 @@ namespace doris {
 namespace config {
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
+std::map<std::string, std::function<Status(void*)>>* RegisterCheckFunction::_s_field_check_func = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
 
 std::mutex custom_conf_lock;
@@ -279,6 +281,23 @@ bool update(const std::string& value, T& retval) {
     return strtox(valstr, retval);
 }
 
+// check the value before real update operation
+template <typename T>
+Status update_check(const std::string& value, std::function<Status(void*)>& check_func, T &retval) {
+
+    std::string valstr(value);
+    trim(valstr);
+    if (!replaceenv(valstr)) {
+        return Status::InvalidArgument(strings::Substitute("convert '$0' failed", value));
+    }
+    // covert value from string to T
+    if(!strtox(valstr, retval)){
+        return Status::InvalidArgument(strings::Substitute("convert '$0' failed", value));
+    }
+    // check the value
+    return check_func((void *)(&retval));
+}
+
 template <typename T>
 std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     size_t last = v.size() - 1;
@@ -339,6 +358,14 @@ bool init(const char* conf_file, bool fillconfmap, bool must_exist, bool set_to_
 
 #define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                    \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                          \
+        auto func_it = RegisterCheckFunction::_s_field_check_func->find(FIELD.name); \
+        if (func_it != RegisterCheckFunction::_s_field_check_func->end()) {          \
+            TYPE tmp;                                                                \
+            Status status = update_check((VALUE), (func_it->second), tmp);           \
+            if (!status.ok()) {                                                      \
+                return status;                                                       \
+            }                                                                        \
+        }                                                                            \
         if (!update((VALUE), *reinterpret_cast<TYPE*>((FIELD).storage))) {           \
             return Status::InvalidArgument(                                          \
                     strings::Substitute("convert '$0' as $1 failed", VALUE, #TYPE)); \
