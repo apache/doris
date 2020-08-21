@@ -130,6 +130,9 @@ set_target_properties(glog PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/li
 add_library(re2 STATIC IMPORTED)
 set_target_properties(re2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libre2.a)
 
+add_library(odbc STATIC IMPORTED)
+set_target_properties(odbc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libodbc.a)
+
 add_library(pprof STATIC IMPORTED)
 set_target_properties(pprof PROPERTIES IMPORTED_LOCATION
     ${GPERFTOOLS_HOME}/lib/libprofiler.a)
@@ -416,6 +419,7 @@ set(DORIS_DEPENDENCIES
     arrow
     parquet
     orc
+    odbc
     cctz
     ${WL_END_GROUP}
 )
@@ -462,7 +466,7 @@ else()
 endif()
 
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -pthread
+    -lrt -lbfd -liberty -lc -lm -ldl -lltdl -pthread
 )
 
 # Set libraries for test
