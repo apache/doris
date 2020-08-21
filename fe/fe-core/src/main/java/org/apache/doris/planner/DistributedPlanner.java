@@ -365,9 +365,10 @@ public class DistributedPlanner {
             if (node.getInnerRef().isBroadcastJoin()) {
                 // respect user join hint
                 doBroadcast = true;
-            } else if ((perNodeMemLimit == 0 ||
-                        Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
-                    && (!node.getInnerRef().isPartitionJoin() && isBroadcastCostSmaller(broadcastCost, partitionCost))) {
+            } else if (!node.getInnerRef().isPartitionJoin()
+                    && isBroadcastCostSmaller(broadcastCost, partitionCost)
+                    && (perNodeMemLimit == 0
+                        || Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)) {
                 doBroadcast = true;
             } else {
                 doBroadcast = false;
