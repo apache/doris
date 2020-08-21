@@ -363,7 +363,7 @@ public class DistributedPlanner {
         // we set partition join as default when broadcast join cost equals partition join cost
         if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
             if (node.getInnerRef().isBroadcastJoin()) {
-                // explicitly told
+                // respect user join hint
                 doBroadcast = true;
             } else if ((perNodeMemLimit == 0 ||
                         Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
