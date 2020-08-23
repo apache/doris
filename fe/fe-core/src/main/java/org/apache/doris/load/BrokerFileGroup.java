@@ -43,6 +43,7 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,6 +79,8 @@ public class BrokerFileGroup implements Writable {
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
     // filter the data which has been conformed
     private Expr whereExpr;
+    private Expr deleteCondition;
+    private LoadTask.MergeType mergeType;
 
     // load from table
     private long srcTableId = -1;
@@ -103,6 +106,8 @@ public class BrokerFileGroup implements Writable {
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
         this.whereExpr = dataDescription.getWhereExpr();
+        this.deleteCondition = dataDescription.getDeleteCondition();
+        this.mergeType = dataDescription.getMergeType();
     }
 
     // NOTE: DBLock will be held
@@ -253,6 +258,14 @@ public class BrokerFileGroup implements Writable {
 
     public boolean isLoadFromTable() {
         return isLoadFromTable;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
     }
 
     @Override

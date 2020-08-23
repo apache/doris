@@ -317,6 +317,10 @@ public:
         _rowset_meta_pb.set_segments_overlap_pb(segments_overlap);
     }
 
+    static bool comparator(const RowsetMetaSharedPtr& left, const RowsetMetaSharedPtr& right) {
+        return left->end_version() < right->end_version();
+    }
+
     // return true if segments in this rowset has overlapping data.
     // this is not same as `segments_overlap()` method.
     // `segments_overlap()` only return the value of "segments_overlap" field in rowset meta,

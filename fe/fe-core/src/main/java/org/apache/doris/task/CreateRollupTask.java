@@ -93,15 +93,22 @@ public class CreateRollupTask extends AgentTask {
         tSchema.setKeys_type(keysType);
 
         List<TColumn> tColumns = new ArrayList<TColumn>();
-        for (Column column : rollupColumns) {
+        int deleteSign = -1;
+        for (int i = 0; i < rollupColumns.size(); i++) {
+            Column column = rollupColumns.get(i);
             TColumn tColumn = column.toThrift();
             // is bloom filter column
             if (bfColumns != null && bfColumns.contains(column.getName())) {
                 tColumn.setIs_bloom_filter_column(true);
             }
+            tColumn.setVisible(column.isVisible());
+            if (column.isDeleteSignColumn()) {
+                deleteSign = i;
+            }
             tColumns.add(tColumn);
         }
         tSchema.setColumns(tColumns);
+        tSchema.setDelete_sign_idx(deleteSign);
 
         if (bfColumns != null) {
             tSchema.setBloom_filter_fpp(bfFpp);

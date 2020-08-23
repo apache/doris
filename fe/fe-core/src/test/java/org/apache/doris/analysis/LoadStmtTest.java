@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -83,6 +84,8 @@ public class LoadStmtTest {
 
         new Expectations(){
             {
+                desc.getMergeType();
+                result = LoadTask.MergeType.APPEND;
                 desc.toSql();
                 minTimes = 0;
                 result = "XXX";

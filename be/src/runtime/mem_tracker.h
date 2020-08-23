@@ -96,27 +96,9 @@ class MemTracker : public std::enable_shared_from_this<MemTracker> {
       const std::string& label = std::string(),
       const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>());
 
-  /// 'byte_limit' < 0 means no limit
-  /// 'label' is the label used in the usage string (LogUsage())
-  /// If 'log_usage_if_zero' is false, this tracker (and its children) will not be
-  /// included
-  /// in LogUsage() output if consumption is 0.
-  MemTracker(int64_t byte_limit = -1, const std::string& label = std::string(),
-             const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
-             bool log_usage_if_zero = true);
-
-  /// C'tor for tracker for which consumption counter is created as part of a profile.
-  /// The counter is created with name COUNTER_NAME.
-  MemTracker(RuntimeProfile* profile, int64_t byte_limit,
-      const std::string& label = std::string(), const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>());
-
-  // TODO(yingchun): not used, remove it later
-  /// C'tor for tracker that uses consumption_metric as the consumption value.
-  /// Consume()/Release() can still be called. This is used for the root process tracker
-  /// (if 'parent' is NULL). It is also to report on other categories of memory under the
-  /// process tracker, e.g. buffer pool free buffers (if 'parent - non-NULL).
-  MemTracker(IntGauge* consumption_metric, int64_t byte_limit = -1,
-      const std::string& label = std::string(), const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>());
+  // this is used for creating an orphan mem tracker, or for unit test.
+  // If a mem tracker has parent, it should be created by `CreateTracker()`
+  MemTracker(int64_t byte_limit = -1, const std::string& label = std::string());
 
   ~MemTracker();
 
@@ -433,6 +415,15 @@ class MemTracker : public std::enable_shared_from_this<MemTracker> {
   static const std::string COUNTER_NAME;
 
  private:
+  /// 'byte_limit' < 0 means no limit
+  /// 'label' is the label used in the usage string (LogUsage())
+  /// If 'log_usage_if_zero' is false, this tracker (and its children) will not be
+  /// included in LogUsage() output if consumption is 0.
+  MemTracker(RuntimeProfile* profile, int64_t byte_limit, const std::string& label,
+             const std::shared_ptr<MemTracker>& parent,
+             bool log_usage_if_zero);
+
+ private:
   friend class PoolMemTrackerRegistry;
 
   // TODO(HW): remove later
@@ -588,14 +579,19 @@ class PoolMemTrackerRegistry {
   /// with the process tracker as its parent. There is no explicit per-pool byte_limit
   /// set at any particular impalad, so newly created trackers will always have a limit
   /// of -1.
-  MemTracker* GetRequestPoolMemTracker(
+  /// TODO(cmy): this function is not used for now. the memtracker returned from here is
+  ///            got from a shared_ptr in `pool_to_mem_trackers_`.
+  ///            This funtion is from
+  ///            https://github.com/cloudera/Impala/blob/495397101e5807c701df71ea288f4815d69c2c8a/be/src/runtime/mem-tracker.h#L497
+  ///            And in impala this function will return a raw pointer.
+  std::shared_ptr<MemTracker> GetRequestPoolMemTracker(
       const std::string& pool_name, bool create_if_not_present);
 
  private:
   /// All per-request pool MemTracker objects. It is assumed that request pools will live
   /// for the entire duration of the process lifetime so MemTrackers are never removed
   /// from this map. Protected by '_pool_to_mem_trackers_lock'
-  typedef std::unordered_map<std::string, std::unique_ptr<MemTracker>> PoolTrackersMap;
+  typedef std::unordered_map<std::string, std::shared_ptr<MemTracker>> PoolTrackersMap;
   PoolTrackersMap pool_to_mem_trackers_;
   /// IMPALA-3068: Use SpinLock instead of std::mutex so that the lock won't
   /// automatically destroy itself as part of process teardown, which could cause races.

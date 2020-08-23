@@ -789,6 +789,11 @@ public class EditLog {
                     catalog.getRoutineLoadManager().replayAlterRoutineLoadJob(log);
                     break;
                 }
+                case OperationType.OP_GLOBAL_VARIABLE_V2: {
+                    GlobalVarPersistInfo info = (GlobalVarPersistInfo) journal.getData();
+                    catalog.replayGlobalVariableV2(info);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1354,5 +1359,9 @@ public class EditLog {
 
     public void logAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {
         logEdit(OperationType.OP_ALTER_ROUTINE_LOAD_JOB, log);
+    }
+
+    public void logGlobalVariableV2(GlobalVarPersistInfo info) {
+        logEdit(OperationType.OP_GLOBAL_VARIABLE_V2, info);
     }
 }

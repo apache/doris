@@ -61,6 +61,7 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("Key", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Default", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
                     .build();
 
     private static final ShowResultSetMetaData DESC_MYSQL_TABLE_ALL_META_DATA =
@@ -166,15 +167,17 @@ public class DescribeStmt extends ShowStmt {
                             }
                             String extraStr = StringUtils.join(extras, ",");
 
-                            List<String> row = Arrays.asList("",
-                                                             "",
-                                                             column.getDisplayName(),
-                                                             column.getOriginType().toString(),
-                                                             column.isAllowNull() ? "Yes" : "No",
-                                                             ((Boolean) column.isKey()).toString(),
-                                                             column.getDefaultValue() == null
-                                                                     ? FeConstants.null_string : column.getDefaultValue(),
-                                                             extraStr);
+                            List<String> row = Arrays.asList(
+                                    "",
+                                    "",
+                                    column.getDisplayName(),
+                                    column.getOriginType().toString(),
+                                    column.isAllowNull() ? "Yes" : "No",
+                                    ((Boolean) column.isKey()).toString(),
+                                    column.getDefaultValue() == null ? FeConstants.null_string : column.getDefaultValue(),
+                                    extraStr,
+                                    ((Boolean) column.isVisible()).toString()
+                            );
 
                             if (j == 0) {
                                 row.set(0, indexName);

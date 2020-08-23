@@ -129,7 +129,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Set<String> newColNameSet = Sets.newHashSet(column.getName());
         addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId,
-                          baseIndexName, indexSchemaMap, newColNameSet);
+                          indexSchemaMap, newColNameSet);
     }
 
     private void processAddColumns(AddColumnsClause alterClause, OlapTable olapTable,
@@ -154,7 +154,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Column column : columns) {
             addColumnInternal(olapTable, column, null, targetIndexId, baseIndexId,
-                    baseIndexName, indexSchemaMap, newColNameSet);
+                    indexSchemaMap, newColNameSet);
         }
     }
 
@@ -504,7 +504,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String colName : orderedColNames) {
             Column oneCol = null;
             for (Column column : targetIndexSchema) {
-                if (column.getName().equalsIgnoreCase(colName)) {
+                if (column.getName().equalsIgnoreCase(colName) && column.isVisible()) {
                     oneCol = column;
                     break;
                 }
@@ -519,6 +519,13 @@ public class SchemaChangeHandler extends AlterHandler {
                 colNameSet.add(colName);
             }
         }
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            for (Column column : targetIndexSchema) {
+                if (!column.isVisible()) {
+                    newSchema.add(column);
+                }
+            }
+        }
         if (newSchema.size() != targetIndexSchema.size()) {
             throw new DdlException("Reorder stmt should contains all columns");
         }
@@ -531,7 +538,7 @@ public class SchemaChangeHandler extends AlterHandler {
      * Modified schema will be saved in 'indexSchemaMap'
      */
     private void addColumnInternal(OlapTable olapTable, Column newColumn, ColumnPosition columnPos,
-                                   long targetIndexId, long baseIndexId, String baseIndexName,
+                                   long targetIndexId, long baseIndexId,
                                    Map<Long, LinkedList<Column>> indexSchemaMap,
                                    Set<String> newColNameSet) throws DdlException {
         
@@ -556,6 +563,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not assign aggregation method on column in Duplicate data model table: " + newColName);
             }
             if (!newColumn.isKey()) {
+                if (targetIndexId != -1L &&
+                        olapTable.getIndexMetaByIndexId(targetIndexId).getKeysType() == KeysType.AGG_KEYS) {
+                    throw new DdlException("Please add non-key column on base table directly");
+                }
                 newColumn.setAggregationType(AggregateType.NONE, true);
             }
         }
@@ -670,6 +681,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
             Set<String> newColNameSet, boolean isBaseIndex) throws DdlException {
         int posIndex = -1;
+        int lastVisibleIdx = -1;
         String newColName = newColumn.getName();
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
         for (int i = 0; i < modIndexSchema.size(); i++) {
@@ -688,6 +700,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 // column already exist, return
                 return;
+            }
+            if (col.isVisible()) {
+                lastVisibleIdx = i;
             }
 
             if (hasPos) {
@@ -716,14 +731,15 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (hasPos) {
             modIndexSchema.add(posIndex + 1, newColumn);
+        } else if (newColumn.isKey()) {
+            // key
+            modIndexSchema.add(posIndex + 1, newColumn);
+        } else if (lastVisibleIdx != -1 && lastVisibleIdx < modIndexSchema.size() - 1) {
+            // has hidden columns
+            modIndexSchema.add(lastVisibleIdx + 1, newColumn);
         } else {
-            if (newColumn.isKey()) {
-                // key
-                modIndexSchema.add(posIndex + 1, newColumn);
-            } else {
-                // value
-                modIndexSchema.add(newColumn);
-            }
+            // value
+            modIndexSchema.add(newColumn);
         }
 
         checkRowLength(modIndexSchema);

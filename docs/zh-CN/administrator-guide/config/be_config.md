@@ -154,6 +154,46 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 与base_compaction_trace_threshold类似。
 
+### `cumulative_compaction_policy`
+
+* 类型：string
+* 描述：配置 cumulative compaction 阶段的合并策略，目前实现了两种合并策略，num_based和size_based
+* 默认值：size_based
+
+详细说明，ordinary，是最初版本的cumulative compaction合并策略，做一次cumulative compaction之后直接base compaction流程。size_based，通用策略是ordinary策略的优化版本，仅当rowset的磁盘体积在相同数量级时才进行版本合并。合并之后满足条件的rowset进行晋升到base compaction阶段。能够做到在大量小批量导入的情况下：降低base compact的写入放大率，并在读取放大率和空间放大率之间进行权衡，同时减少了文件版本的数据。
+
+### `cumulative_size_based_promotion_size_mbytes`
+
+* 类型：int64
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过了此配置大小，该rowset将用于base compaction。单位是m字节。
+* 默认值：1024
+
+一般情况下，配置在2G以内，为了防止cumulative compaction时间过长，导致版本积压。
+
+### `cumulative_size_based_promotion_ratio`
+
+* 类型：double
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过base版本rowset的配置比例时，该rowset将用于base compaction。
+* 默认值：0.05
+
+一般情况下，建议配置不要高于0.1，低于0.02。
+
+### `cumulative_size_based_promotion_min_size_mbytes`
+
+* 类型：int64
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
+* 默认值：64
+
+一般情况下，配置在512m以内，配置过大会导致base版本早期的大小过小，一直不进行base compaction。
+
+### `cumulative_size_based_compaction_lower_size_mbytes`
+
+* 类型：int64
+* 描述：在size_based策略下，cumulative compaction进行合并时，选出的要进行合并的rowset的总磁盘大小大于此配置时，才按级别策略划分合并。小于这个配置时，直接执行合并。单位是m字节。
+* 默认值：64
+
+一般情况下，配置在128m以内，配置过大会导致cumulative compaction写放大较多。
+
 ### `default_num_rows_per_column_file_block`
 
 ### `default_query_options`

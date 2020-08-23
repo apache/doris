@@ -72,5 +72,6 @@ set_target_properties(udf PROPERTIES IMPORTED_LOCATION $ENV{DORIS_HOME}/output/u
 
 # Add the subdirector of new UDF in here
 add_subdirectory(${SRC_DIR}/udf_samples)
+add_subdirectory(${SRC_DIR}/udaf_orthogonal_bitmap)
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR})

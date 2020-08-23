@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
+
 public class ImportColumnDesc {
     private String columnName;
     private Expr expr;
@@ -35,6 +37,10 @@ public class ImportColumnDesc {
     public ImportColumnDesc(String column, Expr expr) {
         this.columnName = column;
         this.expr = expr;
+    }
+
+    public static ImportColumnDesc newDeleteSignImportColumnDesc(Expr expr) {
+        return new ImportColumnDesc(Column.DELETE_SIGN, expr);
     }
 
     public String getColumnName() {

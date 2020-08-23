@@ -69,6 +69,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.zip.Adler32;
 
 /**
@@ -238,6 +239,15 @@ public class OlapTable extends Table {
                 nameToPartition.put(newName, partition);
                 break;
             }
+        }
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        if (full) {
+            return getSchemaByIndexId(baseIndexId);
+        } else {
+            return getSchemaByIndexId(baseIndexId).stream().filter(column -> column.isVisible()).collect(Collectors.toList());
         }
     }
 
@@ -514,6 +524,15 @@ public class OlapTable extends Table {
         return indexIdToMeta.get(indexId).getSchema();
     }
 
+    public List<Column> getSchemaByIndexId(Long indexId, boolean full) {
+        if (full) {
+            return indexIdToMeta.get(indexId).getSchema();
+        } else {
+            return indexIdToMeta.get(indexId).getSchema().stream().filter(column ->
+                    column.isVisible()).collect(Collectors.toList());
+        }
+    }
+
     public List<Column> getKeyColumnsByIndexId(Long indexId) {
         ArrayList<Column> keyColumns = Lists.newArrayList();
         List<Column> allColumns = this.getSchemaByIndexId(indexId);
@@ -524,6 +543,19 @@ public class OlapTable extends Table {
         }
 
         return keyColumns;
+    }
+
+    public boolean hasDeleteSign() {
+        return getDeleteSignColumn() != null;
+    }
+
+    public Column getDeleteSignColumn() {
+        for (Column column : getBaseSchema()) {
+            if (column.isDeleteSignColumn()) {
+                return column;
+            }
+        }
+        return null;
     }
 
     // schemaHash
@@ -556,7 +588,9 @@ public class OlapTable extends Table {
     }
 
     public KeysType getKeysTypeByIndexId(long indexId) {
-        return indexIdToMeta.get(indexId).getKeysType();
+        MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+        Preconditions.checkNotNull(indexMeta, "index id:" + indexId + " meta is null");
+         return indexMeta.getKeysType();
     }
 
     public PartitionInfo getPartitionInfo() {

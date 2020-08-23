@@ -51,6 +51,7 @@ public class DropDbInfo implements Writable {
         return  forceDrop;
     }
 
+    @Deprecated
     private void readFields(DataInput in) throws IOException {
         dbName = Text.readString(in);
     }
