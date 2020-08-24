@@ -203,5 +203,23 @@ public class ExprTest {
             Assert.assertFalse(e.getMessage().contains("The param of rand function must be literal"));
         }
         Assert.assertTrue(1 == 1);
+
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand() from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertFalse(e.getMessage().contains("The param of rand function must be literal"));
+        }
+        Assert.assertTrue(1 == 1);
+
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand(\"hello\") from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertFalse(e.getMessage().contains("The param of rand function must be literal"));
+        }
+        Assert.assertTrue(1 == 1);
     }
 }
