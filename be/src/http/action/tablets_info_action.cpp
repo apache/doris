@@ -49,8 +49,8 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     int64_t number;
     std::string msg;
     if (tablet_num_to_return == "") {
-        number = 0;
-        msg = "Parameter Missing";
+        number = 1000; // default
+        msg = "OK";
     } else if (tablet_num_to_return == "all") {
         number = tablets_info.size();
         msg = "OK";
