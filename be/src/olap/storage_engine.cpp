@@ -497,7 +497,6 @@ void StorageEngine::stop() {
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
-        // TODO(yingchun): is it needed？
         store_pair.second->stop_bg_worker();
     }
 
