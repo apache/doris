@@ -1405,7 +1405,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, argTypes, Type.INVALID, false);
-        return Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
+        Function f = Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
+        if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
+            if (this.children != null
+                    && this.children.size() == 1
+                    && !(this.children.get(0) instanceof LiteralExpr)) {
+                throw new AnalysisException("The param of rand function must be literal");
+            }
+        }
+        return f;
     }
 
     /**

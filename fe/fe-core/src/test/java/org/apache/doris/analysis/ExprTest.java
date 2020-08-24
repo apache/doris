@@ -24,17 +24,42 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 
+import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.DorisAssert;
+import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.BeforeClass;
+import org.junit.AfterClass;
 
-import java.util.Map;
-import java.util.Set;
+import java.io.IOException;
+import java.util.*;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 
 public class ExprTest {
+
+    private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
+    private static DorisAssert dorisAssert;
+
+    @AfterClass
+    public static void tearDown() throws Exception {
+        UtFrameUtils.cleanDorisFeDir(runningDir);
+    }
+
+    @BeforeClass
+    public static void setUp() throws Exception {
+        UtFrameUtils.createMinDorisCluster(runningDir);
+        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
+                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        dorisAssert = new DorisAssert();
+        dorisAssert.withDatabase("db1").useDatabase("db1");
+        dorisAssert.withTable(createTblStmtStr);
+    }
 
     @Test
     public void testGetTableNameToColumnNames(@Mocked Analyzer analyzer,
@@ -158,5 +183,25 @@ public class ExprTest {
         Assert.assertFalse(stringLiteral == castStringLiteral);
         StringLiteral castStringLiteral2 = (StringLiteral) stringLiteral.uncheckedCastTo(Type.VARCHAR);
         Assert.assertTrue(stringLiteral == castStringLiteral2);
+    }
+
+    @Test
+    public void testRandFunction() {
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand(db1.tbl1.k1) from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("The param of rand function must be literal"));
+        }
+
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand(1234) from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertFalse(e.getMessage().contains("The param of rand function must be literal"));
+        }
+        Assert.assertTrue(1 == 1);
     }
 }
