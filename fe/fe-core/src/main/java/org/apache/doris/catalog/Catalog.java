@@ -3719,7 +3719,7 @@ public class Catalog {
         Preconditions.checkNotNull(versionInfo);
 
         // get storage format
-        TStorageFormat storageFormat = TStorageFormat.DEFAULT; // default means it's up to BE's config
+        TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
         try {
             storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
         } catch (AnalysisException e) {

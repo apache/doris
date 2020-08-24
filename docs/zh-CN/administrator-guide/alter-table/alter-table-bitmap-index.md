@@ -79,8 +79,4 @@ create/drop index 语法
     * `DECIMAL`
     * `BOOL`
 
-* bitmap索引仅在 segmentV2 下生效，需要在be的配置文件中增加如下配置
-
-    ```
-    default_rowset_type=BETA
-    ``` 
+* bitmap索引仅在 Segment V2 下生效。当创建 index 时，表的存储格式将默认转换为 V2 格式。
