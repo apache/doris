@@ -35,7 +35,6 @@
 #include "olap/tablet.h"
 #include "olap/wrapper_field.h"
 #include "runtime/exec_env.h"
-#include "runtime/heartbeat_flags.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 

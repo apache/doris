@@ -62,8 +62,8 @@ public class AlterJobV2Test {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
         createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
-        
-        createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+
+        createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v1');");
     }
 
     @AfterClass
@@ -133,7 +133,7 @@ public class AlterJobV2Test {
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTable("segmentv2");
         Assert.assertNotNull(tbl);
-        Assert.assertEquals(TStorageFormat.DEFAULT, tbl.getTableProperty().getStorageFormat());
+        Assert.assertEquals(TStorageFormat.V1, tbl.getTableProperty().getStorageFormat());
         
         // 1. create a rollup r1
         String alterStmtStr = "alter table test.segmentv2 add rollup r1(k2, v1)";
