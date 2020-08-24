@@ -61,9 +61,9 @@ The following describes the parameters used in the delete statement:
 	
 	The conditiona of the delete statement. All delete statements must specify a where condition.
 
-说明：
+Explanation:
 
-1. The type of `OP` in the WHERE condition can only include `=, >, <, > =, < =,!=`. Currently, where key in (value1, Value2, value3) mode is not supported yet, may be added this support later.
+1. The type of `OP` in the WHERE condition can only include `=, >, <, >=, <=, !=, in, not in`.
 2. The column in the WHERE condition can only be the `key` column.
 3. Cannot delete when the `key` column does not exist in any rollup table.
 4. Each condition in WHERE condition can only be realated by `and`. If you want `or`, you are suggested to write these conditions into two delete statements.
@@ -92,7 +92,7 @@ The delete command is an SQL command, and the returned results are synchronous. 
     ```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
     Query OK, 0 rows affected (0.04 sec)
-    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
+    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'COMMITTED', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
 	```
 	
      The result will return a JSON string at the same time:
@@ -145,13 +145,13 @@ The delete command is an SQL command, and the returned results are synchronous. 
 
 In general, Doris's deletion timeout is limited from 30 seconds to 5 minutes. The specific time can be adjusted through the following configuration items
 
-* tablet\_delete\_timeout\_second
+* `tablet_delete_timeout_second`
 
     The timeout of delete itself can be elastically changed by the number of tablets in the specified partition. This configuration represents the average timeout contributed by a tablet. The default value is 2.
    
     Assuming that there are 5 tablets under the specified partition for this deletion, the timeout time available for the deletion is 10 seconds. Because the minimum timeout is 30 seconds which is higher than former timeout time, the final timeout is 30 seconds.
    
-* load\_straggler\_wait\_second
+* `load_straggler_wait_second`
 
     If the user estimates a large amount of data, so that the upper limit of 5 minutes is insufficient, the user can adjust the upper limit of timeout through this item, and the default value is 300.
   
@@ -159,9 +159,15 @@ In general, Doris's deletion timeout is limited from 30 seconds to 5 minutes. Th
   
     `TIMEOUT = MIN(load_straggler_wait_second, MAX(30, tablet_delete_timeout_second * tablet_num))`
   
-* query_timeout
+* `query_timeout`
   
     Because delete itself is an SQL command, the deletion statement is also limited by the session variables, and the timeout is also affected by the session value `query'timeout`. You can increase the value by `set query'timeout = xxx`.
+
+**InPredicate configuration**
+
+* `max_allowed_in_element_num_of_delete`
+    
+    If the user needs to take a lot of elements when using the in predicate, the user can adjust the upper limit of the allowed in elements number, and the default value is 1024.
   
 ## Show delete history
 	
