@@ -181,6 +181,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         schema->set_is_in_memory(tablet_schema.is_in_memory);
     }
 
+    if (tablet_schema.__isset.delete_sign_idx) {
+        schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
+    }
+
     init_from_pb(tablet_meta_pb);
 }
 

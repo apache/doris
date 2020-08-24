@@ -163,7 +163,7 @@ enum TTaskType {
     PUBLISH_VERSION,
     CLEAR_ALTER_TASK,
     CLEAR_TRANSACTION_TASK,
-    RECOVER_TABLET,
+    RECOVER_TABLET, // deprecated
     STREAM_LOAD,
     UPDATE_TABLET_META_INFO,
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
@@ -317,12 +317,22 @@ enum TEtlState {
 }
 
 enum TTableType {
-    MYSQL_TABLE,
+    MYSQL_TABLE, // Deprecated
+    ODBC_TABLE, 
     OLAP_TABLE,
     SCHEMA_TABLE,
     KUDU_TABLE, // Deprecated
     BROKER_TABLE,
     ES_TABLE
+}
+
+enum TOdbcTableType {
+    MYSQL,
+    ORACLE,
+    POSTGRESQL,
+    SQLSERVER,
+    REDIS,
+    MONGODB
 }
 
 enum TKeysType {
@@ -375,6 +385,12 @@ enum TLoadType {
 enum TLoadSourceType {
     RAW,
     KAFKA,
+}
+
+enum TMergeType {
+  APPEND,
+  MERGE,
+  DELETE
 }
 
 // represent a user identity

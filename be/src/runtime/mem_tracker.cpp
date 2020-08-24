@@ -70,7 +70,7 @@ static std::shared_ptr<MemTracker> root_tracker;
 static GoogleOnceType root_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::CreateRootTracker() {
-  root_tracker.reset(new MemTracker(-1, "root", std::shared_ptr<MemTracker>()));
+  root_tracker.reset(new MemTracker(-1, "root"));
   root_tracker->Init();
 }
 
@@ -85,7 +85,7 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(
   } else {
       real_parent = GetRootTracker();
   }
-  shared_ptr<MemTracker> tracker(new MemTracker(byte_limit, label, real_parent, log_usage_if_zero));
+  shared_ptr<MemTracker> tracker(new MemTracker(nullptr, byte_limit, label, real_parent, log_usage_if_zero));
   real_parent->AddChildTracker(tracker);
   tracker->Init();
 
@@ -102,56 +102,36 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(
   } else {
       real_parent = GetRootTracker();
   }
-  shared_ptr<MemTracker> tracker(new MemTracker(profile, byte_limit, label, real_parent));
+  shared_ptr<MemTracker> tracker(new MemTracker(profile, byte_limit, label, real_parent, true));
   real_parent->AddChildTracker(tracker);
   tracker->Init();
 
   return tracker;
 }
 
+MemTracker::MemTracker(int64_t byte_limit, const std::string& label) :
+    MemTracker(nullptr, byte_limit, label, std::shared_ptr<MemTracker>(), true) {
+}
+
 MemTracker::MemTracker(
+    RuntimeProfile* profile,
     int64_t byte_limit, const string& label, const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero)
   : limit_(byte_limit),
     soft_limit_(CalcSoftLimit(byte_limit)),
     label_(label),
     parent_(parent),
-    consumption_(std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)),
     consumption_metric_(nullptr),
     log_usage_if_zero_(log_usage_if_zero),
     num_gcs_metric_(nullptr),
     bytes_freed_by_last_gc_metric_(nullptr),
     bytes_over_limit_metric_(nullptr),
     limit_metric_(nullptr) {
-}
 
-MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit,
-    const std::string& label, const std::shared_ptr<MemTracker>& parent)
-  : limit_(byte_limit),
-    soft_limit_(CalcSoftLimit(byte_limit)),
-    label_(label),
-    parent_(parent),
-    consumption_(profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES)),
-    consumption_metric_(nullptr),
-    log_usage_if_zero_(true),
-    num_gcs_metric_(nullptr),
-    bytes_freed_by_last_gc_metric_(nullptr),
-    bytes_over_limit_metric_(nullptr),
-    limit_metric_(nullptr) {
-}
-
-MemTracker::MemTracker(IntGauge* consumption_metric,
-    int64_t byte_limit, const string& label, const std::shared_ptr<MemTracker>& parent)
-  : limit_(byte_limit),
-    soft_limit_(CalcSoftLimit(byte_limit)),
-    label_(label),
-    parent_(parent),
-    consumption_(std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)),
-    consumption_metric_(consumption_metric),
-    log_usage_if_zero_(true),
-    num_gcs_metric_(nullptr),
-    bytes_freed_by_last_gc_metric_(nullptr),
-    bytes_over_limit_metric_(nullptr),
-    limit_metric_(nullptr) {
+    if (profile == nullptr) {
+        consumption_ = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
+    } else {
+        consumption_ = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
+    }
 }
 
 void MemTracker::Init() {
@@ -232,7 +212,7 @@ int64_t MemTracker::GetPoolMemReserved() {
   return mem_reserved;
 }
 
-MemTracker* PoolMemTrackerRegistry::GetRequestPoolMemTracker(
+std::shared_ptr<MemTracker> PoolMemTrackerRegistry::GetRequestPoolMemTracker(
     const string& pool_name, bool create_if_not_present) {
   DCHECK(!pool_name.empty());
   lock_guard<SpinLock> l(pool_to_mem_trackers_lock_);
@@ -240,15 +220,15 @@ MemTracker* PoolMemTrackerRegistry::GetRequestPoolMemTracker(
   if (it != pool_to_mem_trackers_.end()) {
     MemTracker* tracker = it->second.get();
     DCHECK(pool_name == tracker->pool_name_);
-    return tracker;
+    return it->second;
   }
   if (!create_if_not_present) return nullptr;
   // First time this pool_name registered, make a new object.
-  MemTracker* tracker =
-      new MemTracker(-1, Substitute(REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT, pool_name),
-          ExecEnv::GetInstance()->process_mem_tracker());
+  std::shared_ptr<MemTracker> tracker = MemTracker::CreateTracker(
+            -1, Substitute(REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT, pool_name),
+            ExecEnv::GetInstance()->process_mem_tracker());
   tracker->pool_name_ = pool_name;
-  pool_to_mem_trackers_.emplace(pool_name, unique_ptr<MemTracker>(tracker));
+  pool_to_mem_trackers_.emplace(pool_name, std::shared_ptr<MemTracker>(tracker));
   return tracker;
 }
 

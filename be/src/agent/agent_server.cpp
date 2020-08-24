@@ -84,7 +84,6 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info) :
     CREATE_AND_START_POOL(MAKE_SNAPSHOT, _make_snapshot_workers);
     CREATE_AND_START_POOL(RELEASE_SNAPSHOT, _release_snapshot_workers);
     CREATE_AND_START_POOL(MOVE, _move_dir_workers);
-    CREATE_AND_START_POOL(RECOVER_TABLET, _recover_tablet_workers);
     CREATE_AND_START_POOL(UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers);
 #undef CREATE_AND_START_POOL
 
@@ -145,7 +144,6 @@ void AgentServer::submit_tasks(TAgentResult& agent_result, const vector<TAgentTa
         HANDLE_TYPE(TTaskType::MAKE_SNAPSHOT, _make_snapshot_workers, snapshot_req);
         HANDLE_TYPE(TTaskType::RELEASE_SNAPSHOT, _release_snapshot_workers, release_snapshot_req);
         HANDLE_TYPE(TTaskType::MOVE, _move_dir_workers, move_dir_req);
-        HANDLE_TYPE(TTaskType::RECOVER_TABLET, _recover_tablet_workers, recover_tablet_req);
         HANDLE_TYPE(TTaskType::UPDATE_TABLET_META_INFO,
                     _update_tablet_meta_info_workers,
                     update_tablet_meta_info_req);

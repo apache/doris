@@ -36,7 +36,9 @@ public enum AlterOpType {
     // others operation, such as add/drop backend. currently we do not care about them
     ALTER_OTHER,
 
-    INVALID_OP;
+    INVALID_OP,
+    ENABLE_FEATURE;
+
 
     // true means 2 operations have no conflict.
     public static Boolean[][] COMPATIBITLITY_MATRIX;
@@ -56,7 +58,7 @@ public enum AlterOpType {
     }
 
     public boolean needCheckCapacity() {
-        return this == ADD_ROLLUP || this == SCHEMA_CHANGE || this == ADD_PARTITION;
+        return this == ADD_ROLLUP || this == SCHEMA_CHANGE || this == ADD_PARTITION || this == ENABLE_FEATURE;
     }
 
 }

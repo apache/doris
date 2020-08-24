@@ -168,10 +168,6 @@ void TaskWorkerPool::start() {
         _worker_count = 1;
         _callback_function = _move_dir_thread_callback;
         break;
-    case TaskWorkerType::RECOVER_TABLET:
-        _worker_count = 1;
-        _callback_function = _recover_tablet_thread_callback;
-        break;
     case TaskWorkerType::UPDATE_TABLET_META_INFO:
         _worker_count = 1;
         _callback_function = _update_tablet_meta_worker_thread_callback;
@@ -1041,7 +1037,6 @@ void* TaskWorkerPool::_report_task_worker_thread_callback(void* arg_this) {
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
     TReportRequest request;
-    request.__set_force_recovery(config::force_recovery);
     request.__set_backend(worker_pool_this->_backend);
 
 #ifndef BE_TEST
@@ -1075,7 +1070,6 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
     TReportRequest request;
-    request.__set_force_recovery(config::force_recovery);
     request.__set_backend(worker_pool_this->_backend);
 
 #ifndef BE_TEST
@@ -1131,7 +1125,6 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
     TReportRequest request;
-    request.__set_force_recovery(config::force_recovery);
     request.__set_backend(worker_pool_this->_backend);
     request.__isset.tablets = true;
     AgentStatus status = DORIS_SUCCESS;
@@ -1550,66 +1543,6 @@ AgentStatus TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHa
     }
 
     return DORIS_SUCCESS;
-}
-
-void* TaskWorkerPool::_recover_tablet_thread_callback(void* arg_this) {
-    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
-
-    while (true) {
-        TAgentTaskRequest agent_task_req;
-        TRecoverTabletReq recover_tablet_req;
-        {
-            MutexLock worker_thread_lock(&(worker_pool_this->_worker_thread_lock));
-            while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_variable.wait();
-            }
-
-            agent_task_req = worker_pool_this->_tasks.front();
-            recover_tablet_req = agent_task_req.recover_tablet_req;
-            worker_pool_this->_tasks.pop_front();
-        }
-
-        TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
-        TStatus task_status;
-
-        LOG(INFO) << "begin to recover tablet."
-                  << ", tablet_id:" << recover_tablet_req.tablet_id << "."
-                  << recover_tablet_req.schema_hash << ", version:" << recover_tablet_req.version
-                  << "-" << recover_tablet_req.version_hash;
-        OLAPStatus status =
-                worker_pool_this->_env->storage_engine()->recover_tablet_until_specfic_version(
-                        recover_tablet_req);
-        if (status != OLAP_SUCCESS) {
-            status_code = TStatusCode::RUNTIME_ERROR;
-            LOG(WARNING) << "failed to recover tablet."
-                         << "signature:" << agent_task_req.signature
-                         << ", table:" << recover_tablet_req.tablet_id << "."
-                         << recover_tablet_req.schema_hash
-                         << ", version:" << recover_tablet_req.version << "-"
-                         << recover_tablet_req.version_hash;
-        } else {
-            LOG(WARNING) << "succeed to recover tablet."
-                         << "signature:" << agent_task_req.signature
-                         << ", table:" << recover_tablet_req.tablet_id << "."
-                         << recover_tablet_req.schema_hash
-                         << ", version:" << recover_tablet_req.version << "-"
-                         << recover_tablet_req.version_hash;
-        }
-
-        task_status.__set_status_code(status_code);
-        task_status.__set_error_msgs(error_msgs);
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(worker_pool_this->_backend);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(task_status);
-
-        worker_pool_this->_finish_task(finish_task_request);
-        worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-    }
-    return (void*)0;
 }
 
 } // namespace doris

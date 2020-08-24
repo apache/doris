@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
-
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -337,7 +335,10 @@ public class CreateTableStmt extends DdlStmt {
         if (columnDefs == null || columnDefs.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
-
+        // add a hidden column as delete flag for unique table
+        if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
+        }
         int rowLengthBytes = 0;
         boolean hasHll = false;
         boolean hasBitmap = false;
@@ -350,7 +351,7 @@ public class CreateTableStmt extends DdlStmt {
             }
 
 
-            if (columnDef.getAggregateType() == BITMAP_UNION) {
+            if (columnDef.getAggregateType() == AggregateType.BITMAP_UNION) {
                 hasBitmap = columnDef.getType().isBitmapType();
             }
 

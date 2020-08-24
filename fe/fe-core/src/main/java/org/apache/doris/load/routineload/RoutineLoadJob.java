@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
@@ -48,6 +49,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
@@ -56,8 +58,10 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.task.StreamLoadTask;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
@@ -93,7 +97,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The desireTaskConcurrentNum means that user expect the number of concurrent stream load
  * The routine load job support different streaming medium such as KAFKA
  */
-public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback implements Writable {
+public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback implements Writable, LoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
@@ -101,6 +105,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+    public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
 
     protected static final String STAR_STRING = "*";
@@ -158,6 +163,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
     // if current error rate is more then max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
+    protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
 
@@ -231,6 +237,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected OriginStatement origStmt;
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    protected Expr deleteCondition;
     // TODO(ml): error sample
 
     // save the latest 3 error log urls
@@ -281,8 +289,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getMaxBatchSize() != -1) {
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
+        if (stmt.getExecMemLimit() != -1) {
+            this.execMemLimit = stmt.getExecMemLimit();
+        }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(stmt.getExecMemLimit()));
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
             jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
@@ -329,6 +341,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
             if (routineLoadDesc.getPartitionNames() != null) {
                 partitions = routineLoadDesc.getPartitionNames();
+            }
+            mergeType = routineLoadDesc.getMergeType();
+            if (routineLoadDesc.getDeleteCondition() != null) {
+                deleteCondition = routineLoadDesc.getDeleteCondition();
+            }
+            if (mergeType == LoadTask.MergeType.MERGE) {
+                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+            } else if (mergeType == LoadTask.MergeType.DELETE) {
+                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
             }
         }
     }
@@ -416,8 +437,28 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return partitions;
     }
 
-    public List<ImportColumnDesc> getColumnDescs() {
-        return columnDescs;
+    @Override
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    @Override
+    public Expr getDeleteCondition() {
+        return deleteCondition;
+    }
+
+    @Override
+    public TFileType getFileType() {
+        return TFileType.FILE_STREAM;
+    }
+
+    @Override
+    public TFileFormatType getFormatType() {
+        TFileFormatType fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+        if (getFormat().equals("json")) {
+            fileFormatType = TFileFormatType.FORMAT_JSON;
+        }
+        return fileFormatType;
     }
 
     public Expr getWhereExpr() {
@@ -434,6 +475,30 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return DEFAULT_STRICT_MODE;
         }
         return Boolean.valueOf(value);
+    }
+
+    @Override
+    public boolean getNegative() {
+        return false;
+    }
+
+    @Override
+    public long getTxnId() {
+        return -1L;
+    }
+
+    @Override
+    public int getTimeout() {
+        return (int) getMaxBatchIntervalS();
+    }
+
+    @Override
+    public long getMemLimit() {
+        String value = jobProperties.get(LoadStmt.EXEC_MEM_LIMIT);
+        if (value == null) {
+            return DEFAULT_EXEC_MEM_LIMIT;
+        }
+        return Long.valueOf(value);
     }
 
     public String getTimezone() {
@@ -470,6 +535,19 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public boolean isStripOuterArray() {
         return Boolean.valueOf(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+    }
+
+    @Override
+    public String getPath() {
+        return null;
+    }
+
+    @Override
+    public List<ImportColumnDesc> getColumnExprDescs() {
+        if (columnDescs == null) {
+            return new ArrayList<>();
+        }
+        return columnDescs;
     }
 
     public String getJsonPaths() {
@@ -665,12 +743,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void initPlanner() throws UserException {
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromRoutineLoadJob(this);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             throw new MetaNotFoundException("db " + dbId + " does not exist");
         }
-        planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), streamLoadTask);
+        planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), this);
     }
 
     public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
@@ -1246,6 +1323,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
         jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
         jobProperties.put("desireTaskConcurrentNum", String.valueOf(desireTaskConcurrentNum));
+        jobProperties.put("execMemLimit", String.valueOf(execMemLimit));
+        jobProperties.put("mergeType", mergeType.toString());
+        jobProperties.put("deleteCondition", deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);

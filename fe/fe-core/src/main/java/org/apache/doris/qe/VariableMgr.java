@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
@@ -27,10 +26,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.util.ParseUtil;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -39,6 +38,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang.SerializationUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -46,7 +46,6 @@ import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -55,7 +54,40 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-// Variable manager, merge session variable and global variable
+/**
+ * Variable manager, merge session variable and global variable.
+ * <p>
+ * There are two types of variables, SESSION and GLOBAL.
+ * <p>
+ * The GLOBAL variable is more like a system configuration, which takes effect globally.
+ * The settings for global variables are global and persistent.
+ * After the cluster is restarted, the set values ​​can still be restored.
+ * The global variables are defined in `GlobalVariable`.
+ * The variable of the READ_ONLY attribute cannot be changed,
+ * and the variable of the GLOBAL attribute can be changed at runtime.
+ * <p>
+ * Session variables are session-level, and the scope of these variables is usually
+ * in a session connection. The session variables are defined in `SessionVariable`.
+ * <p>
+ * For the setting of the global variable, the value of the field in the `GlobalVariable` class
+ * will be modified directly through the reflection mechanism of Java.
+ * <p>
+ * For the setting of session variables, there are also two types: Global and Session.
+ * <p>
+ * 1. Use `set global` comment to set session variables
+ * <p>
+ * This setting method is equivalent to changing the default value of the session variable.
+ * It will modify the `defaultSessionVariable` member.
+ * This operation is persistent and global. After the setting is complete, when a new session
+ * is established, this default value will be used to generate session-level session variables.
+ * This operation will only affect the value of the variable in the newly established session,
+ * but will not affect the value of the variable in the current session.
+ * <p>
+ * 2. Use the `set` comment (no global) to set the session variable
+ * <p>
+ * This setting method will only change the value of the variable in the current session.
+ * After the session ends, this setting will also become invalid.
+ */
 public class VariableMgr {
     private static final Logger LOG = LogManager.getLogger(VariableMgr.class);
 
@@ -72,12 +104,14 @@ public class VariableMgr {
     public static final int INVISIBLE = 16;
 
     // Map variable name to variable context which have enough information to change variable value.
+    // This map contains info of all session and global variables.
     private static ImmutableMap<String, VarContext> ctxByVarName;
 
-    // global session variable
-    private static SessionVariable globalSessionVariable;
+    // This variable is equivalent to the default value of session variables.
+    // Whenever a new session is established, the value in this object is copied to the session-level variable.
+    private static SessionVariable defaultSessionVariable;
 
-    // Global read/write lock to protect access global variable.
+    // Global read/write lock to protect access of globalSessionVariable.
     private static final ReadWriteLock rwlock = new ReentrantReadWriteLock();
     private static final Lock rlock = rwlock.readLock();
     private static final Lock wlock = rwlock.writeLock();
@@ -85,7 +119,7 @@ public class VariableMgr {
     // Form map from variable name to its field in Java class.
     static {
         // Session value
-        globalSessionVariable = new SessionVariable();
+        defaultSessionVariable = new SessionVariable();
         ImmutableSortedMap.Builder<String, VarContext> builder =
                 ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (Field field : SessionVariable.class.getDeclaredFields()) {
@@ -96,8 +130,8 @@ public class VariableMgr {
 
             field.setAccessible(true);
             builder.put(attr.name(),
-                    new VarContext(field, globalSessionVariable, SESSION | attr.flag(),
-                            getValue(globalSessionVariable, field)));
+                    new VarContext(field, defaultSessionVariable, SESSION | attr.flag(),
+                            getValue(defaultSessionVariable, field)));
         }
 
         // Variables only exist in global environment.
@@ -106,30 +140,17 @@ public class VariableMgr {
             if (attr == null) {
                 continue;
             }
-            if ((field.getModifiers() & Modifier.STATIC) == 0) {
-                LOG.warn("Field in GlobalVariable with VarAttr annotation must have static modifier.");
-                continue;
-            }
 
             field.setAccessible(true);
             builder.put(attr.name(),
                     new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
-
         }
 
         ctxByVarName = builder.build();
     }
 
-    public static Lock readLock() {
-        return rlock;
-    }
-
-    public static Lock writeLock() {
-        return wlock;
-    }
-
-    public static SessionVariable getGlobalSessionVariable() {
-        return globalSessionVariable;
+    public static SessionVariable getDefaultSessionVariable() {
+        return defaultSessionVariable;
     }
 
     // Set value to a variable
@@ -188,13 +209,13 @@ public class VariableMgr {
     public static SessionVariable newSessionVariable() {
         wlock.lock();
         try {
-            return (SessionVariable) SerializationUtils.clone(globalSessionVariable);
+            return (SessionVariable) SerializationUtils.clone(defaultSessionVariable);
         } finally {
             wlock.unlock();
         }
     }
 
-    // Check if this setVar can
+    // Check if this setVar can be set correctly
     private static void checkUpdate(SetVar setVar, int flag) throws DdlException {
         if ((flag & READ_ONLY) != 0) {
             ErrorReport.reportDdlException(ErrorCode.ERR_VARIABLE_IS_READONLY, setVar.getVariable());
@@ -207,7 +228,10 @@ public class VariableMgr {
         }
     }
 
-    // Get from show name to field
+    // Entry of handling SetVarStmt
+    // Input:
+    //      sessionVariable: the variable of current session
+    //      setVar: variable information that needs to be set
     public static void setVar(SessionVariable sessionVariable, SetVar setVar) throws DdlException {
         VarContext ctx = ctxByVarName.get(setVar.getVariable());
         if (ctx == null) {
@@ -215,21 +239,6 @@ public class VariableMgr {
         }
         // Check variable attribute and setVar
         checkUpdate(setVar, ctx.getFlag());
-        // Check variable time_zone value is valid
-        if (setVar.getVariable().toLowerCase().equals("time_zone")) {
-            setVar = new SetVar(
-                    setVar.getType(), setVar.getVariable(),
-                    new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(setVar.getValue().getStringValue())));
-        }
-        if (setVar.getVariable().toLowerCase().equals("exec_mem_limit")) {
-            try {
-            setVar = new SetVar(
-                    setVar.getType(), setVar.getVariable(),
-                    new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(setVar.getValue().getStringValue()))));
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
-            }
-        }
 
         // To modify to default value.
         VarAttr attr = ctx.getField().getAnnotation(VarAttr.class);
@@ -244,47 +253,55 @@ public class VariableMgr {
             }
         }
 
-        if (setVar.getVariable().toLowerCase().equals("prefer_join_method")) {
-            if (!value.toLowerCase().equals("broadcast") && !value.toLowerCase().equals("shuffle")) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, "prefer_join_method", value);
-            }
-        }
-
         if (setVar.getType() == SetType.GLOBAL) {
+            // set global variable should not affect variables of current session.
+            // global variable will only make effect when connecting in.
             wlock.lock();
             try {
                 setValue(ctx.getObj(), ctx.getField(), value);
+                // write edit log
+                GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(attr.name()));
+                EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
+                editLog.logGlobalVariableV2(info);
             } finally {
                 wlock.unlock();
             }
-            writeGlobalVariableUpdate(globalSessionVariable, "update global variables");
         } else {
-            // set global variable should not affect variables of current session.
-            // global variable will only make effect when connecting in.
+            // set session variable
             setValue(sessionVariable, ctx.getField(), value);
         }
     }
 
     // global variable persistence
     public static void write(DataOutputStream out) throws IOException {
-        globalSessionVariable.write(out);
+        defaultSessionVariable.write(out);
+        // get all global variables
+        List<String> varNames = GlobalVariable.getAllGlobalVarNames();
+        GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, varNames);
+        info.write(out);
     }
-    
+
     public static void read(DataInputStream in) throws IOException, DdlException {
         wlock.lock();
         try {
-            globalSessionVariable.readFields(in);
+            defaultSessionVariable.readFields(in);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_90) {
+                GlobalVarPersistInfo info = GlobalVarPersistInfo.read(in);
+                replayGlobalVariableV2(info);
+            }
         } finally {
             wlock.unlock();
         }
     }
 
+    @Deprecated
     private static void writeGlobalVariableUpdate(SessionVariable variable, String msg) {
         EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
         editLog.logGlobalVariable(variable);
     }
 
-    public static void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
+    @Deprecated
+    public static void replayGlobalVariable(SessionVariable variable) throws DdlException {
         wlock.lock();
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
@@ -300,6 +317,25 @@ public class VariableMgr {
                     String value = getValue(variable, ctx.getField());
                     setValue(ctx.getObj(), ctx.getField(), value);
                 }
+            }
+        } finally {
+            wlock.unlock();
+        }
+    }
+
+    // this method is used to replace the `replayGlobalVariable()`
+    public static void replayGlobalVariableV2(GlobalVarPersistInfo info) throws DdlException {
+        wlock.lock();
+        try {
+            String json = info.getPersistJsonString();
+            JSONObject root = new JSONObject(json);
+            for (String varName : root.keySet()) {
+                VarContext varContext = ctxByVarName.get(varName);
+                if (varContext == null) {
+                    LOG.error("failed to get global variable {} when replaying", varName);
+                    continue;
+                }
+                setValue(varContext.getObj(), varContext.getField(), root.get(varName).toString());
             }
         } finally {
             wlock.unlock();
@@ -417,7 +453,7 @@ public class VariableMgr {
         return "";
     }
 
-    // Dump all fields
+    // Dump all fields. Used for `show variables`
     public static List<List<String>> dump(SetType type, SessionVariable sessionVar, PatternMatcher matcher) {
         List<List<String>> rows = Lists.newArrayList();
         // Hold the read lock when session dump, because this option need to access global variable.
@@ -433,7 +469,7 @@ public class VariableMgr {
                 List<String> row = Lists.newArrayList();
 
                 row.add(entry.getKey());
-                if (type != SetType.GLOBAL && ctx.getObj() == globalSessionVariable) {
+                if (type != SetType.GLOBAL && ctx.getObj() == defaultSessionVariable) {
                     // In this condition, we may retrieve session variables for caller.
                     row.add(getValue(sessionVar, ctx.getField()));
                 } else {

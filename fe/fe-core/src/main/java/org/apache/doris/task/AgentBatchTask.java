@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushType;
-import org.apache.doris.thrift.TRecoverTabletReq;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
@@ -341,15 +340,6 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setMove_dir_req(request);
-                return tAgentTaskRequest;
-            }
-            case RECOVER_TABLET: {
-                RecoverTabletTask recoverTabletTask = (RecoverTabletTask) task;
-                TRecoverTabletReq request = recoverTabletTask.toThrift();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(request.toString());
-                }
-                tAgentTaskRequest.setRecover_tablet_req(request);
                 return tAgentTaskRequest;
             }
             case UPDATE_TABLET_META_INFO: {

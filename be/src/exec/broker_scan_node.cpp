@@ -235,7 +235,7 @@ Status BrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    // Open partition
+    // Close partition
     if (_partition_expr_ctxs.size() > 0) {
         Expr::close(_partition_expr_ctxs, state);
         for (auto iter : _partition_infos) {

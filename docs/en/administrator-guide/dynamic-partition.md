@@ -126,12 +126,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 1. Table `tbl1` partition column k1, type is DATE, create a dynamic partition rule. By day partition, only the partitions of the last 7 days are kept, and the partitions of the next 3 days are created in advance.
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -159,12 +160,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 2. Table tbl1 partition column k1, type is DATETIME, create a dynamic partition rule. Partition by week, only keep the partition of the last 2 weeks, and create the partition of the next 2 weeks in advance.
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATETIME,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -203,12 +205,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 3. Table tbl1 partition column k1, type is DATE, create a dynamic partition rule. Partition by month without deleting historical partitions, and create partitions for the next 2 months in advance. At the same time, set the starting date on the 3rd of each month.
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",

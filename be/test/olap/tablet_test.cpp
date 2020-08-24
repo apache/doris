@@ -182,7 +182,6 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
         _tablet_meta->add_rs_meta(rowset);
     }
  
-
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
 
@@ -195,6 +194,7 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     _tablet->delete_expired_stale_rowset();
 
     ASSERT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
+    _tablet.reset();
 }
 }
 

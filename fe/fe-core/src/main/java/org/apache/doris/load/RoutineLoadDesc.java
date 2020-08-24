@@ -18,23 +18,30 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.load.loadv2.LoadTask;
 
 public class RoutineLoadDesc {
     private final ColumnSeparator columnSeparator;
     private final ImportColumnsStmt columnsInfo;
     private final ImportWhereStmt wherePredicate;
+    private final Expr deleteCondition;
+    private LoadTask.MergeType mergeType;
     // nullable
     private final PartitionNames partitionNames;
 
     public RoutineLoadDesc(ColumnSeparator columnSeparator, ImportColumnsStmt columnsInfo,
-            ImportWhereStmt wherePredicate, PartitionNames partitionNames) {
+                           ImportWhereStmt wherePredicate, PartitionNames partitionNames,
+                           Expr deleteCondition, LoadTask.MergeType mergeType) {
         this.columnSeparator = columnSeparator;
         this.columnsInfo = columnsInfo;
         this.wherePredicate = wherePredicate;
         this.partitionNames = partitionNames;
+        this.deleteCondition = deleteCondition;
+        this.mergeType = mergeType;
     }
 
     public ColumnSeparator getColumnSeparator() {
@@ -49,8 +56,16 @@ public class RoutineLoadDesc {
         return wherePredicate;
     }
 
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
     // nullable
     public PartitionNames getPartitionNames() {
         return partitionNames;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
     }
 }

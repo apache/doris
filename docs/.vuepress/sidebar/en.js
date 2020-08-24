@@ -95,6 +95,7 @@ module.exports = [
           "multi-tenant",
           "tablet-meta-tool",
           "tablet-repair-and-balance",
+          "tablet-restore-tool",
           {
             title: "Metrics",
             directoryPath: "monitor-metrics/",
@@ -149,7 +150,9 @@ module.exports = [
           {
             title: "Users contribute UDF",
             directoryPath: "contrib/",
-            children:[],       
+            children:[
+                "udaf-orthogonal-bitmap-manual",
+            ],
           },          
         ],
       },
