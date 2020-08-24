@@ -57,6 +57,7 @@ under the License.
 
         To describe the data source. 
         syntax: 
+            [MERGE|APPEND|DELETE]
             DATA INFILE
             (
             "file_path1"[, file_path2, ...]
@@ -68,7 +69,8 @@ under the License.
             [FORMAT AS "file_type"]
             [(column_list)]
             [SET (k1 = func(k2))]
-            [WHERE predicate]    
+            [WHERE predicate] 
+            [DELETE ON label=true]
 
         Explain: 
             file_path: 
@@ -116,6 +118,14 @@ under the License.
             WHERE:
           
             After filtering the transformed data, data that meets where predicates can be loaded. Only column names in tables can be referenced in WHERE statements.
+
+            merge_type:
+
+            The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete on condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
+
+            delete_on_predicates:
+
+            Only used when merge type is MERGE
             
     3. broker_name
 
@@ -190,7 +200,7 @@ under the License.
 
 ## example
 
-    1. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the inscription my_hdfs_broker. Simple authentication.
+    1. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication.
 
         LOAD LABEL example_db.label1
         (
@@ -422,6 +432,27 @@ under the License.
          SET (data_time=str_to_date(data_time, '%Y-%m-%d %H%%3A%i%%3A%s'))
         ) 
         WITH BROKER "hdfs" ("username"="user", "password"="pass");
+
+    13. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication. delete the data when v2 >100, other append
+
+        LOAD LABEL example_db.label1
+        (
+        MERGE DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        COLUMNS TERMINATED BY "\t"
+        (k1, k2, k3, v2, v1)
+        )
+        DELETE ON v2 >100
+        WITH BROKER my_hdfs_broker
+        (
+        "username" = "hdfs_user",
+        "password" = "hdfs_passwd"
+        )
+        PROPERTIES
+        (
+        "timeout" = "3600",
+        "max_filter_ratio" = "0.1"
+        );
      
 ## keyword
 
