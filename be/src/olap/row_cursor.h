@@ -114,7 +114,7 @@ public:
         if (sign_idx < 0) {
             return false;
         }
-        return (*(char*) (cell(sign_idx).cell_ptr())) > 0;
+        return *reinterpret_cast<const char*>(cell(sign_idx).cell_ptr()) > 0;
     }
 
     // set max/min for key field in _field_array
