@@ -479,7 +479,7 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
 
                     if (!_do_materialized_transform(&read_helper, &write_helper,
                                                     ref_block->tablet_schema().column(ref_column), i, _schema_mapping[i].ref_column, mem_pool)) {
-                        return OLAP_ERR_DATE_QUALITY_ERR;
+                        return OLAP_ERR_DATA_QUALITY_ERR;
                     }
                 }
                 continue;
