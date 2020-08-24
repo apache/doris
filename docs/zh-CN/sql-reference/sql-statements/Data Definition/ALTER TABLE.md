@@ -170,6 +170,13 @@ under the License.
         注意：
             1) index 中的所有列都要写出来
             2) value 列在 key 列之后
+    
+    6. 启用批量删除支持
+        语法：
+            ENABLE FEATURE "BATCH_DELETE"
+        注意：
+            1） 只能用在unique 表
+            2) 用于旧表支持批量删除功能，新表创建时已经支持
             
     6. 修改table的属性，目前支持修改bloom filter列, colocate_with 属性和dynamic_partition属性，replication_num和default.replication_num属性
         语法：
@@ -343,6 +350,8 @@ under the License.
     15. 修改表的 in_memory 属性
 
         ALTER TABLE example_db.my_table set ("in_memory" = "true");
+    16. 启用 批量删除功能
+        ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE"
         
         
     [rename]
