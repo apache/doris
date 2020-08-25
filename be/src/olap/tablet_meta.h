@@ -172,8 +172,8 @@ public:
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
 
 
-    void revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
-    inline const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
+    void revise_stale_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
+    // inline const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_inc_rs_meta_by_version(const Version& version);
@@ -224,7 +224,7 @@ private:
     TabletSchema _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
-    std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
+    // std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These stale rowsets meta are been removed when rowsets' pathVersion is expired, 
     // this policy is judged and computed by TimestampedVersionTracker.

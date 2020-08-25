@@ -240,7 +240,7 @@ private:
     void _max_continuous_version_from_begining_unlocked(Version* version,
                                                         VersionHash* v_hash) const ;
     RowsetSharedPtr _rowset_with_largest_size();
-    void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
+    // void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
     void _delete_stale_rowset_by_version(const Version& version);

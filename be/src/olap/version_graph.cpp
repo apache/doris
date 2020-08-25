@@ -29,7 +29,7 @@ namespace doris {
 void TimestampedVersionTracker::_construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     int64_t max_version = 0;
 
-    // construct the roset graph
+    // construct the rowset graph
     _version_graph.reconstruct_version_graph(rs_metas, &max_version);
 }
 
@@ -43,6 +43,20 @@ void TimestampedVersionTracker::construct_versioned_tracker(const std::vector<Ro
     _construct_versioned_tracker(rs_metas);
 }
 
+void TimestampedVersionTracker::construct_versioned_tracker(
+        const std::vector<RowsetMetaSharedPtr>& rs_metas,
+        std::vector<const std::vector<RowsetMetaSharedPtr>>& stale_rs_metas) {
+
+    if (rs_metas.empty()) {
+        VLOG(3) << "there is no version in the header.";
+        return;
+    }
+    construct_versioned_tracker(rs_metas);
+
+    for (auto& path: stale_rs_metas) {
+        add_stale_path_version(path);
+    }
+}
 
 void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Document& path_arr) {
 
