@@ -362,4 +362,39 @@ public class SelectStmtTest {
                 "from information_schema.collations";
         dorisAssert.query(sql).explainQuery();
     }
+
+    @Test
+    public void testRandFunction() {
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand(db1.tbl1.k1) from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("The param of rand function must be literal"));
+        }
+
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand(1234) from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertFalse(e.getMessage().contains("The param of rand function must be literal"));
+        }
+
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand() from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertFalse(e.getMessage().contains("The param of rand function must be literal"));
+        }
+
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            String selectStmtStr = "select rand(\"hello\") from db1.tbl1;";
+            UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr, ctx);
+        } catch (Exception e) {
+            Assert.assertFalse(e.getMessage().contains("The param of rand function must be literal"));
+        }
+    }
 }
