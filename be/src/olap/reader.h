@@ -224,6 +224,7 @@ private:
     bool _need_agg_finalize = true;
     ReaderType _reader_type = READER_QUERY;
     bool _next_delete_flag = false;
+    bool _filter_delete = false;
     const RowCursor* _next_key = nullptr;
     CollectIterator* _collect_iter = nullptr;
     std::vector<uint32_t> _key_cids;
