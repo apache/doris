@@ -391,7 +391,7 @@ public abstract class Type {
      * inner value could not parse to long. otherwise return parsed Long result.
      */
     public static Long tryParseToLong(Expr expectStringExpr){
-        if(expectStringExpr instanceof StringLiteral) {
+        if (expectStringExpr instanceof StringLiteral) {
             String value = ((StringLiteral)expectStringExpr).getValue();
             return Longs.tryParse(value);
         }
