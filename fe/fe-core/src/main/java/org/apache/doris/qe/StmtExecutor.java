@@ -640,7 +640,7 @@ public class StmtExecutor {
                 break;
             }
         }
-        if (!isSendFields) {
+        if (!isSendFields && !isOutfileQuery) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
 
