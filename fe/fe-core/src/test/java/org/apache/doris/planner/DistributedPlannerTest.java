@@ -29,9 +29,7 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
@@ -43,6 +41,10 @@ import java.io.File;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class DistributedPlannerTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -110,7 +112,7 @@ public class DistributedPlannerTest {
         };
 
         PlanFragment assertFragment = Deencapsulation.invoke(distributedPlanner, "createAssertFragment",
-                                                             assertNumRowsNode, inputFragment);
+                assertNumRowsNode, inputFragment);
         Assert.assertFalse(assertFragment.isPartitioned());
         Assert.assertSame(assertNumRowsNode, assertFragment.getPlanRoot());
     }
@@ -118,11 +120,11 @@ public class DistributedPlannerTest {
     @Test
     public void testAssertFragmentWithUnpartitionInput(@Injectable AssertNumRowsNode assertNumRowsNode,
                                                        @Injectable PlanFragment inputFragment,
-                                                       @Mocked PlannerContext plannerContext){
+                                                       @Mocked PlannerContext plannerContext) {
         DistributedPlanner distributedPlanner = new DistributedPlanner(plannerContext);
 
         PlanFragment assertFragment = Deencapsulation.invoke(distributedPlanner, "createAssertFragment",
-                                                             assertNumRowsNode, inputFragment);
+                assertNumRowsNode, inputFragment);
         Assert.assertSame(assertFragment, inputFragment);
         Assert.assertTrue(assertFragment.getPlanRoot() instanceof AssertNumRowsNode);
     }

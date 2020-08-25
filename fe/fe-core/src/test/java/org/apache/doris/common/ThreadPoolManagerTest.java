@@ -19,11 +19,12 @@ package org.apache.doris.common;
 
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricRepo;
+
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.List;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class ThreadPoolManagerTest {
 

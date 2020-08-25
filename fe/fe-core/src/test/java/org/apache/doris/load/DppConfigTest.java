@@ -17,14 +17,13 @@
 
 package org.apache.doris.load;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
+
 import com.google.common.collect.Maps;
 
 import org.junit.Assert;
@@ -36,6 +35,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class DppConfigTest {
     private FakeCatalog fakeCatalog;

@@ -30,9 +30,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
-
 import java.util.List;
+
+import mockit.Mocked;
 
 public class DeleteStmtTest {
 

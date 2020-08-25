@@ -17,10 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Mocked;
 import org.apache.doris.common.AnalysisException;
+
 import org.junit.Assert;
 import org.junit.Test;
+
+import mockit.Mocked;
 
 public class IsNullPredicateTest {
     @Mocked

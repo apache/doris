@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.CommandResult;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -37,6 +35,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class DppSchedulerTest {
     private DppScheduler dppScheduler;

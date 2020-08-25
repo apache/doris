@@ -238,8 +238,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BINARY_PRED;
         msg.setOpcode(opcode);
-        msg.setVector_opcode(vectorOpcode);
-        msg.setChild_type(getChild(0).getType().getPrimitiveType().toThrift());
+        msg.setVectorOpcode(vectorOpcode);
+        msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
     }
 
     @Override

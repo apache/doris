@@ -50,19 +50,20 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Test;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import java.util.List;
+import java.util.Map;
+
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-
-import java.util.List;
-import java.util.Map;
 
 public class SparkLoadPendingTaskTest {
 

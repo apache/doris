@@ -17,15 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
+
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.common.AnalysisException;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class ModifyColumnClauseTest {
     private static Analyzer analyzer;

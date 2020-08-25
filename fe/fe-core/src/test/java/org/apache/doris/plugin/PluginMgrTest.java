@@ -17,12 +17,6 @@
 
 package org.apache.doris.plugin;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
-import avro.shaded.com.google.common.collect.Maps;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
@@ -43,6 +37,13 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.UUID;
+
+import avro.shaded.com.google.common.collect.Maps;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class PluginMgrTest {
 

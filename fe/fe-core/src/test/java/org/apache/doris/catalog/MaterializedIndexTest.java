@@ -17,9 +17,12 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Mocked;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -29,9 +32,7 @@ import java.io.FileOutputStream;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import mockit.Mocked;
 
 public class MaterializedIndexTest {
 

@@ -19,6 +19,9 @@ package org.apache.doris.external.elasticsearch;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.junit.Test;
+
 import java.io.IOException;
 import java.io.StringWriter;
 import java.math.BigDecimal;
@@ -26,9 +29,6 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.doris.external.elasticsearch.QueryBuilders;
-import org.junit.Test;
-
 
 import static org.junit.Assert.assertEquals;
 

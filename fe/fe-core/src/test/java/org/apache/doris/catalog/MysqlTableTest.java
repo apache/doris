@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Mocked;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 
@@ -38,6 +37,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Mocked;
 
 public class MysqlTableTest {
     private List<Column> columns;

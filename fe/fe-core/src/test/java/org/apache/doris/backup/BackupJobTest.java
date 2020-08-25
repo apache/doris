@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import mockit.*;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
@@ -60,6 +59,12 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class BackupJobTest {
 
@@ -233,8 +238,8 @@ public class BackupJobTest {
         TBackend tBackend = new TBackend("", 0, 1);
         TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
                 snapshotTask.getSignature(), task_status);
-        request.setSnapshot_files(snapshotFiles);
-        request.setSnapshot_path(snapshotPath);
+        request.setSnapshotFiles(snapshotFiles);
+        request.setSnapshotPath(snapshotPath);
         Assert.assertTrue(job.finishTabletSnapshotTask(snapshotTask, request));
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
@@ -264,7 +269,7 @@ public class BackupJobTest {
         Map<Long, List<String>> tabletFileMap = Maps.newHashMap();
         request = new TFinishTaskRequest(tBackend, TTaskType.UPLOAD,
                 upTask.getSignature(), task_status);
-        request.setTablet_files(tabletFileMap);
+        request.setTabletFiles(tabletFileMap);
 
         Assert.assertFalse(job.finishSnapshotUploadTask(upTask, request));
         List<String> tabletFiles = Lists.newArrayList();

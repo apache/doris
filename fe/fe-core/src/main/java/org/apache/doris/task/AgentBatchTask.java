@@ -163,7 +163,7 @@ public class AgentBatchTask implements Runnable {
                 for (AgentTask task : tasks) {
                     agentTaskRequests.add(toAgentTaskRequest(task));
                 }
-                client.submit_tasks(agentTaskRequests);
+                client.submitTasks(agentTaskRequests);
                 if (LOG.isDebugEnabled()) {
                     for (AgentTask task : tasks) {
                         LOG.debug("send task: type[{}], backend[{}], signature[{}]",
@@ -185,11 +185,11 @@ public class AgentBatchTask implements Runnable {
 
     private TAgentTaskRequest toAgentTaskRequest(AgentTask task) {
         TAgentTaskRequest tAgentTaskRequest = new TAgentTaskRequest();
-        tAgentTaskRequest.setProtocol_version(TAgentServiceVersion.V1);
+        tAgentTaskRequest.setProtocolVersion(TAgentServiceVersion.V1);
         tAgentTaskRequest.setSignature(task.getSignature());
 
         TTaskType taskType = task.getTaskType();
-        tAgentTaskRequest.setTask_type(taskType);
+        tAgentTaskRequest.setTaskType(taskType);
         switch (taskType) {
             case CREATE: {
                 CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
@@ -197,7 +197,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setCreate_tablet_req(request);
+                tAgentTaskRequest.setCreateTabletReq(request);
                 return tAgentTaskRequest;
             }
             case DROP: {
@@ -206,7 +206,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setDrop_tablet_req(request);
+                tAgentTaskRequest.setDropTabletReq(request);
                 return tAgentTaskRequest;
             }
             case REALTIME_PUSH:
@@ -216,9 +216,9 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setPush_req(request);
+                tAgentTaskRequest.setPushReq(request);
                 if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
-                    tAgentTaskRequest.setResource_info(pushTask.getResourceInfo());
+                    tAgentTaskRequest.setResourceInfo(pushTask.getResourceInfo());
                 }
                 tAgentTaskRequest.setPriority(pushTask.getPriority());
                 return tAgentTaskRequest;
@@ -229,7 +229,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setClone_req(request);
+                tAgentTaskRequest.setCloneReq(request);
                 return tAgentTaskRequest;
             }
             case ROLLUP: {
@@ -238,8 +238,8 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setAlter_tablet_req(request);
-                tAgentTaskRequest.setResource_info(rollupTask.getResourceInfo());
+                tAgentTaskRequest.setAlterTabletReq(request);
+                tAgentTaskRequest.setResourceInfo(rollupTask.getResourceInfo());
                 return tAgentTaskRequest;
             }
             case SCHEMA_CHANGE: {
@@ -248,8 +248,8 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setAlter_tablet_req(request);
-                tAgentTaskRequest.setResource_info(schemaChangeTask.getResourceInfo());
+                tAgentTaskRequest.setAlterTabletReq(request);
+                tAgentTaskRequest.setResourceInfo(schemaChangeTask.getResourceInfo());
                 return tAgentTaskRequest;
             }
             case STORAGE_MEDIUM_MIGRATE: {
@@ -258,7 +258,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setStorage_medium_migrate_req(request);
+                tAgentTaskRequest.setStorageMediumMigrateReq(request);
                 return tAgentTaskRequest;
             }
             case CHECK_CONSISTENCY: {
@@ -267,7 +267,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setCheck_consistency_req(request);
+                tAgentTaskRequest.setCheckConsistencyReq(request);
                 return tAgentTaskRequest;
             }
             case MAKE_SNAPSHOT: {
@@ -276,7 +276,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setSnapshot_req(request);
+                tAgentTaskRequest.setSnapshotReq(request);
                 return tAgentTaskRequest;
             }
             case RELEASE_SNAPSHOT: {
@@ -285,7 +285,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setRelease_snapshot_req(request);
+                tAgentTaskRequest.setReleaseSnapshotReq(request);
                 return tAgentTaskRequest;
             }
             case UPLOAD: {
@@ -294,7 +294,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setUpload_req(request);
+                tAgentTaskRequest.setUploadReq(request);
                 return tAgentTaskRequest;
             }
             case DOWNLOAD: {
@@ -303,7 +303,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setDownload_req(request);
+                tAgentTaskRequest.setDownloadReq(request);
                 return tAgentTaskRequest;
             }
             case PUBLISH_VERSION: {
@@ -312,7 +312,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setPublish_version_req(request);
+                tAgentTaskRequest.setPublishVersionReq(request);
                 return tAgentTaskRequest;
             }
             case CLEAR_ALTER_TASK: {
@@ -321,7 +321,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setClear_alter_task_req(request);
+                tAgentTaskRequest.setClearAlterTaskReq(request);
                 return tAgentTaskRequest;
             }
             case CLEAR_TRANSACTION_TASK: {
@@ -330,7 +330,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setClear_transaction_task_req(request);
+                tAgentTaskRequest.setClearTransactionTaskReq(request);
                 return tAgentTaskRequest;
             }
             case MOVE: {
@@ -339,7 +339,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setMove_dir_req(request);
+                tAgentTaskRequest.setMoveDirReq(request);
                 return tAgentTaskRequest;
             }
             case UPDATE_TABLET_META_INFO: {
@@ -348,7 +348,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setUpdate_tablet_meta_info_req(request);
+                tAgentTaskRequest.setUpdateTabletMetaInfoReq(request);
                 return tAgentTaskRequest;
             }
             case ALTER: {
@@ -357,7 +357,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setAlter_tablet_req_v2(request);
+                tAgentTaskRequest.setAlterTabletReqV2(request);
                 return tAgentTaskRequest;
             }
             default:

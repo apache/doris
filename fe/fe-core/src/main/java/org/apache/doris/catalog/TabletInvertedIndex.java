@@ -120,8 +120,8 @@ public class TabletInvertedIndex {
 
         for (TTablet backendTablet : backendTablets.values()) {
             for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
-                if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
-                    tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash()));
+                if (!tabletInfo.isSetPartitionId() || tabletInfo.getPartitionId() < 1) {
+                    tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTabletId(), tabletInfo.getSchemaHash()));
                 }
             }
         }
@@ -141,8 +141,8 @@ public class TabletInvertedIndex {
                     if (backendTablets.containsKey(tabletId)) {
                         TTablet backendTablet = backendTablets.get(tabletId);
                         Replica replica = entry.getValue();
-                        for (TTabletInfo backendTabletInfo : backendTablet.getTablet_infos()) {
-                            if (tabletMeta.containsSchemaHash(backendTabletInfo.getSchema_hash())) {
+                        for (TTabletInfo backendTabletInfo : backendTablet.getTabletInfos()) {
+                            if (tabletMeta.containsSchemaHash(backendTabletInfo.getSchemaHash())) {
                                 foundTabletsWithValidSchema.add(tabletId);
                                 // 1. (intersection)
                                 if (needSync(replica, backendTabletInfo)) {
@@ -152,15 +152,15 @@ public class TabletInvertedIndex {
                                 
                                 // check and set path
                                 // path info of replica is only saved in Master FE
-                                if (backendTabletInfo.isSetPath_hash() &&
-                                        replica.getPathHash() != backendTabletInfo.getPath_hash()) {
-                                    replica.setPathHash(backendTabletInfo.getPath_hash());
+                                if (backendTabletInfo.isSetPathHash() &&
+                                        replica.getPathHash() != backendTabletInfo.getPathHash()) {
+                                    replica.setPathHash(backendTabletInfo.getPathHash());
                                 }
 
-                                if (backendTabletInfo.isSetSchema_hash() && replica.getState() == ReplicaState.NORMAL
-                                        && replica.getSchemaHash() != backendTabletInfo.getSchema_hash()) {
+                                if (backendTabletInfo.isSetSchemaHash() && replica.getState() == ReplicaState.NORMAL
+                                        && replica.getSchemaHash() != backendTabletInfo.getSchemaHash()) {
                                     // update the schema hash only when replica is normal
-                                    replica.setSchemaHash(backendTabletInfo.getSchema_hash());
+                                    replica.setSchemaHash(backendTabletInfo.getSchemaHash());
                                 }
 
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
@@ -169,18 +169,18 @@ public class TabletInvertedIndex {
                                             + " is bad: {}, is version missing: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
-                                            backendTabletInfo.getVersion_hash(),
-                                            backendTabletInfo.getSchema_hash(),
+                                            backendTabletInfo.getVersionHash(),
+                                            backendTabletInfo.getSchemaHash(),
                                             backendTabletInfo.isSetUsed() ? backendTabletInfo.isUsed() : "unknown",
-                                            backendTabletInfo.isSetVersion_miss() ? backendTabletInfo.isVersion_miss() : "unset");
+                                            backendTabletInfo.isSetVersionMiss() ? backendTabletInfo.isVersionMiss() : "unset");
                                     tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
 
                                 // check if need migration
                                 long partitionId = tabletMeta.getPartitionId();
                                 TStorageMedium storageMedium = storageMediumMap.get(partitionId);
-                                if (storageMedium != null && backendTabletInfo.isSetStorage_medium()) {
-                                    if (storageMedium != backendTabletInfo.getStorage_medium()) {
+                                if (storageMedium != null && backendTabletInfo.isSetStorageMedium()) {
+                                    if (storageMedium != backendTabletInfo.getStorageMedium()) {
                                         tabletMigrationMap.put(storageMedium, tabletId);
                                     }
                                     if (storageMedium != tabletMeta.getStorageMedium()) {
@@ -188,8 +188,8 @@ public class TabletInvertedIndex {
                                     }
                                 }
                                 // check if should clear transactions
-                                if (backendTabletInfo.isSetTransaction_ids()) {
-                                    List<Long> transactionIds = backendTabletInfo.getTransaction_ids();
+                                if (backendTabletInfo.isSetTransactionIds()) {
+                                    List<Long> transactionIds = backendTabletInfo.getTransactionIds();
                                     GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
                                     for (Long transactionId : transactionIds) {
                                         TransactionState transactionState = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
@@ -229,8 +229,8 @@ public class TabletInvertedIndex {
 
                                 // update replicas's version count
                                 // no need to write log, and no need to get db lock.
-                                if (backendTabletInfo.isSetVersion_count()) {
-                                    replica.setVersionCount(backendTabletInfo.getVersion_count());
+                                if (backendTabletInfo.isSetVersionCount()) {
+                                    replica.setVersionCount(backendTabletInfo.getVersionCount());
                                 }
                             } else {
                                 // tablet with invalid schemahash
@@ -306,7 +306,7 @@ public class TabletInvertedIndex {
         if (backendTabletInfo.getVersion() > versionInFe) {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
-        } else if (versionInFe == backendTabletInfo.getVersion() && versionHashInFe == backendTabletInfo.getVersion_hash()
+        } else if (versionInFe == backendTabletInfo.getVersion() && versionHashInFe == backendTabletInfo.getVersionHash()
                 && replicaInFe.isBad()) {
             // backend replica's version is equal to replica in FE, but replica in FE is bad, while backend replica is good, sync it
             return true;
@@ -336,8 +336,8 @@ public class TabletInvertedIndex {
             return true;
         }
 
-        if (schemaHashInFe != backendTabletInfo.getSchema_hash()
-                || backendTabletInfo.getVersion() == -1 && backendTabletInfo.getVersion_hash() == 0) {
+        if (schemaHashInFe != backendTabletInfo.getSchemaHash()
+                || backendTabletInfo.getVersion() == -1 && backendTabletInfo.getVersionHash() == 0) {
             // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery
             return false;
         }
@@ -356,7 +356,7 @@ public class TabletInvertedIndex {
             return false;
         }
 
-        if (backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
+        if (backendTabletInfo.isSetVersionMiss() && backendTabletInfo.isVersionMiss()) {
             // even if backend version is less than fe's version, but if version_miss is false,
             // which means this may be a stale report.
             // so we only return true if version_miss is true.

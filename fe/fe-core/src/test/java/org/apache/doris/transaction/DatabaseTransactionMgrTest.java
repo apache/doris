@@ -17,8 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.FakeCatalog;
@@ -30,6 +28,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Before;
 import org.junit.Rule;

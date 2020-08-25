@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
@@ -28,6 +27,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Expectations;
 
 public class ShowLoadStmtTest {
     private Analyzer analyzer;

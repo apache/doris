@@ -17,9 +17,6 @@
 
 package org.apache.doris.mysql;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -37,6 +34,10 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.List;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class MysqlProtoTest {
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(MysqlProtoTest.class);

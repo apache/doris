@@ -19,13 +19,12 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -33,6 +32,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -60,9 +60,7 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+
 import org.apache.spark.launcher.SparkAppHandle;
 import org.junit.Assert;
 import org.junit.Before;
@@ -77,6 +75,10 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class SparkLoadJobTest {
     private long dbId;

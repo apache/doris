@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Test;
 

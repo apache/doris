@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -53,6 +51,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
@@ -188,26 +189,26 @@ public class CoordinatorTest extends Coordinator {
         TScanRangeLocations scanRangeLocationsA = new TScanRangeLocations();
         List<TScanRangeLocation> listLocationsA = new ArrayList<TScanRangeLocation>();
         listLocationsA.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineA", 10000)).setBackend_id(0));
+                .setServer(new TNetworkAddress("machineA", 10000)).setBackendId(0));
         listLocationsA.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineB", 10000)).setBackend_id(1));
-        scanRangeLocationsA.setLocations(listLocationsA).setScan_range(new TScanRange());
+                .setServer(new TNetworkAddress("machineB", 10000)).setBackendId(1));
+        scanRangeLocationsA.setLocations(listLocationsA).setScanRange(new TScanRange());
 
         TScanRangeLocations scanRangeLocationsB = new TScanRangeLocations();
         List<TScanRangeLocation> listLocationsB = new ArrayList<TScanRangeLocation>();
         listLocationsB.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineB", 10000)).setBackend_id(1));
+                .setServer(new TNetworkAddress("machineB", 10000)).setBackendId(1));
         listLocationsB.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineC", 10000)).setBackend_id(2));
-        scanRangeLocationsB.setLocations(listLocationsB).setScan_range(new TScanRange());
+                .setServer(new TNetworkAddress("machineC", 10000)).setBackendId(2));
+        scanRangeLocationsB.setLocations(listLocationsB).setScanRange(new TScanRange());
 
         TScanRangeLocations scanRangeLocationsC = new TScanRangeLocations();
         List<TScanRangeLocation> listLocationsC = new ArrayList<TScanRangeLocation>();
         listLocationsC.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineC", 10000)).setBackend_id(2));
+                .setServer(new TNetworkAddress("machineC", 10000)).setBackendId(2));
         listLocationsC.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineA", 10000)).setBackend_id(0));
-        scanRangeLocationsC.setLocations(listLocationsC).setScan_range(new TScanRange());
+                .setServer(new TNetworkAddress("machineA", 10000)).setBackendId(0));
+        scanRangeLocationsC.setLocations(listLocationsC).setScanRange(new TScanRange());
 
         // 场景1： 2个scanRange
         {
@@ -437,7 +438,7 @@ public class CoordinatorTest extends Coordinator {
                 (ConcurrentMap<TUniqueId, BackendExecState>) getField(coor, "backendExecStateMap");
         TQueryOptions privateQueryOptions = (TQueryOptions) getField(coor, "queryOptions");
         // 设置超时时间为2s，尽快返回连接超时
-        privateQueryOptions.setQuery_timeout(2);
+        privateQueryOptions.setQueryTimeout(2);
         // Configure.qe_query_timeout_s  = 2;
 
         privateFragmentExecParams.clear();

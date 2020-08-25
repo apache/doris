@@ -78,9 +78,9 @@ public class SnapshotTask extends AgentTask {
     public TSnapshotRequest toThrift() {
         TSnapshotRequest request = new TSnapshotRequest(tabletId, schemaHash);
         request.setVersion(version);
-        request.setVersion_hash(versionHash);
-        request.setList_files(true);
-        request.setPreferred_snapshot_version(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
+        request.setVersionHash(versionHash);
+        request.setListFiles(true);
+        request.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
         request.setTimeout(timeoutMs / 1000);
         return request;
     }

@@ -63,18 +63,18 @@ public class MiniLoadJob extends LoadJob {
         this.tableId = tableId;
         this.jobType = EtlJobType.MINI;
         this.tableName = request.getTbl();
-        if (request.isSetTimeout_second()) {
-            this.timeoutSecond = request.getTimeout_second();
+        if (request.isSetTimeoutSecond()) {
+            this.timeoutSecond = request.getTimeoutSecond();
         } else {
             this.timeoutSecond = Config.stream_load_default_timeout_second;
         }
-        if (request.isSetMax_filter_ratio()) {
-            this.maxFilterRatio = request.getMax_filter_ratio();
+        if (request.isSetMaxFilterRatio()) {
+            this.maxFilterRatio = request.getMaxFilterRatio();
         }
-        this.createTimestamp = request.getCreate_timestamp();
+        this.createTimestamp = request.getCreateTimestamp();
         this.loadStartTimestamp = createTimestamp;
         this.authorizationInfo = gatherAuthInfo();
-        this.requestId = request.getRequest_id();
+        this.requestId = request.getRequestId();
     }
 
     @Override

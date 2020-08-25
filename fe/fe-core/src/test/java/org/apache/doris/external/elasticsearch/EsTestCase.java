@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.Before;
 import org.junit.BeforeClass;
 
 import java.io.BufferedReader;

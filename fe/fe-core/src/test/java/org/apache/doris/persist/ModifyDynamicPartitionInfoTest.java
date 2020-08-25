@@ -18,6 +18,7 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DynamicPartitionProperty;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;

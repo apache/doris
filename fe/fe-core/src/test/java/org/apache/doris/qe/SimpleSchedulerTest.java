@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
@@ -36,6 +34,9 @@ import org.junit.Before;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class SimpleSchedulerTest {
     static Reference<Long> ref = new Reference<Long>();
@@ -86,8 +87,8 @@ public class SimpleSchedulerTest {
         List<TScanRangeLocation> twoLocations = new ArrayList<TScanRangeLocation>();
         TScanRangeLocation locationA = new TScanRangeLocation();
         TScanRangeLocation locationB = new TScanRangeLocation();
-        locationA.setBackend_id(20);
-        locationA.setBackend_id(30);
+        locationA.setBackendId(20);
+        locationA.setBackendId(30);
         twoLocations.add(locationA);
         twoLocations.add(locationB);
 

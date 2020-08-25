@@ -17,8 +17,6 @@
 
 package org.apache.doris.task;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -52,6 +50,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class LoadEtlTaskTest {
     private long dbId;

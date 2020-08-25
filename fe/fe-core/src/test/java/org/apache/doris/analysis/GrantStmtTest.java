@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -34,6 +33,7 @@ import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Expectations;
 import mockit.Mocked;
 
 public class GrantStmtTest {

@@ -503,8 +503,8 @@ public abstract class Type {
         int tmpNodeIdx = nodeIdx;
         switch (node.getType()) {
             case SCALAR: {
-                Preconditions.checkState(node.isSetScalar_type());
-                TScalarType scalarType = node.getScalar_type();
+                Preconditions.checkState(node.isSetScalarType());
+                TScalarType scalarType = node.getScalarType();
                 if (scalarType.getType() == TPrimitiveType.CHAR) {
                     Preconditions.checkState(scalarType.isSetLen());
                     type = ScalarType.createCharType(scalarType.getLen());
@@ -546,11 +546,11 @@ public abstract class Type {
                 break;
             }
             case STRUCT: {
-                Preconditions.checkState(tmpNodeIdx + node.getStruct_fieldsSize() < col.getTypesSize());
+                Preconditions.checkState(tmpNodeIdx + node.getStructFieldsSize() < col.getTypesSize());
                 ArrayList<StructField> structFields = Lists.newArrayList();
                 ++tmpNodeIdx;
-                for (int i = 0; i < node.getStruct_fieldsSize(); ++i) {
-                    TStructField thriftField = node.getStruct_fields().get(i);
+                for (int i = 0; i < node.getStructFieldsSize(); ++i) {
+                    TStructField thriftField = node.getStructFields().get(i);
                     String name = thriftField.getName();
                     String comment = null;
                     if (thriftField.isSetComment()) {

@@ -18,7 +18,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -37,10 +36,10 @@ import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 

@@ -17,13 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.common.AnalysisException;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class LabelNameTest {
     @Mocked

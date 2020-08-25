@@ -141,9 +141,9 @@ public class Index implements Writable {
 
     public TOlapTableIndex toThrift() {
         TOlapTableIndex tIndex = new TOlapTableIndex();
-        tIndex.setIndex_name(indexName);
+        tIndex.setIndexName(indexName);
         tIndex.setColumns(columns);
-        tIndex.setIndex_type(TIndexType.valueOf(indexType.toString()));
+        tIndex.setIndexType(TIndexType.valueOf(indexType.toString()));
         if (columns != null) {
             tIndex.setComment(comment);
         }

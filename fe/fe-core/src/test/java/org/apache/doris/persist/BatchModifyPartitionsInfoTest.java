@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.Lists;
 
 import org.junit.After;

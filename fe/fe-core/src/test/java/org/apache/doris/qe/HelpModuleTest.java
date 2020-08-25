@@ -17,12 +17,11 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Injectable;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

@@ -21,6 +21,7 @@ import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

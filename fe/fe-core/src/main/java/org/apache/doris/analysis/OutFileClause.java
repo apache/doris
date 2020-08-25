@@ -200,12 +200,12 @@ public class OutFileClause {
     public TResultFileSinkOptions toSinkOptions() {
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath, fileFormatType);
         if (isCsvFormat()) {
-            sinkOptions.setColumn_separator(columnSeparator);
-            sinkOptions.setLine_delimiter(lineDelimiter);
+            sinkOptions.setColumnSeparator(columnSeparator);
+            sinkOptions.setLineDelimiter(lineDelimiter);
         }
-        sinkOptions.setMax_file_size_bytes(maxFileSizeBytes);
+        sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
         if (brokerDesc != null) {
-            sinkOptions.setBroker_properties(brokerDesc.getProperties());
+            sinkOptions.setBrokerProperties(brokerDesc.getProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.
             // Because we need to choose the nearest broker with the result sink node.
         }

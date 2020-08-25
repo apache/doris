@@ -36,7 +36,6 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
 
@@ -45,7 +44,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 

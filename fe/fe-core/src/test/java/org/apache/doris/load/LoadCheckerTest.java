@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -49,6 +47,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class LoadCheckerTest {
     private long dbId;

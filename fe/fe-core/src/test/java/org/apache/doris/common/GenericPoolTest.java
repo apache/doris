@@ -115,107 +115,107 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TExecPlanFragmentResult exec_plan_fragment(TExecPlanFragmentParams params) {
+        public TExecPlanFragmentResult execPlanFragment(TExecPlanFragmentParams params) {
             return new TExecPlanFragmentResult();
         }
 
         @Override
-        public TCancelPlanFragmentResult cancel_plan_fragment(TCancelPlanFragmentParams params) {
+        public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) {
             return new TCancelPlanFragmentResult();
         }
 
         @Override
-        public TTransmitDataResult transmit_data(TTransmitDataParams params) {
+        public TTransmitDataResult transmitData(TTransmitDataParams params) {
             return new TTransmitDataResult();
         }
 
         @Override
-        public TFetchDataResult fetch_data(TFetchDataParams params) {
+        public TFetchDataResult fetchData(TFetchDataParams params) {
             TFetchDataResult result = new TFetchDataResult();
-            result.setPacket_num(123);
-            result.setResult_batch(new TResultBatch(new ArrayList<ByteBuffer>(), false, 0));
+            result.setPacketNum(123);
+            result.setResultBatch(new TResultBatch(new ArrayList<ByteBuffer>(), false, 0));
             result.setEos(true);
             return result;
         }
 
         @Override
-        public TAgentResult submit_tasks(List<TAgentTaskRequest> tasks) throws TException {
+        public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             return null;
         }
 
         @Override
-        public TAgentResult release_snapshot(String snapshot_path) throws TException {
+        public TAgentResult releaseSnapshot(String snapshot_path) throws TException {
             return null;
         }
 
         @Override
-        public TAgentResult publish_cluster_state(TAgentPublishRequest request) throws TException {
+        public TAgentResult publishClusterState(TAgentPublishRequest request) throws TException {
             return null;
         }
 
         @Override
-        public TAgentResult submit_etl_task(TMiniLoadEtlTaskRequest request) throws TException {
+        public TAgentResult submitEtlTask(TMiniLoadEtlTaskRequest request) throws TException {
             return null;
         }
 
         @Override
-        public TMiniLoadEtlStatusResult get_etl_status(TMiniLoadEtlStatusRequest request) throws TException {
+        public TMiniLoadEtlStatusResult getEtlStatus(TMiniLoadEtlStatusRequest request) throws TException {
             return null;
         }
 
         @Override
-        public TAgentResult delete_etl_files(TDeleteEtlFilesRequest request) throws TException {
+        public TAgentResult deleteEtlFiles(TDeleteEtlFilesRequest request) throws TException {
             return null;
         }
 
         @Override
-        public TAgentResult make_snapshot(TSnapshotRequest snapshot_request) throws TException {
+        public TAgentResult makeSnapshot(TSnapshotRequest snapshot_request) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
 
         @Override
-        public TStatus submit_export_task(TExportTaskRequest request) throws TException {
+        public TStatus submitExportTask(TExportTaskRequest request) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
 
         @Override
-        public TExportStatusResult get_export_status(TUniqueId task_id) throws TException {
+        public TExportStatusResult getExportStatus(TUniqueId task_id) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
 
         @Override
-        public TStatus erase_export_task(TUniqueId task_id) throws TException {
+        public TStatus eraseExportTask(TUniqueId task_id) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
 
         @Override
-        public TTabletStatResult get_tablet_stat() throws TException {
+        public TTabletStatResult getTabletStat() throws TException {
             // TODO Auto-generated method stub
             return null;
         }
 
         @Override
-        public TStatus submit_routine_load_task(List<TRoutineLoadTask> tasks) throws TException {
+        public TStatus submitRoutineLoadTask(List<TRoutineLoadTask> tasks) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
 
         @Override
-        public TScanOpenResult open_scanner(TScanOpenParams params) throws TException {
+        public TScanOpenResult openScanner(TScanOpenParams params) throws TException {
             return null;
         }
 
         @Override
-        public TScanBatchResult get_next(TScanNextBatchParams params) throws TException {
+        public TScanBatchResult getNext(TScanNextBatchParams params) throws TException {
             return null;
         }
 
         @Override
-        public TScanCloseResult close_scanner(TScanCloseParams params) throws TException {
+        public TScanCloseResult closeScanner(TScanCloseParams params) throws TException {
             return null;
         }
     }
@@ -225,9 +225,9 @@ public class GenericPoolTest {
         TNetworkAddress address = new TNetworkAddress(ip, port);
         BackendService.Client object = backendService.borrowObject(address);
 
-        TFetchDataResult result = object.fetch_data(new TFetchDataParams(
+        TFetchDataResult result = object.fetchData(new TFetchDataParams(
                 PaloInternalServiceVersion.V1, new TUniqueId()));
-        Assert.assertEquals(result.getPacket_num(), 123);
+        Assert.assertEquals(result.getPacketNum(), 123);
 
         backendService.returnObject(address, object);
     }

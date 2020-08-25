@@ -17,11 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -30,6 +27,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class AlterDatabaseQuotaStmtTest {
     private Analyzer analyzer;
