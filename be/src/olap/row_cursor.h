@@ -109,6 +109,14 @@ public:
         return column_schema(index)->index_size();
     }
 
+    inline bool is_delete() const {
+        auto sign_idx = _schema->delete_sign_idx();
+        if (sign_idx < 0) {
+            return false;
+        }
+        return *reinterpret_cast<const char*>(cell(sign_idx).cell_ptr()) > 0;
+    }
+
     // set max/min for key field in _field_array
     OLAPStatus build_max_key();
     OLAPStatus build_min_key();
