@@ -430,7 +430,6 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
                 }
                 break;
             }
-            
             // break while can NOT doing aggregation
             if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
                 break;
@@ -1039,7 +1038,6 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 }
 
 OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
-
     if (read_params.reader_type != READER_CUMULATIVE_COMPACTION) {
         _tablet->obtain_header_rdlock();
         OLAPStatus ret = _delete_handler.init(_tablet->tablet_schema(),
