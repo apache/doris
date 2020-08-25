@@ -44,8 +44,6 @@ import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.spark.launcher.SparkAppHandle;
-import org.apache.spark.launcher.SparkAppHandle.Listener;
 import org.apache.spark.launcher.SparkLauncher;
 
 import java.io.IOException;
@@ -68,8 +66,6 @@ public class SparkEtlJobHandler {
     private static final String JOB_CONFIG_DIR = "configs";
     private static final String ETL_JOB_NAME = "doris__%s";
     // 5min
-    // private static final int GET_APPID_MAX_RETRY_TIMES = 300;
-    // private static final int GET_APPID_SLEEP_MS = 1000;
     private static final int GET_APPID_TIMEOUT_MS = 300000;
     // 30s
     private static final long EXEC_CMD_TIMEOUT_MS = 30000L;
@@ -77,14 +73,14 @@ public class SparkEtlJobHandler {
     private static final String YARN_STATUS_CMD = "%s --config %s application -status %s";
     private static final String YARN_KILL_CMD = "%s --config %s application -kill %s";
 
-    class SparkAppListener implements Listener {
+    class SparkAppListener implements SparkLoadAppHandle.Listener {
         @Override
-        public void stateChanged(SparkAppHandle sparkAppHandle) {
+        public void stateChanged(SparkLoadAppHandle sparkAppHandle) {
             LOG.info("get spark state changed: {}, app id: {}", sparkAppHandle.getState(), sparkAppHandle.getAppId());
         }
 
         @Override
-        public void infoChanged(SparkAppHandle sparkAppHandle) {
+        public void infoChanged(SparkLoadAppHandle sparkAppHandle) {
             LOG.info("get spark info changed: {}, app id: {}", sparkAppHandle.getState(), sparkAppHandle.getAppId());
         }
     }
@@ -157,6 +153,7 @@ public class SparkEtlJobHandler {
             Process process = launcher.launch();
             handle = new SparkLoadAppHandle(process);
             SparkLauncherMonitors.LogMonitor logMonitor = SparkLauncherMonitors.createLogMonitor(handle);
+            logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);
             logMonitor.start();
             try {
                 logMonitor.join();
