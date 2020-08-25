@@ -26,6 +26,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.CommandResult;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
+import org.apache.doris.load.loadv2.SparkLoadAppHandle.State;
 import org.apache.doris.load.loadv2.dpp.DppResult;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.load.loadv2.etl.SparkEtlJob;
@@ -45,10 +46,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.launcher.SparkAppHandle;
 import org.apache.spark.launcher.SparkAppHandle.Listener;
-import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -69,8 +68,9 @@ public class SparkEtlJobHandler {
     private static final String JOB_CONFIG_DIR = "configs";
     private static final String ETL_JOB_NAME = "doris__%s";
     // 5min
-    private static final int GET_APPID_MAX_RETRY_TIMES = 300;
-    private static final int GET_APPID_SLEEP_MS = 1000;
+    // private static final int GET_APPID_MAX_RETRY_TIMES = 300;
+    // private static final int GET_APPID_SLEEP_MS = 1000;
+    private static final int GET_APPID_TIMEOUT_MS = 300000;
     // 30s
     private static final long EXEC_CMD_TIMEOUT_MS = 30000L;
     // yarn command
@@ -140,8 +140,8 @@ public class SparkEtlJobHandler {
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .setSparkHome(sparkHome)
                 .addAppArgs(jobConfigHdfsPath)
-                .redirectError()
-                .redirectOutput(new File(Config.sys_log_dir + "/spark-submitter.log"));
+                .redirectError();
+                //.redirectOutput(new File(Config.sys_log_dir + "/spark-submitter.log"));
 
         // spark configs
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {
@@ -149,44 +149,35 @@ public class SparkEtlJobHandler {
         }
 
         // start app
-        SparkAppHandle handle = null;
+        SparkLoadAppHandle handle = null;
         State state = null;
         String appId = null;
-        int retry = 0;
         String errMsg = "start spark app failed. error: ";
         try {
-            handle = launcher.startApplication(new SparkAppListener());
+            Process process = launcher.launch();
+            handle = new SparkLoadAppHandle(process);
+            SparkLauncherMonitors.LogMonitor logMonitor = SparkLauncherMonitors.createLogMonitor(handle);
+            logMonitor.start();
+            try {
+                logMonitor.join();
+                appId = handle.getAppId();
+                state = handle.getState();
+            } catch (InterruptedException e) {
+                logMonitor.interrupt();
+                throw new LoadException(errMsg + e.getMessage());
+            }
         } catch (IOException e) {
             LOG.warn(errMsg, e);
             throw new LoadException(errMsg + e.getMessage());
         }
 
-        while (retry++ < GET_APPID_MAX_RETRY_TIMES) {
-            appId = handle.getAppId();
-            if (appId != null) {
-                break;
-            }
+        if (fromSparkState(state) == TEtlState.CANCELLED) {
+            throw new LoadException(errMsg + "spark app state: " + state.toString() + ", loadJobId:" + loadJobId);
+        }
 
-            // check state and retry
-            state = handle.getState();
-            if (fromSparkState(state) == TEtlState.CANCELLED) {
-                throw new LoadException(errMsg + "spark app state: " + state.toString());
-            }
-            if (retry >= GET_APPID_MAX_RETRY_TIMES) {
-                throw new LoadException(errMsg + "wait too much time for getting appid. spark app state: "
-                                                + state.toString());
-            }
-
-            // log
-            if (retry % 10 == 0) {
-                LOG.info("spark appid that handle get is null. load job id: {}, state: {}, retry times: {}",
-                         loadJobId, state.toString(), retry);
-            }
-            try {
-                Thread.sleep(GET_APPID_SLEEP_MS);
-            } catch (InterruptedException e) {
-                LOG.warn(e.getMessage());
-            }
+        if (appId == null) {
+            throw new LoadException(errMsg + "Failed to get appId from handle. spark app state: "
+                    + state.toString() + ", loadJobId:" + loadJobId);
         }
 
         // success
@@ -194,7 +185,7 @@ public class SparkEtlJobHandler {
         attachment.setHandle(handle);
     }
 
-    public EtlStatus getEtlJobStatus(SparkAppHandle handle, String appId, long loadJobId, String etlOutputPath,
+    public EtlStatus getEtlJobStatus(SparkLoadAppHandle handle, String appId, long loadJobId, String etlOutputPath,
                                      SparkResource resource, BrokerDesc brokerDesc) throws LoadException {
         EtlStatus status = new EtlStatus();
 
@@ -273,7 +264,7 @@ public class SparkEtlJobHandler {
         return status;
     }
 
-    public void killEtlJob(SparkAppHandle handle, String appId, long loadJobId, SparkResource resource) throws LoadException {
+    public void killEtlJob(SparkLoadAppHandle handle, String appId, long loadJobId, SparkResource resource) throws LoadException {
         if (resource.isYarnMaster()) {
             Preconditions.checkNotNull(appId);
             // prepare yarn config

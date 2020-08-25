@@ -85,7 +85,6 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.spark.launcher.SparkAppHandle;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -127,7 +126,7 @@ public class SparkLoadJob extends BulkLoadJob {
     // --- members below not persist ---
     private ResourceDesc resourceDesc;
     // for spark standalone
-    private SparkAppHandle sparkAppHandle;
+    private SparkLoadAppHandle sparkAppHandle;
     // for straggler wait long time to commit transaction
     private long quorumFinishTimestamp = -1;
     // below for push task

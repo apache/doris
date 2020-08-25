@@ -546,7 +546,6 @@ public class Config extends ConfigBase {
     /**
      * Default yarn client path
      */
-    @ConfField(mutable = true, masterOnly = true)
     public static String yarn_client_path = PaloFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn";
 
     @ConfField
