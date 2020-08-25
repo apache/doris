@@ -622,13 +622,15 @@ public class StmtExecutor {
         RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
-        if (!isOutfileQuery) {
-            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
-        }
+        boolean isSendFields = false;
         while (true) {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
             if (batch.getBatch() != null && !isOutfileQuery) {
+                if (!isSendFields) {
+                    sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+                    isSendFields = true;
+                }
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
                 }            
@@ -637,6 +639,9 @@ public class StmtExecutor {
             if (batch.isEos()) {
                 break;
             }
+        }
+        if (!isSendFields) {
+            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
 
         statisticsForAuditLog = batch.getQueryStatistics();
