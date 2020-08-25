@@ -387,7 +387,8 @@ public abstract class Type {
     }
 
     /**
-     * Returns Type.BIGINT if this type could parse to long, otherwise Type.DOUBLE.
+     * Returns null if this expr is not instance of StringLiteral or StringLiteral
+     * inner value could not parse to long. otherwise return parsed Long result.
      */
     public static Long tryParseToLong(Expr expectStringExpr){
         if(expectStringExpr instanceof StringLiteral) {

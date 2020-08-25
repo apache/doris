@@ -307,7 +307,13 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.LARGEINT;
         }
 
-        // Try parse varchar to bigint and decide type
+        // Implicit conversion affects query performance.
+        // For a common example datekey='20200825' which datekey is int type.
+        // If we up conversion to double type directly.
+        // PartitionPruner will not take effect. Then it will scan all partitions.
+        // When int column compares with string, Mysql will convert string to int.
+        // So it is also compatible with Mysql.
+
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.VARCHAR) {
             Expr rightChild = getChild(1);
             Long parsedLong = Type.tryParseToLong(rightChild);
