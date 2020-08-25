@@ -307,14 +307,20 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.LARGEINT;
         }
 
-        // Try parse varchar to bigint
+        // Try parse varchar to bigint and decide type
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.VARCHAR) {
             Expr rightChild = getChild(1);
-            return Type.tryParseToLong(rightChild);
+            Long parsedLong = Type.tryParseToLong(rightChild);
+            if(parsedLong != null) {
+                return Type.BIGINT;
+            }
         }
         if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.BIGINT) {
             Expr leftChild = getChild(0);
-            return Type.tryParseToLong(leftChild);
+            Long parsedLong = Type.tryParseToLong(leftChild);
+            if(parsedLong != null) {
+                return Type.BIGINT;
+            }
         }
 
         return Type.DOUBLE;

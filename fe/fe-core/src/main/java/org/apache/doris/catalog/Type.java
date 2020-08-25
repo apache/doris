@@ -389,15 +389,12 @@ public abstract class Type {
     /**
      * Returns Type.BIGINT if this type could parse to long, otherwise Type.DOUBLE.
      */
-    public static Type tryParseToLong(Expr expectStringExpr){
+    public static Long tryParseToLong(Expr expectStringExpr){
         if(expectStringExpr instanceof StringLiteral) {
             String value = ((StringLiteral)expectStringExpr).getValue();
-            Long parsedLong = Longs.tryParse(value);
-            if(parsedLong != null) {
-                return Type.BIGINT;
-            }
+            return Longs.tryParse(value);
         }
-        return Type.DOUBLE;
+        return null;
     }
 
     /**
