@@ -420,7 +420,6 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
         agg_finalize_row(_value_cids, row_cursor, mem_pool);
-
         // skip the lower version rows;
         while (nullptr != _next_key) {
             auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
