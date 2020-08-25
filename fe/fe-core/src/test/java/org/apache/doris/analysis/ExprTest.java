@@ -24,16 +24,11 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 
-import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.DorisAssert;
-import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.util.*;
+import java.util.Map;
+import java.util.Set;
 
 import mockit.Expectations;
 import mockit.Injectable;
