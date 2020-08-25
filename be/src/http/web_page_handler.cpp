@@ -125,11 +125,11 @@ static const std::string kMainTemplate = R"(
   <head>
     <title>Doris</title>
     <meta charset='utf-8'/>
-    <link href='/bootstrap/css/bootstrap.min.css' rel='stylesheet' media='screen' />
-    <link href='/bootstrap/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
-    <script src='/jquery-3.2.1.min.js' defer></script>
-    <script src='/bootstrap/js/bootstrap.min.js' defer></script>
-    <script src='/bootstrap/js/bootstrap-table.min.js' defer></script>
+    <link href='/Bootstrap-3.3.7/css/bootstrap.min.css' rel='stylesheet' media='screen' />
+    <link href='/Bootstrap-3.3.7/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
+    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js' defer></script>
+    <script src='/Bootstrap-3.3.7/js/bootstrap.min.js' defer></script>
+    <script src='/Bootstrap-3.3.7/js/bootstrap-table.min.js' defer></script>
     <script src='/doris.js' defer></script>
     <link href='/doris.css' rel='stylesheet' />
   </head>
