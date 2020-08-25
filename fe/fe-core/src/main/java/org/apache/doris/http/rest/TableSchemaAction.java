@@ -107,7 +107,7 @@ public class TableSchemaAction extends RestBaseAction {
                         }
                         baseInfo.put("type", primitiveType.toString());
                         baseInfo.put("comment", column.getComment());
-                        baseInfo.put("name", column.getName());
+                        baseInfo.put("name", column.getDisplayName());
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
