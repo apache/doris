@@ -163,7 +163,7 @@ public class SparkEtlJobHandler {
         }
 
         if (appId == null) {
-            throw new LoadException(errMsg + "Failed to get appId from handle. spark app state: "
+            throw new LoadException(errMsg + "Waiting too much time to get appId from handle. spark app state: "
                     + state.toString() + ", loadJobId:" + loadJobId);
         }
 
@@ -252,8 +252,8 @@ public class SparkEtlJobHandler {
     }
 
     public void killEtlJob(SparkLoadAppHandle handle, String appId, long loadJobId, SparkResource resource) throws LoadException {
+        Preconditions.checkNotNull(appId);
         if (resource.isYarnMaster()) {
-            Preconditions.checkNotNull(appId);
             // prepare yarn config
             String configDir = resource.prepareYarnConfig();
             // yarn client path
