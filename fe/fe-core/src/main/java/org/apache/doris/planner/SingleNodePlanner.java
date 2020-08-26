@@ -1036,6 +1036,8 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                //set outputSmap to substitute literal in outputExpr 
+                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
                 return unionNode;
             }
