@@ -26,7 +26,7 @@ under the License.
 
 # Spark Load
 
-Spark load 通过 Spark 实现对导入数据的预处理，提高 Doris 大数据量的导入性能并且节省 Doris 集群的计算资源。主要用于初次迁移，大数据量导入 Doris 的场景。
+Spark load 通过外部的 Spark 资源实现对导入数据的预处理，提高 Doris 大数据量的导入性能并且节省 Doris 集群的计算资源。主要用于初次迁移，大数据量导入 Doris 的场景。
 
 Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 Spark 类型导入任务，并通过 `SHOW LOAD` 查看导入结果。
 
@@ -238,7 +238,8 @@ REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 ```sql
 LOAD LABEL load_label
     (data_desc, ...)
-    WITH RESOURCE resource_name resource_properties
+    WITH RESOURCE resource_name 
+    [resource_properties]
     [PROPERTIES (key1=value1, ... )]
 
 * load_label:
@@ -251,6 +252,14 @@ LOAD LABEL load_label
     [PARTITION (p1, p2)]
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
+    [COLUMNS FROM PATH AS (col2, ...)]
+    [SET (k1=f1(xx), k2=f2(xx))]
+    [WHERE predicate]
+    
+    DATA FROM TABLE hive_external_tbl
+    [NEGATIVE]
+    INTO TABLE tbl_name
+    [PARTITION (p1, p2)]
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
@@ -307,12 +316,11 @@ properties
 "hive.metastore.uris" = "thrift://0.0.0.0:8080"
 );
 
-step 2: 提交load命令
+step 2: 提交load命令，要求导入的 doris 表中的列必须在 hive 外部表中存在。
 LOAD LABEL db1.label1
 (
     DATA FROM TABLE hive_t1
     INTO TABLE tbl1
-    (k1,k2,k3)
     SET
     (
 		uuid=bitmap_dict(uuid)
@@ -441,6 +449,10 @@ LoadFinishTime: 2019-07-27 11:50:16
 + spark_load_default_timeout_second
   
     任务默认超时时间为259200秒（3天）。
+
++ enable_spark_load
+    
+    打开Spark load和创建resource功能。默认为false，不打开。
     
     
 
