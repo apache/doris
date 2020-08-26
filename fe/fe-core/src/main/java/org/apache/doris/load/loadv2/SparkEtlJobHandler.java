@@ -154,7 +154,7 @@ public class SparkEtlJobHandler {
             handle = new SparkLoadAppHandle(process);
             handle.addListener(new SparkAppListener());
             if (!FeConstants.runningUnitTest) {
-                SparkLauncherMonitors.LogMonitor logMonitor = SparkLauncherMonitors.createLogMonitor(handle);
+                SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
                 logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);
                 logMonitor.start();
                 try {

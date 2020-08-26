@@ -33,8 +33,8 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class SparkLauncherMonitors {
-    private static final Logger LOG = LogManager.getLogger(SparkLauncherMonitors.class);
+public class SparkLauncherMonitor {
+    private static final Logger LOG = LogManager.getLogger(SparkLauncherMonitor.class);
 
     public static LogMonitor createLogMonitor(SparkLoadAppHandle handle) {
         return new LogMonitor(handle);

@@ -25,7 +25,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.net.URL;
 
-public class SparkLauncherMonitorsTest {
+public class SparkLauncherMonitorTest {
     private String appId;
     private SparkLoadAppHandle.State state;
     private String queue;
@@ -53,7 +53,7 @@ public class SparkLauncherMonitorsTest {
         try {
             Process process = Runtime.getRuntime().exec(cmd);
             handle = new SparkLoadAppHandle(process);
-            SparkLauncherMonitors.LogMonitor logMonitor = SparkLauncherMonitors.createLogMonitor(handle);
+            SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
             logMonitor.start();
             try {
                 logMonitor.join();
