@@ -608,9 +608,6 @@ public class StmtExecutor {
 
         coord.exec();
 
-        // if python's MysqlDb get error after sendfields, it can't catch the exception
-        // so We need to send fields after first batch arrived
-
         // send result
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -627,6 +624,8 @@ public class StmtExecutor {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
             if (batch.getBatch() != null && !isOutfileQuery) {
+                // For some language driver, getting error packet after fields packet will be recognized as a success result
+                // so We need to send fields after first batch arrived
                 if (!isSendFields) {
                     sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
                     isSendFields = true;
