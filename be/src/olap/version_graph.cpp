@@ -45,17 +45,164 @@ void TimestampedVersionTracker::construct_versioned_tracker(const std::vector<Ro
 
 void TimestampedVersionTracker::construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
-        std::vector<const std::vector<RowsetMetaSharedPtr>>& stale_rs_metas) {
+        const std::vector<RowsetMetaSharedPtr>& stale_metas) {
 
     if (rs_metas.empty()) {
         VLOG(3) << "there is no version in the header.";
         return;
     }
-    construct_versioned_tracker(rs_metas);
+    _stale_version_path_map.clear();
+    _next_path_id = 1;
+    _construct_versioned_tracker(rs_metas);
 
-    for (auto& path: stale_rs_metas) {
-        add_stale_path_version(path);
+    // init _stale_version_path_map
+    _init_stale_version_path_map(rs_metas, stale_metas);
+}
+
+void TimestampedVersionTracker::_init_stale_version_path_map(
+        const std::vector<RowsetMetaSharedPtr>& rs_metas,
+        const std::vector<RowsetMetaSharedPtr>& stale_metas) {
+
+    if (stale_metas.empty()) {
+        return;
     }
+
+    // sort stale meta by version diff (second version - first version)
+    std::list<RowsetMetaSharedPtr> sorted_stale_metas;
+    for (auto& rs : stale_metas) {
+        sorted_stale_metas.emplace_back(rs);
+    }
+
+    // 1. Sort the existing rowsets by version in ascending order
+    sorted_stale_metas.sort([](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+        // compare by version diff between version.first and version.second
+        int64_t a_diff = a->version().second - a->version().first;
+        int64_t b_diff = b->version().second - b->version().first;
+
+        int diff = a_diff - b_diff;
+        if (diff < 0) {
+            return true;
+        }
+        else if (diff > 0) {
+            return false;
+        }
+        // when the version diff is equal, compare rowset createtime
+        return a->creation_time() < b->creation_time();
+    });
+
+    // first_version -> (second_version -> rowset_meta)
+    std::unordered_map<int64_t, std::unordered_map<int64_t, RowsetMetaSharedPtr>> stale_map;
+
+    // 2. generate stale path from stale_metas. traverse sorted_stale_metas and each time add stale_meta to stale_map.
+    // when a stale path in stale_map can replace stale_meta in sorted_stale_metas, stale_map remove rowset_metas of a stale path
+    // and add the path to _stale_version_path_map.
+    for(auto& stale_meta:sorted_stale_metas) {
+        std::vector<RowsetMetaSharedPtr> stale_path;
+        // 2.1 find a path in stale_map can replace current stale_meta version
+        bool r = _find_path_from_stale_map(stale_map, stale_meta->start_version(), stale_meta->end_version(), &stale_path);
+
+        // 2.2 add stale_meta to stale_map
+        auto start_iter = stale_map.find(stale_meta->start_version());
+        if (start_iter != stale_map.end()) {
+            start_iter->second[stale_meta->end_version()] = stale_meta;
+        } else {
+            std::unordered_map<int64_t, RowsetMetaSharedPtr> item;
+            item[stale_meta->end_version()] = stale_meta;
+            stale_map[stale_meta->start_version()] = std::move(item);
+        }
+        // 2.3 add version to version_graph
+        Version stale_meta_version = stale_meta->version();
+        add_version(stale_meta_version);
+        // 2.4 find the path
+        if (r) {
+            // add the path to _stale_version_path_map
+            add_stale_path_version(stale_path);
+            // remove stale_path from stale_map
+            for (auto stale_item:stale_path) {
+                stale_map[stale_item->start_version()].erase(stale_item->end_version());
+            
+                if (stale_map[stale_item->start_version()].empty()) {
+                    stale_map.erase(stale_item->start_version());
+                }
+            }
+        }
+    }
+
+    // 3. generate stale path from rs_metas
+    for(auto& stale_meta:rs_metas) {
+        std::vector<RowsetMetaSharedPtr> stale_path;
+        // 3.1 find a path in stale_map can replace current stale_meta version
+        bool r = _find_path_from_stale_map(stale_map, stale_meta->start_version(), stale_meta->end_version(), &stale_path);
+        
+        // 3.2 find the path 
+        if (r) {
+            // add the path to _stale_version_path_map
+            add_stale_path_version(stale_path);
+            // remove stale_path from stale_map
+            for (auto stale_item:stale_path) {
+                stale_map[stale_item->start_version()].erase(stale_item->end_version());
+            
+                if (stale_map[stale_item->start_version()].empty()) {
+                    stale_map.erase(stale_item->start_version());
+                }
+            }
+        }
+    }
+
+    // 4. process remain stale rowset_meta in stale_map
+    auto map_iter = stale_map.begin();
+    while (map_iter != stale_map.end()) {
+        auto second_iter = map_iter->second.begin();
+        while(second_iter != map_iter->second.end()) {
+            // each remain stale rowset_meta generate a stale path
+            std::vector<RowsetMetaSharedPtr> stale_path;
+            stale_path.push_back(second_iter->second);
+            add_stale_path_version(stale_path);
+
+            second_iter++;
+        }
+        map_iter++;
+    }
+}
+
+bool TimestampedVersionTracker::_find_path_from_stale_map(
+        const std::unordered_map<int64_t, std::unordered_map<int64_t, RowsetMetaSharedPtr>>& stale_map,
+        int64_t first_version, int64_t second_version, std::vector<RowsetMetaSharedPtr>* stale_path) {
+
+    auto first_iter = stale_map.find(first_version);
+    // if first_version not in stale_map, there is no path.
+    if (first_iter == stale_map.end()) {
+        return false;
+    }
+    auto& second_version_map = first_iter->second;
+    auto second_iter = second_version_map.find(second_version);
+    // if second_version in stale_map, find a path.
+    if (second_iter != second_version_map.end()) {
+        auto row_meta = second_iter->second;
+        // add rowset to path
+        stale_path->push_back(row_meta);
+        return true;
+    }
+
+    // traverse the first version map to backtracking _find_path_from_stale_map
+    auto map_iter = second_version_map.begin();
+    while (map_iter != second_version_map.end()) {
+        // the version greater than second_version, we can't find path in stale_map
+        if (map_iter->first > second_version) {
+            continue;
+        }
+        // backtracking _find_path_from_stale_map find from map_iter->first + 1 to second_version
+        stale_path->push_back(map_iter->second);
+        bool r = _find_path_from_stale_map(stale_map, map_iter->first + 1, second_version, stale_path);
+        if (r) {
+            return true;
+        }
+        // there is no path in current version, pop and continue
+        stale_path->pop_back();
+        map_iter++;
+    }
+
+    return false;
 }
 
 void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Document& path_arr) {

@@ -381,6 +381,12 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _inc_rs_metas.push_back(std::move(rs_meta));
     }
 
+    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        rs_meta->init_from_pb(it);
+        _stale_rs_metas.push_back(std::move(rs_meta));
+    }
+
     // generate AlterTabletTask
     if (tablet_meta_pb.has_alter_task()) {
         AlterTabletTask* alter_tablet_task = new AlterTabletTask();
@@ -430,6 +436,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     }
     for (auto rs : _inc_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_inc_rs_metas());
+    }
+    for (auto rs : _stale_rs_metas) {
+        rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
     }
     _schema.to_schema_pb(tablet_meta_pb->mutable_schema());
     if (_alter_task != nullptr) {
@@ -532,34 +541,34 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     _rs_metas = std::move(rs_metas);
 }
 
-void TabletMeta::revise_stale_rs_metas(std::vector<RowsetMetaSharedPtr>&& stale_rs_metas) {
+void TabletMeta::revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     WriteLock wrlock(&_meta_lock);
     // delete alter task
     _alter_task.reset();
 
-    _stale_rs_metas = std::move(stale_rs_metas);
+    _inc_rs_metas = std::move(rs_metas);
 }
 
-// void TabletMeta::revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
-//     WriteLock wrlock(&_meta_lock);
-//     // delete alter task
-//     _alter_task.reset();
+void TabletMeta::revise_stale_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
+    WriteLock wrlock(&_meta_lock);
+    // delete alter task
+    _alter_task.reset();
 
-//     _inc_rs_metas = std::move(rs_metas);
-// }
+    _stale_rs_metas = std::move(rs_metas);
+}
 
-// OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
-//     // check RowsetMeta is valid
-//     for (auto rs : _inc_rs_metas) {
-//         if (rs->version() == rs_meta->version()) {
-//             LOG(WARNING) << "rowset already exist. rowset_id=" << rs->rowset_id();
-//             return OLAP_ERR_ROWSET_ALREADY_EXIST;
-//         }
-//     }
+OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
+    // check RowsetMeta is valid
+    for (auto rs : _inc_rs_metas) {
+        if (rs->version() == rs_meta->version()) {
+            LOG(WARNING) << "rowset already exist. rowset_id=" << rs->rowset_id();
+            return OLAP_ERR_ROWSET_ALREADY_EXIST;
+        }
+    }
 
-//     _inc_rs_metas.push_back(rs_meta);
-//     return OLAP_SUCCESS;
-// }
+    _inc_rs_metas.push_back(rs_meta);
+    return OLAP_SUCCESS;
+}
 
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     auto it = _stale_rs_metas.begin();

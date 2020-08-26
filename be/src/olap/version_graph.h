@@ -136,13 +136,12 @@ using PathVersionListSharedPtr = std::shared_ptr<TimestampedVersionPathContainer
 /// after the path is expired.
 class TimestampedVersionTracker {
 public:
-    /// Construct rowsets version tracker by rs_metas and stale version path map.
+    /// Construct rowsets version tracker by main path rowset meta.
     void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
-    /// Construct rowsets version tracker by rs_metas and stale version path map and stale rs meta
-    void construct_versioned_tracker(
-            const std::vector<RowsetMetaSharedPtr>& rs_metas,
-            const std::vector<RowsetMetaSharedPtr>& stale_metas));
+    /// Construct rowsets version tracker by main path rowset meta and stale rowset meta.
+    void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas,
+                                     const std::vector<RowsetMetaSharedPtr>& stale_metas);
 
     /// Recover rowsets version tracker from stale version path map. When delete operation fails, the 
     /// tracker can be recovered from deleted stale_version_path_map.
@@ -185,8 +184,18 @@ public:
     void get_stale_version_path_json_doc(rapidjson::Document& path_arr);
 
 private:
-    /// Construct rowsets version tracker with stale rowsets.
+    /// Construct rowsets version tracker with main path rowset meta.
     void _construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+
+    /// init stale_version_path_map by main path rowset meta and stale rowset meta.
+    void _init_stale_version_path_map(const std::vector<RowsetMetaSharedPtr>& rs_metas,
+                                      const std::vector<RowsetMetaSharedPtr>& stale_metas);
+
+    /// find a path in stale_map from first_version to second_version, stale_path is used as result.
+    bool _find_path_from_stale_map(
+            const std::unordered_map<int64_t, std::unordered_map<int64_t, RowsetMetaSharedPtr>>& stale_map,
+            int64_t first_version, int64_t second_version,
+            std::vector<RowsetMetaSharedPtr>* stale_path);
 
 private:
     // This variable records the id of path version which will be dispatched to next path version, 
