@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -40,6 +39,8 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
+
+import com.google.common.collect.Lists;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
@@ -136,7 +137,8 @@ public class QueryPlanTest {
 
         createTable("CREATE TABLE test.bitmap_table_2 (\n" +
                 "  `id` int(11) NULL COMMENT \"\",\n" +
-                "  `id2` bitmap bitmap_union NULL\n" +
+                "  `id2` bitmap bitmap_union NULL,\n" +
+                "  `id3` bitmap bitmap_union NULL\n" +
                 ") ENGINE=OLAP\n" +
                 "AGGREGATE KEY(`id`)\n" +
                 "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
@@ -527,6 +529,18 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct id2) from test.bitmap_table order by count(distinct id2)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select count(distinct if(id = 1, id2, null)) from test.bitmap_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select count(distinct ifnull(id2, id3)) from test.bitmap_table_2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select count(distinct coalesce(id2, id3)) from test.bitmap_table_2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
