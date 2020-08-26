@@ -96,12 +96,6 @@ Status DataDir::init() {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(Substitute("opendir failed, path=$0", _path)),
                                        "check file exist failed");
     }
-    std::string align_tag_path = _path + ALIGN_TAG_PREFIX;
-    if (access(align_tag_path.c_str(), F_OK) == 0) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::NotFound(Substitute("align tag $0 was found", align_tag_path)),
-            "access file failed");
-    }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
