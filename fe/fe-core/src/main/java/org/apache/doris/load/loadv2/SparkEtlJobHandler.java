@@ -74,18 +74,6 @@ public class SparkEtlJobHandler {
     private static final String YARN_STATUS_CMD = "%s --config %s application -status %s";
     private static final String YARN_KILL_CMD = "%s --config %s application -kill %s";
 
-    class SparkAppListener implements SparkLoadAppHandle.Listener {
-        @Override
-        public void stateChanged(SparkLoadAppHandle sparkAppHandle) {
-            LOG.info("get spark state changed: {}, app id: {}", sparkAppHandle.getState(), sparkAppHandle.getAppId());
-        }
-
-        @Override
-        public void infoChanged(SparkLoadAppHandle sparkAppHandle) {
-            LOG.info("get spark info changed: {}, app id: {}", sparkAppHandle.getState(), sparkAppHandle.getAppId());
-        }
-    }
-
     public void submitEtlJob(long loadJobId, String loadLabel, EtlJobConfig etlJobConfig, SparkResource resource,
                              BrokerDesc brokerDesc, SparkPendingTaskAttachment attachment) throws LoadException {
         // delete outputPath
@@ -152,7 +140,6 @@ public class SparkEtlJobHandler {
         try {
             Process process = launcher.launch();
             handle = new SparkLoadAppHandle(process);
-            handle.addListener(new SparkAppListener());
             if (!FeConstants.runningUnitTest) {
                 SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
                 logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);

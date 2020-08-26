@@ -548,6 +548,11 @@ public class Config extends ConfigBase {
      */
     public static String yarn_client_path = PaloFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn";
 
+    /**
+     * Default yarn config file directory
+     * Each time before running the yarn command, we need to check that the
+     * config file exists under this path, and if not, create them.
+     */
     @ConfField
     public static String yarn_config_dir = PaloFe.DORIS_HOME_DIR + "/lib/yarn-config";
 

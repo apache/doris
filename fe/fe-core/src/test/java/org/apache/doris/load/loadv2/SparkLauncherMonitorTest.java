@@ -47,7 +47,7 @@ public class SparkLauncherMonitorTest {
 
     @Test
     public void testLogMonitorNormal() {
-        URL log = getClass().getClassLoader().getResource("data/spark_launcher_monitor.log");
+        URL log = getClass().getClassLoader().getResource("spark_launcher_monitor.log");
         String cmd = "cat " + log.getPath();
         SparkLoadAppHandle handle = null;
         try {
