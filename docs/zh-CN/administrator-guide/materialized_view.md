@@ -91,6 +91,9 @@ HELP CREATE MATERIALIZED VIEW
 + SUM, MIN, MAX (Version 0.12)
 + COUNT, BITMAP\_UNION, HLL\_UNION (Version 0.13)
 
++ BITMAP\_UNION 的形式必须为：`BITMAP_UNION(TO_BITMAP(COLUMN))` column 列的类型只能是整数（largeint也不支持), 或者 `BITMAP_UNION(COLUMN)` 且 base 表为 AGG 模型。
++ HLL\_UNION 的形式必须为：`HLL_UNION(HLL_HASH(COLUMN))` column 列的类型不能是 DECIMAL , 或者 `HLL_UNION(COLUMN)` 且 base 表为 AGG 模型。
+
 ### 更新策略
 
 为保证物化视图表和 Base 表的数据一致性, Doris 会将导入，删除等对 base 表的操作都同步到物化视图表中。并且通过增量更新的方式来提升更新效率。通过事务方式来保证原子性。

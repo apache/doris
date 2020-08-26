@@ -219,6 +219,7 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
     while (_const_expr_list_idx < _const_expr_lists.size() && !row_batch->at_capacity()) {
         materialize_exprs(
             _const_expr_lists[_const_expr_list_idx], nullptr, tuple_buf, row_batch);
+        RETURN_IF_ERROR(get_error_msg(_const_expr_lists[_const_expr_list_idx]));
         tuple_buf += _tuple_desc->byte_size();
         ++_const_expr_list_idx;
     }

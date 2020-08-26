@@ -90,6 +90,9 @@ The aggregate functions currently supported by the materialized view function ar
 + SUM, MIN, MAX (Version 0.12)
 + COUNT, BITMAP\_UNION, HLL\_UNION (Version 0.13)
 
++ The form of BITMAP\_UNION must be: `BITMAP_UNION(TO_BITMAP(COLUMN))` The column type can only be an integer (largeint also does not support), or `BITMAP_UNION(COLUMN)` and the base table is an AGG model.
++ The form of HLL\_UNION must be: `HLL_UNION(HLL_HASH(COLUMN))` The column type cannot be DECIMAL, or `HLL_UNION(COLUMN)` and the base table is an AGG model.
+
 ### Update strategy
 
 In order to ensure the data consistency between the materialized view table and the Base table, Doris will import, delete and other operations on the Base table are synchronized to the materialized view table. And through incremental update to improve update efficiency. To ensure atomicity through transaction.

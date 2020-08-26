@@ -126,6 +126,8 @@ private:
     void materialize_exprs(const std::vector<ExprContext*>& exprs,
                            TupleRow* row, uint8_t* tuple_buf, RowBatch* dst_batch);
 
+    Status get_error_msg(const std::vector<ExprContext*>& exprs);
+
     /// Returns true if the child at 'child_idx' can be passed through.
     bool is_child_passthrough(int child_idx) const {
         DCHECK_LT(child_idx, _children.size());
