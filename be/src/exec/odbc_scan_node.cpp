@@ -167,7 +167,7 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     }
 
     _tuple = reinterpret_cast<Tuple*>(tuple_buffer);
-    // Indicates whether there are more rows to process. Set in _hbase_scanner.next().
+    // Indicates whether there are more rows to process. Set in _odbc_scanner.next().
     bool odbc_eos = false;
 
     while (true) {
@@ -226,16 +226,16 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         }
 
         // Before we fix the problem utf8 encode sql query in SQLexecDirect
-        // we need to check some filter can not encode in asii code, like chinese
+        // we need to check some filter can not encode in ascii code, like chinese
         // TODO remove the eval_conjunct in odbc scan node
-        if (ExecNode::eval_conjuncts(&_conjunct_ctxs[0], _conjunct_ctxs.size(), row)) {
+//        if (ExecNode::eval_conjuncts(&_conjunct_ctxs[0], _conjunct_ctxs.size(), row)) {
             row_batch->commit_last_row();
             ++_num_rows_returned;
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
             char* new_tuple = reinterpret_cast<char*>(_tuple);
             new_tuple += _tuple_desc->byte_size();
             _tuple = reinterpret_cast<Tuple*>(new_tuple);
-        }
+//        }
     }
 
     return Status::OK();

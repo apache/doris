@@ -126,6 +126,7 @@ There are different data types among different database. Here, the types in each
 |   BIGINT  | BIGINT |  |
 |   DOUBLE  | DOUBLE |  |
 |   DATE  | DATE |  |
+|   DATETIME  | DATETIME |  |
 |   DECIMAL  | DECIMAL |  |
 
 ### Oracle Type                          
@@ -143,6 +144,7 @@ There are different data types among different database. Here, the types in each
 |   not support  | BIGINT |  Oracle can be replaced by NUMBER |
 |   not support  | DOUBLE | Oracle can be replaced by NUMBER |
 |   DATE  | DATE |  |
+|   DATETIME  | DATETIME |  |
 |   NUMBER  | DECIMAL |  |
 
 ## Q&A

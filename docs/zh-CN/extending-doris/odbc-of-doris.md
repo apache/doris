@@ -121,7 +121,7 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 |   INT  | INT |  |
 |   BIGINT  | BIGINT |  |
 |   DOUBLE  | DOUBLE |  |
-|   DATE  | DATE |  |
+|   DATETIME  | DATETIME |  |
 |   DECIMAL  | DECIMAL |  |
 
 ### Oracle类型                          
@@ -138,7 +138,7 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 |   INT  | INT |  |
 |   无  | BIGINT |  Oracle可由NUMMBER替换 |
 |   无  | DOUBLE | Oracle可由NUMMBER替换 |
-|   DATE  | DATE |  |
+|   DATETIME  | DATETIME |  |
 |   NUMBER  | DECIMAL |  |
 
 ## Q&A

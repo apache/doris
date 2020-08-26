@@ -86,7 +86,7 @@ Status ODBCScanner::open() {
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLDriverConnect(_dbc, NULL, (SQLCHAR*)_connect_string.c_str(), SQL_NTS,
                            NULL, 0, NULL, SQL_DRIVER_COMPLETE_REQUIRED), "driver connect");
 
-    LOG(INFO) << "connect success:";
+    LOG(INFO) << "connect success:" << _connect_string.substr(0, _connect_string.find("Pwd="));
 
     _is_open = true;
     return Status::OK();
@@ -106,7 +106,7 @@ Status ODBCScanner::query(const std::string& query) {
 
     LOG(INFO) << "execute success:" << query <<  " column count:" << _field_num;
 
-    // check materialize num equeal _field_num
+    // check materialize num equal _field_num
     int materialize_num = 0;
     for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
         if (_tuple_desc->slots()[i]->is_materialized()) {
