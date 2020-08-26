@@ -258,7 +258,7 @@ typedef boost::variant <
         ColumnValueRange<DateTimeValue>,
         ColumnValueRange<DecimalValue>,
         ColumnValueRange<DecimalV2Value>,
-        ColumnValueRange<bool> > ColumnValueRangeType;
+        ColumnValueRange<bool>> ColumnValueRangeType;
 
 template<class T>
 ColumnValueRange<T>::ColumnValueRange() : _column_type(INVALID_TYPE) {

@@ -330,7 +330,7 @@ std::string AnalyticEvalNode::debug_state_string(bool detailed) const {
     if (detailed) {
         ss << " result_tuples idx: [";
 
-        for (std::list<std::pair<int64_t, Tuple*> >::const_iterator it = _result_tuples.begin();
+        for (std::list<std::pair<int64_t, Tuple*>>::const_iterator it = _result_tuples.begin();
                 it != _result_tuples.end(); ++it) {
             ss << it->first;
 
@@ -344,7 +344,7 @@ std::string AnalyticEvalNode::debug_state_string(bool detailed) const {
         if (_fn_scope == ROWS && _window.__isset.window_start) {
             ss << " window_tuples idx: [";
 
-            for (std::list<std::pair<int64_t, Tuple*> >::const_iterator it = _window_tuples.begin();
+            for (std::list<std::pair<int64_t, Tuple*>>::const_iterator it = _window_tuples.begin();
                     it != _window_tuples.end(); ++it) {
                 ss << it->first;
 

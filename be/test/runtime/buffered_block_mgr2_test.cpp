@@ -385,9 +385,9 @@ protected:
         const int iters_before_close = num_iterations - 5000;
         bool close_called = false;
         unordered_map<BufferedBlockMgr2::Block*, int> pinned_block_map;
-        vector<std::pair<BufferedBlockMgr2::Block*, int32_t> > pinned_blocks;
+        vector<std::pair<BufferedBlockMgr2::Block*, int32_t>> pinned_blocks;
         unordered_map<BufferedBlockMgr2::Block*, int> unpinned_block_map;
-        vector<std::pair<BufferedBlockMgr2::Block*, int32_t> > unpinned_blocks;
+        vector<std::pair<BufferedBlockMgr2::Block*, int32_t>> unpinned_blocks;
 
         typedef enum { Pin, New, Unpin, Delete, Close } ApiFunction;
         ApiFunction api_function;
@@ -900,7 +900,7 @@ TEST_F(BufferedBlockMgrTest, DISABLED_WriteErrorBlacklist) {
                          &block_mgrs, &clients);
 
     // Allocate files for all 2x2 combinations by unpinning blocks.
-    vector<vector<BufferedBlockMgr2::Block*> > blocks;
+    vector<vector<BufferedBlockMgr2::Block*>> blocks;
     vector<BufferedBlockMgr2::Block*> all_blocks;
     for (int i = 0; i < NUM_BLOCK_MGRS; ++i) {
         vector<BufferedBlockMgr2::Block*> mgr_blocks;
@@ -983,7 +983,7 @@ TEST_F(BufferedBlockMgrTest, AllocationErrorHandling) {
                          &block_mgrs, &clients);
 
     // Allocate files for all 2x2 combinations by unpinning blocks.
-    vector<vector<BufferedBlockMgr2::Block*> > blocks;
+    vector<vector<BufferedBlockMgr2::Block*>> blocks;
     for (int i = 0; i < num_block_mgrs; ++i) {
         vector<BufferedBlockMgr2::Block*> mgr_blocks;
         LOG(INFO) << "Iter " << i;

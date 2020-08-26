@@ -132,7 +132,7 @@ Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& quer
     TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
 
     if (_timeout_map.end() == iter) {
-        _timeout_map.insert(std::pair<time_t, std::vector<TUniqueId> >(
+        _timeout_map.insert(std::pair<time_t, std::vector<TUniqueId>>(
                                  cancel_time, std::vector<TUniqueId>()));
         iter = _timeout_map.find(cancel_time);
     }

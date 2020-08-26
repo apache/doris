@@ -182,7 +182,7 @@ private:
 
     OlapScanKeys _scan_keys;
 
-    std::vector<std::unique_ptr<TPaloScanRange> > _scan_ranges;
+    std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
 
     std::vector<TCondition> _olap_filter;
 
