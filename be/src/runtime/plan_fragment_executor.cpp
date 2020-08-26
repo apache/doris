@@ -48,6 +48,7 @@ namespace doris {
 PlanFragmentExecutor::PlanFragmentExecutor(
     ExecEnv* exec_env, const report_status_callback& report_status_cb)
     : _exec_env(exec_env),
+      _plan(nullptr),
       _report_status_cb(report_status_cb),
       _report_thread_active(false),
       _done(false),
