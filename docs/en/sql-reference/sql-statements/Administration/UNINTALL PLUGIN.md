@@ -1,6 +1,6 @@
 ---
 {
-    "title": "UNINTALL PLUGIN",
+    "title": "UNINSTALL PLUGIN",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# UNINTALL PLUGIN
+# UNINSTALL PLUGIN
 ## description
 
     To uninstall a plugin.
