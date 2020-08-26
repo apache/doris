@@ -31,10 +31,27 @@ under the License.
 This document mainly introduces the relevant configuration items of BE.
 
 ## View configuration items
-(TODO)
+
+Before starting, you can view the be configuration items through this document and conf/be.conf.
+After startup, you can view the configuration items currently by the be process through UPDATE/VIEW CONFIG api. You can view the api description in the UPDATE/VIEW CONFIG document.
 
 ## Set configuration items
-(TODO)
+
+Before starting, the configuration can be set through conf/be.conf. Configurations that are not set will be processed according to default values. The configuration format is as follows:
+
+```
+# INFO, WARNING, ERROR, FATAL
+sys_log_level = INFO
+
+# ports for admin, web, heartbeat service
+be_port = 9060
+be_rpc_port = 9070
+webserver_port = 8040
+```
+
+## Dynamically update configuration items
+
+After startup, the configuration can be dynamically modified through UPDATE/VIEW CONFIG api. The prerequisite for modification requires the configuration to support dynamic modification. For the method of dynamic modification, you can view the api description in the UPDATE/VIEW CONFIG document.
 
 ## Examples
 (TODO)
