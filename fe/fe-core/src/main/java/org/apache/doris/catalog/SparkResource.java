@@ -265,13 +265,13 @@ public class SparkResource extends Resource {
     }
 
     private Map<String, String> getSparkHadoopConfigs(Map<String, String> properties) {
-        Map<String, String> sparkConfigs = Maps.newHashMap();
+        Map<String, String> sparkConfig = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(SPARK_HADOOP_CONFIG_PREFIX)) {
-                sparkConfigs.put(entry.getKey(), entry.getValue());
+                sparkConfig.put(entry.getKey(), entry.getValue());
             }
         }
-        return sparkConfigs;
+        return sparkConfig;
     }
 
     private Map<String, String> getBrokerProperties(Map<String, String> properties) {

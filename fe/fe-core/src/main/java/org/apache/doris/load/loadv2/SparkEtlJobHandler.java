@@ -189,8 +189,8 @@ public class SparkEtlJobHandler {
                                      SparkResource resource, BrokerDesc brokerDesc) throws LoadException {
         EtlStatus status = new EtlStatus();
 
+        Preconditions.checkState(appId != null && !appId.isEmpty());
         if (resource.isYarnMaster()) {
-            Preconditions.checkState(appId != null && !appId.isEmpty());
             // prepare yarn config
             String configDir = resource.prepareYarnConfig();
             // yarn client path

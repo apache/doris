@@ -19,6 +19,9 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.LoadException;
 
+// The config file required to run the yarn command.
+// Each time before running the yarn command, we need to check that the
+// config file exists in the specified path, and if not, create them.
 public interface ConfigFile {
     public void createFile() throws LoadException;
     public String getFilePath();

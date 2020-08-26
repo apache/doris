@@ -181,6 +181,7 @@ public class SparkYarnConfigFiles {
         file.mkdirs();
     }
 
+    // xml config file
     public static class XMLConfigFile implements ConfigFile {
         private static final String CONFIGURATION = "configuration";
         private static final String PROPERTY = "property";
