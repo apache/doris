@@ -1,6 +1,6 @@
 ---
 {
-    "title": "UPDATE/VIEW CONFIG",
+    "title": "VIEW UPDATE CONFIG",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# UPDATE CONFIG
+# VIEW UPDATE CONFIG
 
 ## View config api
 View the current config by key.

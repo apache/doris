@@ -33,7 +33,7 @@ This document mainly introduces the relevant configuration items of BE.
 ## View configuration items
 
 Before starting, you can view the be configuration items through this document and conf/be.conf.
-After startup, you can view the configuration items currently by the be process through UPDATE/VIEW CONFIG api. You can view the api description in the UPDATE/VIEW CONFIG document.
+After startup, you can view the configuration items currently by the be process through VIEW UPDATE CONFIG api. You can view the api description in the VIEW UPDATE CONFIG document.
 
 ## Set configuration items
 
@@ -51,7 +51,7 @@ webserver_port = 8040
 
 ## Dynamically update configuration items
 
-After startup, the configuration can be dynamically modified through UPDATE/VIEW CONFIG api. The prerequisite for modification requires the configuration to support dynamic modification. For the method of dynamic modification, you can view the api description in the UPDATE/VIEW CONFIG document.
+After startup, the configuration can be dynamically modified through VIEW UPDATE CONFIG api. The prerequisite for modification requires the configuration to support dynamic modification. For the method of dynamic modification, you can view the api description in the VIEW UPDATE CONFIG document.
 
 ## Examples
 (TODO)

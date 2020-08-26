@@ -1,6 +1,6 @@
 ---
 {
-    "title": "UPDATE/VIEW CONFIG",
+    "title": "VIEW UPDATE CONFIG",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# UPDATE CONFIG
+# VIEW UPDATE CONFIG
 
 ## 查看配置接口
 通过key，查看当前配置
