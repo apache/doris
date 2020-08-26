@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
 
@@ -96,6 +97,21 @@ public class MVColumnHLLUnionPatternTest {
         IntLiteral intLiteral = new IntLiteral(1);
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(intLiteral);
+        FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        List<Expr> params = Lists.newArrayList();
+        params.add(child0);
+        FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
+        MVColumnHLLUnionPattern pattern = new MVColumnHLLUnionPattern();
+        Assert.assertFalse(pattern.match(expr));
+    }
+
+    @Test
+    public void testIncorrectDecimalSlotRef() {
+        TableName tableName = new TableName("db", "table");
+        SlotRef slotRef = new SlotRef(tableName, "c1");
+        Deencapsulation.setField(slotRef, "type", Type.DECIMALV2);
+        List<Expr> child0Params = Lists.newArrayList();
+        child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);

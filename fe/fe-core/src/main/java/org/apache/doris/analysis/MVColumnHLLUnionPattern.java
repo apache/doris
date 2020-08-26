@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 
 public class MVColumnHLLUnionPattern implements MVColumnPattern {
     @Override
@@ -43,11 +44,13 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
             if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
                 return false;
             }
-            if (child0FnExpr.getChild(0).unwrapSlotRef() == null) {
+            SlotRef slotRef = child0FnExpr.getChild(0).unwrapSlotRef();
+            if (slotRef == null) {
                 return false;
-            } else {
-                return true;
+            } else if (slotRef.getType() == Type.DECIMALV2) {
+                return false;
             }
+            return true;
         } else {
             return false;
         }
@@ -55,7 +58,7 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
 
     @Override
     public String toString() {
-        return FunctionSet.HLL_UNION + "(" + FunctionSet.HLL_HASH + "(column))"
-                + "or " + FunctionSet.HLL_UNION + "(hll_column) in agg table";
+        return FunctionSet.HLL_UNION + "(" + FunctionSet.HLL_HASH + "(column)) column could not be decimal. "
+                + "Or " + FunctionSet.HLL_UNION + "(hll_column) in agg table";
     }
 }
