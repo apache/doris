@@ -18,8 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -252,12 +254,15 @@ public class CreateMaterializedViewStmtTest {
     @Test
     public void testOrderByAggregateColumn(@Injectable SlotRef slotRef1,
                                            @Injectable TableRef tableRef,
-                                           @Injectable SelectStmt selectStmt) throws UserException {
+                                           @Injectable SelectStmt selectStmt,
+                                           @Injectable Column column2,
+                                           @Injectable SlotDescriptor slotDescriptor) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef2 = new SlotRef(tableName, "v1");
+        Deencapsulation.setField(slotRef2, "desc", slotDescriptor);
         List<Expr> fnChildren = Lists.newArrayList(slotRef2);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fnChildren);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
@@ -283,6 +288,10 @@ public class CreateMaterializedViewStmtTest {
                 result = orderByElementList;
                 slotRef1.getColumnName();
                 result = "k1";
+                slotDescriptor.getColumn();
+                result = column2;
+                column2.getOriginType();
+                result = Type.INT;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -326,12 +335,15 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testDuplicateColumn1(@Injectable SlotRef slotRef1,
-                                     @Injectable SelectStmt selectStmt) throws UserException {
+                                     @Injectable SelectStmt selectStmt,
+                                     @Injectable Column column2,
+                                     @Injectable SlotDescriptor slotDescriptor) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef2 = new SlotRef(tableName, "k2");
+        Deencapsulation.setField(slotRef2, "desc", slotDescriptor);
         List<Expr> fn1Children = Lists.newArrayList(slotRef2);
         FunctionCallExpr functionCallExpr1 = new FunctionCallExpr("sum", fn1Children);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr1, null);
@@ -349,6 +361,10 @@ public class CreateMaterializedViewStmtTest {
                 result = selectList;
                 slotRef1.getColumnName();
                 result = "k1";
+                slotDescriptor.getColumn();
+                result = column2;
+                column2.getOriginType();
+                result = Type.INT;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -364,7 +380,9 @@ public class CreateMaterializedViewStmtTest {
     public void testOrderByColumnsLessThenGroupByColumns(@Injectable SlotRef slotRef1,
                                                          @Injectable SlotRef slotRef2,
                                                          @Injectable TableRef tableRef,
-                                                         @Injectable SelectStmt selectStmt) throws UserException {
+                                                         @Injectable SelectStmt selectStmt,
+                                                         @Injectable Column column3,
+                                                         @Injectable SlotDescriptor slotDescriptor) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -372,6 +390,7 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem2);
         TableName tableName = new TableName("db", "table");
         SlotRef functionChild0 = new SlotRef(tableName, "v1");
+        Deencapsulation.setField(functionChild0, "desc", slotDescriptor);
         List<Expr> fn1Children = Lists.newArrayList(functionChild0);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fn1Children);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr, null);
@@ -398,6 +417,10 @@ public class CreateMaterializedViewStmtTest {
                 result = "k1";
                 slotRef2.getColumnName();
                 result = "non-k2";
+                slotDescriptor.getColumn();
+                result = column3;
+                column3.getOriginType();
+                result = Type.INT;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -416,7 +439,9 @@ public class CreateMaterializedViewStmtTest {
                                             @Injectable SlotRef slotRef4,
                                             @Injectable TableRef tableRef,
                                             @Injectable SelectStmt selectStmt,
-                                            @Injectable AggregateInfo aggregateInfo) throws UserException {
+                                            @Injectable AggregateInfo aggregateInfo,
+                                            @Injectable Column column5,
+                                            @Injectable SlotDescriptor slotDescriptor) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -429,6 +454,7 @@ public class CreateMaterializedViewStmtTest {
         TableName tableName = new TableName("db", "table");
         final String columnName5 = "sum_v2";
         SlotRef functionChild0 = new SlotRef(tableName, columnName5);
+        Deencapsulation.setField(functionChild0, "desc", slotDescriptor);
         List<Expr> fn1Children = Lists.newArrayList(functionChild0);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fn1Children);
         SelectListItem selectListItem5 = new SelectListItem(functionCallExpr, null);
@@ -465,6 +491,10 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 slotRef4.getColumnName();
                 result = columnName4;
+                functionChild0.getColumn();
+                result = column5;
+                column5.getOriginType();
+                result = Type.INT;
             }
         };
 
@@ -907,7 +937,9 @@ public class CreateMaterializedViewStmtTest {
                               @Injectable SlotRef slotRef2,
                               @Injectable TableRef tableRef,
                               @Injectable SelectStmt selectStmt,
-                              @Injectable AggregateInfo aggregateInfo) throws UserException {
+                              @Injectable AggregateInfo aggregateInfo,
+                              @Injectable Column column1,
+                              @Injectable SlotDescriptor slotDescriptor) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -916,6 +948,7 @@ public class CreateMaterializedViewStmtTest {
         TableName tableName = new TableName("db", "table");
         final String columnName3 = "sum_v2";
         SlotRef slotRef = new SlotRef(tableName, columnName3);
+        Deencapsulation.setField(slotRef, "desc", slotDescriptor);
         List<Expr> children = Lists.newArrayList(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", children);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr, null);
@@ -949,6 +982,10 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName1;
                 slotRef2.getColumnName();
                 result = columnName2;
+                slotDescriptor.getColumn();
+                result = column1;
+                column1.getOriginType();
+                result = Type.INT;
             }
         };
 
@@ -1025,13 +1062,29 @@ public class CreateMaterializedViewStmtTest {
     }
 
     @Test
-    public void testBuildMVColumnItem(@Injectable SelectStmt selectStmt) {
+    public void testBuildMVColumnItem(@Injectable SelectStmt selectStmt,
+                                      @Injectable Column column1,
+                                      @Injectable Column column2,
+                                      @Injectable Column column3,
+                                      @Injectable Column column4,
+                                      @Injectable SlotDescriptor slotDescriptor1,
+                                      @Injectable SlotDescriptor slotDescriptor2,
+                                      @Injectable SlotDescriptor slotDescriptor3,
+                                      @Injectable SlotDescriptor slotDescriptor4) {
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
         SlotRef slotRef = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", params);
-        slotRef.setType(Type.LARGEINT);
+        Deencapsulation.setField(slotRef, "desc", slotDescriptor1);
+        new Expectations() {
+            {
+                slotDescriptor1.getColumn();
+                result = column1;
+                column1.getOriginType();
+                result = Type.LARGEINT;
+            }
+        };
         MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
         Assert.assertEquals(Type.LARGEINT, mvColumnItem.getType());
 
@@ -1039,7 +1092,15 @@ public class CreateMaterializedViewStmtTest {
         List<Expr> params2 = Lists.newArrayList();
         params2.add(slotRef2);
         FunctionCallExpr functionCallExpr2 = new FunctionCallExpr("sum", params2);
-        slotRef2.setType(Type.SMALLINT);
+        Deencapsulation.setField(slotRef2, "desc", slotDescriptor2);
+        new Expectations() {
+            {
+                slotDescriptor2.getColumn();
+                result = column2;
+                column2.getOriginType();
+                result = Type.BIGINT;
+            }
+        };
         MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
         Assert.assertEquals(Type.BIGINT, mvColumnItem2.getType());
 
@@ -1047,7 +1108,15 @@ public class CreateMaterializedViewStmtTest {
         List<Expr> params3 = Lists.newArrayList();
         params3.add(slotRef3);
         FunctionCallExpr functionCallExpr3 = new FunctionCallExpr("min", params3);
-        slotRef3.setType(Type.VARCHAR);
+        Deencapsulation.setField(slotRef3, "desc", slotDescriptor3);
+        new Expectations() {
+            {
+                slotDescriptor3.getColumn();
+                result = column3;
+                column3.getOriginType();
+                result = Type.VARCHAR;
+            }
+        };
         MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
         Assert.assertEquals(Type.VARCHAR, mvColumnItem3.getType());
 
@@ -1055,11 +1124,77 @@ public class CreateMaterializedViewStmtTest {
         List<Expr> params4 = Lists.newArrayList();
         params4.add(slotRef4);
         FunctionCallExpr functionCallExpr4 = new FunctionCallExpr("sum", params4);
-        slotRef4.setType(Type.DOUBLE);
+        Deencapsulation.setField(slotRef4, "desc", slotDescriptor4);
+        new Expectations() {
+            {
+                slotDescriptor4.getColumn();
+                result = column4;
+                column4.getOriginType();
+                result = Type.DOUBLE;
+            }
+        };
         MVColumnItem mvColumnItem4 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr4);
         Assert.assertEquals(Type.DOUBLE, mvColumnItem4.getType());
 
+    }
 
+    @Test
+    public void testKeepScaleAndPrecisionOfType(@Injectable SelectStmt selectStmt,
+                                                @Injectable SlotDescriptor slotDescriptor1,
+                                                @Injectable Column column1,
+                                                @Injectable SlotDescriptor slotDescriptor2,
+                                                @Injectable Column column2,
+                                                @Injectable SlotDescriptor slotDescriptor3,
+                                                @Injectable Column column3) {
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        SlotRef slotRef = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params = Lists.newArrayList();
+        params.add(slotRef);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("min", params);
+        Deencapsulation.setField(slotRef, "desc", slotDescriptor1);
+        new Expectations() {
+            {
+                slotDescriptor1.getColumn();
+                result = column1;
+                column1.getOriginType();
+                result = ScalarType.createVarchar(50);
+            }
+        };
+        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
+        Assert.assertEquals(50, ((ScalarType)mvColumnItem.getType()).getLength());
+
+        SlotRef slotRef2 = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params2 = Lists.newArrayList();
+        params2.add(slotRef2);
+        FunctionCallExpr functionCallExpr2 = new FunctionCallExpr("min", params2);
+        Deencapsulation.setField(slotRef2, "desc", slotDescriptor2);
+        new Expectations() {
+            {
+                slotDescriptor2.getColumn();
+                result = column2;
+                column2.getOriginType();
+                result = ScalarType.createDecimalV2Type(10,1);
+            }
+        };
+        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
+        Assert.assertEquals(new Integer(10), ((ScalarType)mvColumnItem2.getType()).getPrecision());
+        Assert.assertEquals(1, ((ScalarType)mvColumnItem2.getType()).getScalarScale());
+
+        SlotRef slotRef3 = new SlotRef(new TableName("db", "table"), "a");
+        List<Expr> params3 = Lists.newArrayList();
+        params3.add(slotRef3);
+        FunctionCallExpr functionCallExpr3 = new FunctionCallExpr("min", params3);
+        Deencapsulation.setField(slotRef3, "desc", slotDescriptor3);
+        new Expectations() {
+            {
+                slotDescriptor3.getColumn();
+                result = column3;
+                column3.getOriginType();
+                result = ScalarType.createChar(5);
+            }
+        };
+        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
+        Assert.assertEquals(5, ((ScalarType)mvColumnItem3.getType()).getLength());
     }
 }
 
