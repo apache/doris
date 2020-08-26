@@ -133,7 +133,7 @@ private:
     std::vector<CounterData> _counters;
     std::vector<std::string> _counter_names;
     std::vector<std::string> _snapshot_names;
-    std::vector<std::vector<int64_t> > _snapshots;
+    std::vector<std::vector<int64_t>> _snapshots;
     // System perf counters can be grouped together.  The OS will update all grouped counters
     // at the same time.  This is useful to better correlate counter values.
     int _group_fd;

@@ -314,7 +314,7 @@ class gscoped_ptr_impl {
 // unique_ptr<> features. Known deficiencies include not supporting move-only
 // deleteres, function pointers as deleters, and deleters with reference
 // types.
-template <class T, class D = doris::DefaultDeleter<T> >
+template <class T, class D = doris::DefaultDeleter<T>>
 class gscoped_ptr {
   MOVE_ONLY_TYPE_FOR_CPP_03(gscoped_ptr, RValue)
 
@@ -821,7 +821,7 @@ bool operator!=(C* p, const gscoped_ptr_malloc<C, FP>& b) {
 
 // A function to convert T* into gscoped_ptr<T>
 // Doing e.g. make_gscoped_ptr(new FooBarBaz<type>(arg)) is a shorter notation
-// for gscoped_ptr<FooBarBaz<type> >(new FooBarBaz<type>(arg))
+// for gscoped_ptr<FooBarBaz<type>>(new FooBarBaz<type>(arg))
 template <typename T>
 gscoped_ptr<T> make_gscoped_ptr(T* ptr) {
   return gscoped_ptr<T>(ptr);

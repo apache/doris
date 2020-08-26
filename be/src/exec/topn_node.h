@@ -108,7 +108,7 @@ private:
     // of the queue is the last sorted element.
     boost::scoped_ptr<
         std::priority_queue<
-        Tuple*, std::vector<Tuple*>, TupleRowComparator> > _priority_queue;
+        Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
 
     // END: Members that must be Reset()
     /////////////////////////////////////////
