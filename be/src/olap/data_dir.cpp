@@ -784,7 +784,7 @@ void DataDir::perform_path_gc_by_tablet() {
         // should not happen, because already check it is a valid tablet schema hash path in previous step
         // so that log fatal here
         if (tablet_id < 1 || schema_hash < 1) {
-            LOG(WARN) << "invalid tablet id " << tablet_id << " or schema hash " << schema_hash
+            LOG(WARNING) << "invalid tablet id " << tablet_id << " or schema hash " << schema_hash
                 << ", path=" << path;
             continue;
         }
