@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -66,7 +67,7 @@ public class SparkEtlJobHandler {
     private static final String JOB_CONFIG_DIR = "configs";
     private static final String ETL_JOB_NAME = "doris__%s";
     // 5min
-    private static final int GET_APPID_TIMEOUT_MS = 300000;
+    private static final long GET_APPID_TIMEOUT_MS = 300000L;
     // 30s
     private static final long EXEC_CMD_TIMEOUT_MS = 30000L;
     // yarn command
@@ -137,7 +138,6 @@ public class SparkEtlJobHandler {
                 .setSparkHome(sparkHome)
                 .addAppArgs(jobConfigHdfsPath)
                 .redirectError();
-                //.redirectOutput(new File(Config.sys_log_dir + "/spark-submitter.log"));
 
         // spark configs
         for (Map.Entry<String, String> entry : resource.getSparkConfigs().entrySet()) {
@@ -152,17 +152,20 @@ public class SparkEtlJobHandler {
         try {
             Process process = launcher.launch();
             handle = new SparkLoadAppHandle(process);
-            SparkLauncherMonitors.LogMonitor logMonitor = SparkLauncherMonitors.createLogMonitor(handle);
-            logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);
-            logMonitor.start();
-            try {
-                logMonitor.join();
-                appId = handle.getAppId();
-                state = handle.getState();
-            } catch (InterruptedException e) {
-                logMonitor.interrupt();
-                throw new LoadException(errMsg + e.getMessage());
+            handle.addListener(new SparkAppListener());
+            if (!FeConstants.runningUnitTest) {
+                SparkLauncherMonitors.LogMonitor logMonitor = SparkLauncherMonitors.createLogMonitor(handle);
+                logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);
+                logMonitor.start();
+                try {
+                    logMonitor.join();
+                } catch (InterruptedException e) {
+                    logMonitor.interrupt();
+                    throw new LoadException(errMsg + e.getMessage());
+                }
             }
+            appId = handle.getAppId();
+            state = handle.getState();
         } catch (IOException e) {
             LOG.warn(errMsg, e);
             throw new LoadException(errMsg + e.getMessage());
@@ -191,7 +194,7 @@ public class SparkEtlJobHandler {
             // prepare yarn config
             String configDir = resource.prepareYarnConfig();
             // yarn client path
-            String yarnClient = Config.yarn_client_path;
+            String yarnClient = resource.getYarnClientPath();
             // command: yarn --config configDir application -status appId
             String yarnStatusCmd = String.format(YARN_STATUS_CMD, yarnClient, configDir, appId);
             LOG.info(yarnStatusCmd);
@@ -224,7 +227,7 @@ public class SparkEtlJobHandler {
                     status.setFailMsg("yarn app state: " + state.toString());
                 }
             }
-            status.setTrackingUrl(handle.getUrl());
+            status.setTrackingUrl(handle.getUrl() != null? handle.getUrl() : report.getTrackingUrl());
             status.setProgress((int) (report.getProgress() * 100));
         } else {
             // state from handle
@@ -267,7 +270,7 @@ public class SparkEtlJobHandler {
             // prepare yarn config
             String configDir = resource.prepareYarnConfig();
             // yarn client path
-            String yarnClient = Config.yarn_client_path;
+            String yarnClient = resource.getYarnClientPath();
             // command: yarn --config configDir application -kill appId
             String yarnKillCmd = String.format(YARN_KILL_CMD, yarnClient, configDir, appId);
             LOG.info(yarnKillCmd);

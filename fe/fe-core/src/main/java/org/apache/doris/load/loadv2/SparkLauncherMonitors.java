@@ -35,10 +35,6 @@ import java.util.regex.Pattern;
 
 public class SparkLauncherMonitors {
     private static final Logger LOG = LogManager.getLogger(SparkLauncherMonitors.class);
-    // 5min
-    private static final long SUBMIT_APP_TIMEOUT_MS = 300 * 1000;
-
-    private LogMonitor logMonitor;
 
     public static LogMonitor createLogMonitor(SparkLoadAppHandle handle) {
         return new LogMonitor(handle);
@@ -63,6 +59,9 @@ public class SparkLauncherMonitors {
         }
     }
 
+    // This monitor is use for monitoring the spark launcher process.
+    // User can use this monitor to get real-time `appId`, `state` and `tracking-url`
+    // of spark launcher by reading and analyze the output of process.
     public static class LogMonitor extends Thread {
         private final Process process;
         private SparkLoadAppHandle handle;
@@ -76,31 +75,39 @@ public class SparkLauncherMonitors {
         private static final String URL = "tracking URL";
         private static final String USER = "user";
 
+        // 5min
+        private static final long DEFAULT_SUBMIT_TIMEOUT_MS = 300000L;
+
         public LogMonitor(SparkLoadAppHandle handle) {
             this.handle = handle;
             this.process = handle.getProcess();
             this.isStop = false;
+            setSubmitTimeoutMs(DEFAULT_SUBMIT_TIMEOUT_MS);
         }
 
         public void setSubmitTimeoutMs(long submitTimeoutMs) {
             this.submitTimeoutMs = submitTimeoutMs;
         }
 
-        // Monitor the process's output
+        // Normally, log monitor will automatically stop if the spark app state changes
+        // to RUNNING.
+        // But if the spark app state changes to FAILED/KILLED/LOST, log monitor will stop
+        // and kill the spark launcher process.
+        // There is a `submitTimeout` for preventing the spark app state from staying in
+        // UNKNOWN/SUBMITTED for a long time.
         @Override
         public void run() {
             BufferedReader outReader = null;
             String line = null;
             long startTime = System.currentTimeMillis();
             try {
-                Preconditions.checkState(process.isAlive());
                 outReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                 while (!isStop && (line = outReader.readLine()) != null) {
-                    LOG.info("Monitor Log: " + line);
+                    LOG.info("monitor log: " + line);
+                    SparkLoadAppHandle.State oldState = handle.getState();
+                    SparkLoadAppHandle.State newState = oldState;
                     // parse state and appId
                     if (line.contains(STATE)) {
-                        SparkLoadAppHandle.State oldState = handle.getState();
-                        SparkLoadAppHandle.State newState = oldState;
                         // 1. state
                         String state = regexGetState(line);
                         if (state != null) {
@@ -118,7 +125,7 @@ public class SparkLauncherMonitors {
                             }
                         }
 
-                        LOG.info("spark appId that handle get is {}, state: {}", handle.getAppId(), handle.getState().toString());
+                        LOG.debug("spark appId that handle get is {}, state: {}", handle.getAppId(), handle.getState().toString());
                         switch (newState) {
                             case UNKNOWN:
                             case CONNECTED:
@@ -133,7 +140,7 @@ public class SparkLauncherMonitors {
                             case RUNNING:
                             case FINISHED:
                                 // There's no need to parse all logs of handle process to get all the information.
-                                // As soon as the state changes to RUNNING/KILLED/FAILED/FINISHED/LOST,
+                                // As soon as the state changes to RUNNING/FINISHED,
                                 // stop monitoring but keep the process alive.
                                 isStop = true;
                                 break;
@@ -185,16 +192,21 @@ public class SparkLauncherMonitors {
             }
         }
 
+        // e.g.
+        // input: "final status: SUCCEEDED"
+        // output: "SUCCEEDED"
         private static String getValue(String line) {
             String result = null;
-            List<String> entry = Splitter.onPattern(":").trimResults().splitToList(line);
+            List<String> entry = Splitter.onPattern(":").trimResults().limit(2).splitToList(line);
             if (entry.size() == 2) {
                 result = entry.get(1);
             }
             return result;
         }
 
-        // Regex convert str such as "XXX (state: ACCEPTED)" to "ACCEPTED"
+        // e.g.
+        // input: "Application report for application_1573630236805_6864759 (state: ACCEPTED)"
+        // output: "ACCEPTED"
         private static String regexGetState(String line) {
             String result = null;
             Matcher stateMatcher = Pattern.compile("(?<=\\(state: )(.+?)(?=\\))").matcher(line);
@@ -204,6 +216,9 @@ public class SparkLauncherMonitors {
             return result;
         }
 
+        // e.g.
+        // input: "Application report for application_1573630236805_6864759 (state: ACCEPTED)"
+        // output: "application_1573630236805_6864759"
         private static String regexGetAppId(String line) {
             String result = null;
             Matcher appIdMatcher = Pattern.compile("application_[0-9]+_[0-9]+").matcher(line);

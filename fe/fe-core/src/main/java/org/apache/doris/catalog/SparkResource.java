@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
@@ -30,6 +31,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
+import java.io.File;
 import java.util.Map;
 
 /**
@@ -174,6 +176,15 @@ public class SparkResource extends Resource {
         SparkYarnConfigFiles yarnConfigFiles = new SparkYarnConfigFiles(name, getSparkHadoopConfigs(sparkConfigs));
         yarnConfigFiles.prepare();
         return yarnConfigFiles.getConfigDir();
+    }
+
+    public String getYarnClientPath() throws LoadException {
+        String yarnClientPath = Config.yarn_client_path;
+        File file = new File(yarnClientPath);
+        if (!file.exists() || !file.isFile()) {
+            throw new LoadException("yarn client does not exist in path: " + yarnClientPath);
+        }
+        return yarnClientPath;
     }
 
     public boolean isYarnMaster() {
