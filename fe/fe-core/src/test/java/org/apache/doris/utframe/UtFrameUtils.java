@@ -17,7 +17,6 @@
 
 package org.apache.doris.utframe;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -28,7 +27,6 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
@@ -46,11 +44,11 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.commons.io.FileUtils;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.io.File;
 import java.io.IOException;
@@ -58,7 +56,6 @@ import java.io.StringReader;
 import java.net.ServerSocket;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -72,6 +69,7 @@ public class UtFrameUtils {
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQualifiedUser(PaloAuth.ROOT_USER);
+        ctx.setRemoteIP("127.0.0.1");
         ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.setThreadLocalInfo();
         return ctx;
@@ -223,3 +221,4 @@ public class UtFrameUtils {
         }
     }
 }
+
