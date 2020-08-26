@@ -104,6 +104,7 @@ public class MysqlProto {
        
         context.setCurrentUserIdentity(currentUserIdentity.get(0));
         context.setQualifiedUser(qualifiedUser);
+        context.setRemoteIP(remoteIp);
         return true;
     }
 
