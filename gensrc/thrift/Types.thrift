@@ -318,12 +318,12 @@ enum TEtlState {
 
 enum TTableType {
     MYSQL_TABLE, // Deprecated
-    ODBC_TABLE, 
     OLAP_TABLE,
     SCHEMA_TABLE,
     KUDU_TABLE, // Deprecated
     BROKER_TABLE,
-    ES_TABLE
+    ES_TABLE,
+    ODBC_TABLE
 }
 
 enum TOdbcTableType {
