@@ -78,4 +78,4 @@ If the update is successful, return success.
 
 ## Dynamic update config rules
 
-You can refer to the be configuration item document or refer to the variable configured in the config.h source code. The beginning of m indicates that a variable can be dynamically modified.
+You can refer to the be configuration item document or refer to the variable configured in the config.h source code. The beginning of 'm' indicates that a variable can be dynamically modified.
