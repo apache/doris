@@ -141,15 +141,21 @@ public class DynamicPartitionProperty {
         return replicationNum;
     }
 
-    @Override
-    public String toString() {
+    /**
+     * use table replication_num as dynamic_partition.replication_num default value
+     */
+    public String getProperties(int tableReplicationNum) {
+        int useReplicationNum = replicationNum;
+        if (useReplicationNum == NOT_SET_REPLICATION_NUM) {
+            useReplicationNum = tableReplicationNum;
+        }
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
                 ",\n\"" + TIME_ZONE + "\" = \"" + tz + "\"" +
                 ",\n\"" + START + "\" = \"" + start + "\"" +
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
-                ",\n\"" + REPLICATION_NUM + "\" = \"" + replicationNum + "\"" +
+                ",\n\"" + REPLICATION_NUM + "\" = \"" + useReplicationNum + "\"" +
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";

@@ -4003,7 +4003,7 @@ public class Catalog {
 
             // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
-                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
+                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicationNum));
             }
 
             // in memory
