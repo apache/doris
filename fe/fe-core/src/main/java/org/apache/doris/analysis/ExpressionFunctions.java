@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rewrite.FEFunction;
 import org.apache.doris.rewrite.FEFunctions;
 
@@ -56,18 +58,18 @@ public enum ExpressionFunctions {
     public Expr evalExpr(Expr constExpr) {
         // Function's arg are all LiteralExpr.
         for (Expr child : constExpr.getChildren()) {
-            if (!(child instanceof LiteralExpr)) {
+            if (!(child instanceof LiteralExpr) && !(child instanceof SysVariableDesc)) {
                 return constExpr;
             }
         }
 
         if (constExpr instanceof ArithmeticExpr
-                || constExpr instanceof FunctionCallExpr 
+                || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
-            
+
             Preconditions.checkNotNull(fn, "Expr's fn can't be null.");
-            
+
             // return NullLiteral directly iff:
             // 1. Not UDF
             // 2. Not in NonNullResultWithNullParamFunctions
@@ -95,6 +97,14 @@ public enum ExpressionFunctions {
                     LOG.debug("failed to invoke", e);
                     return constExpr;
                 }
+            }
+        } else if (constExpr instanceof SysVariableDesc) {
+            try {
+                VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (SysVariableDesc) constExpr);
+                return ((SysVariableDesc) constExpr).getLiteralExpr();
+            } catch (AnalysisException e) {
+                LOG.warn("failed to get session variable value: " + ((SysVariableDesc) constExpr).getName());
+                return constExpr;
             }
         }
         return constExpr;
