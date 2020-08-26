@@ -17,10 +17,12 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
@@ -47,8 +49,6 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -989,7 +989,6 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
 
-    
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
@@ -1021,4 +1020,23 @@ public class QueryPlanTest {
             Assert.assertFalse(explainString.contains(denseRank));
         }
     }
+
+    @Test
+    public void testInformationFunctions() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        InformationFunction infoFunc = new InformationFunction("database");
+        infoFunc.analyze(analyzer);
+        Assert.assertEquals("test", infoFunc.getStrValue());
+
+        infoFunc = new InformationFunction("user");
+        infoFunc.analyze(analyzer);
+        Assert.assertEquals("'root'@'127.0.0.1'", infoFunc.getStrValue());
+
+        infoFunc = new InformationFunction("current_user");
+        infoFunc.analyze(analyzer);
+        Assert.assertEquals("'root'@'%'", infoFunc.getStrValue());
+    }
 }
+
+
