@@ -58,7 +58,7 @@ public class OdbcTable extends Table {
         tempMap.put("oracle", TOdbcTableType.ORACLE);
         // we will support mysql driver in the future after we slove the core problem of
         // driver and static library
-        //tempMap.put("mysql", TOdbcTableType.MYSQL);
+        tempMap.put("mysql", TOdbcTableType.MYSQL);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -189,17 +189,16 @@ public class OdbcTable extends Table {
     }
 
     public TTableDescriptor toThrift() {
-        TOdbcTable tOdbcTable =
-                new TOdbcTable();
+        TOdbcTable tOdbcTable = new TOdbcTable();
 
-        tOdbcTable.host = host;
-        tOdbcTable.port = port;
-        tOdbcTable.user = userName;
-        tOdbcTable.passwd = passwd;
-        tOdbcTable.db = odbcDatabaseName;
-        tOdbcTable.table = odbcTableName;
-        tOdbcTable.driver = driver;
-        tOdbcTable.type = getOdbcTableType();
+        tOdbcTable.setHost(host);
+        tOdbcTable.setPort(port);
+        tOdbcTable.setUser(userName);
+        tOdbcTable.setPasswd(passwd);
+        tOdbcTable.setDb(odbcDatabaseName);
+        tOdbcTable.setTable(odbcTableName);
+        tOdbcTable.setDriver(driver);
+        tOdbcTable.setType(getOdbcTableType());
 
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ODBC_TABLE,
                 fullSchema.size(), 0, getName(), "");

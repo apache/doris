@@ -163,12 +163,12 @@ public class OdbcScanNode extends ScanNode {
         msg.node_type = TPlanNodeType.ODBC_SCAN_NODE;
 
         TOdbcScanNode odbcScanNode = new TOdbcScanNode();
-        odbcScanNode.tuple_id = desc.getId().asInt();
-        odbcScanNode.table_name = tblName;
-        odbcScanNode.driver = driver;
-        odbcScanNode.type = odbcType;
-        odbcScanNode.columns = columns;
-        odbcScanNode.filters = filters;
+        odbcScanNode.setTuple_id(desc.getId().asInt());
+        odbcScanNode.setTable_name(tblName);
+        odbcScanNode.setDriver(driver);
+        odbcScanNode.setType(odbcType);
+        odbcScanNode.setColumns(columns);
+        odbcScanNode.setFilters(filters);
 
         msg.odbc_scan_node = odbcScanNode;
     }
@@ -192,9 +192,9 @@ public class OdbcScanNode extends ScanNode {
         super.computeStats(analyzer);
         // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        // this is just to avoid mysql scan node's cardinality being -1. So that we can calculate the join cost
+        // this is just to avoid odbc scan node's cardinality being -1. So that we can calculate the join cost
         // normally.
-        // We assume that the data volume of all mysql tables is very small, so set cardinality directly to 1.
+        // We assume that the data volume of all odbc tables is very small, so set cardinality directly to 1.
         cardinality = cardinality == -1 ? 1 : cardinality;
     }
 }
