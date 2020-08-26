@@ -187,7 +187,7 @@ struct IsNotInitializerList {
   typedef void type;
 };
 template <typename T>
-struct IsNotInitializerList<std::initializer_list<T> > {};
+struct IsNotInitializerList<std::initializer_list<T>> {};
 #endif  // LANG_CXX11
 
 // This class implements the behavior of the split API by giving callers access

@@ -114,7 +114,7 @@ private:
 
     // queue of (batch length, batch) pairs.  The SenderQueue block owns memory to
     // these batches. They are handed off to the caller via get_batch.
-    typedef list<pair<int, RowBatch*> > RowBatchQueue;
+    typedef list<pair<int, RowBatch*>> RowBatchQueue;
     RowBatchQueue _batch_queue;
 
     // The batch that was most recently returned via get_batch(), i.e. the current batch

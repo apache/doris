@@ -418,7 +418,7 @@ void SplitStringUsing(const string& full,
                       const char* delim,
                       vector<string>* result) {
   result->reserve(result->size() + CalculateReserveForVector(full, delim));
-  std::back_insert_iterator< vector<string> > it(*result);
+  std::back_insert_iterator< vector<string>> it(*result);
   SplitStringToIteratorUsing(full, delim, it);
 }
 
@@ -571,28 +571,28 @@ void SplitStringWithEscapingToIterator(const string& src,
 void SplitStringWithEscaping(const string &full,
                              const strings::CharSet& delimiters,
                              vector<string> *result) {
-  std::back_insert_iterator< vector<string> > it(*result);
+  std::back_insert_iterator< vector<string>> it(*result);
   SplitStringWithEscapingToIterator(full, delimiters, false, &it);
 }
 
 void SplitStringWithEscapingAllowEmpty(const string &full,
                                        const strings::CharSet& delimiters,
                                        vector<string> *result) {
-  std::back_insert_iterator< vector<string> > it(*result);
+  std::back_insert_iterator< vector<string>> it(*result);
   SplitStringWithEscapingToIterator(full, delimiters, true, &it);
 }
 
 void SplitStringWithEscapingToSet(const string &full,
                                   const strings::CharSet& delimiters,
                                   set<string> *result) {
-  std::insert_iterator< set<string> > it(*result, result->end());
+  std::insert_iterator< set<string>> it(*result, result->end());
   SplitStringWithEscapingToIterator(full, delimiters, false, &it);
 }
 
 void SplitStringWithEscapingToHashset(const string &full,
                                       const strings::CharSet& delimiters,
                                       unordered_set<string> *result) {
-  std::insert_iterator< unordered_set<string> > it(*result, result->end());
+  std::insert_iterator< unordered_set<string>> it(*result, result->end());
   SplitStringWithEscapingToIterator(full, delimiters, false, &it);
 }
 
@@ -1000,7 +1000,7 @@ bool SplitStringIntoKeyValues(const string& line,
 bool SplitStringIntoKeyValuePairs(const string& line,
                                   const string& key_value_delimiters,
                                   const string& key_value_pair_delimiters,
-                                  vector<pair<string, string> >* kv_pairs) {
+                                  vector<pair<string, string>>* kv_pairs) {
   kv_pairs->clear();
 
   vector<string> pairs;

@@ -283,7 +283,7 @@ void JoinMapKeysAndValues(const map<string, string>& components,
                           const StringPiece& intra_delim,
                           const StringPiece& inter_delim,
                           string* result);
-void JoinVectorKeysAndValues(const vector< pair<string, string> >& components,
+void JoinVectorKeysAndValues(const vector< pair<string, string>>& components,
                              const StringPiece& intra_delim,
                              const StringPiece& inter_delim,
                              string* result);
