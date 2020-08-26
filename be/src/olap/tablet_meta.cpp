@@ -549,14 +549,6 @@ void TabletMeta::revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas
     _inc_rs_metas = std::move(rs_metas);
 }
 
-void TabletMeta::revise_stale_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
-    WriteLock wrlock(&_meta_lock);
-    // delete alter task
-    _alter_task.reset();
-
-    _stale_rs_metas = std::move(rs_metas);
-}
-
 OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto rs : _inc_rs_metas) {

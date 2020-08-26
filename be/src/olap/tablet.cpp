@@ -112,15 +112,13 @@ OLAPStatus Tablet::_init_once_action() {
     // init stale rowset
     for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
-        RowsetSharedPtr rowset = get_stale_rowset_by_version(version);
-        if (rowset == nullptr) {
-            res = RowsetFactory::create_rowset(&_schema, _tablet_path, stale_rs_meta, &rowset);
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
-                             << ", schema_hash:" << schema_hash() << ", version=" << version
-                             << ", res:" << res;
-                return res;
-            }
+        RowsetSharedPtr rowset;
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path, stale_rs_meta, &rowset);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
+                         << ", schema_hash:" << schema_hash() << ", version=" << version
+                         << ", res:" << res;
+            return res;
         }
         _stale_rs_version_map[version] = std::move(rowset);
     }
