@@ -114,6 +114,7 @@ public:
     void init_rs_meta(RowsetMetaSharedPtr &pb1, int64_t start, int64_t end) {
 
         pb1->init_from_json(_json_rowset_meta);
+        pb1->set_segments_overlap(OVERLAPPING);
         pb1->set_start_version(start);
         pb1->set_end_version(end);
         pb1->set_creation_time(10000);
@@ -407,6 +408,7 @@ public:
     void init_rs_meta(RowsetMetaSharedPtr &pb1, int64_t start, int64_t end) {
 
         pb1->init_from_json(_json_rowset_meta);
+        pb1->set_segments_overlap(OVERLAPPING);
         pb1->set_start_version(start);
         pb1->set_end_version(end);
         pb1->set_total_disk_size(41);
