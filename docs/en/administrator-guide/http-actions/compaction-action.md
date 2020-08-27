@@ -82,7 +82,7 @@ If the tablet exists, the result is returned in JSON format:
 
 Explanation of results:
 
-* cumulative policy type: The cumulative policy type which is used by current tablet.
+* cumulative policy type: The cumulative compaction policy type which is used by current tablet.
 * cumulative point: The version boundary between base and cumulative compaction. Versions before (excluding) points are handled by base compaction. Versions after (inclusive) are handled by cumulative compaction.
 * last cumulative failure time: The time when the last cumulative compaction failed. After 10 minutes by default, cumulative compaction is attempted on the this tablet again.
 * last base failure time: The time when the last base compaction failed. After 10 minutes by default, base compaction is attempted on the this tablet again.
