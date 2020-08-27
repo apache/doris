@@ -392,6 +392,7 @@ public class SelectStmtTest {
         dorisAssert.query(sql).explainQuery();
         sql = "select rand() from db1.tbl1;";
         dorisAssert.query(sql).explainQuery();
+   }
 
     public void testVarcharToLongSupport() throws Exception {
         String sql = "select count(*)\n" +
