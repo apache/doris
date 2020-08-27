@@ -94,6 +94,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -711,6 +712,20 @@ public class SparkLoadJob extends BulkLoadJob {
     @Override
     protected long getEtlStartTimestamp() {
         return etlStartTimestamp;
+    }
+
+    public SparkLoadAppHandle getHandle() {
+        return sparkLoadAppHandle;
+    }
+
+    public void clearSparkLauncherLog() {
+        String logPath = sparkLoadAppHandle.getLogPath();
+        if (!Strings.isNullOrEmpty(logPath)) {
+            File file = new File(logPath);
+            if (file.exists()) {
+                file.delete();
+            }
+        }
     }
 
     @Override

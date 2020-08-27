@@ -97,6 +97,7 @@ public class SparkLauncherMonitor {
 
         public void setRedirectLogPath(String redirectLogPath) throws IOException {
             this.outputStream = new FileOutputStream(new File(redirectLogPath), false);
+            this.handle.setLogPath(redirectLogPath);
         }
 
         // Normally, log monitor will automatically stop if the spark app state changes

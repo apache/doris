@@ -82,7 +82,9 @@ public class SparkEtlJobHandler {
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
 
         // init local dir
-        initLocalDir();
+        if (!FeConstants.runningUnitTest) {
+            initLocalDir();
+        }
 
         // prepare dpp archive
         SparkRepository.SparkArchive archive = resource.prepareArchive();
