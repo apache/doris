@@ -168,6 +168,11 @@ private:
             bool overwrite,
             std::vector<std::string>* error_msgs);
 
+    OLAPStatus _check_migrate_requset(
+            const TStorageMediumMigrateReq& req,
+            TabletSharedPtr& tablet,
+            DataDir** dest_store);
+
 private:
     std::string _name;
 

@@ -126,8 +126,13 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 // TODO support beta rowset
-OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t tablet_id,
-    const int32_t& schema_hash) {
+// For now, alpha and beta rowset meta have same fields, so we can just use
+// AlphaRowsetMeta here.
+OLAPStatus SnapshotManager::convert_rowset_ids(
+        const string& clone_dir,
+        int64_t tablet_id,
+        const int32_t& schema_hash) {
+
     OLAPStatus res = OLAP_SUCCESS;
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
@@ -198,6 +203,11 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
         TabletSchema& tablet_schema, const RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
     OLAPStatus res = OLAP_SUCCESS;
     // TODO use factory to obtain RowsetMeta when SnapshotManager::convert_rowset_ids supports beta rowset
+    // TODO(cmy): now we only has AlphaRowsetMeta, and no BetaRowsetMeta.
+    //            AlphaRowsetMeta only add some functions about segment group, and no addition fields.
+    //            So we can use AlphaRowsetMeta here even if this is a beta rowset.
+    //            And the `rowset_type` field indicates the real type of rowset, so that the correct rowset
+    //            can be created.
     RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
     alpha_rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset;
@@ -271,6 +281,8 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(
     return res;
 }
 
+// location: /path/to/data/DATA_PREFIX/shard_id
+// return: /path/to/data/DATA_PREFIX/shard_id/tablet_id/schema_hash
 string SnapshotManager::get_schema_hash_full_path(
         const TabletSharedPtr& ref_tablet,
         const string& location) const {

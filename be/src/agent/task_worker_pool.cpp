@@ -916,19 +916,26 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         }
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
-        TStatus task_status;
-        EngineStorageMigrationTask engine_task(storage_medium_migrate_req);
-        OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "storage media migrate failed. status: " << res
-                         << ", signature: " << agent_task_req.signature;
-            status_code = TStatusCode::RUNTIME_ERROR;
+        // check request and get info
+        TabletSharedPtr tablet;
+        DataDir* dest_store;
+        if (_check_migrate_requset(storage_medium_migrate_req, tablet, &dest_store) != OLAP_SUCCESS) {
+            status_code = TStatusCode::RUNTIME_ERROR; 
         } else {
-            LOG(INFO) << "storage media migrate success. status:" << res << ","
-                      << ", signature:" << agent_task_req.signature;
+            EngineStorageMigrationTask engine_task(tablet, dest_store);
+            OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "storage media migrate failed. status: " << res
+                    << ", signature: " << agent_task_req.signature;
+                status_code = TStatusCode::RUNTIME_ERROR;
+            } else {
+                LOG(INFO) << "storage media migrate success. status:" << res << ","
+                    << ", signature:" << agent_task_req.signature;
+            }
         }
 
+        TStatus task_status;
+        vector<string> error_msgs;
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
 
@@ -941,6 +948,67 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
+}
+
+OLAPStatus TaskWorkerPool::_check_migrate_requset(
+        const TStorageMediumMigrateReq& req,
+        TabletSharedPtr& tablet,
+        DataDir** dest_store) {
+
+    int64_t tablet_id = req.tablet_id;
+    int32_t schema_hash = req.schema_hash;
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id
+            << " schema_hash=" << schema_hash;
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
+
+    if (req.__isset.data_dir) {
+        // request specify the data dir
+        *dest_store = StorageEngine::instance()->get_store(req.data_dir);
+        if (*dest_store == nullptr) {
+            LOG(WARNING) << "data dir not found: " << req.data_dir;
+            return OLAP_ERR_DIR_NOT_EXIST;
+        }
+    } else {
+        // this is a storage medium
+        // get data dir by storage medium
+
+        // judge case when no need to migrate
+        uint32_t count = StorageEngine::instance()->available_storage_medium_type_count();
+        if (count <= 1) {
+            LOG(INFO) << "available storage medium type count is less than 1, "
+                << "no need to migrate. count=" << count;
+            return OLAP_REQUEST_FAILED;
+        }
+        // check current tablet storage medium
+        TStorageMedium::type storage_medium = req.storage_medium;
+        TStorageMedium::type src_storage_medium = tablet->data_dir()->storage_medium();
+        if (src_storage_medium == storage_medium) {
+            LOG(INFO) << "tablet is already on specified storage medium. "
+                << "storage_medium=" << storage_medium;
+            return OLAP_REQUEST_FAILED;
+        }
+        // get a random store of specified storage medium
+        auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
+        if (stores.empty()) {
+            LOG(WARNING) << "fail to get root path for create tablet.";
+            return OLAP_ERR_INVALID_ROOT_PATH;
+        }
+
+        *dest_store = stores[0];
+    }
+
+    // check disk capacity
+    int64_t tablet_size = tablet->tablet_footprint();
+    if ((*dest_store)->reach_capacity_limit(tablet_size)) {
+        LOG(WARNING) << "reach the capacity limit of path: " << (*dest_store)->path()
+                << ", tablet size: " << tablet_size;
+        return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+    }
+
+    return OLAP_SUCCESS;
 }
 
 void TaskWorkerPool::_check_consistency_worker_thread_callback() {
