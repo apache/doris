@@ -781,7 +781,6 @@ TEST_F(TestColumn, ConvertIntToBitmap) {
     column_mapping->ref_column = 2;
     column_mapping->materialized_function = "to_bitmap";
 
-
     RowBlock mutable_block(&mv_tablet_schema);
     mutable_block.init(block_info);
     uint64_t filtered_rows = 0;
@@ -877,6 +876,86 @@ TEST_F(TestColumn, ConvertCharToHLL) {
     auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
     HyperLogLog hll(*dst_slice);
     ASSERT_EQ(hll.estimate_cardinality(), 1);
+}
+
+TEST_F(TestColumn, ConvertCharToCount) {
+    //Base Tablet
+    TabletSchema tablet_schema;
+    CreateTabletSchema(tablet_schema);
+
+    //Base row block
+    CreateColumnWriter(tablet_schema);
+
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+    write_row.allocate_memory_for_string_type(tablet_schema);
+    std::vector<std::string> val_string_array;
+    val_string_array.emplace_back("1");
+    val_string_array.emplace_back("1");
+    val_string_array.emplace_back("2");
+    val_string_array.emplace_back("3");
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+
+    block.finalize(1);
+    ColumnDataHeaderMessage header;
+    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+
+    //Materialized View tablet schema
+    TabletSchemaPB mv_tablet_schema_pb;
+    mv_tablet_schema_pb.set_keys_type(KeysType::AGG_KEYS);
+    mv_tablet_schema_pb.set_num_short_key_columns(2);
+    mv_tablet_schema_pb.set_num_rows_per_row_block(1024);
+    mv_tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    mv_tablet_schema_pb.set_next_column_unique_id(3);
+
+    ColumnPB* mv_column_1 = mv_tablet_schema_pb.add_column();
+    mv_column_1->set_unique_id(1);
+    mv_column_1->set_name("k1");
+    mv_column_1->set_type("INT");
+    mv_column_1->set_is_key(true);
+    mv_column_1->set_length(4);
+    mv_column_1->set_index_length(4);
+    mv_column_1->set_is_nullable(false);
+    mv_column_1->set_is_bf_column(false);
+
+    ColumnPB* mv_column_2 = mv_tablet_schema_pb.add_column();
+    mv_column_2->set_unique_id(2);
+    mv_column_2->set_name("v1");
+    mv_column_2->set_type("BIGINT");
+    mv_column_2->set_length(4);
+    mv_column_2->set_is_key(false);
+    mv_column_2->set_is_nullable(false);
+    mv_column_2->set_is_bf_column(false);
+    mv_column_2->set_aggregation("SUM");
+
+    TabletSchema mv_tablet_schema;
+    mv_tablet_schema.init_from_pb(mv_tablet_schema_pb);
+
+    RowBlockChanger row_block_changer(mv_tablet_schema);
+    ColumnMapping* column_mapping = row_block_changer.get_mutable_column_mapping(0);
+    column_mapping->ref_column = 0;
+    column_mapping = row_block_changer.get_mutable_column_mapping(1);
+    column_mapping->ref_column = 1;
+    column_mapping->materialized_function = "count_field";
+
+    RowBlock mutable_block(&mv_tablet_schema);
+    mutable_block.init(block_info);
+    uint64_t filtered_rows = 0;
+    row_block_changer.change_row_block(&block, 0, &mutable_block, &filtered_rows);
+
+    RowCursor mv_row_cursor;
+    mv_row_cursor.init(mv_tablet_schema);
+    mutable_block.get_row(0, &mv_row_cursor);
+
+    auto dst = mv_row_cursor.cell_ptr(1);
+    ASSERT_EQ(*(int64_t *)dst, 1);
 }
 }
 
