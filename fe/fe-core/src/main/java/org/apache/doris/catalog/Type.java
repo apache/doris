@@ -387,6 +387,18 @@ public abstract class Type {
     }
 
     /**
+     * Returns null if this expr is not instance of StringLiteral or StringLiteral
+     * inner value could not parse to long. otherwise return parsed Long result.
+     */
+    public static Long tryParseToLong(Expr expectStringExpr){
+        if (expectStringExpr instanceof StringLiteral) {
+            String value = ((StringLiteral)expectStringExpr).getValue();
+            return Longs.tryParse(value);
+        }
+        return null;
+    }
+
+    /**
      * Returns true if this type exceeds the MAX_NESTING_DEPTH, false otherwise.
      */
     public boolean exceedsMaxNestingDepth() {
