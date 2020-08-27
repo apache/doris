@@ -17,6 +17,10 @@
 
 package org.apache.doris.plugin;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import org.apache.doris.common.UserException;
 
 import org.apache.commons.io.FileUtils;
@@ -30,10 +34,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import mockit.Expectations;
-
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 public class PluginZipTest {
 

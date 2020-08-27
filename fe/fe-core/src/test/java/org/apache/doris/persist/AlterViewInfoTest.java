@@ -17,12 +17,10 @@
 
 package org.apache.doris.persist;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-
-import com.google.common.collect.Lists;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;

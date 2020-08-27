@@ -20,6 +20,7 @@ package org.apache.doris.service;
 import org.junit.Assert;
 import org.junit.Test;
 
+import javax.validation.constraints.AssertTrue;
 import java.util.HashSet;
 import java.util.Set;
 

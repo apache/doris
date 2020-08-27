@@ -17,6 +17,9 @@
 
 package org.apache.doris.mysql;
 
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 
@@ -30,10 +33,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.channels.SocketChannel;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class MysqlServerTest {
     private static final Logger LOG = LoggerFactory.getLogger(MysqlServerTest.class);

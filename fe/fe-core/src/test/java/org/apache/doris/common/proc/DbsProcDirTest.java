@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.proc;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -31,9 +33,6 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class DbsProcDirTest {
     private Database db1;

@@ -25,15 +25,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
-
-import java.util.Map;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+
+import java.util.Map;
 
 public class ResourceDescTest {
 

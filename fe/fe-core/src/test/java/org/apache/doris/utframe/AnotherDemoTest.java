@@ -17,6 +17,7 @@
 
 package org.apache.doris.utframe;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
@@ -25,6 +26,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -41,7 +43,7 @@ import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.junit.AfterClass;

@@ -17,13 +17,15 @@
 
 package org.apache.doris.common.util;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 
+import org.apache.doris.common.DdlException;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,9 +34,6 @@ import java.time.ZoneId;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.TimeZone;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class TimeUtilsTest {
 

@@ -484,7 +484,7 @@ public class QueryPlanTest {
     @Test
     public void testMultiStmts() throws Exception {
         String sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
-        List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        List<StatementBase>stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
 
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
@@ -557,7 +557,7 @@ public class QueryPlanTest {
         String createSchemaSql = "create schema if not exists test";
         String createDbSql = "create database if not exists test";
         CreateDbStmt createSchemaStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createSchemaSql, connectContext);
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
+        CreateDbStmt createDbStmt =  (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
         Assert.assertEquals(createDbStmt.toSql(), createSchemaStmt.toSql());
     }
 
@@ -1013,7 +1013,7 @@ public class QueryPlanTest {
         sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a where 1 =2;");
         sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
 
-        for (String sql : sqls) {
+        for(String sql: sqls) {
             String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
             System.out.println(explainString);
             Assert.assertTrue(explainString.contains(emptyNode));

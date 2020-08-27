@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import static org.junit.Assert.assertEquals;
+
+import mockit.Expectations;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeMetaVersion;
 
@@ -32,10 +35,7 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-import mockit.Expectations;
 import mockit.Mocked;
-
-import static org.junit.Assert.assertEquals;
 
 public class ReplicaTest {
     

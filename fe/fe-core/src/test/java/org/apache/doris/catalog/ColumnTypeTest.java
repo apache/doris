@@ -17,6 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -24,12 +30,6 @@ import org.apache.doris.common.FeConstants;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 
 public class ColumnTypeTest {
     private FakeCatalog fakeCatalog;

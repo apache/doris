@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.IntLiteral;
@@ -38,7 +39,6 @@ import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Expectations;
 import mockit.Mocked;
 
 public class SetExecutorTest {

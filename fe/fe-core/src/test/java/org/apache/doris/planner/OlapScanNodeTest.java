@@ -17,6 +17,14 @@
 
 package org.apache.doris.planner;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.Assert;
+import org.junit.Test;
+
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -26,17 +34,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
 
 public class OlapScanNodeTest {    
     // columnA in (1) hashmode=3

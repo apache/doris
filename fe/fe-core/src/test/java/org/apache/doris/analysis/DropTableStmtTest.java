@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -27,7 +28,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Expectations;
 import mockit.Mocked;
 
 public class DropTableStmtTest {

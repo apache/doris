@@ -17,6 +17,8 @@
 
 package org.apache.doris.cluster;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DropBackendClause;
@@ -44,9 +46,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class SystemInfoServiceTest {
 

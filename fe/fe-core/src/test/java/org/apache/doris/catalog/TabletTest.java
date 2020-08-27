@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TStorageMedium;
@@ -30,9 +32,6 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class TabletTest {
 

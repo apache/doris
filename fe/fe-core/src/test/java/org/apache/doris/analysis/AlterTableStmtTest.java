@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -31,7 +32,6 @@ import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Expectations;
 import mockit.Mocked;
 
 public class AlterTableStmtTest {

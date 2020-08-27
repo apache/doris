@@ -24,10 +24,10 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Multimap;
 
+import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;

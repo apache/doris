@@ -17,6 +17,9 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -37,9 +40,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class VariableMgrTest {
     private static final Logger LOG = LoggerFactory.getLogger(VariableMgrTest.class);

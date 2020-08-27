@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import mockit.MockUp;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;

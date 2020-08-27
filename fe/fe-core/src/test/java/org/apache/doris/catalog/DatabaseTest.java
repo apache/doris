@@ -25,6 +25,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -38,6 +39,7 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import mockit.Expectations;

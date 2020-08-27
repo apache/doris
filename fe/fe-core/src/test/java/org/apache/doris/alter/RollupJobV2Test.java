@@ -17,6 +17,8 @@
 
 package org.apache.doris.alter;
 
+import static org.junit.Assert.assertEquals;
+
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddRollupClause;
@@ -61,6 +63,7 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -82,8 +85,6 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-
-import static org.junit.Assert.assertEquals;
 
 public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";

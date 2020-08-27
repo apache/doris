@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -51,9 +53,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();

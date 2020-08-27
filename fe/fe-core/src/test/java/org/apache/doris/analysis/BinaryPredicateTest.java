@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.SetPassVar;
@@ -35,7 +36,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Expectations;
 import mockit.Mocked;
 
 public class SetPasswordTest {

@@ -17,10 +17,11 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.common.Pair;
-
 import org.junit.Assert;
+
 import org.junit.Test;
+
+import org.apache.doris.common.Pair;
 
 public class DebugUtilTest {
     @Test

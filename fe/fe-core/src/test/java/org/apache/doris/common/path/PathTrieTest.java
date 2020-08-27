@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.path;
 
+import static com.google.common.collect.Maps.newHashMap;
+
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.rest.MultiStart;
 import org.apache.doris.http.rest.TableQueryPlanAction;
@@ -32,8 +34,6 @@ import org.junit.Test;
 import java.util.Map;
 
 import mockit.Injectable;
-
-import static com.google.common.collect.Maps.newHashMap;
 
 public class PathTrieTest {
     @Test

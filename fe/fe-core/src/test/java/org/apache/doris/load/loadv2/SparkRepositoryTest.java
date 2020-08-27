@@ -17,6 +17,11 @@
 
 package org.apache.doris.load.loadv2;
 
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
@@ -24,7 +29,6 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -33,11 +37,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class SparkRepositoryTest {
     private SparkRepository repository;

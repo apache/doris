@@ -19,11 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
-
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -34,6 +29,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.TimeZone;
+
+import org.apache.doris.common.FeConstants;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 public class PartitionKeyTest {
 

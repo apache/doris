@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import mockit.*;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
@@ -41,12 +42,6 @@ import java.io.PrintWriter;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 
 public class RepositoryTest {

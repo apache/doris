@@ -17,10 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-
 import org.junit.Assert;
 import org.junit.Test;
+
+import org.apache.doris.common.AnalysisException;
 
 public class ColumnSeparatorTest {
     @Test

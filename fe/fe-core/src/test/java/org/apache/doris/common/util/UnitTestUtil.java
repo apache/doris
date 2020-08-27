@@ -44,10 +44,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
-import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.collect.Maps;
 
+import org.apache.doris.thrift.TTabletType;
 import org.junit.Assert;
 
 import java.lang.reflect.Method;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -44,10 +45,9 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+
 import java.util.LinkedList;
 import java.util.List;
-
-import mockit.Expectations;
 
 public class AccessTestUtil {
     private static FakeEditLog fakeEditLog;

@@ -17,6 +17,10 @@
 
 package org.apache.doris.plugin;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.PluginInfo.PluginType;
@@ -28,10 +32,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Map;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 public class PluginLoaderTest {
 

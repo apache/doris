@@ -18,13 +18,11 @@
 package org.apache.doris.qe;
 
 import com.google.common.collect.Lists;
-
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Mocked;
 
 public class ShowResultSetTest {
     @Mocked

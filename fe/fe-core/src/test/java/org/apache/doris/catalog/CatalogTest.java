@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.SchemaChangeJob;
@@ -44,8 +45,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-
-import mockit.Expectations;
 
 public class CatalogTest {
 

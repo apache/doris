@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.DdlException;
-
 import org.junit.Assert;
 import org.junit.Test;
 

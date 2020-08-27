@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Mock;
+import mockit.MockUp;
+
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.FeConstants;
@@ -31,9 +34,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
-
-import mockit.Mock;
-import mockit.MockUp;
 
 public class OlapTableTest {
 

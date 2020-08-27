@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -39,7 +40,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-import mockit.Expectations;
 import mockit.Mocked;
 
 public class CreateTableStmtTest {

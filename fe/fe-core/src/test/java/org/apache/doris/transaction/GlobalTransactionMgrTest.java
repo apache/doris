@@ -17,6 +17,10 @@
 
 package org.apache.doris.transaction;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.FakeCatalog;
@@ -45,8 +49,8 @@ import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
-import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

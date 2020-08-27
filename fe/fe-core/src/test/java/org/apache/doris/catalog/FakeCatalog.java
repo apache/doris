@@ -17,10 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.system.SystemInfoService;
-
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.doris.system.SystemInfoService;
 
 public class FakeCatalog extends MockUp<Catalog> {
 

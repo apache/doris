@@ -17,6 +17,8 @@
 
 package org.apache.doris.alter;
 
+import static org.junit.Assert.assertEquals;
+
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddColumnClause;
@@ -80,8 +82,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static org.junit.Assert.assertEquals;
 
 public class SchemaChangeJobV2Test {
 
