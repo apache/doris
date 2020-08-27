@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.primitives.Longs;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Pair;
