@@ -111,7 +111,10 @@ import java.util.Map;
                 },
                 "where": "k2 > 10",
                 "isNegative": false,
-                "hiveTableName": "hive_db.table"
+                "hiveDbTableName": "hive_db.table",
+                "hiveTableProperties": {
+                    "hive.metastore.uris": "thrift://host:port"
+                }
             }]
         }
     },
