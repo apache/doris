@@ -88,11 +88,11 @@ public class SimpleLocalCache implements Cache {
     public void put(NamedKey key, byte[] value) {
         final byte[] compresssize = compress(value);
         if (compresssize.length > Config.result_cache_size_per_query_in_bytes) {
-            LOG.info(" result size more than result_cache_size_per_query_in_bytes: "
+            LOG.debug(" result size more than result_cache_size_per_query_in_bytes: "
                     + Config.result_cache_size_per_query_in_bytes + " so not storage in cache");
             return;
         }
-        cache.put(key, compress(value));
+        cache.put(key, compresssize);
     }
 
     @Override

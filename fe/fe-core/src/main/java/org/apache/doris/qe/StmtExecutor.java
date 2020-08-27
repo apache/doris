@@ -598,8 +598,8 @@ public class StmtExecutor {
         QueryStmt queryStmt = (QueryStmt) parsedStmt;
         // Use connection ID as session identifier
         NamedKey namedKey = new NamedKey(String.valueOf(context.getConnectionId()),
-                StringUtils.toUtf8(queryStmt.toSql()));
-        LOG.debug("Result Cache NamedKey [" + namedKey + "]");
+                StringUtils.toUtf8(originStmt.originStmt));
+        LOG.debug("Result Cache NamedKey [{}]", namedKey);
 
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
@@ -622,7 +622,7 @@ public class StmtExecutor {
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
 
         boolean isCacheEnabled = context.getSessionVariable().isEnableResultCache();
-        LOG.debug("Session level cache is " + (isCacheEnabled ? "enabled" : false));
+        LOG.debug("Session level cache is {}", (isCacheEnabled ? "enabled" : false));
         Cache cache = null;
         byte[] cachedVal = null;
         ArrayList<RowBatch> batches = null;
