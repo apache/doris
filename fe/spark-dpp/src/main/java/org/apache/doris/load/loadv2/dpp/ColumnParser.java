@@ -138,7 +138,8 @@ class BooleanParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         if (value.equalsIgnoreCase("true")
-                || value.equalsIgnoreCase("false")) {
+                || value.equalsIgnoreCase("false")
+                || value.equals("0") || value.equals("1")) {
             return true;
         }
         return false;
