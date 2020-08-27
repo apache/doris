@@ -70,7 +70,7 @@ public:
     static std::map<std::string, std::function<Status(void*)>>* _s_field_check_func;
 
 public:
-    RegisterCheckFunction(const char* fname, std::function<Status(void*)> check_function) {
+    RegisterCheckFunction(const char* fname, std::function<Status(void*)> check_function, void* check_exists) {
         if (_s_field_check_func == nullptr) {
             _s_field_check_func = new std::map<std::string, std::function<Status(void*)>>();
         }
@@ -79,7 +79,7 @@ public:
     }
 };
 
-#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)        \
+#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                    \
     FIELD_TYPE FIELD_NAME;                                                                 \
     static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &FIELD_NAME, FIELD_DEFAULT, \
                                      VALMUTABLE);
@@ -87,7 +87,7 @@ public:
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
 
 #define DEFINE_CHECK_FUNCTION(FIELD_NAME, CHECK_FUNC) \
-    static RegisterCheckFunction reg_function_##FIELD_NAME(#FIELD_NAME, CHECK_FUNC);
+    static RegisterCheckFunction reg_function_##FIELD_NAME(#FIELD_NAME, CHECK_FUNC, &config::FIELD_NAME);
 
 #define DECLARE_CHECK_FUNCTION(FIELD_NAME) ;
 

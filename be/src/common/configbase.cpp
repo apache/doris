@@ -246,11 +246,11 @@ Status update_check(const std::string& value, std::function<Status(void*)>& chec
     std::string valstr(value);
     trim(valstr);
     if (!replaceenv(valstr)) {
-        Status::InvalidArgument(strings::Substitute("convert '$0' failed", value));
+        return Status::InvalidArgument(strings::Substitute("convert '$0' failed", value));
     }
     // covert value from string to T
     if(!strtox(valstr, retval)){
-        Status::InvalidArgument(strings::Substitute("convert '$0' failed", value));
+        return Status::InvalidArgument(strings::Substitute("convert '$0' failed", value));
     }
     // check the value
     return check_func((void *)(&retval));
@@ -314,8 +314,8 @@ bool init(const char* filename, bool fillconfmap) {
 
 #define UPDATE_FIELD(FIELD, VALUE, TYPE)                                             \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                          \
-        auto func_it = RegisterCheckFunction::_s_field_check_func->find(FIELD.name);              \
-        if (func_it != RegisterCheckFunction::_s_field_check_func->end()) {                       \
+        auto func_it = RegisterCheckFunction::_s_field_check_func->find(FIELD.name); \
+        if (func_it != RegisterCheckFunction::_s_field_check_func->end()) {          \
             TYPE tmp;                                                                \
             Status status = update_check((VALUE), (func_it->second), tmp);           \
             if (!status.ok()) {                                                      \
