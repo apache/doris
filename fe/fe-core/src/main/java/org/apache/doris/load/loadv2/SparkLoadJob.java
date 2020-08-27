@@ -20,15 +20,14 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -36,6 +35,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Tablet;
@@ -82,17 +82,15 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.spark.launcher.SparkAppHandle;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -127,7 +125,7 @@ public class SparkLoadJob extends BulkLoadJob {
     // --- members below not persist ---
     private ResourceDesc resourceDesc;
     // for spark standalone
-    private SparkAppHandle sparkAppHandle;
+    private SparkLoadAppHandle sparkLoadAppHandle;
     // for straggler wait long time to commit transaction
     private long quorumFinishTimestamp = -1;
     // below for push task
@@ -230,7 +228,7 @@ public class SparkLoadJob extends BulkLoadJob {
             // add task id into finishedTaskIds
             finishedTaskIds.add(attachment.getTaskId());
 
-            sparkAppHandle = attachment.getHandle();
+            sparkLoadAppHandle = attachment.getHandle();
             appId = attachment.getAppId();
             etlOutputPath = attachment.getOutputPath();
 
@@ -278,7 +276,7 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // get etl status
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        EtlStatus status = handler.getEtlJobStatus(sparkAppHandle, appId, id, etlOutputPath, sparkResource, brokerDesc);
+        EtlStatus status = handler.getEtlJobStatus(sparkLoadAppHandle, appId, id, etlOutputPath, sparkResource, brokerDesc);
         writeLock();
         try {
             switch (status.getState()) {
@@ -630,9 +628,9 @@ public class SparkLoadJob extends BulkLoadJob {
         LOG.debug("kill etl job and delete etl files. id: {}, state: {}", id, state);
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
         if (state == JobState.CANCELLED) {
-            if ((!Strings.isNullOrEmpty(appId) && sparkResource.isYarnMaster()) || sparkAppHandle != null) {
+            if ((!Strings.isNullOrEmpty(appId) && sparkResource.isYarnMaster()) || sparkLoadAppHandle != null) {
                 try {
-                    handler.killEtlJob(sparkAppHandle, appId, id, sparkResource);
+                    handler.killEtlJob(sparkLoadAppHandle, appId, id, sparkResource);
                 } catch (Exception e) {
                     LOG.warn("kill etl job failed. id: {}, state: {}", id, state, e);
                 }
@@ -661,7 +659,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 }
             }
             // clear job infos that not persist
-            sparkAppHandle = null;
+            sparkLoadAppHandle = null;
             resourceDesc = null;
             tableToLoadPartitions.clear();
             indexToPushBrokerReaderParams.clear();
