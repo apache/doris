@@ -415,6 +415,22 @@ public class SparkLoadJobTest {
     }
 
     @Test
+    public void testSubmitTasksWhenStateFinished(@Mocked Catalog catalog, @Injectable String originStmt,
+                                                 @Injectable Database db) throws Exception {
+        new Expectations() {
+            {
+                catalog.getDb(dbId);
+                result = db;
+            }
+        };
+
+        SparkLoadJob job = getEtlStateJob(originStmt);
+        job.state = JobState.FINISHED;
+        Set<Long> totalTablets = Deencapsulation.invoke(job, "submitPushTasks");
+        Assert.assertTrue(totalTablets.isEmpty());
+    }
+
+    @Test
     public void testStateUpdateInfoPersist() throws IOException {
         String fileName = "./testStateUpdateInfoPersistFile";
         File file = new File(fileName);
