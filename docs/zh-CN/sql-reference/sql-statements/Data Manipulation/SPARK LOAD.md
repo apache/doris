@@ -79,7 +79,7 @@ under the License.
 
             hive_external_tbl:
 
-            hive 外部表名字。
+            hive 外部表名。
             要求导入的 doris 表中的列必须在 hive 外部表中存在。
             每个导入任务只支持从一个 hive 外部表导入。
             不能与 file_path 方式同时使用。

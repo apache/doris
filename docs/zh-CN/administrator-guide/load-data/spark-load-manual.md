@@ -452,7 +452,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 + enable_spark_load
     
-    打开Spark load和创建resource功能。默认为false，不打开。
+    开启 Spark load 和创建 resource 功能。默认为 false，关闭此功能。
     
     
 
