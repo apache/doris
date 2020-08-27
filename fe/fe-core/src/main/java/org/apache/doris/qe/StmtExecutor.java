@@ -591,7 +591,10 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
-    // Process a select statement.
+    /**
+     * Process a select statement.
+     * if return true ,hit cache
+     */
     private boolean handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
