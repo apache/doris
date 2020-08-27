@@ -250,9 +250,11 @@ public class SparkEtlJobHandler {
                 byte[] data = BrokerUtil.readFile(dppResultFilePath, brokerDesc);
                 String dppResultStr = new String(data, "UTF-8");
                 DppResult dppResult = new Gson().fromJson(dppResultStr, DppResult.class);
-                status.setDppResult(dppResult);
-                if (status.getState() == TEtlState.CANCELLED && !Strings.isNullOrEmpty(dppResult.failedReason)) {
-                    status.setFailMsg(dppResult.failedReason);
+                if (dppResult != null) {
+                    status.setDppResult(dppResult);
+                    if (status.getState() == TEtlState.CANCELLED && !Strings.isNullOrEmpty(dppResult.failedReason)) {
+                        status.setFailMsg(dppResult.failedReason);
+                    }
                 }
             } catch (UserException | JsonSyntaxException | UnsupportedEncodingException e) {
                 LOG.warn("read broker file failed. path: {}", dppResultFilePath, e);

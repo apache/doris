@@ -105,6 +105,7 @@ public final class SparkDpp implements java.io.Serializable {
     // because hadoop configuration is not serializable,
     // we need to wrap it so that we can use it in executor.
     private SerializableConfiguration serializableHadoopConf;
+    private DppResult dppResult = new DppResult();
 
 
     public SparkDpp(SparkSession spark, EtlJobConfig etlJobConfig) {
@@ -485,7 +486,8 @@ public final class SparkDpp implements java.io.Serializable {
                 dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast("date"));
             } else if (column.columnType.equalsIgnoreCase("BOOLEAN")) {
                 dataframe = dataframe.withColumn(dstField.name(),
-                        functions.when(dataframe.col(dstField.name()).equalTo("true"), "1")
+                        functions.when(functions.lower(dataframe.col(dstField.name())).equalTo("true"), "1")
+                                .when(dataframe.col(dstField.name()).equalTo("1"), "1")
                                 .otherwise("0"));
             } else if (!column.columnType.equalsIgnoreCase(BITMAP_TYPE) && !dstField.dataType().equals(DataTypes.StringType)) {
                 dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast(dstField.dataType()));
@@ -535,9 +537,10 @@ public final class SparkDpp implements java.io.Serializable {
                 dataSrcColumns.add(column.columnName);
             }
         }
-        List<String> dstTableNames = new ArrayList<>();
-        for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
-            dstTableNames.add(column.columnName);
+        // for getting schema to check source data
+        Map<String, Integer> dstColumnNameToIndex = new HashMap<String, Integer>();
+        for (int i = 0; i < baseIndex.columns.size(); i++) {
+            dstColumnNameToIndex.put(baseIndex.columns.get(i).columnName, i);
         }
         List<String> srcColumnsWithColumnsFromPath = new ArrayList<>();
         srcColumnsWithColumnsFromPath.addAll(dataSrcColumns);
@@ -566,25 +569,28 @@ public final class SparkDpp implements java.io.Serializable {
                         validRow = false;
                     } else {
                         for (int i = 0; i < attributes.length; ++i) {
-                            if (attributes[i].equals(NULL_FLAG)) {
-                                if (baseIndex.columns.get(i).isAllowNull) {
+                            StructField field = srcSchema.apply(i);
+                            String srcColumnName = field.name();
+                            if (attributes[i].equals(NULL_FLAG) && dstColumnNameToIndex.containsKey(srcColumnName)) {
+                                if (baseIndex.columns.get(dstColumnNameToIndex.get(srcColumnName)).isAllowNull) {
                                     attributes[i] = null;
                                 } else {
-                                    LOG.warn("colunm:" + i + " can not be null. row:" + record);
+                                    LOG.warn("column name:" + srcColumnName + ", attribute: " + i
+                                            + " can not be null. row:" + record);
                                     validRow = false;
                                     break;
                                 }
                             }
-                            boolean isStrictMode = (boolean) etlJobConfig.properties.strictMode;
+                            boolean isStrictMode = etlJobConfig.properties.strictMode;
                             if (isStrictMode) {
-                                StructField field = srcSchema.apply(i);
-                                if (dstTableNames.contains(field.name())) {
-                                    String type = columns.get(i).columnType;
+                                if (dstColumnNameToIndex.containsKey(srcColumnName)) {
+                                    int index = dstColumnNameToIndex.get(srcColumnName);
+                                    String type = columns.get(index).columnType;
                                     if (type.equalsIgnoreCase("CHAR")
                                             || type.equalsIgnoreCase("VARCHAR")) {
                                         continue;
                                     }
-                                    ColumnParser parser = parsers.get(i);
+                                    ColumnParser parser = parsers.get(index);
                                     boolean valid = parser.parse(attributes[i]);
                                     if (!valid) {
                                         validRow = false;
@@ -726,12 +732,20 @@ public final class SparkDpp implements java.io.Serializable {
             throws SparkDppException, IOException, URISyntaxException {
         Dataset<Row> fileGroupDataframe = null;
         for (String filePath : filePaths) {
-            fileNumberAcc.add(1);
             try {
                 URI uri = new URI(filePath);
                 FileSystem fs = FileSystem.get(uri, serializableHadoopConf.value());
-                FileStatus fileStatus = fs.getFileStatus(new Path(filePath));
-                fileSizeAcc.add(fileStatus.getLen());
+                FileStatus[] fileStatuses = fs.globStatus(new Path(filePath));
+                if (fileStatuses == null) {
+                    throw new SparkDppException("fs list status failed: " + filePath);
+                }
+                for (FileStatus fileStatus : fileStatuses) {
+                    if (fileStatus.isDirectory()) {
+                        continue;
+                    }
+                    fileNumberAcc.add(1);
+                    fileSizeAcc.add(fileStatus.getLen());
+                }
             } catch (Exception e) {
                 LOG.warn("parse path failed:" + filePath);
                 throw e;
@@ -770,8 +784,7 @@ public final class SparkDpp implements java.io.Serializable {
         return dataframe;
     }
 
-    private DppResult process() throws Exception {
-        DppResult dppResult = new DppResult();
+    private void process() throws Exception {
         try {
             for (Map.Entry<Long, EtlJobConfig.EtlTable> entry : etlJobConfig.tables.entrySet()) {
                 Long tableId = entry.getKey();
@@ -852,34 +865,26 @@ public final class SparkDpp implements java.io.Serializable {
                 }
                 processRollupTree(rootNode, tablePairRDD, tableId, baseIndex);
             }
-            spark.stop();
+            LOG.info("invalid rows contents:" + invalidRows.value());
+            dppResult.isSuccess = true;
+            dppResult.failedReason = "";
         } catch (Exception exception) {
             LOG.warn("spark dpp failed for exception:" + exception);
             dppResult.isSuccess = false;
             dppResult.failedReason = exception.getMessage();
+            throw exception;
+        } finally {
+            spark.stop();
             dppResult.normalRows = scannedRowsAcc.value() - abnormalRowAcc.value();
             dppResult.scannedRows = scannedRowsAcc.value();
             dppResult.fileNumber = fileNumberAcc.value();
             dppResult.fileSize = fileSizeAcc.value();
             dppResult.abnormalRows = abnormalRowAcc.value();
             dppResult.partialAbnormalRows = invalidRows.value();
-            throw exception;
         }
-        LOG.info("invalid rows contents:" + invalidRows.value());
-        dppResult.isSuccess = true;
-        dppResult.failedReason = "";
-        dppResult.normalRows = scannedRowsAcc.value() - abnormalRowAcc.value();
-        dppResult.scannedRows = scannedRowsAcc.value();
-        dppResult.fileNumber = fileNumberAcc.value();
-        dppResult.fileSize = fileSizeAcc.value();
-        dppResult.abnormalRows = abnormalRowAcc.value();
-        dppResult.partialAbnormalRows = invalidRows.value();
-        return dppResult;
     }
 
-    public void doDpp() throws Exception {
-        // write dpp result to output
-        DppResult dppResult = process();
+    private void writeDppResult(DppResult dppResult) throws Exception {
         String outputPath = etlJobConfig.getOutputPath();
         String resultFilePath = outputPath + "/" + DPP_RESULT_FILE;
         URI uri = new URI(outputPath);
@@ -890,6 +895,17 @@ public final class SparkDpp implements java.io.Serializable {
         outputStream.write(gson.toJson(dppResult).getBytes());
         outputStream.write('\n');
         outputStream.close();
+    }
+
+    public void doDpp() throws Exception {
+        try {
+            process();
+        } catch (Exception e) {
+            throw e;
+        } finally {
+            // write dpp result to file in outputPath
+            writeDppResult(dppResult);
+        }
     }
 }
 
