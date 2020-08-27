@@ -47,6 +47,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.launcher.SparkLauncher;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -66,6 +67,7 @@ public class SparkEtlJobHandler {
     private static final String CONFIG_FILE_NAME = "jobconfig.json";
     private static final String JOB_CONFIG_DIR = "configs";
     private static final String ETL_JOB_NAME = "doris__%s";
+    private static final String LAUNCHER_LOG = "spark_launcher_%s_%s.log";
     // 5min
     private static final long GET_APPID_TIMEOUT_MS = 300000L;
     // 30s
@@ -78,6 +80,9 @@ public class SparkEtlJobHandler {
                              BrokerDesc brokerDesc, SparkPendingTaskAttachment attachment) throws LoadException {
         // delete outputPath
         deleteEtlOutputPath(etlJobConfig.outputPath, brokerDesc);
+
+        // init local dir
+        initLocalDir();
 
         // prepare dpp archive
         SparkRepository.SparkArchive archive = resource.prepareArchive();
@@ -96,6 +101,8 @@ public class SparkEtlJobHandler {
         String jobArchiveHdfsPath = spark2xLibrary.remotePath;
         // spark yarn stage dir
         String jobStageHdfsPath = resource.getWorkingDir();
+        // spark launcher log path
+        String logFilePath = Config.spark_launcher_log_dir + "/" + String.format(LAUNCHER_LOG, loadJobId, loadLabel);
 
         // update archive and stage configs here
         Map<String, String> sparkConfigs = resource.getSparkConfigs();
@@ -143,6 +150,7 @@ public class SparkEtlJobHandler {
             if (!FeConstants.runningUnitTest) {
                 SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
                 logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);
+                logMonitor.setRedirectLogPath(logFilePath);
                 logMonitor.start();
                 try {
                     logMonitor.join();
@@ -297,6 +305,14 @@ public class SparkEtlJobHandler {
         LOG.debug("get spark etl file paths. files map: {}", filePathToSize);
 
         return filePathToSize;
+    }
+
+    public static synchronized void initLocalDir() {
+        String logDir = Config.spark_launcher_log_dir;
+        File file = new File(logDir);
+        if (!file.exists()) {
+            file.mkdirs();
+        }
     }
 
     public void deleteEtlOutputPath(String outputPath, BrokerDesc brokerDesc) {

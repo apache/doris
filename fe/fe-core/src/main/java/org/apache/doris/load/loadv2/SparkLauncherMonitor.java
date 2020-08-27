@@ -27,8 +27,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -67,6 +70,8 @@ public class SparkLauncherMonitor {
         private SparkLoadAppHandle handle;
         private long submitTimeoutMs;
         private boolean isStop;
+        private StringBuffer outputBuffer;
+        private OutputStream outputStream;
 
         private static final String STATE = "state";
         private static final String QUEUE = "queue";
@@ -82,11 +87,16 @@ public class SparkLauncherMonitor {
             this.handle = handle;
             this.process = handle.getProcess();
             this.isStop = false;
+            this.outputBuffer = new StringBuffer();
             setSubmitTimeoutMs(DEFAULT_SUBMIT_TIMEOUT_MS);
         }
 
         public void setSubmitTimeoutMs(long submitTimeoutMs) {
             this.submitTimeoutMs = submitTimeoutMs;
+        }
+
+        public void setRedirectLogPath(String redirectLogPath) throws IOException {
+            this.outputStream = new FileOutputStream(new File(redirectLogPath), false);
         }
 
         // Normally, log monitor will automatically stop if the spark app state changes
@@ -103,7 +113,7 @@ public class SparkLauncherMonitor {
             try {
                 outReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                 while (!isStop && (line = outReader.readLine()) != null) {
-                    LOG.info("monitor log: " + line);
+                    outputBuffer.append(line + '\n');
                     SparkLoadAppHandle.State oldState = handle.getState();
                     SparkLoadAppHandle.State newState = oldState;
                     // parse state and appId
@@ -179,12 +189,19 @@ public class SparkLauncherMonitor {
                         }
                     }
                 }
+
+                if (outputStream != null) {
+                    outputStream.write(outputBuffer.toString().getBytes());
+                }
             } catch (Exception e) {
                 LOG.warn("Exception monitoring process.", e);
             } finally {
                 try {
                     if (outReader != null) {
                         outReader.close();
+                    }
+                    if (outputStream != null) {
+                        outputStream.close();
                     }
                 } catch (IOException e) {
                     LOG.warn("close buffered reader error", e);
