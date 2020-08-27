@@ -304,6 +304,8 @@ enum OLAPStatus {
     OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED = -1603,
     OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID = -1604,
     OLAP_ERR_QUERY_SPLIT_KEY_ERR = -1605,
+    //Error caused by a data quality issue during schema change/materialized view
+    OLAP_ERR_DATA_QUALITY_ERR = -1606,
 
     // Column File
     // [-1700, -1800)
