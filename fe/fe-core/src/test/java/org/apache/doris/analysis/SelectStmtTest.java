@@ -394,6 +394,7 @@ public class SelectStmtTest {
         dorisAssert.query(sql).explainQuery();
    }
 
+    @Test
     public void testVarcharToLongSupport() throws Exception {
         String sql = "select count(*)\n" +
                 "from db1.partition_table\n" +
