@@ -67,7 +67,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             }
             String extraStr = StringUtils.join(extras, ",");
 
-            List<String> rowList = Arrays.asList(column.getName(),
+            List<String> rowList = Arrays.asList(column.getDisplayName(),
                                                  column.getOriginType().toString(),
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),

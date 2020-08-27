@@ -50,9 +50,25 @@ public class SelectStmtTest {
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
                 + "buckets 3 properties('replication_num' = '1');";
+        String createPratitionTableStr = "CREATE TABLE db1.partition_table (\n" +
+                "datekey int(11) NULL COMMENT \"datekey\",\n" +
+                "poi_id bigint(20) NULL COMMENT \"poi_id\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(datekey, poi_id)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(datekey)\n" +
+                "(PARTITION p20200727 VALUES [(\"20200726\"), (\"20200727\")),\n" +
+                "PARTITION p20200728 VALUES [(\"20200727\"), (\"20200728\")))\n" +
+                "DISTRIBUTED BY HASH(poi_id) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"storage_type\" = \"COLUMN\",\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
-        dorisAssert.withTable(createTblStmtStr).withTable(createBaseAllStmtStr);
+        dorisAssert.withTable(createTblStmtStr)
+                   .withTable(createBaseAllStmtStr)
+                   .withTable(createPratitionTableStr);
     }
 
     @Test
@@ -376,5 +392,21 @@ public class SelectStmtTest {
         dorisAssert.query(sql).explainQuery();
         sql = "select rand() from db1.tbl1;";
         dorisAssert.query(sql).explainQuery();
+
+    public void testVarcharToLongSupport() throws Exception {
+        String sql = "select count(*)\n" +
+                "from db1.partition_table\n" +
+                "where datekey='20200730'";
+        Assert.assertTrue(dorisAssert
+                .query(sql)
+                .explainQuery()
+                .contains("`datekey` = 20200730"));
+        sql = "select count(*)\n" +
+                "from db1.partition_table\n" +
+                "where '20200730'=datekey";
+        Assert.assertTrue(dorisAssert
+                .query(sql)
+                .explainQuery()
+                .contains("`datekey` = 20200730"));
     }
 }

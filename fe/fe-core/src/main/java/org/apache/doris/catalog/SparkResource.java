@@ -19,16 +19,19 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
+import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
+import java.io.File;
 import java.util.Map;
 
 /**
@@ -66,6 +69,7 @@ public class SparkResource extends Resource {
     private static final String SPARK_CONFIG_PREFIX = "spark.";
     private static final String BROKER_PROPERTY_PREFIX = "broker.";
     // spark uses hadoop configs in the form of spark.hadoop.*
+    private static final String SPARK_HADOOP_CONFIG_PREFIX = "spark.hadoop.";
     private static final String SPARK_YARN_RESOURCE_MANAGER_ADDRESS = "spark.hadoop.yarn.resourcemanager.address";
     private static final String SPARK_FS_DEFAULT_FS = "spark.hadoop.fs.defaultFS";
     private static final String YARN_RESOURCE_MANAGER_ADDRESS = "yarn.resourcemanager.address";
@@ -166,6 +170,23 @@ public class SparkResource extends Resource {
         return archive;
     }
 
+    // Each SparkResource has and only has one yarn config to run yarn command
+    // This method will write all the configuration start with "spark.hadoop." into config files in a specific directory
+    public synchronized String prepareYarnConfig() throws LoadException {
+        SparkYarnConfigFiles yarnConfigFiles = new SparkYarnConfigFiles(name, getSparkHadoopConfig(sparkConfigs));
+        yarnConfigFiles.prepare();
+        return yarnConfigFiles.getConfigDir();
+    }
+
+    public String getYarnClientPath() throws LoadException {
+        String yarnClientPath = Config.yarn_client_path;
+        File file = new File(yarnClientPath);
+        if (!file.exists() || !file.isFile()) {
+            throw new LoadException("yarn client does not exist in path: " + yarnClientPath);
+        }
+        return yarnClientPath;
+    }
+
     public boolean isYarnMaster() {
         return getMaster().equalsIgnoreCase(YARN_MASTER);
     }
@@ -182,7 +203,7 @@ public class SparkResource extends Resource {
         if (properties.containsKey(SPARK_MASTER)) {
             throw new DdlException("Cannot change spark master");
         }
-        sparkConfigs.putAll(getSparkConfigs(properties));
+        sparkConfigs.putAll(getSparkConfig(properties));
 
         // update working dir and broker
         if (properties.containsKey(WORKING_DIR)) {
@@ -199,7 +220,7 @@ public class SparkResource extends Resource {
         Preconditions.checkState(properties != null);
 
         // get spark configs
-        sparkConfigs = getSparkConfigs(properties);
+        sparkConfigs = getSparkConfig(properties);
         // check master and deploy mode
         if (getMaster() == null) {
             throw new DdlException("Missing " + SPARK_MASTER + " in properties");
@@ -233,14 +254,24 @@ public class SparkResource extends Resource {
         brokerProperties = getBrokerProperties(properties);
     }
 
-    private Map<String, String> getSparkConfigs(Map<String, String> properties) {
-        Map<String, String> sparkConfigs = Maps.newHashMap();
+    private Map<String, String> getSparkConfig(Map<String, String> properties) {
+        Map<String, String> sparkConfig = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(SPARK_CONFIG_PREFIX)) {
-                sparkConfigs.put(entry.getKey(), entry.getValue());
+                sparkConfig.put(entry.getKey(), entry.getValue());
             }
         }
-        return sparkConfigs;
+        return sparkConfig;
+    }
+
+    private Map<String, String> getSparkHadoopConfig(Map<String, String> properties) {
+        Map<String, String> sparkConfig = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(SPARK_HADOOP_CONFIG_PREFIX)) {
+                sparkConfig.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return sparkConfig;
     }
 
     private Map<String, String> getBrokerProperties(Map<String, String> properties) {

@@ -63,6 +63,14 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req,
     _master_info(master_info) {}
 
 OLAPStatus EngineCloneTask::execute() {
+    // register the tablet to avoid it is deleted by gc thread during clone process
+    StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id);
+    OLAPStatus st = _do_clone();
+    StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
+    return st;
+}
+
+OLAPStatus EngineCloneTask::_do_clone() {
     AgentStatus status = DORIS_SUCCESS;
     string src_file_path;
     TBackend src_host;

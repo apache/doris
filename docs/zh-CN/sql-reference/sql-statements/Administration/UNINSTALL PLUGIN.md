@@ -1,6 +1,6 @@
 ---
 {
-    "title": "UNINTALL PLUGIN",
+    "title": "UNINSTALL PLUGIN",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# UNINTALL PLUGIN
+# UNINSTALL PLUGIN
 ## description
 
     该语句用于卸载一个插件。

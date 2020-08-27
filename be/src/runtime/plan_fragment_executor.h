@@ -230,7 +230,7 @@ private:
     }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges
-    typedef std::map<TPlanNodeId, std::vector<TScanRangeParams> > PerNodeScanRanges;
+    typedef std::map<TPlanNodeId, std::vector<TScanRangeParams>> PerNodeScanRanges;
 
     // Main loop of profile reporting thread.
     // Exits when notified on _done_cv.

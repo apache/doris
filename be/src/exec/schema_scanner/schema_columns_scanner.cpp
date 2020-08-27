@@ -39,6 +39,7 @@ SchemaScanner::ColumnDesc SchemaColumnsScanner::_s_col_columns[] = {
     { "CHARACTER_OCTET_LENGTH",     TYPE_BIGINT, sizeof(int64_t), true },
     { "NUMERIC_PRECISION",          TYPE_BIGINT, sizeof(int64_t), true },
     { "NUMERIC_SCALE",              TYPE_BIGINT, sizeof(int64_t), true },
+    { "DATETIME_PRECISION",         TYPE_BIGINT, sizeof(int64_t), true },
     { "CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue),   true  },
     { "COLLATION_NAME",     TYPE_VARCHAR, sizeof(StringValue),   true  },
     { "COLUMN_TYPE",        TYPE_VARCHAR, sizeof(StringValue),   false },
@@ -48,6 +49,8 @@ SchemaScanner::ColumnDesc SchemaColumnsScanner::_s_col_columns[] = {
     { "COLUMN_COMMENT",     TYPE_VARCHAR, sizeof(StringValue),   false },
     { "COLUMN_SIZE",        TYPE_BIGINT,  sizeof(int64_t),   true },
     { "DECIMAL_DIGITS",     TYPE_BIGINT,  sizeof(int64_t),   true },
+    { "GENERATION_EXPRESSION",     TYPE_VARCHAR, sizeof(StringValue),   true },
+    { "SRS_ID",             TYPE_BIGINT,  sizeof(int64_t),   true },
 };
 
 SchemaColumnsScanner::SchemaColumnsScanner() : 

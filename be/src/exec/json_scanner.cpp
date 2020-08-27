@@ -496,10 +496,14 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
 bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs) {
     int nullcount = 0;
     bool valid = true;
-    size_t column_num = std::min(slot_descs.size(), _parsed_jsonpaths.size());
+    size_t column_num = slot_descs.size();
 
     for (size_t i = 0; i < column_num; i++) {
-        rapidjson::Value* json_values = JsonFunctions::get_json_array_from_parsed_json(_parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator());
+        rapidjson::Value* json_values = nullptr;
+        if (LIKELY( i < _parsed_jsonpaths.size())) {
+            json_values = JsonFunctions::get_json_array_from_parsed_json(_parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator());
+        }
+
         if (json_values == nullptr) {
             // not match in jsondata.
             if (slot_descs[i]->is_nullable()) {

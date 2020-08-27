@@ -326,7 +326,7 @@ private:
     size_t _current_num_rows_per_row_block;
 
     std::vector<std::pair<WrapperField*, WrapperField*>> _zone_maps;
-    std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage> > _seg_pb_map;
+    std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage>> _seg_pb_map;
 
 };
 

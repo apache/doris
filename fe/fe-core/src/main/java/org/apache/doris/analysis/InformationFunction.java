@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
@@ -41,6 +42,10 @@ public class InformationFunction extends Expr {
         strValue = other.strValue;
     }
 
+    public String getStrValue() {
+        return strValue;
+    }
+
     @Override
     public Expr clone() {
         return new InformationFunction(this);
@@ -50,7 +55,7 @@ public class InformationFunction extends Expr {
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (funcType.equalsIgnoreCase("DATABASE") || funcType.equalsIgnoreCase("SCHEMA")) {
             type = Type.VARCHAR;
-            strValue = analyzer.getDefaultDb();
+            strValue = ClusterNamespace.getNameFromFullName(analyzer.getDefaultDb());
         } else if (funcType.equalsIgnoreCase("USER")) {
             type = Type.VARCHAR;
             strValue = ConnectContext.get().getUserIdentity().toString();

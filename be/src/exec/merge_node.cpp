@@ -42,14 +42,14 @@ Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.merge_node);
     // Create _const_expr_lists from thrift exprs.
-    const vector<vector<TExpr> >& const_texpr_lists = tnode.merge_node.const_expr_lists;
+    const vector<vector<TExpr>>& const_texpr_lists = tnode.merge_node.const_expr_lists;
     for (int i = 0; i < const_texpr_lists.size(); ++i) {
         vector<ExprContext*> ctxs;
         RETURN_IF_ERROR(Expr::create_expr_trees(_pool, const_texpr_lists[i], &ctxs));
         _const_result_expr_ctx_lists.push_back(ctxs);
     }
     // Create _result_expr__ctx_lists from thrift exprs.
-    const vector<vector<TExpr> >& result_texpr_lists = tnode.merge_node.result_expr_lists;
+    const vector<vector<TExpr>>& result_texpr_lists = tnode.merge_node.result_expr_lists;
     for (int i = 0; i < result_texpr_lists.size(); ++i) {
         vector<ExprContext*> ctxs;
         RETURN_IF_ERROR(Expr::create_expr_trees(_pool, result_texpr_lists[i], &ctxs));

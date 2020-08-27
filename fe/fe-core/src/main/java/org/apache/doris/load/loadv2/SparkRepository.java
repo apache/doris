@@ -98,7 +98,7 @@ public class SparkRepository {
     }
 
     private void initRepository() throws LoadException {
-        LOG.info("start to init remote repositoryi. local dpp: {}", this.localDppPath);
+        LOG.info("start to init remote repository. local dpp: {}", this.localDppPath);
         boolean needUpload = false;
         boolean needReplace = false;
         CHECK: {

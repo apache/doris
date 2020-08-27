@@ -64,7 +64,6 @@ enum OLAPDataVersion {
 };
 
 // storage_root_path下不同类型文件夹名称
-static const std::string ALIGN_TAG_PREFIX = "/align_tag";
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
