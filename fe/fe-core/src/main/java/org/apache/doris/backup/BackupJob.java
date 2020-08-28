@@ -143,19 +143,19 @@ public class BackupJob extends AbstractJob {
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
         
-        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTask_status().getError_msgs()));
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTaskStatus().getErrorMsgs()));
             // snapshot task could not finish if status_code is OLAP_ERR_VERSION_ALREADY_MERGED,
             // so cancel this job
-            if (request.getTask_status().getStatus_code() == TStatusCode.OLAP_ERR_VERSION_ALREADY_MERGED) {
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.OLAP_ERR_VERSION_ALREADY_MERGED) {
                 status = new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED, "make snapshot failed, version already merged");
                 cancelInternal();
             }
             return false;
         }
 
-        Preconditions.checkState(request.isSetSnapshot_path());
-        Preconditions.checkState(request.isSetSnapshot_files());
+        Preconditions.checkState(request.isSetSnapshotPath());
+        Preconditions.checkState(request.isSetSnapshotFiles());
         // snapshot path does not contains last 'tablet_id' and 'schema_hash' dir
         // eg:
         //      /path/to/your/be/data/snapshot/20180410102311.0.86400/
@@ -163,8 +163,8 @@ public class BackupJob extends AbstractJob {
         //      /path/to/your/be/data/snapshot/20180410102311.0.86400/10006/352781111/
         SnapshotInfo info = new SnapshotInfo(task.getDbId(), task.getTableId(), task.getPartitionId(),
                 task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                task.getSchemaHash(), request.getSnapshot_path(),
-                request.getSnapshot_files());
+                task.getSchemaHash(), request.getSnapshotPath(),
+                request.getSnapshotFiles());
         
         snapshotInfos.put(task.getTabletId(), info);
         taskProgress.remove(task.getTabletId());
@@ -179,13 +179,13 @@ public class BackupJob extends AbstractJob {
     public synchronized boolean finishSnapshotUploadTask(UploadTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
 
-        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTask_status().getError_msgs()));
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTaskStatus().getErrorMsgs()));
             return false;
         }
 
-        Preconditions.checkState(request.isSetTablet_files());
-        Map<Long, List<String>> tabletFileMap = request.getTablet_files();
+        Preconditions.checkState(request.isSetTabletFiles());
+        Map<Long, List<String>> tabletFileMap = request.getTabletFiles();
         if (tabletFileMap.isEmpty()) {
             LOG.warn("upload snapshot files failed because nothing is uploaded. be: {}. {}",
                      task.getBackendId(), this);

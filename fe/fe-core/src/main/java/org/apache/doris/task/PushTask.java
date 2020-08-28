@@ -122,18 +122,18 @@ public class PushTask extends AgentTask {
     public TPushReq toThrift() {
         TPushReq request = new TPushReq(tabletId, schemaHash, version, versionHash, timeoutSecond, pushType);
         if (taskType == TTaskType.REALTIME_PUSH) {
-            request.setPartition_id(partitionId);
-            request.setTransaction_id(transactionId);
+            request.setPartitionId(partitionId);
+            request.setTransactionId(transactionId);
         }
-        request.setIs_schema_changing(isSchemaChanging);
+        request.setIsSchemaChanging(isSchemaChanging);
         switch (pushType) {
             case LOAD:
             case LOAD_DELETE:
-                request.setHttp_file_path(filePath);
+                request.setHttpFilePath(filePath);
                 if (fileSize != -1) {
-                    request.setHttp_file_size(fileSize);
+                    request.setHttpFileSize(fileSize);
                 }
-                request.setNeed_decompress(needDecompress);
+                request.setNeedDecompress(needDecompress);
                 break;
             case DELETE:
                 List<TCondition> tConditions = new ArrayList<TCondition>();
@@ -145,8 +145,8 @@ public class PushTask extends AgentTask {
                         String columnName = ((SlotRef) binaryPredicate.getChild(0)).getColumnName();
                         String value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
                         Operator op = binaryPredicate.getOp();
-                        tCondition.setColumn_name(columnName);
-                        tCondition.setCondition_op(op.toString());
+                        tCondition.setColumnName(columnName);
+                        tCondition.setConditionOp(op.toString());
                         conditionValues.add(value);
                     } else if (condition instanceof IsNullPredicate) {
                         IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
@@ -156,29 +156,29 @@ public class PushTask extends AgentTask {
                         if (isNullPredicate.isNotNull()) {
                             value = "NOT NULL";
                         }
-                        tCondition.setColumn_name(columnName);
-                        tCondition.setCondition_op(op);
+                        tCondition.setColumnName(columnName);
+                        tCondition.setConditionOp(op);
                         conditionValues.add(value);
                     } else if (condition instanceof InPredicate) {
                         InPredicate inPredicate = (InPredicate) condition;
                         String columnName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
                         String op = inPredicate.isNotIn() ? "!*=" : "*=";
-                        tCondition.setColumn_name(columnName);
-                        tCondition.setCondition_op(op);
+                        tCondition.setColumnName(columnName);
+                        tCondition.setConditionOp(op);
                         for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                             conditionValues.add(((LiteralExpr)inPredicate.getChild(i)).getStringValue());
                         }
                     }
 
-                    tCondition.setCondition_values(conditionValues);
+                    tCondition.setConditionValues(conditionValues);
 
                     tConditions.add(tCondition);
                 }
-                request.setDelete_conditions(tConditions);
+                request.setDeleteConditions(tConditions);
                 break;
             case LOAD_V2:
-                request.setBroker_scan_range(tBrokerScanRange);
-                request.setDesc_tbl(tDescriptorTable);
+                request.setBrokerScanRange(tBrokerScanRange);
+                request.setDescTbl(tDescriptorTable);
                 break;
             default:
                 LOG.warn("unknown push type. type: " + pushType.name());

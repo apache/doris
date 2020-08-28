@@ -131,11 +131,11 @@ public abstract class LoadErrorHub {
             switch (type) {
                 case MYSQL_TYPE:
                     info.setType(TErrorHubType.MYSQL);
-                    info.setMysql_info(mysqlParam.toThrift());
+                    info.setMysqlInfo(mysqlParam.toThrift());
                     break;
                 case BROKER_TYPE:
                     info.setType(TErrorHubType.BROKER);
-                    info.setBroker_info(brokerParam.toThrift());
+                    info.setBrokerInfo(brokerParam.toThrift());
                     break;
                 case NULL_TYPE:
                     info.setType(TErrorHubType.NULL_TYPE);

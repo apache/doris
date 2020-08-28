@@ -68,11 +68,11 @@ public class ExportSink extends DataSink {
 
         FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
         if (broker != null) {
-            tExportSink.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
+            tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
         }
         tExportSink.setProperties(brokerDesc.getProperties());
 
-        result.setExport_sink(tExportSink);
+        result.setExportSink(tExportSink);
         return result;
     }
 

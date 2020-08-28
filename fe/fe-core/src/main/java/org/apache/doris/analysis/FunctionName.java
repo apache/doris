@@ -75,7 +75,7 @@ public class FunctionName implements Writable {
     }
 
     public static FunctionName fromThrift(TFunctionName fnName) {
-        return new FunctionName(fnName.getDb_name(), fnName.getFunction_name());
+        return new FunctionName(fnName.getDbName(), fnName.getFunctionName());
     }
 
     @Override
@@ -176,8 +176,8 @@ public class FunctionName implements Writable {
 
     public TFunctionName toThrift() {
         TFunctionName name = new TFunctionName(fn_);
-        name.setDb_name(db_);
-        name.setFunction_name(fn_);
+        name.setDbName(db_);
+        name.setFunctionName(fn_);
         return name;
     }
 

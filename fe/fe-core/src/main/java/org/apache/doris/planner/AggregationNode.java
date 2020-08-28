@@ -93,7 +93,7 @@ public class AggregationNode extends PlanNode {
      * as a preaggregation
      */
     public void setIsPreagg(PlannerContext ctx_) {
-        useStreamingPreagg =  ctx_.getQueryOptions().isSetDisable_stream_preaggregations() 
+        useStreamingPreagg =  ctx_.getQueryOptions().isSetDisableStreamPreaggregations()
                 && !ctx_.getQueryOptions().disable_stream_preaggregations
                 && aggInfo.getGroupingExprs().size() > 0;
     }
@@ -241,10 +241,10 @@ public class AggregationNode extends PlanNode {
                   aggregateFunctions,
                   aggInfo.getIntermediateTupleId().asInt(),
                   aggInfo.getOutputTupleId().asInt(), needsFinalize);
-        msg.agg_node.setUse_streaming_preaggregation(useStreamingPreagg);
+        msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
-            msg.agg_node.setGrouping_exprs(Expr.treesToThrift(groupingExprs));
+            msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
         }
     }
 

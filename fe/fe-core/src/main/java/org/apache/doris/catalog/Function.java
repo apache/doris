@@ -421,13 +421,13 @@ public class Function implements Writable {
         TFunction fn = new TFunction();
         fn.setSignature(signatureString());
         fn.setName(name.toThrift());
-        fn.setBinary_type(binaryType);
+        fn.setBinaryType(binaryType);
         if (location != null) {
-            fn.setHdfs_location(location.toString());
+            fn.setHdfsLocation(location.toString());
         }
-        fn.setArg_types(Type.toThrift(argTypes));
-        fn.setRet_type(getReturnType().toThrift());
-        fn.setHas_var_args(hasVarArgs);
+        fn.setArgTypes(Type.toThrift(argTypes));
+        fn.setRetType(getReturnType().toThrift());
+        fn.setHasVarArgs(hasVarArgs);
         // TODO: Comment field is missing?
         // fn.setComment(comment)
         fn.setId(id);

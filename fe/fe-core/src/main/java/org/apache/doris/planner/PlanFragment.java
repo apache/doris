@@ -201,16 +201,16 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             result.setPlan(planRoot.treeToThrift());
         }
         if (outputExprs != null) {
-            result.setOutput_exprs(Expr.treesToThrift(outputExprs));
+            result.setOutputExprs(Expr.treesToThrift(outputExprs));
         }
         if (sink != null) {
-            result.setOutput_sink(sink.toThrift());
+            result.setOutputSink(sink.toThrift());
         }
         result.setPartition(dataPartition.toThrift());
 
         // TODO chenhao , calculated by cost
-        result.setMin_reservation_bytes(0);
-        result.setInitial_reservation_total_claims(0);
+        result.setMinReservationBytes(0);
+        result.setInitialReservationTotalClaims(0);
         return result;
     }
 

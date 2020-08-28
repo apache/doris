@@ -49,7 +49,7 @@ public class MysqlTableSink extends DataSink {
     protected TDataSink toThrift() {
         TDataSink tDataSink = new TDataSink(TDataSinkType.MYSQL_TABLE_SINK);
 
-        tDataSink.setMysql_table_sink(new TMysqlTableSink(host, port, user, passwd, db, tbl));
+        tDataSink.setMysqlTableSink(new TMysqlTableSink(host, port, user, passwd, db, tbl));
         return tDataSink;
     }
 
