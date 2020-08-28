@@ -1051,7 +1051,7 @@ public class Load {
                 // which is not nullable.
                 slotDesc.setIsNullable(true);
                 slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                params.addToSrc_slot_ids(slotDesc.getId().asInt());
+                params.addToSrcSlotIds(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
         }

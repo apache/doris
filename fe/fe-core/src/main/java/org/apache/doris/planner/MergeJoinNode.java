@@ -117,10 +117,10 @@ public class MergeJoinNode extends PlanNode {
         for (Pair<Expr, Expr> entry : cmpConjuncts) {
             TEqJoinCondition eqJoinCondition =
               new TEqJoinCondition(entry.first.treeToThrift(), entry.second.treeToThrift());
-            msg.merge_join_node.addToCmp_conjuncts(eqJoinCondition);
+            msg.merge_join_node.addToCmpConjuncts(eqJoinCondition);
         }
         for (Expr e : otherJoinConjuncts) {
-            msg.hash_join_node.addToOther_join_conjuncts(e.treeToThrift());
+            msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
     }
 

@@ -108,9 +108,9 @@ public class DppScheduler {
                                         String dbName, Map<String, Object> jobConf, int retry) {
         String etlJobId = null;
         TStatus status = new TStatus();
-        status.setStatus_code(TStatusCode.OK);
+        status.setStatusCode(TStatusCode.OK);
         List<String> failMsgs = Lists.newArrayList();
-        status.setError_msgs(failMsgs);
+        status.setErrorMsgs(failMsgs);
 
         // check dpp lock map
         if (retry > 0) {
@@ -123,7 +123,7 @@ public class DppScheduler {
                 try {
                     prepareDppApplications();
                 } catch (LoadException e) {
-                    status.setStatus_code(TStatusCode.CANCELLED);
+                    status.setStatusCode(TStatusCode.CANCELLED);
                     failMsgs.add(e.getMessage());
                     return new EtlSubmitResult(status, null);
                 }
@@ -136,14 +136,14 @@ public class DppScheduler {
         if (!Util.deleteDirectory(configDir)) {
             String errMsg = "delete config dir error. job: " + jobId;
             LOG.warn(errMsg + ", path: {}", configDirPath);
-            status.setStatus_code(TStatusCode.CANCELLED);
+            status.setStatusCode(TStatusCode.CANCELLED);
             failMsgs.add(errMsg);
             return new EtlSubmitResult(status, null);
         }
         if (!configDir.mkdirs()) {
             String errMsg = "create config file dir error. job: " + jobId;
             LOG.warn(errMsg + ", path: {}", configDirPath);
-            status.setStatus_code(TStatusCode.CANCELLED);
+            status.setStatusCode(TStatusCode.CANCELLED);
             failMsgs.add(errMsg);
             return new EtlSubmitResult(status, null);
         }
@@ -159,7 +159,7 @@ public class DppScheduler {
 
             String errMsg = "create config file error. job: " + jobId;
             LOG.warn(errMsg + ", file: {}", configDirPath + "/" + JOB_CONFIG_FILE);
-            status.setStatus_code(TStatusCode.CANCELLED);
+            status.setStatusCode(TStatusCode.CANCELLED);
             failMsgs.add(errMsg);
             return new EtlSubmitResult(status, null);
         } finally {
@@ -168,7 +168,7 @@ public class DppScheduler {
                     bw.close();
                 } catch (IOException e) {
                     LOG.warn("close buffered writer error", e);
-                    status.setStatus_code(TStatusCode.CANCELLED);
+                    status.setStatusCode(TStatusCode.CANCELLED);
                     failMsgs.add(e.getMessage());
                     return new EtlSubmitResult(status, null);
                 }
@@ -184,7 +184,7 @@ public class DppScheduler {
         try {
             reduceNumByInputSize = calcReduceNumByInputSize(inputPaths);
         } catch (InputSizeInvalidException e) {
-            status.setStatus_code(TStatusCode.CANCELLED);
+            status.setStatusCode(TStatusCode.CANCELLED);
             failMsgs.add(e.getMessage());
             return new EtlSubmitResult(status, null);
         }
@@ -233,7 +233,7 @@ public class DppScheduler {
             }
         } catch (IOException e) {
             LOG.warn("submit etl job error", e);
-            status.setStatus_code(TStatusCode.CANCELLED);
+            status.setStatusCode(TStatusCode.CANCELLED);
             failMsgs.add(e.getMessage());
             return new EtlSubmitResult(status, null);
         } finally {
@@ -245,7 +245,7 @@ public class DppScheduler {
                     errorReader.close();
                 } catch (IOException e) {
                     LOG.warn("close buffered reader error", e);
-                    status.setStatus_code(TStatusCode.CANCELLED);
+                    status.setStatusCode(TStatusCode.CANCELLED);
                     failMsgs.add(e.getMessage());
                     return new EtlSubmitResult(status, null);
                 }
@@ -253,7 +253,7 @@ public class DppScheduler {
         }
          
         if (etlJobId == null) {
-            status.setStatus_code(TStatusCode.CANCELLED);
+            status.setStatusCode(TStatusCode.CANCELLED);
         }
         return new EtlSubmitResult(status, etlJobId);
     }

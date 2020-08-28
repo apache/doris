@@ -109,13 +109,13 @@ public class ExchangeNode extends PlanNode {
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;
         msg.exchange_node = new TExchangeNode();
         for (TupleId tid : tupleIds) {
-            msg.exchange_node.addToInput_row_tuples(tid.asInt());
+            msg.exchange_node.addToInputRowTuples(tid.asInt());
         }
         if (mergeInfo != null) {
             TSortInfo sortInfo = new TSortInfo(
                 Expr.treesToThrift(mergeInfo.getOrderingExprs()), mergeInfo.getIsAscOrder(),
                 mergeInfo.getNullsFirst());
-            msg.exchange_node.setSort_info(sortInfo);
+            msg.exchange_node.setSortInfo(sortInfo);
             msg.exchange_node.setOffset(offset);
         }
     }

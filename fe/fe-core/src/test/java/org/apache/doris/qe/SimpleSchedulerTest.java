@@ -86,8 +86,8 @@ public class SimpleSchedulerTest {
         List<TScanRangeLocation> twoLocations = new ArrayList<TScanRangeLocation>();
         TScanRangeLocation locationA = new TScanRangeLocation();
         TScanRangeLocation locationB = new TScanRangeLocation();
-        locationA.setBackend_id(20);
-        locationA.setBackend_id(30);
+        locationA.setBackendId(20);
+        locationA.setBackendId(30);
         twoLocations.add(locationA);
         twoLocations.add(locationB);
 

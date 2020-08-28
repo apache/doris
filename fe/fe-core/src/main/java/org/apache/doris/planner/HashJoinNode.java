@@ -258,12 +258,12 @@ public class HashJoinNode extends PlanNode {
             TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
                     eqJoinPredicate.getChild(1).treeToThrift());
             eqJoinCondition.setOpcode(eqJoinPredicate.getOp().getOpcode());
-            msg.hash_join_node.addToEq_join_conjuncts(eqJoinCondition);
+            msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
         }
         for (Expr e : otherJoinConjuncts) {
-            msg.hash_join_node.addToOther_join_conjuncts(e.treeToThrift());
+            msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
-        msg.hash_join_node.setIs_push_down(isPushDown);
+        msg.hash_join_node.setIsPushDown(isPushDown);
     }
 
     @Override

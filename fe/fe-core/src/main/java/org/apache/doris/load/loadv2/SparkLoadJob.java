@@ -468,11 +468,11 @@ public class SparkLoadJob extends BulkLoadJob {
                                         // update filePath fileSize
                                         TBrokerRangeDesc tBrokerRangeDesc = tBrokerScanRange.getRanges().get(0);
                                         tBrokerRangeDesc.setPath("");
-                                        tBrokerRangeDesc.setFile_size(-1);
+                                        tBrokerRangeDesc.setFileSize(-1);
                                         if (tabletMetaToFileInfo.containsKey(tabletMetaStr)) {
                                             Pair<String, Long> fileInfo = tabletMetaToFileInfo.get(tabletMetaStr);
                                             tBrokerRangeDesc.setPath(fileInfo.first);
-                                            tBrokerRangeDesc.setFile_size(fileInfo.second);
+                                            tBrokerRangeDesc.setFileSize(fileInfo.second);
                                         }
 
                                         // update broker address
@@ -480,7 +480,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                                 .getBackend(backendId);
                                         FsBroker fsBroker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(
                                                 brokerDesc.getName(), backend.getHost());
-                                        tBrokerScanRange.getBroker_addresses().add(
+                                        tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.ip, fsBroker.port));
 
                                         LOG.debug("push task for replica {}, broker {}:{}, backendId {}, filePath {}, fileSize {}" ,
@@ -855,7 +855,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                           List<Column> columns, BrokerDesc brokerDesc) throws AnalysisException {
             // scan range params
             TBrokerScanRangeParams params = new TBrokerScanRangeParams();
-            params.setStrict_mode(false);
+            params.setStrictMode(false);
             params.setProperties(brokerDesc.getProperties());
             TupleDescriptor srcTupleDesc = descTable.createTupleDescriptor();
             Map<String, SlotDescriptor> srcSlotDescByName = Maps.newHashMap();
@@ -865,7 +865,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 srcSlotDesc.setIsMaterialized(true);
                 srcSlotDesc.setIsNullable(true);
                 srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
-                params.addToSrc_slot_ids(srcSlotDesc.getId().asInt());
+                params.addToSrcSlotIds(srcSlotDesc.getId().asInt());
                 srcSlotDescByName.put(column.getName(), srcSlotDesc);
             }
 
@@ -879,22 +879,22 @@ public class SparkLoadJob extends BulkLoadJob {
                 destSidToSrcSidWithoutTrans.put(destSlotDesc.getId().asInt(), srcSlotDesc.getId().asInt());
                 Expr expr = new SlotRef(srcSlotDesc);
                 expr = castToSlot(destSlotDesc, expr);
-                params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
+                params.putToExprOfDestSlot(destSlotDesc.getId().asInt(), expr.treeToThrift());
             }
-            params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
-            params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
-            params.setDest_tuple_id(destTupleDesc.getId().asInt());
+            params.setDestSidToSrcSidWithoutTrans(destSidToSrcSidWithoutTrans);
+            params.setSrcTupleId(srcTupleDesc.getId().asInt());
+            params.setDestTupleId(destTupleDesc.getId().asInt());
             tBrokerScanRange.setParams(params);
 
             // broker address updated for each replica
-            tBrokerScanRange.setBroker_addresses(Lists.newArrayList());
+            tBrokerScanRange.setBrokerAddresses(Lists.newArrayList());
 
             // broker range desc
             TBrokerRangeDesc tBrokerRangeDesc = new TBrokerRangeDesc();
-            tBrokerRangeDesc.setFile_type(TFileType.FILE_BROKER);
-            tBrokerRangeDesc.setFormat_type(TFileFormatType.FORMAT_PARQUET);
+            tBrokerRangeDesc.setFileType(TFileType.FILE_BROKER);
+            tBrokerRangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
             tBrokerRangeDesc.setSplittable(false);
-            tBrokerRangeDesc.setStart_offset(0);
+            tBrokerRangeDesc.setStartOffset(0);
             tBrokerRangeDesc.setSize(-1);
             // path and file size updated for each replica
             tBrokerScanRange.setRanges(Lists.newArrayList(tBrokerRangeDesc));

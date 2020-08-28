@@ -80,17 +80,17 @@ public class MasterOpExecutor {
         params.setDb(ctx.getDatabase());
         params.setSqlMode(ctx.getSessionVariable().getSqlMode());
         params.setResourceInfo(ctx.toResourceCtx());
-        params.setUser_ip(ctx.getRemoteIP());
-        params.setTime_zone(ctx.getSessionVariable().getTimeZone());
-        params.setStmt_id(ctx.getStmtId());
+        params.setUserIp(ctx.getRemoteIP());
+        params.setTimeZone(ctx.getSessionVariable().getTimeZone());
+        params.setStmtId(ctx.getStmtId());
         params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
-        params.setCurrent_user_ident(ctx.getCurrentUserIdentity().toThrift());
+        params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
 
         TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setMem_limit(ctx.getSessionVariable().getMaxExecMemByte());
-        queryOptions.setQuery_timeout(ctx.getSessionVariable().getQueryTimeoutS());
-        queryOptions.setLoad_mem_limit(ctx.getSessionVariable().getLoadMemLimit());
-        params.setQuery_options(queryOptions);
+        queryOptions.setMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
+        queryOptions.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
+        queryOptions.setLoadMemLimit(ctx.getSessionVariable().getLoadMemLimit());
+        params.setQueryOptions(queryOptions);
 
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 

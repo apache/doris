@@ -151,11 +151,11 @@ public class EsScanNode extends ScanNode {
         TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
         esScanNode.setProperties(properties);
         if (table.isDocValueScanEnable()) {
-            esScanNode.setDocvalue_context(table.docValueContext());
+            esScanNode.setDocvalueContext(table.docValueContext());
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
         if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
-            esScanNode.setFields_context(table.fieldsContext());
+            esScanNode.setFieldsContext(table.fieldsContext());
         }
         msg.es_scan_node = esScanNode;
     }
@@ -237,21 +237,21 @@ public class EsScanNode extends ScanNode {
                 for (int i = 0; i < numBe && i < candidateBeList.size(); ++i) {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = candidateBeList.get(i);
-                    location.setBackend_id(be.getId());
+                    location.setBackendId(be.getId());
                     location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
                     locations.addToLocations(location);
                 }
 
                 // Generate on es scan range
                 TEsScanRange esScanRange = new TEsScanRange();
-                esScanRange.setEs_hosts(shardAllocations);
+                esScanRange.setEsHosts(shardAllocations);
                 esScanRange.setIndex(shardRouting.get(0).getIndexName());
                 esScanRange.setType(table.getMappingType());
-                esScanRange.setShard_id(shardRouting.get(0).getShardId());
+                esScanRange.setShardId(shardRouting.get(0).getShardId());
                 // Scan range
                 TScanRange scanRange = new TScanRange();
-                scanRange.setEs_scan_range(esScanRange);
-                locations.setScan_range(scanRange);
+                scanRange.setEsScanRange(esScanRange);
+                locations.setScanRange(scanRange);
                 // result
                 result.add(locations);
             }

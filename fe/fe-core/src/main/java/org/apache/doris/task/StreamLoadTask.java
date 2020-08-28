@@ -215,20 +215,20 @@ public class StreamLoadTask implements LoadTaskInfo {
             if (request.getJsonpaths() != null) {
                 jsonPaths = request.getJsonpaths();
             }
-            if (request.getJson_root() != null) {
-                jsonRoot = request.getJson_root();
+            if (request.getJsonRoot() != null) {
+                jsonRoot = request.getJsonRoot();
             }
-            stripOuterArray = request.isStrip_outer_array();
+            stripOuterArray = request.isStripOuterArray();
         }
-        if (request.isSetMerge_type()) {
+        if (request.isSetMergeType()) {
             try {
-                mergeType = LoadTask.MergeType.valueOf(request.getMerge_type().toString());
+                mergeType = LoadTask.MergeType.valueOf(request.getMergeType().toString());
             } catch (IllegalArgumentException e) {
-                throw new UserException("unknown merge type " + request.getMerge_type().toString());
+                throw new UserException("unknown merge type " + request.getMergeType().toString());
             }
         }
-        if (request.isSetDelete_condition()) {
-            deleteCondition = parseWhereExpr(request.getDelete_condition());
+        if (request.isSetDeleteCondition()) {
+            deleteCondition = parseWhereExpr(request.getDeleteCondition());
         }
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is append.");

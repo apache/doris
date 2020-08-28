@@ -417,10 +417,10 @@ public class Backend implements Writable {
          */
         boolean isChanged = false;
         for (TDisk tDisk : backendDisks.values()) {
-            String rootPath = tDisk.getRoot_path();
-            long totalCapacityB = tDisk.getDisk_total_capacity();
-            long dataUsedCapacityB = tDisk.getData_used_capacity();
-            long diskAvailableCapacityB = tDisk.getDisk_available_capacity();
+            String rootPath = tDisk.getRootPath();
+            long totalCapacityB = tDisk.getDiskTotalCapacity();
+            long dataUsedCapacityB = tDisk.getDataUsedCapacity();
+            long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
             boolean isUsed = tDisk.isUsed();
 
             DiskInfo diskInfo = disks.get(rootPath);
@@ -435,12 +435,12 @@ public class Backend implements Writable {
             diskInfo.setTotalCapacityB(totalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
             diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
-            if (tDisk.isSetPath_hash()) {
-                diskInfo.setPathHash(tDisk.getPath_hash());
+            if (tDisk.isSetPathHash()) {
+                diskInfo.setPathHash(tDisk.getPathHash());
             }
 
-            if (tDisk.isSetStorage_medium()) {
-                diskInfo.setStorageMedium(tDisk.getStorage_medium());
+            if (tDisk.isSetStorageMedium()) {
+                diskInfo.setStorageMedium(tDisk.getStorageMedium());
             }
 
             if (isUsed) {

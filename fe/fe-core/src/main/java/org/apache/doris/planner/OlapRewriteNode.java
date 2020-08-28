@@ -92,13 +92,13 @@ public class OlapRewriteNode extends PlanNode {
         msg.node_type = TPlanNodeType.OLAP_REWRITE_NODE;
         TOlapRewriteNode tnode = new TOlapRewriteNode();
         for (Column column : table.getBaseSchema()) {
-            tnode.addToColumn_types(column.getOriginType().toColumnTypeThrift());
+            tnode.addToColumnTypes(column.getOriginType().toColumnTypeThrift());
         }
         for (Expr expr : newResultExprs) {
             tnode.addToColumns(expr.treeToThrift());
         }
-        tnode.setOutput_tuple_id(tupleDescriptor.getId().asInt());
-        msg.setOlap_rewrite_node(tnode);
+        tnode.setOutputTupleId(tupleDescriptor.getId().asInt());
+        msg.setOlapRewriteNode(tnode);
     }
 
     @Override

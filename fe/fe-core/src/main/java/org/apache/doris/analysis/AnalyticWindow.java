@@ -168,7 +168,7 @@ public class AnalyticWindow {
             TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
 
             if (type.isOffset() && windowType == Type.ROWS) {
-                result.setRows_offset_value(offsetValue.longValue());
+                result.setRowsOffsetValue(offsetValue.longValue());
             }
 
             // TODO: range windows need range_offset_predicate
@@ -297,13 +297,13 @@ public class AnalyticWindow {
         TAnalyticWindow result = new TAnalyticWindow(type_.toThrift());
 
         if (leftBoundary_.getType() != BoundaryType.UNBOUNDED_PRECEDING) {
-            result.setWindow_start(leftBoundary_.toThrift(type_));
+            result.setWindowStart(leftBoundary_.toThrift(type_));
         }
 
         Preconditions.checkNotNull(rightBoundary_);
 
         if (rightBoundary_.getType() != BoundaryType.UNBOUNDED_FOLLOWING) {
-            result.setWindow_end(rightBoundary_.toThrift(type_));
+            result.setWindowEnd(rightBoundary_.toThrift(type_));
         }
 
         return result;

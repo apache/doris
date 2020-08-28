@@ -190,9 +190,9 @@ public class BrokerScanNode extends LoadScanNode {
         context.params = params;
 
         BrokerFileGroup fileGroup = context.fileGroup;
-        params.setColumn_separator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
-        params.setLine_delimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
-        params.setStrict_mode(strictMode);
+        params.setColumnSeparator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
+        params.setLineDelimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
+        params.setStrictMode(strictMode);
         params.setProperties(brokerDesc.getProperties());
         initColumns(context);
         initWhereExpr(fileGroup.getWhereExpr(), analyzer);
@@ -247,18 +247,18 @@ public class BrokerScanNode extends LoadScanNode {
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
+        brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
 
         // Scan range
         TScanRange scanRange = new TScanRange();
-        scanRange.setBroker_scan_range(brokerScanRange);
+        scanRange.setBrokerScanRange(brokerScanRange);
 
         // Locations
         TScanRangeLocations locations = new TScanRangeLocations();
-        locations.setScan_range(scanRange);
+        locations.setScanRange(scanRange);
 
         TScanRangeLocation location = new TScanRangeLocation();
-        location.setBackend_id(selectedBackend.getId());
+        location.setBackendId(selectedBackend.getId());
         location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
         locations.addToLocations(location);
 
@@ -417,15 +417,15 @@ public class BrokerScanNode extends LoadScanNode {
                                                    TFileFormatType formatType, long rangeBytes,
                                                    List<String> columnsFromPath, int numberOfColumnsFromFile) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-        rangeDesc.setFile_type(TFileType.FILE_BROKER);
-        rangeDesc.setFormat_type(formatType);
+        rangeDesc.setFileType(TFileType.FILE_BROKER);
+        rangeDesc.setFormatType(formatType);
         rangeDesc.setPath(fileStatus.path);
         rangeDesc.setSplittable(fileStatus.isSplitable);
-        rangeDesc.setStart_offset(curFileOffset);
+        rangeDesc.setStartOffset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
-        rangeDesc.setFile_size(fileStatus.size);
-        rangeDesc.setNum_of_columns_from_file(numberOfColumnsFromFile);
-        rangeDesc.setColumns_from_path(columnsFromPath);
+        rangeDesc.setFileSize(fileStatus.size);
+        rangeDesc.setNumOfColumnsFromFile(numberOfColumnsFromFile);
+        rangeDesc.setColumnsFromPath(columnsFromPath);
         return rangeDesc;
     }
 

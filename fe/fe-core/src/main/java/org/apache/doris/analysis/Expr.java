@@ -864,7 +864,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (fn != null) {
             msg.setFn(fn.toThrift());
             if (fn.hasVarArgs()) {
-                msg.setVararg_start_idx(fn.getNumArgs() - 1);
+                msg.setVarargStartIdx(fn.getNumArgs() - 1);
             }
         }
         msg.output_scale = getOutputScale();

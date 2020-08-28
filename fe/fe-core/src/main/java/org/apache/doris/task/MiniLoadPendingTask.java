@@ -127,13 +127,13 @@ public class MiniLoadPendingTask extends LoadPendingTask {
                 String failMsg = "backend is null or is not alive";
                 LOG.error(failMsg);
                 TStatus tStatus = new TStatus(TStatusCode.CANCELLED);
-                tStatus.setError_msgs(Lists.newArrayList(failMsg));
+                tStatus.setErrorMsgs(Lists.newArrayList(failMsg));
                 return new EtlSubmitResult(tStatus, null);
             }
 
             AgentClient client = new AgentClient(backend.getHost(), backend.getBePort());
             TAgentResult submitResult = client.submitEtlTask(request);
-            if (submitResult.getStatus().getStatus_code() != TStatusCode.OK) {
+            if (submitResult.getStatus().getStatusCode() != TStatusCode.OK) {
                 return new EtlSubmitResult(submitResult.getStatus(), null);
             }
         }
@@ -179,35 +179,35 @@ public class MiniLoadPendingTask extends LoadPendingTask {
         }
 
         TMiniLoadEtlTaskRequest request = new TMiniLoadEtlTaskRequest();
-        request.setProtocol_version(TAgentServiceVersion.V1);
+        request.setProtocolVersion(TAgentServiceVersion.V1);
         TExecPlanFragmentParams params = new TExecPlanFragmentParams();
-        params.setProtocol_version(PaloInternalServiceVersion.V1);
+        params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
-        params.setDesc_tbl(desc.toThrift());
-        params.setImport_label(job.getLabel());
-        params.setDb_name(db.getFullName());
-        params.setLoad_job_id(job.getId());
+        params.setDescTbl(desc.toThrift());
+        params.setImportLabel(job.getLabel());
+        params.setDbName(db.getFullName());
+        params.setLoadJobId(job.getId());
 
         LoadErrorHub.Param param = load.getLoadErrorHubInfo();
         if (param != null) {
             TLoadErrorHubInfo info = param.toThrift();
             if (info != null) {
-                params.setLoad_error_hub_info(info);
+                params.setLoadErrorHubInfo(info);
             }
         }
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
         // Only use fragment id
         TUniqueId uniqueId = new TUniqueId(job.getId(), taskId);
-        execParams.setQuery_id(new TUniqueId(uniqueId));
-        execParams.setFragment_instance_id(uniqueId);
+        execParams.setQueryId(new TUniqueId(uniqueId));
+        execParams.setFragmentInstanceId(uniqueId);
         execParams.per_node_scan_ranges = Maps.newHashMap();
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setQuery_type(TQueryType.LOAD);
-        params.setQuery_options(queryOptions);
+        queryOptions.setQueryType(TQueryType.LOAD);
+        params.setQueryOptions(queryOptions);
         request.setParams(params);
         return request;
     }

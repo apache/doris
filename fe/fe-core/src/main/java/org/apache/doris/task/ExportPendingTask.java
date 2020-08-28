@@ -91,11 +91,11 @@ public class ExportPendingTask extends MasterTask {
             return Status.OK;
         }
         for (TScanRangeLocations tablet : tabletLocations) {
-            TScanRange scanRange = tablet.getScan_range();
-            if (!scanRange.isSetPalo_scan_range()) {
+            TScanRange scanRange = tablet.getScanRange();
+            if (!scanRange.isSetPaloScanRange()) {
                 continue;
             }
-            TPaloScanRange paloScanRange = scanRange.getPalo_scan_range();
+            TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
             List<TScanRangeLocation> locations = tablet.getLocations();
             for (TScanRangeLocation location : locations) {
                 TNetworkAddress address = location.getServer();
@@ -110,23 +110,23 @@ public class ExportPendingTask extends MasterTask {
                     return Status.CANCELLED;
                 }
                 TSnapshotRequest snapshotRequest = new TSnapshotRequest();
-                snapshotRequest.setTablet_id(paloScanRange.getTablet_id());
-                snapshotRequest.setSchema_hash(Integer.parseInt(paloScanRange.getSchema_hash()));
+                snapshotRequest.setTabletId(paloScanRange.getTabletId());
+                snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
-                snapshotRequest.setVersion_hash(Long.parseLong(paloScanRange.getVersion_hash()));
+                snapshotRequest.setVersionHash(Long.parseLong(paloScanRange.getVersionHash()));
                 snapshotRequest.setTimeout(job.getTimeoutSecond());
-                snapshotRequest.setPreferred_snapshot_version(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
+                snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
 
                 AgentClient client = new AgentClient(host, port);
                 TAgentResult result = client.makeSnapshot(snapshotRequest);
-                if (result == null || result.getStatus().getStatus_code() != TStatusCode.OK) {
-                    String err = "snapshot for tablet " + paloScanRange.getTablet_id() + " failed on backend "
+                if (result == null || result.getStatus().getStatusCode() != TStatusCode.OK) {
+                    String err = "snapshot for tablet " + paloScanRange.getTabletId() + " failed on backend "
                             + address.toString() + ". reason: "
                             + (result == null ? "unknown" : result.getStatus().error_msgs);
                     LOG.warn("{}, export job: {}", err, job.getId());
                     return new Status(TStatusCode.CANCELLED, err);
                 }
-                job.addSnapshotPath(new Pair<TNetworkAddress, String>(address, result.getSnapshot_path()));
+                job.addSnapshotPath(new Pair<TNetworkAddress, String>(address, result.getSnapshotPath()));
             }
         }
         return Status.OK;

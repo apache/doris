@@ -247,12 +247,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         BackendService.Client client = null;
         try {
             client = ClientPool.backendPool.borrowObject(address);
-            TStatus tStatus = client.submit_routine_load_task(Lists.newArrayList(tTask));
+            TStatus tStatus = client.submitRoutineLoadTask(Lists.newArrayList(tTask));
             ok = true;
            
-            if (tStatus.getStatus_code() != TStatusCode.OK) {
-                throw new LoadException("failed to submit task. error code: " + tStatus.getStatus_code()
-                        + ", msg: " + (tStatus.getError_msgsSize() > 0 ? tStatus.getError_msgs().get(0) : "NaN"));
+            if (tStatus.getStatusCode() != TStatusCode.OK) {
+                throw new LoadException("failed to submit task. error code: " + tStatus.getStatusCode()
+                        + ", msg: " + (tStatus.getErrorMsgsSize() > 0 ? tStatus.getErrorMsgs().get(0) : "NaN"));
             }
             LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
         } catch (Exception e) {

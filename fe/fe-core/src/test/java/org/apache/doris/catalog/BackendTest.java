@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 
 import org.junit.Assert;
@@ -91,21 +90,21 @@ public class BackendTest {
         TDisk disk2 = new TDisk("/data2/", 2000, 700, true);
         TDisk disk3 = new TDisk("/data3/", 3000, 600, false);
 
-        diskInfos.put(disk1.getRoot_path(), disk1);
-        diskInfos.put(disk2.getRoot_path(), disk2);
-        diskInfos.put(disk3.getRoot_path(), disk3);
+        diskInfos.put(disk1.getRootPath(), disk1);
+        diskInfos.put(disk2.getRootPath(), disk2);
+        diskInfos.put(disk3.getRootPath(), disk3);
 
         // first update
         backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk1.getDisk_total_capacity() + disk2.getDisk_total_capacity(),
+        Assert.assertEquals(disk1.getDiskTotalCapacity() + disk2.getDiskTotalCapacity(),
                             backend.getTotalCapacityB());
         Assert.assertEquals(1, backend.getAvailableCapacityB());
 
         // second update
-        diskInfos.remove(disk1.getRoot_path());
+        diskInfos.remove(disk1.getRootPath());
         backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk2.getDisk_total_capacity(), backend.getTotalCapacityB());
-        Assert.assertEquals(disk2.getDisk_available_capacity() + 1, backend.getAvailableCapacityB());
+        Assert.assertEquals(disk2.getDiskTotalCapacity(), backend.getTotalCapacityB());
+        Assert.assertEquals(disk2.getDiskAvailableCapacity() + 1, backend.getAvailableCapacityB());
     }
 
     @Test
