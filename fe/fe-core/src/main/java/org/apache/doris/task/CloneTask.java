@@ -83,15 +83,15 @@ public class CloneTask extends AgentTask {
 
     public TCloneReq toThrift() {
         TCloneReq request = new TCloneReq(tabletId, schemaHash, srcBackends);
-        request.setStorage_medium(storageMedium);
-        request.setCommitted_version(visibleVersion);
-        request.setCommitted_version_hash(visibleVersionHash);
-        request.setTask_version(taskVersion);
+        request.setStorageMedium(storageMedium);
+        request.setCommittedVersion(visibleVersion);
+        request.setCommittedVersionHash(visibleVersionHash);
+        request.setTaskVersion(taskVersion);
         if (taskVersion == VERSION_2) {
-            request.setSrc_path_hash(srcPathHash);
-            request.setDest_path_hash(destPathHash);
+            request.setSrcPathHash(srcPathHash);
+            request.setDestPathHash(destPathHash);
         }
-        request.setTimeout_s(timeoutS);
+        request.setTimeoutS(timeoutS);
 
         return request;
     }

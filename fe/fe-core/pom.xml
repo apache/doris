@@ -479,6 +479,7 @@ under the License.
                 <configuration>
                     <thriftExecutable>${doris.thridparty}/installed/bin/thrift</thriftExecutable>
                     <thriftSourceRoot>${doris.home}/gensrc/thrift</thriftSourceRoot>
+                    <generator>java:fullcamel</generator>
                 </configuration>
                 <executions>
                     <execution>

@@ -126,7 +126,7 @@ public class MockedBackendFactory {
         @Override
         public THeartbeatResult heartbeat(TMasterInfo master_info) throws TException {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
-            backendInfo.setBrpc_port(beBrpcPort);
+            backendInfo.setBrpcPort(beBrpcPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }
@@ -165,11 +165,11 @@ public class MockedBackendFactory {
                     while (true) {
                         try {
                             TAgentTaskRequest request = taskQueue.take();
-                            System.out.println("get agent task request. type: " + request.getTask_type()
+                            System.out.println("get agent task request. type: " + request.getTaskType()
                                     + ", signature: " + request.getSignature() + ", fe addr: " + backend.getFeAddress());
                             TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
-                                    request.getTask_type(), request.getSignature(), new TStatus(TStatusCode.OK));
-                            finishTaskRequest.setReport_version(++reportVersion);
+                                    request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
+                            finishTaskRequest.setReportVersion(++reportVersion);
 
                             FrontendService.Client client = ClientPool.frontendPool.borrowObject(backend.getFeAddress(), 2000);
                             System.out.println("get fe " + backend.getFeAddress() + " client: " + client);
@@ -183,102 +183,102 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TExecPlanFragmentResult exec_plan_fragment(TExecPlanFragmentParams params) throws TException {
+        public TExecPlanFragmentResult execPlanFragment(TExecPlanFragmentParams params) throws TException {
             return null;
         }
 
         @Override
-        public TCancelPlanFragmentResult cancel_plan_fragment(TCancelPlanFragmentParams params) throws TException {
+        public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) throws TException {
             return null;
         }
 
         @Override
-        public TTransmitDataResult transmit_data(TTransmitDataParams params) throws TException {
+        public TTransmitDataResult transmitData(TTransmitDataParams params) throws TException {
             return null;
         }
 
         @Override
-        public TFetchDataResult fetch_data(TFetchDataParams params) throws TException {
+        public TFetchDataResult fetchData(TFetchDataParams params) throws TException {
             return null;
         }
 
         @Override
-        public TAgentResult submit_tasks(List<TAgentTaskRequest> tasks) throws TException {
+        public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
-                System.out.println("receive agent task request. type: " + request.getTask_type() + ", signature: "
+                System.out.println("receive agent task request. type: " + request.getTaskType() + ", signature: "
                         + request.getSignature());
             }
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TAgentResult make_snapshot(TSnapshotRequest snapshot_request) throws TException {
+        public TAgentResult makeSnapshot(TSnapshotRequest snapshot_request) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TAgentResult release_snapshot(String snapshot_path) throws TException {
+        public TAgentResult releaseSnapshot(String snapshot_path) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TAgentResult publish_cluster_state(TAgentPublishRequest request) throws TException {
+        public TAgentResult publishClusterState(TAgentPublishRequest request) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TAgentResult submit_etl_task(TMiniLoadEtlTaskRequest request) throws TException {
+        public TAgentResult submitEtlTask(TMiniLoadEtlTaskRequest request) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TMiniLoadEtlStatusResult get_etl_status(TMiniLoadEtlStatusRequest request) throws TException {
+        public TMiniLoadEtlStatusResult getEtlStatus(TMiniLoadEtlStatusRequest request) throws TException {
             return new TMiniLoadEtlStatusResult(new TStatus(TStatusCode.OK), TEtlState.FINISHED);
         }
 
         @Override
-        public TAgentResult delete_etl_files(TDeleteEtlFilesRequest request) throws TException {
+        public TAgentResult deleteEtlFiles(TDeleteEtlFilesRequest request) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TStatus submit_export_task(TExportTaskRequest request) throws TException {
+        public TStatus submitExportTask(TExportTaskRequest request) throws TException {
             return new TStatus(TStatusCode.OK);
         }
 
         @Override
-        public TExportStatusResult get_export_status(TUniqueId task_id) throws TException {
+        public TExportStatusResult getExportStatus(TUniqueId task_id) throws TException {
             return new TExportStatusResult(new TStatus(TStatusCode.OK), TExportState.FINISHED);
         }
 
         @Override
-        public TStatus erase_export_task(TUniqueId task_id) throws TException {
+        public TStatus eraseExportTask(TUniqueId task_id) throws TException {
             return new TStatus(TStatusCode.OK);
         }
 
         @Override
-        public TTabletStatResult get_tablet_stat() throws TException {
+        public TTabletStatResult getTabletStat() throws TException {
             return new TTabletStatResult(Maps.newHashMap());
         }
 
         @Override
-        public TStatus submit_routine_load_task(List<TRoutineLoadTask> tasks) throws TException {
+        public TStatus submitRoutineLoadTask(List<TRoutineLoadTask> tasks) throws TException {
             return new TStatus(TStatusCode.OK);
         }
 
         @Override
-        public TScanOpenResult open_scanner(TScanOpenParams params) throws TException {
+        public TScanOpenResult openScanner(TScanOpenParams params) throws TException {
             return null;
         }
 
         @Override
-        public TScanBatchResult get_next(TScanNextBatchParams params) throws TException {
+        public TScanBatchResult getNext(TScanNextBatchParams params) throws TException {
             return null;
         }
 
         @Override
-        public TScanCloseResult close_scanner(TScanCloseParams params) throws TException {
+        public TScanCloseResult closeScanner(TScanCloseParams params) throws TException {
             return null;
         }
     }

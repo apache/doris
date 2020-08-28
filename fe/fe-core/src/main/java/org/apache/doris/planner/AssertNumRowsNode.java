@@ -58,8 +58,8 @@ public class AssertNumRowsNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.ASSERT_NUM_ROWS_NODE;
         msg.assert_num_rows_node = new TAssertNumRowsNode();
-        msg.assert_num_rows_node.setDesired_num_rows(desiredNumOfRows);
-        msg.assert_num_rows_node.setSubquery_string(subqueryString);
+        msg.assert_num_rows_node.setDesiredNumRows(desiredNumOfRows);
+        msg.assert_num_rows_node.setSubqueryString(subqueryString);
         msg.assert_num_rows_node.setAssertion(assertion.toThrift());
     }
 }

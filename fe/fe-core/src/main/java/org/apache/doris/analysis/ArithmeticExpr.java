@@ -169,7 +169,7 @@ public class ArithmeticExpr extends Expr {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
         if (!type.isDecimal() && !type.isDecimalV2()) {
             msg.setOpcode(op.getOpcode());
-            msg.setOutput_column(outputColumn);
+            msg.setOutputColumn(outputColumn);
         }
     }
 

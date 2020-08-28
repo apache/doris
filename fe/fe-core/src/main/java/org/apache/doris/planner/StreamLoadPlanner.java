@@ -140,47 +140,47 @@ public class StreamLoadPlanner {
         fragment.finalize(null, false);
 
         TExecPlanFragmentParams params = new TExecPlanFragmentParams();
-        params.setProtocol_version(PaloInternalServiceVersion.V1);
+        params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
 
-        params.setDesc_tbl(analyzer.getDescTbl().toThrift());
+        params.setDescTbl(analyzer.getDescTbl().toThrift());
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
         // user load id (streamLoadTask.id) as query id
-        execParams.setQuery_id(loadId);
-        execParams.setFragment_instance_id(new TUniqueId(loadId.hi, loadId.lo + 1));
+        execParams.setQueryId(loadId);
+        execParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + 1));
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
         List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
         for (TScanRangeLocations locations : scanNode.getScanRangeLocations(0)) {
-            scanRangeParams.add(new TScanRangeParams(locations.getScan_range()));
+            scanRangeParams.add(new TScanRangeParams(locations.getScanRange()));
         }
         // For stream load, only one sender
-        execParams.setSender_id(0);
-        execParams.setNum_senders(1);
+        execParams.setSenderId(0);
+        execParams.setNumSenders(1);
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
-        execParams.setPer_node_scan_ranges(perNodeScanRange);
+        execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setQuery_type(TQueryType.LOAD);
-        queryOptions.setQuery_timeout(taskInfo.getTimeout());
-        queryOptions.setMem_limit(taskInfo.getMemLimit());
+        queryOptions.setQueryType(TQueryType.LOAD);
+        queryOptions.setQueryTimeout(taskInfo.getTimeout());
+        queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
-        queryOptions.setLoad_mem_limit(taskInfo.getMemLimit());
-        params.setQuery_options(queryOptions);
+        queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
+        params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
-        queryGlobals.setTimestamp_ms(new Date().getTime());
-        queryGlobals.setTime_zone(taskInfo.getTimezone());
-        params.setQuery_globals(queryGlobals);
+        queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        queryGlobals.setTimestampMs(new Date().getTime());
+        queryGlobals.setTimeZone(taskInfo.getTimezone());
+        params.setQueryGlobals(queryGlobals);
 
         // set load error hub if exist
         LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
         if (param != null) {
             TLoadErrorHubInfo info = param.toThrift();
             if (info != null) {
-                params.setLoad_error_hub_info(info);
+                params.setLoadErrorHubInfo(info);
             }
         }
 

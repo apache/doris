@@ -53,7 +53,7 @@ public class Status {
 
     public Status(final TStatus status) {
         this.errorCode = status.status_code;
-        if (status.isSetError_msgs()) {
+        if (status.isSetErrorMsgs()) {
             this.errorMsg = status.error_msgs.get(0);
         }
     }

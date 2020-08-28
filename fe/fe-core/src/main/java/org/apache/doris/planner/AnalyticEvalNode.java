@@ -170,12 +170,12 @@ public class AnalyticEvalNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.ANALYTIC_EVAL_NODE;
         msg.analytic_node = new TAnalyticNode();
-        msg.analytic_node.setIntermediate_tuple_id(intermediateTupleDesc.getId().asInt());
-        msg.analytic_node.setOutput_tuple_id(outputTupleDesc.getId().asInt());
-        msg.analytic_node.setPartition_exprs(Expr.treesToThrift(substitutedPartitionExprs));
-        msg.analytic_node.setOrder_by_exprs(
+        msg.analytic_node.setIntermediateTupleId(intermediateTupleDesc.getId().asInt());
+        msg.analytic_node.setOutputTupleId(outputTupleDesc.getId().asInt());
+        msg.analytic_node.setPartitionExprs(Expr.treesToThrift(substitutedPartitionExprs));
+        msg.analytic_node.setOrderByExprs(
             Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
-        msg.analytic_node.setAnalytic_functions(Expr.treesToThrift(analyticFnCalls));
+        msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
 
         if (analyticWindow == null) {
             if (!orderByElements.isEmpty()) {
@@ -187,15 +187,15 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (partitionByEq != null) {
-            msg.analytic_node.setPartition_by_eq(partitionByEq.treeToThrift());
+            msg.analytic_node.setPartitionByEq(partitionByEq.treeToThrift());
         }
 
         if (orderByEq != null) {
-            msg.analytic_node.setOrder_by_eq(orderByEq.treeToThrift());
+            msg.analytic_node.setOrderByEq(orderByEq.treeToThrift());
         }
 
         if (bufferedTupleDesc != null) {
-            msg.analytic_node.setBuffered_tuple_id(bufferedTupleDesc.getId().asInt());
+            msg.analytic_node.setBufferedTupleId(bufferedTupleDesc.getId().asInt());
         }
     }
 

@@ -179,39 +179,39 @@ public class AgentTaskTest {
 
         // create
         TAgentTaskRequest request = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createReplicaTask);
-        Assert.assertEquals(TTaskType.CREATE, request.getTask_type());
+        Assert.assertEquals(TTaskType.CREATE, request.getTaskType());
         Assert.assertEquals(createReplicaTask.getSignature(), request.getSignature());
-        Assert.assertNotNull(request.getCreate_tablet_req());
+        Assert.assertNotNull(request.getCreateTabletReq());
 
         // drop
         TAgentTaskRequest request2 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, dropTask);
-        Assert.assertEquals(TTaskType.DROP, request2.getTask_type());
+        Assert.assertEquals(TTaskType.DROP, request2.getTaskType());
         Assert.assertEquals(dropTask.getSignature(), request2.getSignature());
-        Assert.assertNotNull(request2.getDrop_tablet_req());
+        Assert.assertNotNull(request2.getDropTabletReq());
 
         // push
         TAgentTaskRequest request3 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, pushTask);
-        Assert.assertEquals(TTaskType.PUSH, request3.getTask_type());
+        Assert.assertEquals(TTaskType.PUSH, request3.getTaskType());
         Assert.assertEquals(pushTask.getSignature(), request3.getSignature());
-        Assert.assertNotNull(request3.getPush_req());
+        Assert.assertNotNull(request3.getPushReq());
 
         // clone
         TAgentTaskRequest request4 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, cloneTask);
-        Assert.assertEquals(TTaskType.CLONE, request4.getTask_type());
+        Assert.assertEquals(TTaskType.CLONE, request4.getTaskType());
         Assert.assertEquals(cloneTask.getSignature(), request4.getSignature());
-        Assert.assertNotNull(request4.getClone_req());
+        Assert.assertNotNull(request4.getCloneReq());
 
         // rollup
         TAgentTaskRequest request5 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, rollupTask);
-        Assert.assertEquals(TTaskType.ROLLUP, request5.getTask_type());
+        Assert.assertEquals(TTaskType.ROLLUP, request5.getTaskType());
         Assert.assertEquals(rollupTask.getSignature(), request5.getSignature());
-        Assert.assertNotNull(request5.getAlter_tablet_req());
+        Assert.assertNotNull(request5.getAlterTabletReq());
 
         // schemaChange
         TAgentTaskRequest request6 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, schemaChangeTask);
-        Assert.assertEquals(TTaskType.SCHEMA_CHANGE, request6.getTask_type());
+        Assert.assertEquals(TTaskType.SCHEMA_CHANGE, request6.getTaskType());
         Assert.assertEquals(schemaChangeTask.getSignature(), request6.getSignature());
-        Assert.assertNotNull(request6.getAlter_tablet_req());
+        Assert.assertNotNull(request6.getAlterTabletReq());
     }
 
     @Test
