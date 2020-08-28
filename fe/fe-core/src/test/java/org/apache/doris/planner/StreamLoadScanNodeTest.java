@@ -745,7 +745,7 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,source_sequence,v1");
         request.setFileType(TFileType.FILE_STREAM);
-        request.setSequence_col("source_sequence");
+        request.setSequenceCol("source_sequence");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
         scanNode.init(analyzer);
@@ -817,7 +817,7 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_STREAM);
-        request.setSequence_col("visible_sequence_col");
+        request.setSequenceCol("visible_sequence_col");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
         scanNode.init(analyzer);
