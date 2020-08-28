@@ -113,7 +113,7 @@ public class SparkLauncherMonitor {
                 outReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                 while (!isStop && (line = outReader.readLine()) != null) {
                     if (outputStream != null) {
-                        outputStream.write(line.getBytes());
+                        outputStream.write((line + "\n").getBytes());
                     }
                     SparkLoadAppHandle.State oldState = handle.getState();
                     SparkLoadAppHandle.State newState = oldState;
