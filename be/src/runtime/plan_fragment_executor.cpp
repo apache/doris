@@ -206,6 +206,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         _collect_query_statistics_with_every_batch = params.__isset.send_query_statistics_with_every_batch ?
             params.send_query_statistics_with_every_batch : false;
     } else {
+        // _sink is set to NULL
         _sink.reset(NULL);
     }
 
@@ -222,7 +223,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _prepared = true;
 
     _query_statistics.reset(new QueryStatistics());
-    _sink->set_query_statistics(_query_statistics);
+    if (_sink.get() != NULL) {
+        _sink->set_query_statistics(_query_statistics);
+    }
     return Status::OK();
 }
 
