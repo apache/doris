@@ -90,6 +90,9 @@ under the License.
            当strip_outer_array为true，最后导入到doris中会生成两行数据。
 
         json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+        merge_type: 数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理， 示例：`-H "merge_type: MERGE" -H "delete: flag=1"`
+        delete: 仅在 MERGE下有意义， 表示数据的删除条件
+
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
@@ -185,6 +188,11 @@ under the License.
             }
         通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性  
          curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    13. 删除与这批导入key 相同的数据
+         curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    14. 将这批数据中与flag 列为ture 的数据相匹配的列删除，其他行正常追加
+         curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1"  -T testData http://host:port/api/testDb/testTbl/_stream_load
+        
 
 ## keyword
     STREAM,LOAD
