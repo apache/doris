@@ -466,7 +466,7 @@ else()
 endif()
 
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -lltdl -pthread
+    -lrt -lbfd -liberty -lc -lm -ldl -pthread
 )
 
 # Set libraries for test

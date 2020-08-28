@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.primitives.Longs;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -384,6 +387,18 @@ public abstract class Type {
             return ScalarType.getAssignmentCompatibleType((ScalarType) t1, (ScalarType) t2, strict);
         }
         return ScalarType.INVALID;
+    }
+
+    /**
+     * Returns null if this expr is not instance of StringLiteral or StringLiteral
+     * inner value could not parse to long. otherwise return parsed Long result.
+     */
+    public static Long tryParseToLong(Expr expectStringExpr){
+        if (expectStringExpr instanceof StringLiteral) {
+            String value = ((StringLiteral)expectStringExpr).getValue();
+            return Longs.tryParse(value);
+        }
+        return null;
     }
 
     /**
