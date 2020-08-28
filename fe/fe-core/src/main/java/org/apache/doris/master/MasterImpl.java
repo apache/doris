@@ -135,7 +135,7 @@ public class MasterImpl {
             if (taskStatus.getStatusCode() != TStatusCode.OK) {
                 task.failed();
                 String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatusCode().toString() +
-                        (taskStatus.isSetErrorMgs() ? (", status_message: " + taskStatus.getErrorMgs()) : "") +
+                        (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "") +
                         ", backendId: " + backend + ", signature: " + signature;
                 task.setErrorMsg(errMsg);
                 // We start to let FE perceive the task's error msg
