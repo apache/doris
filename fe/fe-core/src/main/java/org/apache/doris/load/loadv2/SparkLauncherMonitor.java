@@ -70,7 +70,6 @@ public class SparkLauncherMonitor {
         private SparkLoadAppHandle handle;
         private long submitTimeoutMs;
         private boolean isStop;
-        private StringBuffer outputBuffer;
         private OutputStream outputStream;
 
         private static final String STATE = "state";
@@ -87,7 +86,6 @@ public class SparkLauncherMonitor {
             this.handle = handle;
             this.process = handle.getProcess();
             this.isStop = false;
-            this.outputBuffer = new StringBuffer();
             setSubmitTimeoutMs(DEFAULT_SUBMIT_TIMEOUT_MS);
         }
 
@@ -114,7 +112,9 @@ public class SparkLauncherMonitor {
             try {
                 outReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                 while (!isStop && (line = outReader.readLine()) != null) {
-                    outputBuffer.append(line + '\n');
+                    if (outputStream != null) {
+                        outputStream.write(line.getBytes());
+                    }
                     SparkLoadAppHandle.State oldState = handle.getState();
                     SparkLoadAppHandle.State newState = oldState;
                     // parse state and appId
@@ -189,10 +189,6 @@ public class SparkLauncherMonitor {
                             }
                         }
                     }
-                }
-
-                if (outputStream != null) {
-                    outputStream.write(outputBuffer.toString().getBytes());
                 }
             } catch (Exception e) {
                 LOG.warn("Exception monitoring process.", e);
