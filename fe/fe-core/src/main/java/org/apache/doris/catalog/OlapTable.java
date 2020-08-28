@@ -19,6 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -1576,5 +1579,32 @@ public class OlapTable extends Table {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    public boolean satisfyHashDistribution(List<Expr> hashExprs) {
+        if (hashExprs == null) {
+            return false;
+        }
+        DistributionInfo distribution = getDefaultDistributionInfo();
+        if(distribution instanceof HashDistributionInfo) {
+            List<Column> distributeColumns =
+                    ((HashDistributionInfo)distribution).getDistributionColumns();
+            PartitionInfo childPartitionInfo = getPartitionInfo();
+            if (childPartitionInfo instanceof RangePartitionInfo) {
+                List<Column> rangeColumns = ((RangePartitionInfo)childPartitionInfo).getPartitionColumns();
+                if (!distributeColumns.containsAll(rangeColumns)) {
+                    return false;
+                }
+            }
+            List<SlotRef> partitionSlots =
+                    hashExprs.stream().map(Expr::unwrapSlotRef).collect(Collectors.toList());
+            if (partitionSlots.contains(null)) {
+                return false;
+            }
+            List<Column> hashColumns = partitionSlots.stream()
+                    .map(SlotRef::getDesc).map(SlotDescriptor::getColumn).collect(Collectors.toList());
+            return hashColumns.containsAll(distributeColumns);
+        }
+        return false;
     }
 }
