@@ -191,7 +191,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
-        tSchema.setSequence_col_idx(sequenceCol);
+        tSchema.setSequenceColIdx(sequenceCol);
 
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();

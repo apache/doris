@@ -246,8 +246,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         }  else if (mergeType == LoadTask.MergeType.DELETE) {
             columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
         }
-        if (request.isSetSequence_col()) {
-            sequenceCol = request.getSequence_col();
+        if (request.isSetSequenceCol()) {
+            sequenceCol = request.getSequenceCol();
             // add expr for sequence column
             columnExprDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
         }
