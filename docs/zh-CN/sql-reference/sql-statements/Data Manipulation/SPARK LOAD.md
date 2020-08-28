@@ -243,7 +243,7 @@ under the License.
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
         INTO TABLE `my_table`
-        where k1 > 10
+        WHERE k1 > 10
         )
         WITH RESOURCE 'my_spark';
 
