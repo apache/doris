@@ -3612,6 +3612,7 @@ public class Catalog {
 
             replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
             olapTable.setReplicationNum(replicationNum);
+            stmt.setReplicaNum(replicationNum);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

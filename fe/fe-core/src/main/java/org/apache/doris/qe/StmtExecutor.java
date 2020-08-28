@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExportStmt;
@@ -923,7 +924,15 @@ public class StmtExecutor {
     private void handleDdlStmt() {
         try {
             DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
-            context.getState().setOk();
+            if (parsedStmt instanceof CreateTableStmt
+                    && ((CreateTableStmt) parsedStmt).getReplicaNum() < FeConstants.default_replication_num) {
+                context.getState().setOk(0L, 0, String.format("Too few replications to provide" +
+                        " high reliability guarantee. Current is %d recommended is %d",
+                        ((CreateTableStmt) parsedStmt).getReplicaNum(),
+                        FeConstants.default_replication_num));
+            } else {
+                context.getState().setOk();
+            }
         } catch (QueryStateException e) {
             context.setState(e.getQueryState());
         } catch (UserException e) {

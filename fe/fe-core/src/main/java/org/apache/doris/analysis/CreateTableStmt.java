@@ -73,6 +73,8 @@ public class CreateTableStmt extends DdlStmt {
     private String comment;
     private List<AlterClause> rollupAlterClauseList;
 
+    private int replicaNum = FeConstants.default_replication_num;
+
     private static Set<String> engineNames;
 
     // set in analyze
@@ -238,6 +240,14 @@ public class CreateTableStmt extends DdlStmt {
 
     public List<Index> getIndexes() {
         return indexes;
+    }
+
+    public int getReplicaNum() {
+        return replicaNum;
+    }
+
+    public void setReplicaNum(int replicaNum) {
+        this.replicaNum = replicaNum;
     }
 
     @Override
