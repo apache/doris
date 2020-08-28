@@ -919,6 +919,12 @@ bool Tablet::check_path(const std::string& path_to_check) const {
             return true;
         }
     }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        bool ret = stale_version_rowset.second->check_path(path_to_check);
+        if (ret) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -940,6 +946,11 @@ bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
     }
     for (auto& inc_version_rowset : _inc_rs_version_map) {
         if (inc_version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_id) {
             return true;
         }
     }
@@ -1141,6 +1152,14 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
             find_rowset_id = true;
         }
         if (inc_version_rowset.second->contains_version(rowset_meta->version())) {
+            find_version = true;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
+            find_rowset_id = true;
+        }
+        if (stale_version_rowset.second->contains_version(rowset_meta->version())) {
             find_version = true;
         }
     }
