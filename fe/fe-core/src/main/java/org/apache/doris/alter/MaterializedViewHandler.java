@@ -562,7 +562,7 @@ public class MaterializedViewHandler extends AlterHandler {
                         }
                     }
                     // add the sequence column
-                    rollupSchema.add(keysNumOfRollup, new Column(Column.SEQUENCE_COL, olapTable.getSequenceType(),
+                    rollupSchema.add(new Column(Column.SEQUENCE_COL, olapTable.getSequenceType(),
                             false, AggregateType.REPLACE, null, ""));
                 }
             }
