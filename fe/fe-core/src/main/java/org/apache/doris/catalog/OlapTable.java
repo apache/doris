@@ -806,7 +806,7 @@ public class OlapTable extends Table {
         this.sequenceType = type;
 
         // sequence column is value column with REPLACE aggregate type
-        Column sequenceCol = new Column(Column.SEQUENCE_COL, type, false, AggregateType.REPLACE, false, null, "", false);
+        Column sequenceCol = new Column(Column.SEQUENCE_COL, type, false, AggregateType.REPLACE, true, null, "", false);
         // add sequence column at last
         fullSchema.add(sequenceCol);
         nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
