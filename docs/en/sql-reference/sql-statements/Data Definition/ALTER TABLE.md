@@ -178,6 +178,13 @@ under the License.
             PROPERTIES ("key"="value")
         note:
             Can also be merged into the above schema change operation to modify, see the example below
+    
+    7. Enable batch delete support
+        grammar:
+            ENABLE FEATURE "BATCH_DELETE"
+        note:
+            Only support unique tables
+
      
 
     Rename supports modification of the following names:

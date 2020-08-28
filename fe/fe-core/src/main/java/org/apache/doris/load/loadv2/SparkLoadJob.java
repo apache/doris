@@ -412,6 +412,14 @@ public class SparkLoadJob extends BulkLoadJob {
         try {
             writeLock();
             try {
+                // check state is still loading. If state is cancelled or finished, return.
+                // if state is cancelled or finished and not return, this would throw all partitions have no load data exception,
+                // because tableToLoadPartitions was already cleaned up,
+                if (state != JobState.LOADING) {
+                    LOG.warn("job state is not loading. job id: {}, state: {}", id, state);
+                    return totalTablets;
+                }
+
                 for (Map.Entry<Long, Set<Long>> entry : tableToLoadPartitions.entrySet()) {
                     long tableId = entry.getKey();
                     OlapTable table = (OlapTable) db.getTable(tableId);
@@ -565,6 +573,10 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // submit push tasks
         Set<Long> totalTablets = submitPushTasks();
+        if (totalTablets.isEmpty()) {
+            LOG.warn("total tablets set is empty. job id: {}, state: {}", id, state);
+            return;
+        }
 
         // update status
         boolean canCommitJob = false;
