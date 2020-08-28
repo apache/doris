@@ -51,7 +51,7 @@
         "next_column_unique_id": 3,
         "is_in_memory": false,
         "delete_sign_idx": -1,
-        "has_sequence_col": false
+        "sequence_col_idx": -1
     },
     "rs_metas": [
         {
