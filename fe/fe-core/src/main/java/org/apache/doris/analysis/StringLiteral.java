@@ -20,17 +20,19 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -41,6 +43,18 @@ import java.util.Objects;
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
     private String value;
+    /**
+     * the session variable `sql_mode` is a special kind of variable.
+     * it's real type is int, so when querying `select @@sql_mode`, the return column
+     * type is "int". but user usually set this variable by string, such as:
+     * `set @@sql_mode = 'STRICT_TRANS_TABLES'`
+     * or
+     * `set @@sql_mode = concat(@@sql_mode, 'STRICT_TRANS_TABLES')'`
+     * <p>
+     * So when it need to be cast to int, it means "cast 'STRICT_TRANS_TABLES' to Integer".
+     * To support this, we set `isSqlMode` to true, so that it can cast sql mode name to integer.
+     */
+    private boolean isSqlMode = false;
     
     public StringLiteral() {
         super();
@@ -57,6 +71,10 @@ public class StringLiteral extends LiteralExpr {
     protected StringLiteral(StringLiteral other) {
         super(other);
         value = other.value;
+    }
+
+    public void setIsSqlMode(boolean val) {
+        this.isSqlMode = val;
     }
 
     @Override
@@ -178,8 +196,24 @@ public class StringLiteral extends LiteralExpr {
                 case SMALLINT:
                 case INT:
                 case BIGINT:
+                    if (isSqlMode) {
+                        try {
+                            long sqlMode = SqlModeHelper.encode(value);
+                            return new IntLiteral(sqlMode, targetType);
+                        } catch (DdlException e) {
+                            throw new AnalysisException(e.getMessage());
+                        }
+                    }
                     return new IntLiteral(value, targetType);
                 case LARGEINT:
+                    if (isSqlMode) {
+                        try {
+                            long sqlMode = SqlModeHelper.encode(value);
+                            return new LargeIntLiteral(String.valueOf(sqlMode));
+                        } catch (DdlException e) {
+                            throw new AnalysisException(e.getMessage());
+                        }
+                    }
                     return new LargeIntLiteral(value);
                 case FLOAT:
                 case DOUBLE:
