@@ -53,26 +53,27 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
 
 ```
 {
+    "cumulative policy type": "NUM_BASED",
     "cumulative point": 50,
     "last cumulative failure time": "2019-12-16 18:13:43.224",
     "last base failure time": "2019-12-16 18:13:23.320",
     "last cumu success time": ,
     "last base success time": "2019-12-16 18:11:50.780",
     "rowsets": [
-        "[0-48] 10 DATA OVERLAPPING",
-        "[49-49] 2 DATA OVERLAPPING",
-        "[50-50] 0 DELETE NONOVERLAPPING",
-        "[51-51] 5 DATA OVERLAPPING"
+        "[0-48] 10 DATA OVERLAPPING 574.00 MB",
+        "[49-49] 2 DATA OVERLAPPING 574.00 B",
+        "[50-50] 0 DELETE NONOVERLAPPING 574.00 B",
+        "[51-51] 5 DATA OVERLAPPING 574.00 B"
     ],
     "stale version path": [
         {
             "path id": "2",
-            "last create time": "2019-12-16 18:11:15.110",
+            "last create time": "2019-12-16 18:11:15.110 +0800",
             "path list": "2-> [0-24] -> [25-48]"
         }, 
         {
             "path id": "1",
-            "last create time": "2019-12-16 18:13:15.110",
+            "last create time": "2019-12-16 18:13:15.110 +0800",
             "path list": "1-> [25-40] -> [40-48]"
         }
     ]
@@ -81,6 +82,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
 
 结果说明：
 
+* cumulative policy type：当前tablet所使用的 cumulative compaction 策略。
 * cumulative point：base 和 cumulative compaction 的版本分界线。在 point（不含）之前的版本由 base compaction 处理。point（含）之后的版本由 cumulative compaction 处理。
 * last cumulative failure time：上一次尝试 cumulative compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 cumulative compaction。
 * last base failure time：上一次尝试 base compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 base compaction。
