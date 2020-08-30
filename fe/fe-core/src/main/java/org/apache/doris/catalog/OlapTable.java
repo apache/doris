@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -1581,23 +1582,32 @@ public class OlapTable extends Table {
         return tableProperty.getStorageFormat();
     }
 
-    public boolean satisfyHashDistribution(List<Expr> hashExprs) {
-        if (hashExprs == null) {
+    // For non partitioned table:
+    //   The table's distribute hash columns need to be a subset of the aggregate columns.
+    //
+    // For partitioned table:
+    //   1. The table's partition columns need to be a subset of the table's hash columns.
+    //   2. The table's distribute hash columns need to be a subset of the aggregate columns.
+    public boolean meetAggDistributionRequirements(AggregateInfo aggregateInfo) {
+        ArrayList<Expr> groupingExps = aggregateInfo.getGroupingExprs();
+        if (groupingExps == null || groupingExps.isEmpty()) {
             return false;
         }
+        List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null ?
+                aggregateInfo.getPartitionExprs() : groupingExps;
         DistributionInfo distribution = getDefaultDistributionInfo();
         if(distribution instanceof HashDistributionInfo) {
             List<Column> distributeColumns =
                     ((HashDistributionInfo)distribution).getDistributionColumns();
-            PartitionInfo childPartitionInfo = getPartitionInfo();
-            if (childPartitionInfo instanceof RangePartitionInfo) {
-                List<Column> rangeColumns = ((RangePartitionInfo)childPartitionInfo).getPartitionColumns();
+            PartitionInfo partitionInfo = getPartitionInfo();
+            if (partitionInfo instanceof RangePartitionInfo) {
+                List<Column> rangeColumns = ((RangePartitionInfo)partitionInfo).getPartitionColumns();
                 if (!distributeColumns.containsAll(rangeColumns)) {
                     return false;
                 }
             }
             List<SlotRef> partitionSlots =
-                    hashExprs.stream().map(Expr::unwrapSlotRef).collect(Collectors.toList());
+                    partitionExps.stream().map(Expr::unwrapSlotRef).collect(Collectors.toList());
             if (partitionSlots.contains(null)) {
                 return false;
             }
