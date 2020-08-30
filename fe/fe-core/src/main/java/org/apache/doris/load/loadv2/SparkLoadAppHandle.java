@@ -40,6 +40,7 @@ public class SparkLoadAppHandle {
     private FinalApplicationStatus finalStatus;
     private String trackingUrl;
     private String user;
+    private String logPath;
 
     private List<Listener> listeners;
 
@@ -112,6 +113,8 @@ public class SparkLoadAppHandle {
 
     public String getUser() { return this.user; }
 
+    public String getLogPath() { return this.logPath; }
+
     public void setState(State state) {
         this.state = state;
         this.fireEvent(false);
@@ -144,6 +147,11 @@ public class SparkLoadAppHandle {
 
     public void setUser(String user) {
         this.user = user;
+        this.fireEvent(true);
+    }
+
+    public void setLogPath(String logPath) {
+        this.logPath = logPath;
         this.fireEvent(true);
     }
 
