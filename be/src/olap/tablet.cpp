@@ -39,6 +39,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "util/path_util.h"
 #include "util/time.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -1036,7 +1037,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
         // get snapshot version path json_doc
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     }
-
+    rapidjson::Value cumulative_policy_type;
+    std::string policy_type_str = _cumulative_compaction_policy->name();
+    cumulative_policy_type.SetString(policy_type_str.c_str(), policy_type_str.length(), root.GetAllocator());
+    root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
@@ -1061,10 +1065,12 @@ void Tablet::get_compaction_status(std::string* json_result) {
     for (int i = 0; i < rowsets.size(); ++i) {
         const Version& ver = rowsets[i]->version();
         rapidjson::Value value;
-        std::string version_str = strings::Substitute("[$0-$1] $2 $3 $4 $5",
-            ver.first, ver.second, rowsets[i]->num_segments(), (delete_flags[i] ? "DELETE" : "DATA"),
-            SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()), 
-            rowsets[i]->rowset_meta()->total_disk_size());
+        std::string disk_size =
+                PrettyPrinter::print(rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+        std::string version_str = strings::Substitute(
+                "[$0-$1] $2 $3 $4 $5", ver.first, ver.second, rowsets[i]->num_segments(),
+                (delete_flags[i] ? "DELETE" : "DATA"),
+                SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()), disk_size);
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
     }
