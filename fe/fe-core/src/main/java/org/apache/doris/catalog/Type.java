@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.primitives.Longs;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Pair;
@@ -28,9 +27,9 @@ import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.primitives.Longs;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
