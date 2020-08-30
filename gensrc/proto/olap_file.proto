@@ -308,6 +308,7 @@ message TabletMetaPB {
     optional int64 end_rowset_id = 15;
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
+    repeated RowsetMetaPB stale_rs_metas = 18;
 }
 
 message OLAPIndexHeaderMessage {
