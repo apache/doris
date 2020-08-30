@@ -63,8 +63,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
         _last_base_compaction_success_millis(0),
         _cumulative_point(K_INVALID_CUMULATIVE_POINT),
         _cumulative_compaction_type(cumulative_compaction_type) {
-    // change _rs_graph to _timestamped_version_tracker
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+    // construct _timestamped_versioned_tracker from rs and stale rs meta
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
+                                                             _tablet_meta->all_stale_rs_metas());
 }
 
 OLAPStatus Tablet::_init_once_action() {
@@ -106,6 +107,20 @@ OLAPStatus Tablet::_init_once_action() {
             }
         }
         _inc_rs_version_map[version] = std::move(rowset);
+    }
+
+    // init stale rowset
+    for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
+        Version version = stale_rs_meta->version();
+        RowsetSharedPtr rowset;
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path, stale_rs_meta, &rowset);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
+                         << ", schema_hash:" << schema_hash() << ", version=" << version
+                         << ", res:" << res;
+            return res;
+        }
+        _stale_rs_version_map[version] = std::move(rowset);
     }
 
     return res;
@@ -270,6 +285,15 @@ void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
+        VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
+        return nullptr;
+    }
+    return iter->second;
+}
+
+const RowsetSharedPtr Tablet::get_stale_rowset_by_version(const Version& version) const {
+    auto iter = _stale_rs_version_map.find(version);
+    if (iter == _stale_rs_version_map.end()) {
         VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
         return nullptr;
     }
@@ -895,6 +919,12 @@ bool Tablet::check_path(const std::string& path_to_check) const {
             return true;
         }
     }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        bool ret = stale_version_rowset.second->check_path(path_to_check);
+        if (ret) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -916,6 +946,11 @@ bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
     }
     for (auto& inc_version_rowset : _inc_rs_version_map) {
         if (inc_version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_id) {
             return true;
         }
     }
@@ -1117,6 +1152,14 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
             find_rowset_id = true;
         }
         if (inc_version_rowset.second->contains_version(rowset_meta->version())) {
+            find_version = true;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
+            find_rowset_id = true;
+        }
+        if (stale_version_rowset.second->contains_version(rowset_meta->version())) {
             find_version = true;
         }
     }

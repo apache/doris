@@ -381,6 +381,12 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _inc_rs_metas.push_back(std::move(rs_meta));
     }
 
+    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        rs_meta->init_from_pb(it);
+        _stale_rs_metas.push_back(std::move(rs_meta));
+    }
+
     // generate AlterTabletTask
     if (tablet_meta_pb.has_alter_task()) {
         AlterTabletTask* alter_tablet_task = new AlterTabletTask();
@@ -430,6 +436,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     }
     for (auto rs : _inc_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_inc_rs_metas());
+    }
+    for (auto rs : _stale_rs_metas) {
+        rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
     }
     _schema.to_schema_pb(tablet_meta_pb->mutable_schema());
     if (_alter_task != nullptr) {
