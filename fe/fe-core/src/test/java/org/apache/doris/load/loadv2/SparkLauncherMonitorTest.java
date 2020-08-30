@@ -18,10 +18,12 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 
@@ -33,6 +35,7 @@ public class SparkLauncherMonitorTest {
     private FinalApplicationStatus finalApplicationStatus;
     private String trackingUrl;
     private String user;
+    private String logPath;
 
     @Before
     public void setUp() {
@@ -43,6 +46,7 @@ public class SparkLauncherMonitorTest {
         finalApplicationStatus = FinalApplicationStatus.UNDEFINED;
         trackingUrl = "http://myhost:8388/proxy/application_1573630236805_6864759/";
         user = "testugi";
+        logPath = "./spark-launcher.log";
     }
 
     @Test
@@ -54,6 +58,7 @@ public class SparkLauncherMonitorTest {
             Process process = Runtime.getRuntime().exec(cmd);
             handle = new SparkLoadAppHandle(process);
             SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
+            logMonitor.setRedirectLogPath(logPath);
             logMonitor.start();
             try {
                 logMonitor.join();
@@ -63,6 +68,7 @@ public class SparkLauncherMonitorTest {
             Assert.fail();
         }
 
+        // check values
         Assert.assertEquals(appId, handle.getAppId());
         Assert.assertEquals(state, handle.getState());
         Assert.assertEquals(queue, handle.getQueue());
@@ -70,5 +76,17 @@ public class SparkLauncherMonitorTest {
         Assert.assertEquals(finalApplicationStatus, handle.getFinalStatus());
         Assert.assertEquals(trackingUrl, handle.getUrl());
         Assert.assertEquals(user, handle.getUser());
+
+        // check log
+        File file = new File(logPath);
+        Assert.assertTrue(file.exists());
+    }
+
+    @After
+    public void clear() {
+        File file = new File(logPath);
+        if (file.exists()) {
+            file.delete();
+        }
     }
 }

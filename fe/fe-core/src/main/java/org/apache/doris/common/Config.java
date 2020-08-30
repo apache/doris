@@ -544,6 +544,12 @@ public class Config extends ConfigBase {
     public static String spark_resource_path = "";
 
     /**
+     * The specified spark launcher log dir
+     */
+    @ConfField
+    public static String spark_launcher_log_dir = sys_log_dir + "/spark_launcher_log";
+
+    /**
      * Default yarn client path
      */
     @ConfField
