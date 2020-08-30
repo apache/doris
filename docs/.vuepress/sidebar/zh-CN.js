@@ -157,7 +157,7 @@ module.exports = [
             children:[
                 "udaf-orthogonal-bitmap-manual",
             ],
-          },          
+          },
         ],
       },
     ],
@@ -437,6 +437,7 @@ module.exports = [
               "SHOW TABLES",
               "SHOW TABLET",
               "SHOW TRANSACTION",
+              "SPARK LOAD",
               "STOP ROUTINE LOAD",
               "STREAM LOAD",
             ],
