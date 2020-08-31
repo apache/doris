@@ -25,6 +25,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 
+import org.apache.parquet.Strings;
+
 import java.io.Serializable;
 import java.util.Comparator;
 import java.util.List;
@@ -502,7 +504,7 @@ public class EtlJobConfig implements Serializable {
             this.filePaths = filePaths;
             this.fileFieldNames = fileFieldNames;
             this.columnsFromPath = columnsFromPath;
-            this.columnSeparator = (char)columnSeparator.getBytes()[0];
+            this.columnSeparator = Strings.isNullOrEmpty(columnSeparator)?'\t': columnSeparator.charAt(0);
             this.lineDelimiter = lineDelimiter;
             this.isNegative = isNegative;
             this.fileFormat = fileFormat;
