@@ -79,7 +79,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     //Regex used to determine if the TIME field exists int date_format
-    private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsT]+.*$");
+    private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
     //Date Literal persist type in meta
     private enum  DateLiteralType {
         DATETIME(0),
@@ -423,7 +423,8 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public static DateLiteral dateParser(String date, String pattern) throws AnalysisException {
-        LocalDateTime dateTime = formatBuilder(pattern).toFormatter().parseLocalDateTime(date);
+        DateTimeFormatter formatter = formatBuilder(pattern).toFormatter();
+        LocalDateTime dateTime = formatter.parseLocalDateTime(date);
         DateLiteral dateLiteral = new DateLiteral(
                 dateTime.getYear(),
                 dateTime.getMonthOfYear(),
