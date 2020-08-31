@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.CharMatcher;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -61,11 +60,6 @@ public class OdbcScanNode extends ScanNode {
         }
 
         return name;
-    }
-
-    // now we do not support push down filter with char not in ASCII
-    private static boolean isASCIIString(String filter) {
-        return CharMatcher.ascii().matchesAllOf(filter);
     }
 
     private final List<String> columns = new ArrayList<String>();
@@ -151,10 +145,7 @@ public class OdbcScanNode extends ScanNode {
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
             String filter = p.toMySql();
-            if (isASCIIString(filter)) {
-                filters.add(filter);
-                conjuncts.remove(p);
-            }
+            filters.add(filter);
         }
     }
 
