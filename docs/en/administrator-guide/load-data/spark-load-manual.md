@@ -527,6 +527,10 @@ When the spark load job status is not cancelled or finished, it can be manually 
 
 The following configuration belongs to the system level configuration of spark load, that is, the configuration for all spark load import tasks. Mainly through modification``` fe.conf ``` to modify the configuration value.
 
++ `enable_spark_load`
+
+Open spark load and create resource. The default value is false. This feature is turned off.
+
 + `spark_load_default_timeout_second`
 
 The default timeout for tasks is 259200 seconds (3 days).

@@ -26,7 +26,7 @@ under the License.
 
 # Spark Load
 
-Spark load 通过 Spark 实现对导入数据的预处理，提高 Doris 大数据量的导入性能并且节省 Doris 集群的计算资源。主要用于初次迁移，大数据量导入 Doris 的场景。
+Spark load 通过外部的 Spark 资源实现对导入数据的预处理，提高 Doris 大数据量的导入性能并且节省 Doris 集群的计算资源。主要用于初次迁移，大数据量导入 Doris 的场景。
 
 Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 Spark 类型导入任务，并通过 `SHOW LOAD` 查看导入结果。
 
@@ -275,7 +275,8 @@ FE底层通过执行yarn命令去获取正在运行的application的状态以及
 ```sql
 LOAD LABEL load_label
     (data_desc, ...)
-    WITH RESOURCE resource_name resource_properties
+    WITH RESOURCE resource_name 
+    [resource_properties]
     [PROPERTIES (key1=value1, ... )]
 
 * load_label:
@@ -288,6 +289,14 @@ LOAD LABEL load_label
     [PARTITION (p1, p2)]
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
+    [COLUMNS FROM PATH AS (col2, ...)]
+    [SET (k1=f1(xx), k2=f2(xx))]
+    [WHERE predicate]
+    
+    DATA FROM TABLE hive_external_tbl
+    [NEGATIVE]
+    INTO TABLE tbl_name
+    [PARTITION (p1, p2)]
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
@@ -345,7 +354,7 @@ properties
 "hive.metastore.uris" = "thrift://0.0.0.0:8080"
 );
 
-step 2: 提交load命令
+step 2: 提交load命令，要求导入的 doris 表中的列必须在 hive 外部表中存在。
 LOAD LABEL db1.label1
 (
     DATA FROM TABLE hive_t1
@@ -474,7 +483,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ### 取消导入
 
-	当 Spark load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 ```HELP CANCEL LOAD```查看。
+当 Spark load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 ```HELP CANCEL LOAD```查看。
 
 
 
@@ -483,6 +492,10 @@ LoadFinishTime: 2019-07-27 11:50:16
 ### FE 配置
 
 下面配置属于 Spark load 的系统级别配置，也就是作用于所有 Spark load 导入任务的配置。主要通过修改 ``` fe.conf```来调整配置值。
+
++ `enable_spark_load`
+  
+    开启 Spark load 和创建 resource 功能。默认为 false，关闭此功能。
 
 + `spark_load_default_timeout_second`
   
