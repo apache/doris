@@ -225,17 +225,15 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             j++;
         }
 
-        // Before we fix the problem utf8 encode sql query in SQLexecDirect
-        // we need to check some filter can not encode in ascii code, like chinese
-        // TODO remove the eval_conjunct in odbc scan node
-//        if (ExecNode::eval_conjuncts(&_conjunct_ctxs[0], _conjunct_ctxs.size(), row)) {
+        // ODBC scanner has filter all rows, no need check.
+        {
             row_batch->commit_last_row();
             ++_num_rows_returned;
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
             char* new_tuple = reinterpret_cast<char*>(_tuple);
             new_tuple += _tuple_desc->byte_size();
             _tuple = reinterpret_cast<Tuple*>(new_tuple);
-//        }
+        }
     }
 
     return Status::OK();

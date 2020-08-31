@@ -44,11 +44,15 @@ struct ODBCScannerParam {
     const TupleDescriptor* tuple_desc;
 };
 
-struct DataBinding {
+// Because the DataBinding have the mem alloc, so
+// this class should not be copyable
+struct DataBinding : public boost::noncopyable {
    SQLSMALLINT target_type;
    SQLINTEGER buffer_length;
    SQLLEN strlen_or_ind;
    SQLPOINTER target_value_ptr;
+
+   DataBinding() = default;
 
    ~DataBinding() {
        free(target_value_ptr);

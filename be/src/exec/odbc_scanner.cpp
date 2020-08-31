@@ -39,6 +39,12 @@ static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
 // Now we only treat HLL, CHAR, VARCHAR as big column
 static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
 
+static std::u16string utf8_to_wstring (const std::string& str)
+{
+    std::wstring_convert<std::codecvt_utf8<char16_t>, char16_t> utf8_ucs2_cvt;
+    return utf8_ucs2_cvt.from_bytes(str);
+}
+
 namespace doris {
 
 ODBCScanner::ODBCScanner(const ODBCScannerParam& param)
@@ -100,7 +106,10 @@ Status ODBCScanner::query(const std::string& query) {
     // Allocate a statement handle
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt), "alloc statement");
 
-    ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirect(_stmt, (SQLCHAR*)(query.c_str()), SQL_NTS), "exec direct");
+    // Translate utf8 string to utf16 to use unicode codeing
+    auto wquery = utf8_to_wstring(query);
+    ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirectW(_stmt, (SQLWCHAR*)(wquery.c_str()), SQL_NTS), "exec direct");
+
     // How many columns are there */
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLNumResultCols(_stmt, &_field_num), "count num colomn");
 
