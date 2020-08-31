@@ -270,7 +270,7 @@ REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 
 ### Configure spark client
 
-The Fe submits the spark task by executing the spark submit command. Therefore, it is necessary to configure the spark client for Fe. It is recommended to use the official version of spark 2 above 2.4, [download spark here](https://archive.apache.org/dist/spark/). After downloading, please follow the steps to complete the following configuration.
+The Fe submits the spark task by executing the spark submit command. Therefore, it is necessary to configure the spark client for Fe. It is recommended to use the official version of spark 2 above 2.4.3, [download spark here](https://archive.apache.org/dist/spark/). After downloading, please follow the steps to complete the following configuration.
 
 #### Configure SPARK_HOME environment variable
 
@@ -298,7 +298,7 @@ In addition to spark dependency (named by `spark-2x.zip` by default), Fe will al
 
 ### Configure yarn client
 
-The Fe obtains the running application status and kills the application by executing the yarn command. Therefore, you need to configure the yarn client for Fe. It is recommended to use the official version of Hadoop above 2.5, [download hadoop](https://archive.apache.org/dist/hadoop/common/). After downloading, please follow the steps to complete the following configuration.
+The Fe obtains the running application status and kills the application by executing the yarn command. Therefore, you need to configure the yarn client for Fe. It is recommended to use the official version of Hadoop above 2.5.2, [download hadoop](https://archive.apache.org/dist/hadoop/common/). After downloading, please follow the steps to complete the following configuration.
 
 #### Configure the yarn client path
 

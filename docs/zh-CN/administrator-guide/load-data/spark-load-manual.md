@@ -232,7 +232,7 @@ REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 
 ### 配置 SPARK 客户端
 
-FE底层通过执行spark-submit的命令去提交spark任务，因此需要为FE配置spark客户端，建议使用2.4以上的spark2官方版本，[spark下载地址](https://archive.apache.org/dist/spark/)，下载完成后，请按步骤完成以下配置。
+FE底层通过执行spark-submit的命令去提交spark任务，因此需要为FE配置spark客户端，建议使用2.4.5或以上的spark2官方版本，[spark下载地址](https://archive.apache.org/dist/spark/)，下载完成后，请按步骤完成以下配置。
 
 #### 配置 SPARK_HOME 环境变量
 
@@ -260,7 +260,7 @@ __spark_repository__spark0/
 
 ### 配置 YARN 客户端
 
-FE底层通过执行yarn命令去获取正在运行的application的状态以及杀死application，因此需要为FE配置yarn客户端，建议使用2.5以上的hadoop官方版本，[hadoop下载地址](https://archive.apache.org/dist/hadoop/common/)，下载完成后，请按步骤完成以下配置。
+FE底层通过执行yarn命令去获取正在运行的application的状态以及杀死application，因此需要为FE配置yarn客户端，建议使用2.5.2或以上的hadoop2官方版本，[hadoop下载地址](https://archive.apache.org/dist/hadoop/common/)，下载完成后，请按步骤完成以下配置。
 
 #### 配置 YARN 可执行文件路径
 
