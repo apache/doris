@@ -138,7 +138,6 @@ In the existing Doris import process, the data structure of global dictionary is
 
 As an external computing resource, spark is used to complete ETL work in Doris. In the future, there may be other external resources that will be used in Doris, such as spark / GPU for query, HDFS / S3 for external storage, MapReduce for ETL, etc. Therefore, we introduce resource management to manage these external resources used by Doris.
 
-
 Before submitting the spark import task, you need to configure the spark cluster that performs the ETL task.
 
 Grammar:
@@ -174,12 +173,9 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
 `resource_name` is the name of the spark resource configured in Doris.
 
-
 `Properties` are the parameters related to spark resources, as follows:
 
-
 - `type`: resource type, required. Currently, only spark is supported.
-
 
 - Spark related parameters are as follows:
 
@@ -415,27 +411,19 @@ You can view the details syntax about creating load by input `help spark load`. 
 
 #### Label
 
-
 Identification of the import task. Each import task has a unique label within a single database. The specific rules are consistent with `broker load`.
-
 
 #### Data description parameters
 
-
 Currently, the supported data sources are CSV and hive table. Other rules are consistent with `broker load`.
-
 
 #### Load job parameters
 
-
 Load job parameters mainly refer to the `opt_properties` in the spark load. Load job parameters are applied to the entire load job. The rules are consistent with `broker load`.
-
 
 #### Spark resource parameters
 
-
 Spark resources need to be configured into the Doris system in advance, and users should be given `USAGE_PRIV`. Spark load can only be used after priv permission.
-
 
 When users have temporary requirements, such as adding resources for tasks and modifying spark configs, you can set them here. The settings only take effect for this task and do not affect the existing configuration in the Doris cluster.
 
@@ -447,15 +435,11 @@ WITH RESOURCE 'spark0'
 )
 ```
 
-
-
 #### Load when data source is hive table
 
 At present, if you want to use hive table as a data source in the import process, you need to create an external table of type hive,
 
 Then you can specify the table name of the external table when submitting the Load command.
-
-
 
 #### Load process to build global dictionary
 
@@ -495,45 +479,31 @@ Refer to broker load for the meaning of parameters in the returned result set. T
 
 + State
 
-
 The current phase of the load job. After the job is submitted, the status is pending. After the spark ETL is submitted, the status changes to ETL. After ETL is completed, Fe schedules be to execute push operation, and the status changes to finished after the push is completed and the version takes effect.
-
 
 There are two final stages of the load job: cancelled and finished. When the load job is in these two stages, the load is completed. Among them, cancelled is load failure, finished is load success.
 
-
 + Progress
-
 
 Progress description of the load job. There are two kinds of progress: ETL and load, corresponding to the two stages of the load process, ETL and loading.
 
-
 The progress range of load is 0 ~ 100%.
-
 
 ```Load progress = the number of tables that have completed all replica imports / the total number of tables in this import task * 100%```
 
-
 **If all load tables are loaded, the progress of load is 99%**, the load enters the final effective stage. After the whole load is completed, the load progress will be changed to 100%.
-
 
 The load progress is not linear. Therefore, if the progress does not change over a period of time, it does not mean that the load is not in execution.
 
-
 + Type
-
 
 Type of load job. Spark load is spark.
 
-
 + CreateTime/EtlStartTime/EtlFinishTime/LoadStartTime/LoadFinishTime
-
 
 These values represent the creation time of the load, the start time of the ETL phase, the completion time of the ETL phase, the start time of the loading phase, and the completion time of the entire load job.
 
-
 + JobDetails
-
 
 Display the detailed running status of some jobs, which will be updated when ETL ends. It includes the number of loaded files, the total size (bytes), the number of subtasks, the number of processed original lines, etc.
 
@@ -593,19 +563,14 @@ The most suitable scenario to use spark load is that the raw data is in the file
 
 If the `HADOOP_CONF_DIR` environment variable is not set, the error `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment` will be reported.
 
-
 * When using spark load, the `spark_home_default_dir` does not specify correctly.
 
 The spark submit command is used when submitting a spark job. If `spark_home_default_dir` is set incorrectly, an error `Cannot run program 'xxx/bin/spark_submit', error = 2, no such file or directory` will be reported.
 
-
 * When using spark load, `spark_resource_path` does not point to the packaged zip file.
-
 
 If `spark_resource_path` is not set correctly. An error `file XXX/jars/spark-2x.zip` does not exist will be reported.
 
-
 * When using spark load `yarn_client_path` does not point to a executable file of yarn.
-
 
 If `yarn_client_path` is not set correctly. An error `yarn client does not exist in path: XXX/yarn-client/hadoop/bin/yarn` will be reported.
