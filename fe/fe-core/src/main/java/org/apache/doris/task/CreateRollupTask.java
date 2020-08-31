@@ -77,20 +77,20 @@ public class CreateRollupTask extends AgentTask {
 
     public TAlterTabletReq toThrift() {
         TAlterTabletReq tAlterTabletReq = new TAlterTabletReq();
-        tAlterTabletReq.setBase_tablet_id(baseTabletId);
-        tAlterTabletReq.setBase_schema_hash(baseSchemaHash);
+        tAlterTabletReq.setBaseTabletId(baseTabletId);
+        tAlterTabletReq.setBaseSchemaHash(baseSchemaHash);
 
         // make 1 TCreateTableReq
         TCreateTabletReq createTabletReq = new TCreateTabletReq();
-        createTabletReq.setTablet_id(tabletId);
+        createTabletReq.setTabletId(tabletId);
 
         // no need to set version
         // schema
         TTabletSchema tSchema = new TTabletSchema();
-        tSchema.setShort_key_column_count(shortKeyColumnCount);
-        tSchema.setSchema_hash(rollupSchemaHash);
-        tSchema.setStorage_type(storageType);
-        tSchema.setKeys_type(keysType);
+        tSchema.setShortKeyColumnCount(shortKeyColumnCount);
+        tSchema.setSchemaHash(rollupSchemaHash);
+        tSchema.setStorageType(storageType);
+        tSchema.setKeysType(keysType);
 
         List<TColumn> tColumns = new ArrayList<TColumn>();
         int deleteSign = -1;
@@ -99,7 +99,7 @@ public class CreateRollupTask extends AgentTask {
             TColumn tColumn = column.toThrift();
             // is bloom filter column
             if (bfColumns != null && bfColumns.contains(column.getName())) {
-                tColumn.setIs_bloom_filter_column(true);
+                tColumn.setIsBloomFilterColumn(true);
             }
             tColumn.setVisible(column.isVisible());
             if (column.isDeleteSignColumn()) {
@@ -108,16 +108,16 @@ public class CreateRollupTask extends AgentTask {
             tColumns.add(tColumn);
         }
         tSchema.setColumns(tColumns);
-        tSchema.setDelete_sign_idx(deleteSign);
+        tSchema.setDeleteSignIdx(deleteSign);
 
         if (bfColumns != null) {
-            tSchema.setBloom_filter_fpp(bfFpp);
+            tSchema.setBloomFilterFpp(bfFpp);
         }
-        createTabletReq.setTablet_schema(tSchema);
-        createTabletReq.setTable_id(tableId);
-        createTabletReq.setPartition_id(partitionId);
+        createTabletReq.setTabletSchema(tSchema);
+        createTabletReq.setTableId(tableId);
+        createTabletReq.setPartitionId(partitionId);
 
-        tAlterTabletReq.setNew_tablet_req(createTabletReq);
+        tAlterTabletReq.setNewTabletReq(createTabletReq);
 
         return tAlterTabletReq;
     }

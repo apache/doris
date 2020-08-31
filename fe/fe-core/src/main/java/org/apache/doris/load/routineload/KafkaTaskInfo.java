@@ -69,8 +69,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TRoutineLoadTask tRoutineLoadTask = new TRoutineLoadTask();
         TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         tRoutineLoadTask.setId(queryId);
-        tRoutineLoadTask.setJob_id(jobId);
-        tRoutineLoadTask.setTxn_id(txnId);
+        tRoutineLoadTask.setJobId(jobId);
+        tRoutineLoadTask.setTxnId(txnId);
         Database database = Catalog.getCurrentCatalog().getDb(routineLoadJob.getDbId());
         if (database == null) {
             throw new MetaNotFoundException("database " + routineLoadJob.getDbId() + " does not exist");
@@ -84,18 +84,18 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
-        tRoutineLoadTask.setAuth_code(routineLoadJob.getAuthCode());
+        tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
         tKafkaLoadInfo.setTopic((routineLoadJob).getTopic());
         tKafkaLoadInfo.setBrokers((routineLoadJob).getBrokerList());
-        tKafkaLoadInfo.setPartition_begin_offset(partitionIdToOffset);
+        tKafkaLoadInfo.setPartitionBeginOffset(partitionIdToOffset);
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
-        tRoutineLoadTask.setKafka_load_info(tKafkaLoadInfo);
+        tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
         tRoutineLoadTask.setParams(rePlan(routineLoadJob));
-        tRoutineLoadTask.setMax_interval_s(routineLoadJob.getMaxBatchIntervalS());
-        tRoutineLoadTask.setMax_batch_rows(routineLoadJob.getMaxBatchRows());
-        tRoutineLoadTask.setMax_batch_size(routineLoadJob.getMaxBatchSizeBytes());
+        tRoutineLoadTask.setMaxIntervalS(routineLoadJob.getMaxBatchIntervalS());
+        tRoutineLoadTask.setMaxBatchRows(routineLoadJob.getMaxBatchRows());
+        tRoutineLoadTask.setMaxBatchSize(routineLoadJob.getMaxBatchSizeBytes());
         if (!routineLoadJob.getFormat().isEmpty() && routineLoadJob.getFormat().equalsIgnoreCase("json")) {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_JSON);
         } else {
@@ -115,7 +115,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         // plan for each task, in case table has change(rollup or schema change)
         TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(txnId);
+        tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         return tExecPlanFragmentParams;
     }
 }

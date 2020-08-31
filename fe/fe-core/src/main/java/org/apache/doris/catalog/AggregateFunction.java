@@ -383,29 +383,29 @@ public class AggregateFunction extends Function {
     public TFunction toThrift() {
         TFunction fn = super.toThrift();
         TAggregateFunction aggFn = new TAggregateFunction();
-        aggFn.setIs_analytic_only_fn(isAnalyticFn && !isAggregateFn);
-        aggFn.setUpdate_fn_symbol(updateFnSymbol);
-        aggFn.setInit_fn_symbol(initFnSymbol);
+        aggFn.setIsAnalyticOnlyFn(isAnalyticFn && !isAggregateFn);
+        aggFn.setUpdateFnSymbol(updateFnSymbol);
+        aggFn.setInitFnSymbol(initFnSymbol);
         if (serializeFnSymbol != null) {
-            aggFn.setSerialize_fn_symbol(serializeFnSymbol);
+            aggFn.setSerializeFnSymbol(serializeFnSymbol);
         }
-        aggFn.setMerge_fn_symbol(mergeFnSymbol);
+        aggFn.setMergeFnSymbol(mergeFnSymbol);
         if (getValueFnSymbol  != null) {
-            aggFn.setGet_value_fn_symbol(getValueFnSymbol);
+            aggFn.setGetValueFnSymbol(getValueFnSymbol);
         }
         if (removeFnSymbol  != null) {
-            aggFn.setRemove_fn_symbol(removeFnSymbol);
+            aggFn.setRemoveFnSymbol(removeFnSymbol);
         }
         if (finalizeFnSymbol  != null) {
-            aggFn.setFinalize_fn_symbol(finalizeFnSymbol);
+            aggFn.setFinalizeFnSymbol(finalizeFnSymbol);
         }
         if (intermediateType != null) {
-            aggFn.setIntermediate_type(intermediateType.toThrift());
+            aggFn.setIntermediateType(intermediateType.toThrift());
         } else {
-            aggFn.setIntermediate_type(getReturnType().toThrift());
+            aggFn.setIntermediateType(getReturnType().toThrift());
         }
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
-        fn.setAggregate_fn(aggFn);
+        fn.setAggregateFn(aggFn);
         return fn;
     }
 

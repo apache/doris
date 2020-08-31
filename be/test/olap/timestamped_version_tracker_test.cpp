@@ -480,6 +480,23 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker) {
     ASSERT_EQ(1, tracker._next_path_id);
 }
 
+TEST_F(TestTimestampedVersionTracker, construct_version_tracker_by_stale_meta) {
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> expried_rs_metas;
+    std::vector<Version> version_path;
+
+    init_all_rs_meta(&rs_metas);
+    init_expried_row_rs_meta(&expried_rs_metas);
+
+    TimestampedVersionTracker tracker;
+    tracker.construct_versioned_tracker(rs_metas, expried_rs_metas);
+
+    ASSERT_EQ(10, tracker._version_graph._version_graph.size());
+    ASSERT_EQ(4, tracker._stale_version_path_map.size());
+    ASSERT_EQ(5, tracker._next_path_id);
+}
+
 TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker_with_same_rowset) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;

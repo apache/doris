@@ -27,8 +27,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -67,6 +70,7 @@ public class SparkLauncherMonitor {
         private SparkLoadAppHandle handle;
         private long submitTimeoutMs;
         private boolean isStop;
+        private OutputStream outputStream;
 
         private static final String STATE = "state";
         private static final String QUEUE = "queue";
@@ -89,6 +93,11 @@ public class SparkLauncherMonitor {
             this.submitTimeoutMs = submitTimeoutMs;
         }
 
+        public void setRedirectLogPath(String redirectLogPath) throws IOException {
+            this.outputStream = new FileOutputStream(new File(redirectLogPath), false);
+            this.handle.setLogPath(redirectLogPath);
+        }
+
         // Normally, log monitor will automatically stop if the spark app state changes
         // to RUNNING.
         // But if the spark app state changes to FAILED/KILLED/LOST, log monitor will stop
@@ -103,7 +112,9 @@ public class SparkLauncherMonitor {
             try {
                 outReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                 while (!isStop && (line = outReader.readLine()) != null) {
-                    LOG.info("monitor log: " + line);
+                    if (outputStream != null) {
+                        outputStream.write((line + "\n").getBytes());
+                    }
                     SparkLoadAppHandle.State oldState = handle.getState();
                     SparkLoadAppHandle.State newState = oldState;
                     // parse state and appId
@@ -185,6 +196,9 @@ public class SparkLauncherMonitor {
                 try {
                     if (outReader != null) {
                         outReader.close();
+                    }
+                    if (outputStream != null) {
+                        outputStream.close();
                     }
                 } catch (IOException e) {
                     LOG.warn("close buffered reader error", e);

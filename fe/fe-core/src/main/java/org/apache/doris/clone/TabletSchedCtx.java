@@ -751,11 +751,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         setLastVisitedTime(System.currentTimeMillis());
 
         // check if clone task success
-        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-            throw new SchedException(Status.RUNNING_FAILED, request.getTask_status().getError_msgs().get(0));
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            throw new SchedException(Status.RUNNING_FAILED, request.getTaskStatus().getErrorMsgs().get(0));
         }
 
-        if (!request.isSetFinish_tablet_infos() || request.getFinish_tablet_infos().isEmpty()) {
+        if (!request.isSetFinishTabletInfos() || request.getFinishTabletInfos().isEmpty()) {
             throw new SchedException(Status.RUNNING_FAILED, "tablet info is not set in task report request");
         }
 
@@ -821,10 +821,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // But we will check if the clone replica's version is larger than or equal to the task's visible version.
             // (which is 'visibleVersion[Hash]' saved)
             // We should discard the clone replica with stale version.
-            TTabletInfo reportedTablet = request.getFinish_tablet_infos().get(0);
+            TTabletInfo reportedTablet = request.getFinishTabletInfos().get(0);
             if (reportedTablet.getVersion() < visibleVersion) {
                 String msg = String.format("the clone replica's version is stale. %d-%d, task visible version: %d-%d",
-                        reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
+                        reportedTablet.getVersion(), reportedTablet.getVersionHash(),
                         visibleVersion, visibleVersionHash);
                 throw new SchedException(Status.RUNNING_FAILED, msg);
             }
@@ -836,10 +836,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         "replica does not exist. backend id: " + destBackendId);
             }
             
-            replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
-                    reportedTablet.getData_size(), reportedTablet.getRow_count());
-            if (reportedTablet.isSetPath_hash()) {
-                replica.setPathHash(reportedTablet.getPath_hash());
+            replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersionHash(),
+                    reportedTablet.getDataSize(), reportedTablet.getRowCount());
+            if (reportedTablet.isSetPathHash()) {
+                replica.setPathHash(reportedTablet.getPathHash());
             }
             
             if (this.type == Type.BALANCE) {
@@ -856,10 +856,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tblId, partitionId, indexId,
                     tabletId, destBackendId, replica.getId(),
                     reportedTablet.getVersion(),
-                    reportedTablet.getVersion_hash(),
-                    reportedTablet.getSchema_hash(),
-                    reportedTablet.getData_size(),
-                    reportedTablet.getRow_count(),
+                    reportedTablet.getVersionHash(),
+                    reportedTablet.getSchemaHash(),
+                    reportedTablet.getDataSize(),
+                    reportedTablet.getRowCount(),
                     replica.getLastFailedVersion(),
                     replica.getLastFailedVersionHash(),
                     replica.getLastSuccessVersion(),
@@ -887,12 +887,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             db.writeUnlock();
         }
 
-        if (request.isSetCopy_size()) {
-            this.copySize = request.getCopy_size();
+        if (request.isSetCopySize()) {
+            this.copySize = request.getCopySize();
         }
 
-        if (request.isSetCopy_time_ms()) {
-            this.copyTimeMs = request.getCopy_time_ms();
+        if (request.isSetCopyTimeMs()) {
+            this.copyTimeMs = request.getCopyTimeMs();
         }
     }
     

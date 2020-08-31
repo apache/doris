@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.primitives.Longs;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Pair;
@@ -28,9 +27,9 @@ import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.primitives.Longs;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -518,8 +517,8 @@ public abstract class Type {
         int tmpNodeIdx = nodeIdx;
         switch (node.getType()) {
             case SCALAR: {
-                Preconditions.checkState(node.isSetScalar_type());
-                TScalarType scalarType = node.getScalar_type();
+                Preconditions.checkState(node.isSetScalarType());
+                TScalarType scalarType = node.getScalarType();
                 if (scalarType.getType() == TPrimitiveType.CHAR) {
                     Preconditions.checkState(scalarType.isSetLen());
                     type = ScalarType.createCharType(scalarType.getLen());
@@ -561,11 +560,11 @@ public abstract class Type {
                 break;
             }
             case STRUCT: {
-                Preconditions.checkState(tmpNodeIdx + node.getStruct_fieldsSize() < col.getTypesSize());
+                Preconditions.checkState(tmpNodeIdx + node.getStructFieldsSize() < col.getTypesSize());
                 ArrayList<StructField> structFields = Lists.newArrayList();
                 ++tmpNodeIdx;
-                for (int i = 0; i < node.getStruct_fieldsSize(); ++i) {
-                    TStructField thriftField = node.getStruct_fields().get(i);
+                for (int i = 0; i < node.getStructFieldsSize(); ++i) {
+                    TStructField thriftField = node.getStructFields().get(i);
                     String name = thriftField.getName();
                     String comment = null;
                     if (thriftField.isSetComment()) {

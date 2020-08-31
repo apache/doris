@@ -71,34 +71,34 @@ public class QueryPlanTest {
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        
-        createTable("create table test.test1\n" + 
+
+        createTable("create table test.test1\n" +
                 "(\n" +
                 "    query_id varchar(48) comment \"Unique query id\",\n" +
                 "    time datetime not null comment \"Query start time\",\n" +
-                "    client_ip varchar(32) comment \"Client IP\",\n" + 
-                "    user varchar(64) comment \"User name\",\n" + 
-                "    db varchar(96) comment \"Database of this query\",\n" + 
-                "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n" + 
-                "    query_time bigint comment \"Query execution time in millisecond\",\n" + 
-                "    scan_bytes bigint comment \"Total scan bytes of this query\",\n" + 
-                "    scan_rows bigint comment \"Total scan rows of this query\",\n" + 
-                "    return_rows bigint comment \"Returned rows of this query\",\n" + 
-                "    stmt_id int comment \"An incremental id of statement\",\n" + 
-                "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n" + 
-                "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n" + 
-                "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n" + 
-                ")\n" + 
-                "partition by range(time) ()\n" + 
-                "distributed by hash(query_id) buckets 1\n" + 
-                "properties(\n" + 
-                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" + 
-                "    \"dynamic_partition.start\" = \"-30\",\n" + 
-                "    \"dynamic_partition.end\" = \"3\",\n" + 
-                "    \"dynamic_partition.prefix\" = \"p\",\n" + 
-                "    \"dynamic_partition.buckets\" = \"1\",\n" + 
-                "    \"dynamic_partition.enable\" = \"true\",\n" + 
-                "    \"replication_num\" = \"1\"\n" + 
+                "    client_ip varchar(32) comment \"Client IP\",\n" +
+                "    user varchar(64) comment \"User name\",\n" +
+                "    db varchar(96) comment \"Database of this query\",\n" +
+                "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n" +
+                "    query_time bigint comment \"Query execution time in millisecond\",\n" +
+                "    scan_bytes bigint comment \"Total scan bytes of this query\",\n" +
+                "    scan_rows bigint comment \"Total scan rows of this query\",\n" +
+                "    return_rows bigint comment \"Returned rows of this query\",\n" +
+                "    stmt_id int comment \"An incremental id of statement\",\n" +
+                "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n" +
+                "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n" +
+                "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n" +
+                ")\n" +
+                "partition by range(time) ()\n" +
+                "distributed by hash(query_id) buckets 1\n" +
+                "properties(\n" +
+                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
+                "    \"dynamic_partition.start\" = \"-30\",\n" +
+                "    \"dynamic_partition.end\" = \"3\",\n" +
+                "    \"dynamic_partition.prefix\" = \"p\",\n" +
+                "    \"dynamic_partition.buckets\" = \"1\",\n" +
+                "    \"dynamic_partition.enable\" = \"true\",\n" +
+                "    \"replication_num\" = \"1\"\n" +
                 ");");
 
         createTable("CREATE TABLE test.bitmap_table (\n" +
@@ -157,45 +157,45 @@ public class QueryPlanTest {
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\"\n" +
                 ");");
-        
+
         createTable("CREATE TABLE test.`bigtable` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" + 
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" + 
-                "  `k3` int(11) NULL COMMENT \"\",\n" + 
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" + 
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" + 
-                "  `k6` char(5) NULL COMMENT \"\",\n" + 
-                "  `k10` date NULL COMMENT \"\",\n" + 
-                "  `k11` datetime NULL COMMENT \"\",\n" + 
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" + 
-                "  `k8` double MAX NULL COMMENT \"\",\n" + 
-                "  `k9` float SUM NULL COMMENT \"\"\n" + 
-                ") ENGINE=OLAP\n" + 
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" + 
-                "COMMENT \"OLAP\"\n" + 
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" + 
-                "PROPERTIES (\n" + 
-                "\"replication_num\" = \"1\"\n" + 
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+                "  `k3` int(11) NULL COMMENT \"\",\n" +
+                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+                "  `k6` char(5) NULL COMMENT \"\",\n" +
+                "  `k10` date NULL COMMENT \"\",\n" +
+                "  `k11` datetime NULL COMMENT \"\",\n" +
+                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+                "  `k8` double MAX NULL COMMENT \"\",\n" +
+                "  `k9` float SUM NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
                 ");");
-        
-        createTable("CREATE TABLE test.`baseall` (\n" + 
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" + 
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" + 
-                "  `k3` int(11) NULL COMMENT \"\",\n" + 
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" + 
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" + 
-                "  `k6` char(5) NULL COMMENT \"\",\n" + 
-                "  `k10` date NULL COMMENT \"\",\n" + 
-                "  `k11` datetime NULL COMMENT \"\",\n" + 
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" + 
-                "  `k8` double MAX NULL COMMENT \"\",\n" + 
-                "  `k9` float SUM NULL COMMENT \"\"\n" + 
-                ") ENGINE=OLAP\n" + 
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" + 
-                "COMMENT \"OLAP\"\n" + 
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" + 
-                "PROPERTIES (\n" + 
-                "\"replication_num\" = \"1\"\n" + 
+
+        createTable("CREATE TABLE test.`baseall` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+                "  `k3` int(11) NULL COMMENT \"\",\n" +
+                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+                "  `k6` char(5) NULL COMMENT \"\",\n" +
+                "  `k10` date NULL COMMENT \"\",\n" +
+                "  `k11` datetime NULL COMMENT \"\",\n" +
+                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+                "  `k8` double MAX NULL COMMENT \"\",\n" +
+                "  `k9` float SUM NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
                 ");");
 
         createTable("CREATE TABLE test.`dynamic_partition` (\n" +
@@ -475,7 +475,7 @@ public class QueryPlanTest {
         String sql = "select * from test.baseall a where k1 in (select k1 from test.bigtable b where k2 > 0 and k1 = 1);";
         UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertEquals(MysqlStateType.EOF, connectContext.getState().getStateType());
-        
+
         sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
         List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
@@ -486,11 +486,11 @@ public class QueryPlanTest {
         String sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
         List<StatementBase>stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
-        
+
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
         stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(1, stmts.size());
-        
+
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;SHOW VARIABLES LIKE 'lower_case_%';";
         stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(4, stmts.size());
@@ -970,7 +970,7 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
-        
+
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
@@ -980,11 +980,11 @@ public class QueryPlanTest {
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
-        
+
         // default set PreferBroadcastJoin true
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        
+
         connectContext.getSessionVariable().setPreferJoinMethod("shuffle");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));

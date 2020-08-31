@@ -274,7 +274,7 @@ public class FunctionCallExpr extends Expr {
         if (isAggregate() || isAnalyticFnCall) {
             msg.node_type = TExprNodeType.AGG_EXPR;
             if (!isAnalyticFnCall) {
-                msg.setAgg_expr(new TAggregateExpr(isMergeAggFn));
+                msg.setAggExpr(new TAggregateExpr(isMergeAggFn));
             }
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;

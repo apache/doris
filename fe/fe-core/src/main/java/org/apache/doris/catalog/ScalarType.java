@@ -368,7 +368,7 @@ public class ScalarType extends Type {
                 TScalarType scalarType = new TScalarType();
                 scalarType.setType(type.toThrift());
                 scalarType.setLen(len);
-                node.setScalar_type(scalarType);
+                node.setScalarType(scalarType);
                 break;
             }
             case DECIMAL:
@@ -378,14 +378,14 @@ public class ScalarType extends Type {
                 scalarType.setType(type.toThrift());
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
-                node.setScalar_type(scalarType);
+                node.setScalarType(scalarType);
                 break;
             }
             default: {
                 node.setType(TTypeNodeType.SCALAR);
                 TScalarType scalarType = new TScalarType();
                 scalarType.setType(type.toThrift());
-                node.setScalar_type(scalarType);
+                node.setScalarType(scalarType);
                 break;
             }
         }

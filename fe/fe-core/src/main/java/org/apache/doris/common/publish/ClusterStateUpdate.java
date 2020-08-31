@@ -35,7 +35,7 @@ public class ClusterStateUpdate {
 
     public TAgentPublishRequest toThrift() {
         TAgentPublishRequest request = new TAgentPublishRequest();
-        request.setProtocol_version(TAgentServiceVersion.V1);
+        request.setProtocolVersion(TAgentServiceVersion.V1);
         for (TopicUpdate update : updates) {
             request.addToUpdates(update.toThrift());
         }

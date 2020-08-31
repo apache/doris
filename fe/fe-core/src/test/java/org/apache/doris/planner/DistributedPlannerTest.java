@@ -110,7 +110,7 @@ public class DistributedPlannerTest {
         };
 
         PlanFragment assertFragment = Deencapsulation.invoke(distributedPlanner, "createAssertFragment",
-                                                             assertNumRowsNode, inputFragment);
+                assertNumRowsNode, inputFragment);
         Assert.assertFalse(assertFragment.isPartitioned());
         Assert.assertSame(assertNumRowsNode, assertFragment.getPlanRoot());
     }
@@ -118,11 +118,11 @@ public class DistributedPlannerTest {
     @Test
     public void testAssertFragmentWithUnpartitionInput(@Injectable AssertNumRowsNode assertNumRowsNode,
                                                        @Injectable PlanFragment inputFragment,
-                                                       @Mocked PlannerContext plannerContext){
+                                                       @Mocked PlannerContext plannerContext) {
         DistributedPlanner distributedPlanner = new DistributedPlanner(plannerContext);
 
         PlanFragment assertFragment = Deencapsulation.invoke(distributedPlanner, "createAssertFragment",
-                                                             assertNumRowsNode, inputFragment);
+                assertNumRowsNode, inputFragment);
         Assert.assertSame(assertFragment, inputFragment);
         Assert.assertTrue(assertFragment.getPlanRoot() instanceof AssertNumRowsNode);
     }

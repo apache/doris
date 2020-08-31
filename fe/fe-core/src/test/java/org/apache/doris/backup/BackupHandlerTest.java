@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import mockit.*;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
@@ -70,6 +69,12 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class BackupHandlerTest {
 
@@ -260,9 +265,9 @@ public class BackupHandlerTest {
                                                      0, 0, 0, 0, 0, 0, 0, 1, false);
         TFinishTaskRequest request = new TFinishTaskRequest();
         List<String> snapshotFiles = Lists.newArrayList();
-        request.setSnapshot_files(snapshotFiles);
-        request.setSnapshot_path("./snapshot/path");
-        request.setTask_status(new TStatus(TStatusCode.OK));
+        request.setSnapshotFiles(snapshotFiles);
+        request.setSnapshotPath("./snapshot/path");
+        request.setTaskStatus(new TStatus(TStatusCode.OK));
         handler.handleFinishedSnapshotTask(snapshotTask, request);
 
         // handleFinishedSnapshotUploadTask
@@ -271,8 +276,8 @@ public class BackupHandlerTest {
                 srcToDestPath, null, null);
         request = new TFinishTaskRequest();
         Map<Long, List<String>> tabletFiles = Maps.newHashMap();
-        request.setTablet_files(tabletFiles);
-        request.setTask_status(new TStatus(TStatusCode.OK));
+        request.setTabletFiles(tabletFiles);
+        request.setTaskStatus(new TStatus(TStatusCode.OK));
         handler.handleFinishedSnapshotUploadTask(uploadTask, request);
 
         // test file persist
@@ -326,8 +331,8 @@ public class BackupHandlerTest {
         snapshotTask = new SnapshotTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
                 0, 0, 0, 0, 0, 0, 0, 1, true);
         request = new TFinishTaskRequest();
-        request.setSnapshot_path("./snapshot/path");
-        request.setTask_status(new TStatus(TStatusCode.OK));
+        request.setSnapshotPath("./snapshot/path");
+        request.setTaskStatus(new TStatus(TStatusCode.OK));
         handler.handleFinishedSnapshotTask(snapshotTask, request);
 
         // handleDownloadSnapshotTask
@@ -335,15 +340,15 @@ public class BackupHandlerTest {
                 srcToDestPath, null, null);
         request = new TFinishTaskRequest();
         List<Long> downloadedTabletIds = Lists.newArrayList();
-        request.setDownloaded_tablet_ids(downloadedTabletIds);
-        request.setTask_status(new TStatus(TStatusCode.OK));
+        request.setDownloadedTabletIds(downloadedTabletIds);
+        request.setTaskStatus(new TStatus(TStatusCode.OK));
         handler.handleDownloadSnapshotTask(downloadTask, request);
 
         // handleDirMoveTask
         DirMoveTask dirMoveTask = new DirMoveTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID, 0, 0, 0,
                 0, "", 0, true);
         request = new TFinishTaskRequest();
-        request.setTask_status(new TStatus(TStatusCode.OK));
+        request.setTaskStatus(new TStatus(TStatusCode.OK));
         handler.handleDirMoveTask(dirMoveTask, request);
 
         // test file persist

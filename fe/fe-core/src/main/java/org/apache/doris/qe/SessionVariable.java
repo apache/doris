@@ -513,29 +513,29 @@ public class SessionVariable implements Serializable, Writable {
     // used for rest api
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
-        tResult.setMem_limit(maxExecMemByte);
+        tResult.setMemLimit(maxExecMemByte);
 
         // TODO chenhao, reservation will be calculated by cost
-        tResult.setMin_reservation(0);
-        tResult.setMax_reservation(maxExecMemByte);
-        tResult.setInitial_reservation_total_claims(maxExecMemByte);
-        tResult.setBuffer_pool_limit(maxExecMemByte);
+        tResult.setMinReservation(0);
+        tResult.setMaxReservation(maxExecMemByte);
+        tResult.setInitialReservationTotalClaims(maxExecMemByte);
+        tResult.setBufferPoolLimit(maxExecMemByte);
 
-        tResult.setQuery_timeout(queryTimeoutS);
-        tResult.setIs_report_success(isReportSucc);
-        tResult.setCodegen_level(codegenLevel);
+        tResult.setQueryTimeout(queryTimeoutS);
+        tResult.setIsReportSuccess(isReportSucc);
+        tResult.setCodegenLevel(codegenLevel);
 
-        tResult.setBatch_size(batchSize);
-        tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
-        tResult.setLoad_mem_limit(loadMemLimit);
+        tResult.setBatchSize(batchSize);
+        tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
+        tResult.setLoadMemLimit(loadMemLimit);
 
         if (maxScanKeyNum > -1) {
-            tResult.setMax_scan_key_num(maxScanKeyNum);
+            tResult.setMaxScanKeyNum(maxScanKeyNum);
         }
         if (maxPushdownConditionsPerColumn > -1) {
-            tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
+            tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
         }
-        tResult.setEnable_spilling(enableSpilling);
+        tResult.setEnableSpilling(enableSpilling);
         return tResult;
     }
 

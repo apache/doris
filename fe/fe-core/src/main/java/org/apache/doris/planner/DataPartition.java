@@ -103,10 +103,10 @@ public class DataPartition {
     public TDataPartition toThrift() {
         TDataPartition result = new TDataPartition(type);
         if (partitionExprs != null) {
-            result.setPartition_exprs(Expr.treesToThrift(partitionExprs));
+            result.setPartitionExprs(Expr.treesToThrift(partitionExprs));
         }
         if (partitions != null) {
-            result.setPartition_infos(DataSplitSink.EtlRangePartitionInfo.listToThrift(partitions));
+            result.setPartitionInfos(DataSplitSink.EtlRangePartitionInfo.listToThrift(partitions));
         }
         return result;
     }

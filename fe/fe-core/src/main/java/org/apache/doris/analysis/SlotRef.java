@@ -222,7 +222,7 @@ public class SlotRef extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
-        msg.setOutput_column(outputColumn);
+        msg.setOutputColumn(outputColumn);
     }
 
     @Override

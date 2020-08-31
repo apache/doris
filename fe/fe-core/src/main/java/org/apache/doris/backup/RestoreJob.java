@@ -176,7 +176,7 @@ public class RestoreJob extends AbstractJob {
             return false;
         }
 
-        Preconditions.checkState(request.isSetSnapshot_path());
+        Preconditions.checkState(request.isSetSnapshotPath());
 
         // snapshot path does not contains last 'tablet_id' and 'schema_hash' dir
         // eg:
@@ -185,7 +185,7 @@ public class RestoreJob extends AbstractJob {
         // /path/to/your/be/data/snapshot/20180410102311.0/10006/352781111/
         SnapshotInfo info = new SnapshotInfo(task.getDbId(), task.getTableId(), task.getPartitionId(),
                 task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                task.getSchemaHash(), request.getSnapshot_path(), Lists.newArrayList());
+                task.getSchemaHash(), request.getSnapshotPath(), Lists.newArrayList());
 
         snapshotInfos.put(task.getTabletId(), task.getBackendId(), info);
         taskProgress.remove(task.getSignature());
@@ -206,9 +206,9 @@ public class RestoreJob extends AbstractJob {
             return false;
         }
 
-        Preconditions.checkState(request.isSetDownloaded_tablet_ids());
+        Preconditions.checkState(request.isSetDownloadedTabletIds());
 
-        for (Long tabletId : request.getDownloaded_tablet_ids()) {
+        for (Long tabletId : request.getDownloadedTabletIds()) {
             SnapshotInfo info = snapshotInfos.get(tabletId, task.getBackendId());
             if (info == null) {
                 LOG.error("failed to find snapshot infos of tablet {} in be {}, {}",
@@ -248,8 +248,8 @@ public class RestoreJob extends AbstractJob {
         Preconditions.checkState(jobId == this.jobId);
         Preconditions.checkState(dbId == task.getDbId());
 
-        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTask_status().getError_msgs()));
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTaskStatus().getErrorMsgs()));
             return true;
         }
         return false;

@@ -393,14 +393,14 @@ public class ConnectProcessor {
         if (request.isSetResourceInfo()) {
             ctx.getSessionVariable().setResourceGroup(request.getResourceInfo().getGroup());
         }
-        if (request.isSetUser_ip()) {
-            ctx.setRemoteIP(request.getUser_ip());
+        if (request.isSetUserIp()) {
+            ctx.setRemoteIP(request.getUserIp());
         }
-        if (request.isSetTime_zone()) {
-            ctx.getSessionVariable().setTimeZone(request.getTime_zone());                       
+        if (request.isSetTimeZone()) {
+            ctx.getSessionVariable().setTimeZone(request.getTimeZone());
         }
-        if (request.isSetStmt_id()) {
-            ctx.setForwardedStmtId(request.getStmt_id());
+        if (request.isSetStmtId()) {
+            ctx.setForwardedStmtId(request.getStmtId());
         }
         if (request.isSetSqlMode()) {
             ctx.getSessionVariable().setSqlMode(request.sqlMode);
@@ -408,28 +408,28 @@ public class ConnectProcessor {
         if (request.isSetEnableStrictMode()) {
             ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
         }
-        if (request.isSetCurrent_user_ident()) {
-            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrent_user_ident());
+        if (request.isSetCurrentUserIdent()) {
+            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
 
-        if (request.isSetQuery_options()) {
-            TQueryOptions queryOptions = request.getQuery_options();
-            if (queryOptions.isSetMem_limit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMem_limit());
+        if (request.isSetQueryOptions()) {
+            TQueryOptions queryOptions = request.getQueryOptions();
+            if (queryOptions.isSetMemLimit()) {
+                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMemLimit());
             }
-            if (queryOptions.isSetQuery_timeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQuery_timeout());
+            if (queryOptions.isSetQueryTimeout()) {
+                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQueryTimeout());
             }
-            if (queryOptions.isSetLoad_mem_limit()) {
-                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoad_mem_limit());
+            if (queryOptions.isSetLoadMemLimit()) {
+                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoadMemLimit());
             }
-            if (queryOptions.isSetMax_scan_key_num()) {
-                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMax_scan_key_num());
+            if (queryOptions.isSetMaxScanKeyNum()) {
+                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMaxScanKeyNum());
             }
-            if (queryOptions.isSetMax_pushdown_conditions_per_column()) {
+            if (queryOptions.isSetMaxPushdownConditionsPerColumn()) {
                 ctx.getSessionVariable().setMaxPushdownConditionsPerColumn(
-                        queryOptions.getMax_pushdown_conditions_per_column());
+                        queryOptions.getMaxPushdownConditionsPerColumn());
             }
         } else {
             // for compatibility, all following variables are moved to TQueryOptions.

@@ -45,7 +45,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -379,6 +378,9 @@ public class LoadManager implements Writable{
                         && ((currentTimeMs - job.getFinishTimestamp()) / 1000 > Config.label_keep_max_second)) {
                     iter.remove();
                     dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
+                    if (job instanceof SparkLoadJob) {
+                        ((SparkLoadJob) job).clearSparkLauncherLog();
+                    }
                 }
             }
         } finally {
