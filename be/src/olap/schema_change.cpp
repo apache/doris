@@ -1023,8 +1023,8 @@ OLAPStatus SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, Ro
 
         // 将ref改为new。这一步按道理来说确实需要等大的块，但理论上和writer无关。
         uint64_t filtered_rows = 0;
-        if ((res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
-                new_row_block, &filtered_rows)) != OLAP_SUCCESS) {
+        res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second, new_row_block, &filtered_rows);
+        if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to change data in row block.";
             goto DIRECTLY_PROCESS_ERR;
         }
@@ -1197,10 +1197,9 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
         }
 
         uint64_t filtered_rows = 0;
-        if (!_row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
-                                                 new_row_block, &filtered_rows)) {
+        res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second, new_row_block, &filtered_rows);
+        if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to change data in row block.";
-            res = OLAP_ERR_ALTER_STATUS_ERR;
             goto SORTING_PROCESS_ERR;
         }
         add_filtered_rows(filtered_rows);
