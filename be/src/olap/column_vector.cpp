@@ -125,8 +125,9 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
 }
 
 ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
-: ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(0) {
+: ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(1) {
     auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
+    _item_offsets[0] = 0;
     ColumnVectorBatch::create(init_capacity * 2, true, array_type_info->item_type_info(), &_elements);
 }
 

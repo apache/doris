@@ -327,7 +327,7 @@ protected:
     std::unique_ptr<ParsedPage> _page;
 
     // page indexes those are DEL_PARTIAL_SATISFIED
-    std::vector<uint32_t> _delete_partial_statisfied_pages;
+    std::unordered_set<uint32_t> _delete_partial_statisfied_pages;
 
     ColumnReader* _reader;
 
@@ -360,9 +360,6 @@ public:
     explicit ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader);
 
     ~ArrayFileColumnIterator() override = default;
-
-    // page indexes those are DEL_PARTIAL_SATISFIED
-    std::unordered_set<uint32_t> _delete_partial_statisfied_pages;
 
     Status init(const ColumnIteratorOptions& opts) override;
 

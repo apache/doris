@@ -271,7 +271,6 @@ void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num
     TypeInfo* type_info = get_type_info(&meta);
     // read and check
     {
-        // read and check
         ColumnReaderOptions reader_opts;
         std::unique_ptr<ColumnReader> reader;
         auto st = ColumnReader::create(reader_opts, meta, num_rows, fname, &reader);
@@ -352,7 +351,7 @@ void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num
 
 
 TEST_F(ColumnReaderWriterTest, test_list_type) {
-    size_t num_list = 10; //24 * 1024;
+    size_t num_list = 24 * 1024;
     size_t num_item = num_list * 3;
 
     uint8_t* list_is_null = new uint8_t[BitmapSize(num_list)];
@@ -377,11 +376,11 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
     test_list_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_bs");
 
     delete[] list_val;
-    list_val = new Collection[num_list];
-
-
-    Slice* varchar_vals = new Slice[3];
+    delete[] item_val;
     delete[] item_is_null;
+
+    list_val = new Collection[num_list];
+    Slice* varchar_vals = new Slice[3];
     item_is_null = new bool[3];
     for (int i = 0; i < 3; ++i) {
         item_is_null[i] = i == 1;
@@ -399,11 +398,13 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
         list_val[i].null_signs = item_is_null;
         list_val[i].length = 3;
     }
+    test_list_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_chars");
 
     delete[] list_val;
-    delete[] list_is_null;
+    delete[] varchar_vals;
     delete[] item_is_null;
-    delete[] item_val;
+
+    delete[] list_is_null;
 }
 
 
