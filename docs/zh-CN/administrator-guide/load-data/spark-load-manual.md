@@ -359,7 +359,6 @@ LOAD LABEL db1.label1
 (
     DATA FROM TABLE hive_t1
     INTO TABLE tbl1
-    (k1,k2,k3)
     SET
     (
 		uuid=bitmap_dict(uuid)
