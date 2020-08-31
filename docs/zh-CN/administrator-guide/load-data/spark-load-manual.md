@@ -26,7 +26,7 @@ under the License.
 
 # Spark Load
 
-Spark load 通过外部的 Spark 资源实现对导入数据的预处理，提高 Doris 大数据量的导入性能并且节省 Doris 集群的计算资源。主要用于初次迁移，大数据量导入 Doris 的场景。
+Spark load 通过 Spark 实现对导入数据的预处理，提高 Doris 大数据量的导入性能并且节省 Doris 集群的计算资源。主要用于初次迁移，大数据量导入 Doris 的场景。
 
 Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 Spark 类型导入任务，并通过 `SHOW LOAD` 查看导入结果。
 
@@ -212,6 +212,7 @@ root和admin账户可以看到所有的资源。
 资源权限通过GRANT REVOKE来管理，目前仅支持USAGE_PRIV使用权限。
 
 可以将USAGE_PRIV权限赋予某个用户或者某个角色，角色的使用与之前一致。
+
 ```sql
 -- 授予spark0资源的使用权限给用户user0
 GRANT USAGE_PRIV ON RESOURCE "spark0" TO "user0"@"%";
@@ -229,7 +230,43 @@ GRANT USAGE_PRIV ON RESOURCE * TO ROLE "role0";
 REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 ```
 
+### 配置 SPARK 客户端
 
+FE底层通过执行spark-submit的命令去提交spark任务，因此需要为FE配置spark客户端，建议使用2.4以上的spark2官方版本，[spark下载地址](https://archive.apache.org/dist/spark/)，下载完成后，请按步骤完成以下配置。
+
+#### 配置 SPARK_HOME 环境变量
+
+将spark客户端放在FE同一台机器上的目录下，并在FE的配置文件配置`spark_home_default_dir`项指向此目录，此配置项默认为FE根目录下的 `lib/spark2x`路径，此项不可为空。
+
+#### 配置 SPARK 依赖包
+
+将spark客户端下的jars文件夹内所有jar包归档打包成一个zip文件，并在FE的配置文件配置`spark_resource_path`项指向此zip文件，若此配置项为空，则FE会尝试寻找FE根目录下的`lib/spark2x/jars/spark-2x.zip`文件，若没有找到则会报文件不存在的错误。
+
+当提交spark load任务时，会将归档好的依赖文件上传至远端仓库，默认仓库路径挂在`working_dir/{cluster_id}`目录下，并以`__spark_repository__{resource_name}`命名，表示集群内的一个resource对应一个远端仓库，远端仓库目录结构参考如下:
+
+```
+__spark_repository__spark0/
+    |-__archive_1.0.0/
+    |        |-__lib_990325d2c0d1d5e45bf675e54e44fb16_spark-dpp-1.0.0-jar-with-dependencies.jar
+    |        |-__lib_7670c29daf535efe3c9b923f778f61fc_spark-2x.zip
+    |-__archive_1.1.0/
+    |        |-__lib_64d5696f99c379af2bee28c1c84271d5_spark-dpp-1.1.0-jar-with-dependencies.jar
+    |        |-__lib_1bbb74bb6b264a270bc7fca3e964160f_spark-2x.zip
+    |-__archive_1.2.0/
+    |        |-...
+```
+
+除了spark依赖(默认以`spark-2x.zip`命名)，FE还会上传DPP的依赖包至远端仓库，若此次spark load提交的所有依赖文件都已存在远端仓库，那么就不需要在上传依赖，省下原来每次重复上传大量文件的时间。
+
+### 配置 YARN 客户端
+
+FE底层通过执行yarn命令去获取正在运行的application的状态以及杀死application，因此需要为FE配置yarn客户端，建议使用2.5以上的hadoop官方版本，[hadoop下载地址](https://archive.apache.org/dist/hadoop/common/)，下载完成后，请按步骤完成以下配置。
+
+#### 配置 YARN 可执行文件路径
+
+将下载好的yarn客户端放在FE同一台机器的目录下，并在FE配置文件配置`yarn_client_path`项指向yarn的二进制可执行文件，默认为FE根目录下的`lib/yarn-client/hadoop/bin/yarn`路径。
+
+(可选) 当FE通过yarn客户端去获取application的状态或者杀死application时，默认会在FE根目录下的`lib/yarn-config`路径下生成执行yarn命令所需的配置文件，此路径可通过在FE配置文件配置`yarn_config_dir`项修改，目前生成的配置文件包括`core-site.xml`和`yarn-site.xml`。
 
 ### 创建导入
 
@@ -238,8 +275,7 @@ REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 ```sql
 LOAD LABEL load_label
     (data_desc, ...)
-    WITH RESOURCE resource_name 
-    [resource_properties]
+    WITH RESOURCE resource_name resource_properties
     [PROPERTIES (key1=value1, ... )]
 
 * load_label:
@@ -252,14 +288,6 @@ LOAD LABEL load_label
     [PARTITION (p1, p2)]
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
-    [COLUMNS FROM PATH AS (col2, ...)]
-    [SET (k1=f1(xx), k2=f2(xx))]
-    [WHERE predicate]
-    
-    DATA FROM TABLE hive_external_tbl
-    [NEGATIVE]
-    INTO TABLE tbl_name
-    [PARTITION (p1, p2)]
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
@@ -299,6 +327,7 @@ PROPERTIES
 ```
 
 示例2：上游数据源是hive表的情况
+
 ```sql
 step 1:新建hive外部表
 CREATE EXTERNAL TABLE hive_t1
@@ -316,11 +345,12 @@ properties
 "hive.metastore.uris" = "thrift://0.0.0.0:8080"
 );
 
-step 2: 提交load命令，要求导入的 doris 表中的列必须在 hive 外部表中存在。
+step 2: 提交load命令
 LOAD LABEL db1.label1
 (
     DATA FROM TABLE hive_t1
     INTO TABLE tbl1
+    (k1,k2,k3)
     SET
     (
 		uuid=bitmap_dict(uuid)
@@ -433,10 +463,18 @@ LoadFinishTime: 2019-07-27 11:50:16
     显示一些作业的详细运行状态，ETL 结束的时候更新。包括导入文件的个数、总大小（字节）、子任务个数、已处理的原始行数等。
 
     ```{"ScannedRows":139264,"TaskNumber":1,"FileNumber":1,"FileSize":940754064}```
+    
++ URL
+
+    可复制输入到浏览器，跳转至相应application的web界面    
+
+### 查看 spark launcher 提交日志
+
+有时用户需要查看spark任务提交过程中产生的详细日志，日志默认保存在FE根目录下`log/spark_launcher_log`路径下，并以`spark_launcher_{load_job_id}_{label}.log`命名，日志会在此目录下保存一段时间，当FE元数据中的导入信息被清理时，相应的日志也会被清理，默认保存时间为3天。
 
 ### 取消导入
 
-当 Spark load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 ```HELP CANCEL LOAD```查看。
+	当 Spark load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 ```HELP CANCEL LOAD```查看。
 
 
 
@@ -446,14 +484,29 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 下面配置属于 Spark load 的系统级别配置，也就是作用于所有 Spark load 导入任务的配置。主要通过修改 ``` fe.conf```来调整配置值。
 
-+ spark_load_default_timeout_second
++ `spark_load_default_timeout_second`
   
     任务默认超时时间为259200秒（3天）。
-
-+ enable_spark_load
     
-    开启 Spark load 和创建 resource 功能。默认为 false，关闭此功能。
++ `spark_home_default_dir`
+  
+    spark客户端路径 (`fe/lib/spark2x`) 。
     
++ `spark_resource_path`
+  
+    打包好的spark依赖文件路径（默认为空）。
+    
++ `spark_launcher_log_dir`
+  
+    spark客户端的提交日志存放的目录（`fe/log/spark_launcher_log`）。
+    
++ `yarn_client_path`
+  
+    yarn二进制可执行文件路径 (`fe/lib/yarn-client/hadoop/bin/yarn`) 。
+    
++ `yarn_config_dir`
+  
+    yarn配置文件生成路径 (`fe/lib/yarn-config`) 。
     
 
 ## 最佳实践
@@ -466,10 +519,24 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ## 常见问题
 
-* 使用Spark load时需要在FE机器设置SPARK_HOME和HADOOP_CONF_DIR环境变量。
+* 使用Spark load时没有在spark客户端的spark-env.sh配置`HADOOP_CONF_DIR`环境变量。
 
-提交Spark job时用到spark-submit命令，如果SPARK_HOME环境变量没有设置，会报 `Spark home not found; set it explicitly or use the SPARK_HOME environment variable` 错误。
+如果`HADOOP_CONF_DIR`环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。
 
-如果HADOOP_CONF_DIR环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。
+* 使用Spark load时`spark_home_default_dir`配置项没有指定spark客户端根目录。
+
+提交Spark job时用到spark-submit命令，如果`spark_home_default_dir`设置错误，会报 `Cannot run program "xxx/bin/spark-submit": error=2, No such file or directory` 错误。
+
+* 使用Spark load时`spark_resource_path`配置项没有指向打包好的zip文件。
+
+如果`spark_resource_path`没有设置正确，会报`File xxx/jars/spark-2x.zip does not exist` 错误。
+
+* 使用Spark load时`yarn_client_path`配置项没有指定yarn的可执行文件。
+
+如果`yarn_client_path`没有设置正确，会报`yarn client does not exist in path: xxx/yarn-client/hadoop/bin/yarn` 错误
+
+
+
+
 
 
