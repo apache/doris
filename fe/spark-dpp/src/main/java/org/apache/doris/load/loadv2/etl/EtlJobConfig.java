@@ -471,7 +471,7 @@ public class EtlJobConfig implements Serializable {
         @SerializedName(value = "columnsFromPath")
         public List<String> columnsFromPath;
         @SerializedName(value = "columnSeparator")
-        public String columnSeparator;
+        public char columnSeparator;
         @SerializedName(value = "lineDelimiter")
         public String lineDelimiter;
         @SerializedName(value = "isNegative")
@@ -502,7 +502,7 @@ public class EtlJobConfig implements Serializable {
             this.filePaths = filePaths;
             this.fileFieldNames = fileFieldNames;
             this.columnsFromPath = columnsFromPath;
-            this.columnSeparator = columnSeparator;
+            this.columnSeparator = (char)columnSeparator.getBytes()[0];
             this.lineDelimiter = lineDelimiter;
             this.isNegative = isNegative;
             this.fileFormat = fileFormat;
