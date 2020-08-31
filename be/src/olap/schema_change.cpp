@@ -1197,10 +1197,9 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
         }
 
         uint64_t filtered_rows = 0;
-        if (!_row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
-                                                 new_row_block, &filtered_rows)) {
+        if ((res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
+                                                 new_row_block, &filtered_rows)) != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to change data in row block.";
-            res = OLAP_ERR_ALTER_STATUS_ERR;
             goto SORTING_PROCESS_ERR;
         }
         add_filtered_rows(filtered_rows);
