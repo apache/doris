@@ -52,14 +52,7 @@ Spark load is an asynchronous load method. Users need to create spark type load 
 
 ### Basic process
 
-
-检测到中文(简体)
-英语
-通用领域
-生物医药
-
 The user submits spark type load job by MySQL client, Fe records metadata and returns that the user submitted successfully.
-
 
 The implementation of spark load task is mainly divided into the following five stages.
 
