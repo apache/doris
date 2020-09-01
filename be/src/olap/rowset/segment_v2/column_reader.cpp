@@ -43,7 +43,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts,
                             std::unique_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
         std::unique_ptr<ColumnReader> reader_local(
-                new ScalarColumnReader(opts, meta, num_rows, file_name));
+                new ColumnReader(opts, meta, num_rows, file_name));
         RETURN_IF_ERROR(reader_local->init());
         *reader = std::move(reader_local);
         return Status::OK();
@@ -58,10 +58,14 @@ Status ColumnReader::create(const ColumnReaderOptions& opts,
                                                      meta.children_columns(0).num_rows(),
                                                      file_name,
                                                      &item_reader));
-                std::unique_ptr<ColumnReader> reader_local(
-                        new ArrayColumnReader(opts, meta, num_rows, file_name, std::move(item_reader)));
-                RETURN_IF_ERROR(reader_local->init());
-                *reader = std::move(reader_local);
+                RETURN_IF_ERROR(item_reader->init());
+
+                std::unique_ptr<ColumnReader> array_reader(
+                        new ColumnReader(opts, meta, num_rows, file_name));
+                RETURN_IF_ERROR(array_reader->init());
+                array_reader->_sub_writers.resize(1);
+                array_reader->_sub_writers[0] = std::move(item_reader);
+                *reader = std::move(array_reader);
                 return Status::OK();
             }
             default:
@@ -313,21 +317,26 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     return Status::OK();
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-Status ScalarColumnReader::new_iterator(ColumnIterator** iterator) {
-    *iterator = new FileColumnIterator(this);
-    return Status::OK();
+Status ColumnReader::new_iterator(ColumnIterator** iterator) {
+    if (is_scalar_type((FieldType)_meta.type())) {
+        *iterator = new FileColumnIterator(this);
+        return Status::OK();
+    } else {
+        auto type = (FieldType)_meta.type();
+        switch(type) {
+            case FieldType::OLAP_FIELD_TYPE_ARRAY: {
+                ColumnIterator* item_iterator;
+                RETURN_IF_ERROR(_sub_writers[0]->new_iterator(&item_iterator));
+                *iterator = new ArrayFileColumnIterator(this, item_iterator);
+                return Status::OK();
+            }
+            default:
+                return Status::NotSupported("unsupported type to create iterator: " + std::to_string(type));
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-Status ArrayColumnReader::new_iterator(ColumnIterator** iterator) {
-    ColumnIterator* item_iterator;
-    _item_reader->new_iterator(&item_iterator);
-    *iterator = new ArrayFileColumnIterator(this, item_iterator);
-    return Status::OK();
-}
 
 ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader)
 : FileColumnIterator(offset_reader) {

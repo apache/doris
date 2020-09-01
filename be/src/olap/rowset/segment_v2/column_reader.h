@@ -91,7 +91,7 @@ public:
     virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(ColumnIterator** iterator) = 0;
+    Status new_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
@@ -195,34 +195,9 @@ private:
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
-};
 
-class ScalarColumnReader : public ColumnReader {
-public:
-    explicit ScalarColumnReader(const ColumnReaderOptions& opts,
-                               const ColumnMetaPB& meta,
-                               uint64_t num_rows,
-                               const std::string& file_name)
-            : ColumnReader(opts, meta, num_rows, file_name) {}
-    ~ScalarColumnReader() override = default;
-    Status new_iterator(ColumnIterator** iterator) override;
-};
-
-class ArrayColumnReader : public ColumnReader {
-public:
-    explicit ArrayColumnReader(const ColumnReaderOptions& opts,
-                      const ColumnMetaPB& meta,
-                      uint64_t num_rows,
-                      const std::string& file_name, std::unique_ptr<ColumnReader> item_reader)
-                      : ColumnReader(opts, meta, num_rows, file_name), _item_reader(std::move(item_reader)) {}
-    ~ArrayColumnReader() override = default;
-
-    Status new_iterator(ColumnIterator** iterator) override;
-
-private:
-    std::unique_ptr<ColumnReader> _item_reader;
-
-    friend class ColumnReader; // for create.
+    // Map from cid to current writers
+    std::vector<std::unique_ptr<ColumnReader>> _sub_writers;
 };
 
 // Base iterator to read one column data
