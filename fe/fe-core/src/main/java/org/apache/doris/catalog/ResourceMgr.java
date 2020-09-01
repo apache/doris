@@ -17,9 +17,11 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -42,6 +44,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Resource manager is responsible for managing external resources used by Doris.
@@ -52,7 +55,7 @@ public class ResourceMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(ResourceMgr.class);
 
     public static final ImmutableList<String> RESOURCE_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("ResourceType").add("Key").add("Value")
+            .add("NAME").add("RESOURCETYPE").add("KEY").add("VALUE")
             .build();
 
     // { resourceName -> Resource}
@@ -65,7 +68,7 @@ public class ResourceMgr implements Writable {
 
     public void createResource(CreateResourceStmt stmt) throws DdlException {
         if (stmt.getResourceType() != ResourceType.SPARK) {
-            throw new DdlException("Only support Spark resource.");
+            throw new DdlException("Only support Spark.");
         }
 
         String resourceName = stmt.getResourceName();
@@ -109,8 +112,41 @@ public class ResourceMgr implements Writable {
         return nameToResource.size();
     }
 
-    public List<List<String>> getResourcesInfo() {
-        return procNode.fetchResult().getRows();
+    public List<List<Comparable>> getResourcesInfo(String name, boolean accurateMatch, Set<String> typeSets) {
+        List<List<String>> targetRows = procNode.fetchResult().getRows();
+        List<List<Comparable>> returnRows = Lists.newArrayList();
+
+        for (List<String> row : targetRows) {
+            if (row == null || row.size() < 2) {
+                continue;
+            }
+
+            String resourceName = row.get(0);
+            String resourceType = row.get(1);
+
+            if (name != null) {
+                if (accurateMatch && !resourceName.equals(name)) {
+                    continue;
+                }
+                if (!accurateMatch && !resourceName.contains(name)) {
+                    continue;
+                }
+            }
+
+            if (typeSets != null) {
+                if (!typeSets.contains(resourceType.toUpperCase())) {
+                    continue;
+                }
+            }
+
+            List<Comparable> comparableRow = Lists.newArrayList();
+            for (Comparable solt : row) {
+                comparableRow.add(solt);
+            }
+            returnRows.add(comparableRow);
+        }
+
+        return returnRows;
     }
 
     public ResourceProcNode getProcNode() {
@@ -145,5 +181,15 @@ public class ResourceMgr implements Writable {
             }
             return result;
         }
+    }
+
+    public static int analyzeColumn(String columnName) throws AnalysisException {
+        for (String title : RESOURCE_PROC_NODE_TITLE_NAMES) {
+            if (title.equalsIgnoreCase(columnName)) {
+                return RESOURCE_PROC_NODE_TITLE_NAMES.indexOf(title);
+            }
+        }
+
+        throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 }

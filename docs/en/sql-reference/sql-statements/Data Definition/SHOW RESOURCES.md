@@ -1,7 +1,7 @@
 ---
 {
     "title": "SHOW RESOURCES",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -27,9 +27,9 @@ under the License.
 # SHOW RESOURCES
 ## description
 
-    该语句用于展示用户有使用权限的资源。普通用户仅能展示有使用权限的资源，root 或 admin 用户会展示所有的资源。
+    This statement is used to display the resources that the user has permission to use. Ordinary users can only display the resources with permission, while root or admin users can display all the resources.
     
-    语法
+    Grammar
     
         SHOW RESOURCES
         [
@@ -40,22 +40,22 @@ under the License.
         [ORDER BY ...]
         [LIMIT limit][OFFSET offset];
         
-     说明：
-        1) 如果使用 NAME LIKE，则会匹配RESOURCES的Name包含 name_matcher的Resource
-        2) 如果使用 NAME = ，则精确匹配指定的 Name
-        3) 如果指定了RESOURCETYPE，则匹配对应的Resrouce类型
-        4) 可以使用 ORDER BY 对任意列组合进行排序
-        5) 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
-        6) 如果指定了 OFFSET，则从偏移量offset开始显示查询结果。默认情况下偏移量为0。
+    Explain：
+        1) If use NAME LIKE, the name of resource is matched to show.
+        2) If use NAME =, the specified name is exactly matched.
+        3) RESOURCETYPE is specified, the corresponding rerouce type is matched.
+        4) Use ORDER BY to sort any combination of columns.
+        5) If LIMIT is specified, limit matching records are displayed. Otherwise, it is all displayed.
+        6) If OFFSET is specified, the query results are displayed starting with the offset offset. The offset is 0 by default.
 
 ## example
-    1. 展示当前用户拥有权限的所有Resource
+    1. Display all resources that the current user has permissions on
         SHOW RESOURCES;
     
-    2. 展示指定 Resource ，NAME 中包含字符串 "20140102"，展示10个属性
+    2. Show the specified resource, the name contains the string "20140102", and displays 10 properties
         SHOW RESOURCES WHERE NAME LIKE "2014_01_02" LIMIT 10;
         
-    3. 展示指定 Resource ，指定 NAME 为 "20140102" 并按 KEY 降序排序
+    3. Display the specified resource, specify the name as "20140102" and sort in descending order by key
         SHOW RESOURCES WHERE NAME = "20140102" ORDER BY `KEY` DESC;
 
 
