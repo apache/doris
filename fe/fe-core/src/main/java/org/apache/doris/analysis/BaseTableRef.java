@@ -53,11 +53,6 @@ public class BaseTableRef extends TableRef {
     }
 
     @Override
-    public Table getTable() {
-        return table;
-    }
-
-    @Override
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) {
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
         result.setTable(table);
