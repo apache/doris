@@ -1400,7 +1400,7 @@ bool DateTimeValue::from_date_format_str(
     }
     if (sub_val_end) {
         *sub_val_end = val;
-        return 0;
+        return true;
     }
     // Year day
     if (yearday > 0) {
