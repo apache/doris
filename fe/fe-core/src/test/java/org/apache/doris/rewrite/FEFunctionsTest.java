@@ -189,25 +189,9 @@ public class FEFunctionsTest {
     }
 
     @Test
-    public void perf() {
-        try {
-            long start = System.currentTimeMillis();
-            for (int i = 0; i < 100000; i++) {
-                DateLiteral literal = DateLiteral.dateParser("2020-11-18", "%Y-%m-%d");
-                Assert.assertNotNull(literal);
-            }
-            System.out.println("cost: " + (System.currentTimeMillis() - start));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Test
     public void dateParseTest() {
-
         try {
             Assert.assertEquals("2019-05-09 00:00:00", FEFunctions.dateParse(new StringLiteral("2019-05-09"), new StringLiteral("%Y-%m-%d %H:%i:%s")).getStringValue());
-
             Assert.assertEquals("2013-05-10", FEFunctions.dateParse(new StringLiteral("2013,05,10"), new StringLiteral("%Y,%m,%d")).getStringValue());
             Assert.assertEquals("2013-05-17 00:35:10", FEFunctions.dateParse(new StringLiteral("2013-05-17 12:35:10"), new StringLiteral("%Y-%m-%d %h:%i:%s")).getStringValue());
             Assert.assertEquals("2013-05-17 00:35:10", FEFunctions.dateParse(new StringLiteral("2013-05-17 00:35:10"), new StringLiteral("%Y-%m-%d %H:%i:%s")).getStringValue());
@@ -220,48 +204,25 @@ public class FEFunctionsTest {
             Assert.assertEquals("2019-05-09", FEFunctions.dateParse(new StringLiteral("2019,19,Thursday"), new StringLiteral("%x,%v,%W")).getStringValue());
             Assert.assertEquals("2019-05-09 12:10:45", FEFunctions.dateParse(new StringLiteral("12:10:45-20190509"), new StringLiteral("%T-%Y%m%d")).getStringValue());
             Assert.assertEquals("2019-05-09 09:10:45", FEFunctions.dateParse(new StringLiteral("20190509-9:10:45"), new StringLiteral("%Y%m%d-%k:%i:%S")).getStringValue());
-
+            Assert.assertEquals("0000-00-20", FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%D")).getStringValue());
+            Assert.assertEquals("0000-00-00", FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%U")).getStringValue());
+            Assert.assertEquals("0000-00-00", FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%u")).getStringValue());
+            Assert.assertEquals("0000-00-00", FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%V")).getStringValue());
+            Assert.assertEquals("0000-00-00", FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%w")).getStringValue());
+            Assert.assertEquals("0000-00-00", FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%x")).getStringValue());
+            Assert.assertEquals("0000-00-00", FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%X")).getStringValue());
+            Assert.assertEquals("2013-05-17 20:07:05", FEFunctions.dateParse(new StringLiteral("2013-05-17 08:07:05 PM"), new StringLiteral("%Y-%m-%d %r")).getStringValue());
+            Assert.assertEquals("2013-05-17 08:07:05", FEFunctions.dateParse(new StringLiteral("2013-05-17 08:07:05"), new StringLiteral("%Y-%m-%d %T")).getStringValue());
         } catch (AnalysisException e) {
-            fail("Junit test dateParse fail");
             e.printStackTrace();
+            fail("Junit test dateParse fail");
         }
 
         try {
-            FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%D"));
+            FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%W"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(),
-                    "errCode = 2, detailMessage = %D not supported in date format string");
-        }
-        try {
-            FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%U"));
-            fail("Junit test dateParse fail");
-        } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %U not supported in date format string");
-        }
-        try {
-            FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%u"));
-            fail("Junit test dateParse fail");
-        } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %u not supported in date format string");
-        }
-        try {
-            FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%V"));
-            fail("Junit test dateParse fail");
-        } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %V not supported in date format string");
-        }
-        try {
-            FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%w"));
-            fail("Junit test dateParse fail");
-        } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %w not supported in date format string");
-        }
-        try {
-            FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%X"));
-            fail("Junit test dateParse fail");
-        } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %X not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = '' is invalid");
         }
     }
 
