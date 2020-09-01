@@ -38,6 +38,10 @@ public enum ErrorCode {
     ERR_ILLEGAL_COLUMN_REFERENCE_ERROR(1053, new byte[] {'2', '3', '0', '0', '1'},
             "Illegal column/field reference '%s' of semi-/anti-join"),
     ERR_BAD_FIELD_ERROR(1054, new byte[] {'4', '2', 'S', '2', '2'}, "Unknown column '%s' in '%s'"),
+    ERR_UNIUQUE_KEY_USE_SEMI_JOIN(1055, new byte[] {'2', '3', '0', '0', '1'},
+            "%s is a hidden column to mark whether a row deleted when unique key existed, " +
+                    "'__DORIS_DELETE_SIGN__ = 0' will appear in where clause, that will cause semi join syntax error, " +
+                    "please use '[not] in/existed' as replacement."),
     ERR_WRONG_VALUE_COUNT(1058, new byte[] {'2', '1', 'S', '0', '1'}, "Column count doesn't match value count"),
     ERR_DUP_FIELDNAME(1060, new byte[] {'4', '2', 'S', '2', '1'}, "Duplicate column name '%s'"),
     ERR_NONUNIQ_TABLE(1066, new byte[] {'4', '2', '0', '0', '0'}, "Not unique table/alias: '%s'"),

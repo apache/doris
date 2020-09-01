@@ -656,6 +656,10 @@ public class Analyzer {
         for (TupleDescriptor desc : tupleByAlias.get(tblName.toString())) {
             //result = desc;
             if (!isVisible(desc.getId())) {
+                if (colName.equalsIgnoreCase(Column.DELETE_SIGN)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_UNIUQUE_KEY_USE_SEMI_JOIN,
+                            Joiner.on(".").join(tblName.getTbl(),colName));
+                }
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR, 
                         Joiner.on(".").join(tblName.getTbl(),colName));
             }
