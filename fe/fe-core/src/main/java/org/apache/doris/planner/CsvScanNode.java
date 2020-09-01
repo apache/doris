@@ -80,28 +80,28 @@ public class CsvScanNode extends ScanNode {
         msg.csv_scan_node = new TCsvScanNode(desc.getId().asInt(), filePaths);
 
         if (!Strings.isNullOrEmpty(columnSeparator)) {
-            msg.csv_scan_node.setColumn_separator(columnSeparator);
+            msg.csv_scan_node.setColumnSeparator(columnSeparator);
         }
         if (!Strings.isNullOrEmpty(lineDelimiter)) {
-            msg.csv_scan_node.setLine_delimiter(lineDelimiter);
+            msg.csv_scan_node.setLineDelimiter(lineDelimiter);
         }
 
         if (!columns.isEmpty()) {
             msg.csv_scan_node.setColumns(columns);
         }
         if (!unspecifiedColumns.isEmpty()) {
-            msg.csv_scan_node.setUnspecified_columns(unspecifiedColumns);
+            msg.csv_scan_node.setUnspecifiedColumns(unspecifiedColumns);
         }
         if (!defaultValues.isEmpty()) {
-            msg.csv_scan_node.setDefault_values(defaultValues);
+            msg.csv_scan_node.setDefaultValues(defaultValues);
         }
 
         if (!columnToFunction.isEmpty()) {
-            msg.csv_scan_node.setColumn_function_mapping(columnToFunction);
+            msg.csv_scan_node.setColumnFunctionMapping(columnToFunction);
         }
-        msg.csv_scan_node.setColumn_type_mapping(columnTypeMapping);
-        msg.csv_scan_node.setMax_filter_ratio(maxFilterRatio);
-        msg.csv_scan_node.setColumn_separator(columnSeparator);
+        msg.csv_scan_node.setColumnTypeMapping(columnTypeMapping);
+        msg.csv_scan_node.setMaxFilterRatio(maxFilterRatio);
+        msg.csv_scan_node.setColumnSeparator(columnSeparator);
     }
 
     @Override
@@ -173,8 +173,8 @@ public class CsvScanNode extends ScanNode {
                     }   
                 }   
                 if (find) {
-                    function.setFunction_name(pair.first);
-                    function.setParam_column_index(paramColumnIndex);
+                    function.setFunctionName(pair.first);
+                    function.setParamColumnIndex(paramColumnIndex);
                     columnToFunction.put(key, function); 
                     break;
                 }   

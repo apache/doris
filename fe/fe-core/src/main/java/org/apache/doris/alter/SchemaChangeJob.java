@@ -567,7 +567,7 @@ public class SchemaChangeJob extends AlterJob {
         SchemaChangeTask schemaChangeTask = (SchemaChangeTask) task;
 
         // check schema hash to avoid former schema change task try finishing current task
-        int finishTabletInfoSchemaHash = finishTabletInfo.getSchema_hash();
+        int finishTabletInfoSchemaHash = finishTabletInfo.getSchemaHash();
         int taskSchemaHash = schemaChangeTask.getSchemaHash();
         if (finishTabletInfoSchemaHash != taskSchemaHash) {
             throw new MetaNotFoundException("Schema hash is not equal[" + finishTabletInfoSchemaHash + "-"
@@ -605,7 +605,7 @@ public class SchemaChangeJob extends AlterJob {
             }
             Preconditions.checkState(materializedIndex.getState() == IndexState.SCHEMA_CHANGE);
 
-            Preconditions.checkArgument(finishTabletInfo.getTablet_id() == tabletId);
+            Preconditions.checkArgument(finishTabletInfo.getTabletId() == tabletId);
             Tablet tablet = materializedIndex.getTablet(tabletId);
             if (tablet == null) {
                 throw new MetaNotFoundException("Cannot find tablet[" + tabletId + "]");
@@ -618,13 +618,13 @@ public class SchemaChangeJob extends AlterJob {
             // replica's state may be NORMAL(due to clone), so no need to check
 
             long version = finishTabletInfo.getVersion();
-            long versionHash = finishTabletInfo.getVersion_hash();
-            long dataSize = finishTabletInfo.getData_size();
-            long rowCount = finishTabletInfo.getRow_count();
+            long versionHash = finishTabletInfo.getVersionHash();
+            long dataSize = finishTabletInfo.getDataSize();
+            long rowCount = finishTabletInfo.getRowCount();
             // do not need check version > replica.getVersion, because the new replica's version is first set by sc
             replica.updateVersionInfo(version, versionHash, dataSize, rowCount);
-            if (finishTabletInfo.isSetPath_hash()) {
-                replica.setPathHash(finishTabletInfo.getPath_hash());
+            if (finishTabletInfo.isSetPathHash()) {
+                replica.setPathHash(finishTabletInfo.getPathHash());
             }
         } finally {
             db.writeUnlock();

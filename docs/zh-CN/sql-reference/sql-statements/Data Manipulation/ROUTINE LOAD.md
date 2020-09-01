@@ -49,10 +49,11 @@ under the License.
     3. load_properties
 
         用于描述导入数据。语法：
-
+        [merge_type],
         [column_separator],
         [columns_mapping],
         [where_predicates],
+        [delete_on_predicates],
         [partitions]
 
         1. column_separator:
@@ -97,6 +98,10 @@ under the License.
             示例：
 
             PARTITION(p1, p2, p3)
+        5. merge_type
+            数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete on条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理, 语法为[WITH MERGE|APPEND|DELETE]
+        6. delete_on_predicates
+            表示删除条件，仅在 merge type 为MERGE 时有意义，语法与where 相同
 
     4. job_properties
 
@@ -432,6 +437,28 @@ under the License.
             {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
             ]
         }
+    7. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。并且删除与v3 >100 行相匹配的key列的行
+
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        WITH MERGE
+        COLUMNS(k1, k2, k3, v1, v2, v3),
+        WHERE k1 > 100 and k2 like "%doris%"
+        DELETE ON v3 >100
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2,3",
+            "kafka_offsets" = "101,0,0,200"
+        );
 ## keyword
 
     CREATE,ROUTINE,LOAD

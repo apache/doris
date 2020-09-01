@@ -149,7 +149,7 @@ public class SingleNodePlanner {
             LOG.trace("desctbl: " + analyzer.getDescTbl().debugString());
         }
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
-                ctx_.getQueryOptions().getDefault_order_by_limit());
+                ctx_.getQueryOptions().getDefaultOrderByLimit());
         Preconditions.checkNotNull(singleNodePlan);
         return singleNodePlan;
     }
@@ -1036,6 +1036,8 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                //set outputSmap to substitute literal in outputExpr 
+                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
                 return unionNode;
             }

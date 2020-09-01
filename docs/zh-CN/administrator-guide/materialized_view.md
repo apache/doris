@@ -91,6 +91,9 @@ HELP CREATE MATERIALIZED VIEW
 + SUM, MIN, MAX (Version 0.12)
 + COUNT, BITMAP\_UNION, HLL\_UNION (Version 0.13)
 
++ BITMAP\_UNION 的形式必须为：`BITMAP_UNION(TO_BITMAP(COLUMN))` column 列的类型只能是整数（largeint也不支持), 或者 `BITMAP_UNION(COLUMN)` 且 base 表为 AGG 模型。
++ HLL\_UNION 的形式必须为：`HLL_UNION(HLL_HASH(COLUMN))` column 列的类型不能是 DECIMAL , 或者 `HLL_UNION(COLUMN)` 且 base 表为 AGG 模型。
+
 ### 更新策略
 
 为保证物化视图表和 Base 表的数据一致性, Doris 会将导入，删除等对 base 表的操作都同步到物化视图表中。并且通过增量更新的方式来提升更新效率。通过事务方式来保证原子性。
@@ -485,3 +488,8 @@ MySQL [test]> desc advertiser_view_record;
 2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
 3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
 4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。
+
+## 异常错误
+1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data"
+    由于数据质量问题导致物化视图创建失败。
+    注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败

@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import mockit.*;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
@@ -62,6 +61,13 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class RestoreJobTest {
 
@@ -285,7 +291,7 @@ public class RestoreJobTest {
             TBackend tBackend = new TBackend("", 0, 1);
             TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
                     task.getSignature(), taskStatus);
-            request.setSnapshot_path(snapshotPath);
+            request.setSnapshotPath(snapshotPath);
             Assert.assertTrue(job.finishTabletSnapshotTask(task, request));
         }
 
@@ -318,7 +324,7 @@ public class RestoreJobTest {
             TBackend tBackend = new TBackend("", 0, 1);
             TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
                     agentTask.getSignature(), taskStatus);
-            request.setDownloaded_tablet_ids(downloadedTabletIds);
+            request.setDownloadedTabletIds(downloadedTabletIds);
             Assert.assertTrue(job.finishTabletDownloadTask((DownloadTask) agentTask, request));
         }
 

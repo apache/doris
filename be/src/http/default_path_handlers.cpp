@@ -108,7 +108,7 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
     if (it != args.end()) {
         tablet_num_to_return = it->second;
     } else {
-        tablet_num_to_return = "";
+        tablet_num_to_return = "1000"; // default
     }
     (*ej) = tablet_info_action.get_tablets_info(tablet_num_to_return);
 }

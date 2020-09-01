@@ -371,8 +371,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         msg.num_children = children.size();
         msg.limit = limit;
         for (TupleId tid : tupleIds) {
-            msg.addToRow_tuples(tid.asInt());
-            msg.addToNullable_tuples(nullableTupleIds.contains(tid));
+            msg.addToRowTuples(tid.asInt());
+            msg.addToNullableTuples(nullableTupleIds.contains(tid));
         }
         for (Expr e : conjuncts) {
             msg.addToConjuncts(e.treeToThrift());

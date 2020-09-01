@@ -466,7 +466,7 @@ else()
 endif()
 
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -lltdl -pthread
+    -lrt -lbfd -liberty -lc -lm -ldl -pthread
 )
 
 # Set libraries for test
@@ -572,8 +572,4 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     DESTINATION ${OUTPUT_DIR}/conf)
-
-install(DIRECTORY
-    ${BASE_DIR}/../webroot/be/
-    DESTINATION ${OUTPUT_DIR}/www)
 

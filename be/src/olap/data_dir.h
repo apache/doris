@@ -106,6 +106,8 @@ public:
 
     void perform_path_gc_by_rowsetid();
 
+    void perform_path_gc_by_tablet();
+
     OLAPStatus remove_old_meta_and_files();
 
     bool convert_old_data_success();
@@ -124,6 +126,8 @@ public:
 
     void update_user_data_size(int64_t size);
 
+    std::set<TabletInfo> tablet_set() { return _tablet_set; }
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -137,8 +141,6 @@ private:
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
-
-    void _remove_check_paths_no_lock(const std::set<std::string>& paths);
 
     void _process_garbage_path(const std::string& path);
 
@@ -182,6 +184,7 @@ private:
     std::mutex _check_path_mutex;
     std::condition_variable _cv;
     std::set<std::string> _all_check_paths;
+    std::set<std::string> _all_tablet_schemahash_paths;
 
     RWMutex _pending_path_mutex;
     std::set<std::string> _pending_path_ids;

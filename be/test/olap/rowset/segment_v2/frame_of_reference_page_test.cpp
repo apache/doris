@@ -105,7 +105,7 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderRandom) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderEqual) {
@@ -117,7 +117,7 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderEqual) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderSequence) {
@@ -129,7 +129,7 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
@@ -141,10 +141,10 @@ TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_BIGINT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_BIGINT> >(ints.get(), size);
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_BIGINT>>(ints.get(), size);
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_DATETIME, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATETIME>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATETIME> >(ints.get(), size);
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATETIME>>(ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderSequence) {
@@ -158,7 +158,7 @@ TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE> >(ints.get(), size);
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE>>(ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderSequence) {
@@ -172,7 +172,7 @@ TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_LARGEINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT> >(ints.get(), size);
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT>>(ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderMinMax) {
@@ -182,7 +182,7 @@ TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderMinMax) {
     ints.get()[1] = 0xFFFFFF;
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
-        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE> >(ints.get(), 2);
+        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE>>(ints.get(), 2);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderMinMax) {
@@ -192,7 +192,7 @@ TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderMinMax) {
     ints.get()[1] = numeric_limits<int128_t>::max();
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_LARGEINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
-        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT> >(ints.get(), 2);
+        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT>>(ints.get(), 2);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {

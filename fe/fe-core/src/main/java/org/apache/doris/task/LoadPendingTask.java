@@ -101,7 +101,7 @@ public abstract class LoadPendingTask extends MasterTask {
         while (retry < RETRY_NUM) {
             result = submitEtlJob(retry);
             if (result != null) {
-                if (result.getStatus().getStatus_code() == TStatusCode.OK) {
+                if (result.getStatus().getStatusCode() == TStatusCode.OK) {
                     if (load.updateLoadJobState(job, JobState.ETL)) {
                         LOG.info("submit etl job success. job: {}", job);
                         return;
@@ -113,7 +113,7 @@ public abstract class LoadPendingTask extends MasterTask {
 
         String failMsg = "submit etl job fail";
         if (result != null) {
-            List<String> failMsgs = result.getStatus().getError_msgs();
+            List<String> failMsgs = result.getStatus().getErrorMsgs();
             failMsg = Joiner.on(";").join(failMsgs);
         }
 

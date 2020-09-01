@@ -52,9 +52,11 @@ FROM data_source
     Used to describe the load data. grammar:
 
     ```
+    [merge_type],
     [column_separator],
     [columns_mapping],
     [where_predicates],
+    [delete_on_predicates]
     [partitions]
     ```
 
@@ -105,6 +107,14 @@ FROM data_source
         Example:
 
         `PARTITION(p1, p2, p3)`
+
+    5. merge_type:
+
+        The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete on condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
+
+    6. delete_on_predicates:
+
+        Only used when merge type is MERGE
 
 4. job_properties
 
@@ -494,6 +504,29 @@ FROM data_source
             {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
             ]
         }
+
+    7. Create a Kafka routine load task named test1 for the example_tbl of example_db. delete all data key colunms match v3 >100 key columns.
+
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        WITH MERGE
+        COLUMNS(k1, k2, k3, v1, v2, v3),
+        WHERE k1 > 100 and k2 like "%doris%"
+        DELETE ON v3 >100
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2,3",
+            "kafka_offsets" = "101,0,0,200"
+        );
 ## keyword
 
     CREATE, ROUTINE, LOAD

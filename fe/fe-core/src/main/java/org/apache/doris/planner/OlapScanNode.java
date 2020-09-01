@@ -372,11 +372,11 @@ public class OlapScanNode extends ScanNode {
             TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
 
             TPaloScanRange paloRange = new TPaloScanRange();
-            paloRange.setDb_name("");
-            paloRange.setSchema_hash(schemaHashStr);
+            paloRange.setDbName("");
+            paloRange.setSchemaHash(schemaHashStr);
             paloRange.setVersion(visibleVersionStr);
-            paloRange.setVersion_hash(visibleVersionHashStr);
-            paloRange.setTablet_id(tabletId);
+            paloRange.setVersionHash(visibleVersionHashStr);
+            paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
             List<Replica> allQueryableReplicas = Lists.newArrayList();
@@ -413,7 +413,7 @@ public class OlapScanNode extends ScanNode {
                 String ip = backend.getHost();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
-                scanRangeLocation.setBackend_id(replica.getBackendId());
+                scanRangeLocation.setBackendId(replica.getBackendId());
                 scanRangeLocations.addToLocations(scanRangeLocation);
                 paloRange.addToHosts(new TNetworkAddress(ip, port));
                 tabletIsNull = false;
@@ -430,8 +430,8 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(tabletId + "have no alive replicas");
             }
             TScanRange scanRange = new TScanRange();
-            scanRange.setPalo_scan_range(paloRange);
-            scanRangeLocations.setScan_range(scanRange);
+            scanRange.setPaloScanRange(paloRange);
+            scanRangeLocations.setScanRange(scanRange);
 
             bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), scanRangeLocations);
 
@@ -624,7 +624,7 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node =
               new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         if (null != sortColumn) {
-            msg.olap_scan_node.setSort_column(sortColumn);
+            msg.olap_scan_node.setSortColumn(sortColumn);
         }
     }
 

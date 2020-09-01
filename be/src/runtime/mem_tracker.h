@@ -479,7 +479,7 @@ class MemTracker : public std::enable_shared_from_this<MemTracker> {
     DCHECK(consumption_metric_ == nullptr) << "Should not be called on root.";
     for (MemTracker* tracker : all_trackers_) {
       if (tracker == end_tracker) return;
-      DCHECK(!tracker->has_limit());
+      DCHECK(!tracker->has_limit()) << tracker->label() << " have limit:" << tracker->limit();
       tracker->consumption_->add(bytes);
     }
     DCHECK(false) << "end_tracker is not an ancestor";

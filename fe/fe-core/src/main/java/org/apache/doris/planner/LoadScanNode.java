@@ -164,12 +164,12 @@ public abstract class LoadScanNode extends ScanNode {
                 expr.analyze(analyzer);
             }
             expr = castToSlot(destSlotDesc, expr);
-            params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
+            params.putToExprOfDestSlot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
-        params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
-        params.setDest_tuple_id(desc.getId().asInt());
-        params.setStrict_mode(strictMode);
-        params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
+        params.setDestSidToSrcSidWithoutTrans(destSidToSrcSidWithoutTrans);
+        params.setDestTupleId(desc.getId().asInt());
+        params.setStrictMode(strictMode);
+        params.setSrcTupleId(srcTupleDesc.getId().asInt());
         // LOG.info("brokerScanRange is {}", brokerScanRange);
 
         // Need re compute memory layout after set some slot descriptor to nullable
@@ -178,8 +178,8 @@ public abstract class LoadScanNode extends ScanNode {
 
     @Override
     protected void toThrift(TPlanNode planNode) {
-        planNode.setNode_type(TPlanNodeType.BROKER_SCAN_NODE);
+        planNode.setNodeType(TPlanNodeType.BROKER_SCAN_NODE);
         TBrokerScanNode brokerScanNode = new TBrokerScanNode(desc.getId().asInt());
-        planNode.setBroker_scan_node(brokerScanNode);
+        planNode.setBrokerScanNode(brokerScanNode);
     }
 }

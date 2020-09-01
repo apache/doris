@@ -267,13 +267,13 @@ public class ScalarFunction extends Function {
     @Override
     public TFunction toThrift() {
         TFunction fn = super.toThrift();
-        fn.setScalar_fn(new TScalarFunction());
-        fn.getScalar_fn().setSymbol(symbolName);
+        fn.setScalarFn(new TScalarFunction());
+        fn.getScalarFn().setSymbol(symbolName);
         if (prepareFnSymbol != null) {
-            fn.getScalar_fn().setPrepare_fn_symbol(prepareFnSymbol);
+            fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);
         }
         if (closeFnSymbol != null) {
-            fn.getScalar_fn().setClose_fn_symbol(closeFnSymbol);
+            fn.getScalarFn().setCloseFnSymbol(closeFnSymbol);
         }
         return fn;
     }

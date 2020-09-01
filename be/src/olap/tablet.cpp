@@ -39,6 +39,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "util/path_util.h"
 #include "util/time.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -63,8 +64,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
         _last_base_compaction_success_millis(0),
         _cumulative_point(K_INVALID_CUMULATIVE_POINT),
         _cumulative_compaction_type(cumulative_compaction_type) {
-    // change _rs_graph to _timestamped_version_tracker
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+    // construct _timestamped_versioned_tracker from rs and stale rs meta
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
+                                                             _tablet_meta->all_stale_rs_metas());
 }
 
 OLAPStatus Tablet::_init_once_action() {
@@ -106,6 +108,20 @@ OLAPStatus Tablet::_init_once_action() {
             }
         }
         _inc_rs_version_map[version] = std::move(rowset);
+    }
+
+    // init stale rowset
+    for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
+        Version version = stale_rs_meta->version();
+        RowsetSharedPtr rowset;
+        res = RowsetFactory::create_rowset(&_schema, _tablet_path, stale_rs_meta, &rowset);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
+                         << ", schema_hash:" << schema_hash() << ", version=" << version
+                         << ", res:" << res;
+            return res;
+        }
+        _stale_rs_version_map[version] = std::move(rowset);
     }
 
     return res;
@@ -270,6 +286,15 @@ void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
+        VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
+        return nullptr;
+    }
+    return iter->second;
+}
+
+const RowsetSharedPtr Tablet::get_stale_rowset_by_version(const Version& version) const {
+    auto iter = _stale_rs_version_map.find(version);
+    if (iter == _stale_rs_version_map.end()) {
         VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
         return nullptr;
     }
@@ -895,6 +920,12 @@ bool Tablet::check_path(const std::string& path_to_check) const {
             return true;
         }
     }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        bool ret = stale_version_rowset.second->check_path(path_to_check);
+        if (ret) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -916,6 +947,11 @@ bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
     }
     for (auto& inc_version_rowset : _inc_rs_version_map) {
         if (inc_version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_id) {
             return true;
         }
     }
@@ -1001,7 +1037,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
         // get snapshot version path json_doc
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     }
-
+    rapidjson::Value cumulative_policy_type;
+    std::string policy_type_str = _cumulative_compaction_policy->name();
+    cumulative_policy_type.SetString(policy_type_str.c_str(), policy_type_str.length(), root.GetAllocator());
+    root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
@@ -1026,10 +1065,12 @@ void Tablet::get_compaction_status(std::string* json_result) {
     for (int i = 0; i < rowsets.size(); ++i) {
         const Version& ver = rowsets[i]->version();
         rapidjson::Value value;
-        std::string version_str = strings::Substitute("[$0-$1] $2 $3 $4 $5",
-            ver.first, ver.second, rowsets[i]->num_segments(), (delete_flags[i] ? "DELETE" : "DATA"),
-            SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()), 
-            rowsets[i]->rowset_meta()->total_disk_size());
+        std::string disk_size =
+                PrettyPrinter::print(rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+        std::string version_str = strings::Substitute(
+                "[$0-$1] $2 $3 $4 $5", ver.first, ver.second, rowsets[i]->num_segments(),
+                (delete_flags[i] ? "DELETE" : "DATA"),
+                SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()), disk_size);
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
     }
@@ -1117,6 +1158,14 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
             find_rowset_id = true;
         }
         if (inc_version_rowset.second->contains_version(rowset_meta->version())) {
+            find_version = true;
+        }
+    }
+    for (auto& stale_version_rowset : _stale_rs_version_map) {
+        if (stale_version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
+            find_rowset_id = true;
+        }
+        if (stale_version_rowset.second->contains_version(rowset_meta->version())) {
             find_version = true;
         }
     }

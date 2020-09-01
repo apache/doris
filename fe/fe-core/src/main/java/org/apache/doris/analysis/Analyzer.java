@@ -382,7 +382,7 @@ public class Analyzer {
         TQueryGlobals queryGlobals = new TQueryGlobals();
         Calendar currentDate = Calendar.getInstance();
         String nowStr = formatter.format(currentDate.getTime());
-        queryGlobals.setNow_string(nowStr);
+        queryGlobals.setNowString(nowStr);
         return queryGlobals;
     }
 

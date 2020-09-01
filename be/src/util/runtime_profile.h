@@ -508,7 +508,7 @@ private:
 
     // Map from parent counter name to a set of child counter name.
     // All top level counters are the child of "" (root).
-    typedef std::map<std::string, std::set<std::string> > ChildCounterMap;
+    typedef std::map<std::string, std::set<std::string>> ChildCounterMap;
     ChildCounterMap _child_counter_map;
 
     // A set of bucket counters registered in this runtime profile.
@@ -523,7 +523,7 @@ private:
     typedef std::map<std::string, RuntimeProfile*> ChildMap;
     ChildMap _child_map;
     // vector of (profile, indentation flag)
-    typedef std::vector<std::pair<RuntimeProfile*, bool> > ChildVector;
+    typedef std::vector<std::pair<RuntimeProfile*, bool>> ChildVector;
     ChildVector _children;
     mutable boost::mutex _children_lock;  // protects _child_map and _children
 

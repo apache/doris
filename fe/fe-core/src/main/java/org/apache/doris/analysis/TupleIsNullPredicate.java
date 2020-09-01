@@ -66,7 +66,7 @@ public class TupleIsNullPredicate extends Predicate {
         msg.node_type = TExprNodeType.TUPLE_IS_NULL_PRED;
         msg.tuple_is_null_pred = new TTupleIsNullPredicate();
         for (TupleId tid : tupleIds) {
-            msg.tuple_is_null_pred.addToTuple_ids(tid.asInt());
+            msg.tuple_is_null_pred.addToTupleIds(tid.asInt());
         }
     }
 

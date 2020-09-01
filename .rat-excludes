@@ -7,7 +7,6 @@
 .gitattributes
 .gitignore
 .rat-excludes
-.travis.yml
 DISCLAIMER-WIP
 LICENSE
 NOTICE
@@ -17,3 +16,4 @@ patches/*
 test_data/*
 test.zip
 test.zip.md5
+webroot/*

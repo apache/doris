@@ -26,7 +26,6 @@ include "Partitions.thrift"
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
   MYSQL_SCAN_NODE,
-  ODBC_SCAN_NODE,
   CSV_SCAN_NODE,
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
@@ -50,7 +49,8 @@ enum TPlanNodeType {
   REPEAT_NODE,
   ASSERT_NUM_ROWS_NODE,
   INTERSECT_NODE,
-  EXCEPT_NODE
+  EXCEPT_NODE,
+  ODBC_SCAN_NODE
 }
 
 // phases of an execution node

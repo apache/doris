@@ -748,7 +748,7 @@ private:
     //  _free_buffers[10] => list of free buffers with size 1 MB
     //  _free_buffers[13] => list of free buffers with size 8 MB
     //  _free_buffers[n]  => list of free buffers with size 2^n * 1024 B
-    std::vector<std::list<char*> > _free_buffers;
+    std::vector<std::list<char*>> _free_buffers;
 
     // List of free buffer desc objects that can be handed out to clients
     std::list<BufferDescriptor*> _free_buffer_descs;

@@ -59,7 +59,7 @@ public:
 
     SchemaMapping get_schema_mapping() const { return _schema_mapping; }
 
-    bool change_row_block(const RowBlock* ref_block, int32_t data_version, RowBlock* mutable_block,
+    OLAPStatus change_row_block(const RowBlock* ref_block, int32_t data_version, RowBlock* mutable_block,
                           uint64_t* filtered_rows) const;
 
 private:
@@ -92,7 +92,7 @@ public:
     SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
                          TabletSharedPtr tablet, TabletSharedPtr base_tablet) = 0;
 
     void add_filtered_rows(uint64_t filtered_rows) { _filtered_rows += filtered_rows; }
@@ -118,7 +118,7 @@ public:
             : _row_block_changer(row_block_changer) {}
     ~LinkedSchemaChange() {}
 
-    bool process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
                  TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
@@ -134,7 +134,7 @@ public:
     explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
                          TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
@@ -154,7 +154,7 @@ public:
                                      size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
                          TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:

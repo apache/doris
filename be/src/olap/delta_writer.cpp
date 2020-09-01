@@ -139,9 +139,10 @@ OLAPStatus DeltaWriter::init() {
     writer_context.tablet_id = _req.tablet_id;
     writer_context.partition_id = _req.partition_id;
     writer_context.tablet_schema_hash = _req.schema_hash;
-    writer_context.rowset_type = _storage_engine->default_rowset_type();
     if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         writer_context.rowset_type = BETA_ROWSET;
+    } else {
+        writer_context.rowset_type = ALPHA_ROWSET;
     }
     writer_context.rowset_path_prefix = _tablet->tablet_path();
     writer_context.tablet_schema = &(_tablet->tablet_schema());

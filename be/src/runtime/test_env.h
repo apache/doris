@@ -81,7 +81,7 @@ private:
     boost::scoped_ptr<TmpFileMgr> _tmp_file_mgr;
 
     // Per-query states with associated block managers.
-    std::vector<boost::shared_ptr<RuntimeState> > _query_states;
+    std::vector<boost::shared_ptr<RuntimeState>> _query_states;
 };
 
 } // end namespace doris

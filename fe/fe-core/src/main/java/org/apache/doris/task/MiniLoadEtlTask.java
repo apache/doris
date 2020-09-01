@@ -69,22 +69,22 @@ public class MiniLoadEtlTask extends LoadEtlTask {
             return false;
         }
         TStatus tStatus = result.getStatus();
-        if (tStatus.getStatus_code() != TStatusCode.OK) {
-            LOG.warn("get buck load etl status fail. msg: {}, job: {}", tStatus.getError_msgs(), job);
+        if (tStatus.getStatusCode() != TStatusCode.OK) {
+            LOG.warn("get buck load etl status fail. msg: {}, job: {}", tStatus.getErrorMsgs(), job);
             return false;
         }
         
         // update etl task status
         EtlStatus taskStatus = taskInfo.getTaskStatus();
-        if (taskStatus.setState(result.getEtl_state())) {
+        if (taskStatus.setState(result.getEtlState())) {
             if (result.isSetCounters()) {
                 taskStatus.setCounters(result.getCounters());
             }
-            if (result.isSetTracking_url()) {
-                taskStatus.setTrackingUrl(result.getTracking_url());
+            if (result.isSetTrackingUrl()) {
+                taskStatus.setTrackingUrl(result.getTrackingUrl());
             }
-            if (result.isSetFile_map()) {
-                taskStatus.setFileMap(result.getFile_map());
+            if (result.isSetFileMap()) {
+                taskStatus.setFileMap(result.getFileMap());
             }       
         }
 

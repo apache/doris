@@ -95,8 +95,8 @@ public abstract class CacheProxy {
                 resultBatch.addToRows(ByteBuffer.wrap(one));
             }
             RowBatch batch = new RowBatch();
-            resultBatch.setPacket_seq(1);
-            resultBatch.setIs_compressed(false);
+            resultBatch.setPacketSeq(1);
+            resultBatch.setIsCompressed(false);
             batch.setBatch(resultBatch);
             batch.setEos(true);
             return batch;

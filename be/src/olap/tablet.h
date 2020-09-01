@@ -100,6 +100,7 @@ public:
     // The caller must call hold _meta_lock when call this two function.
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
     const RowsetSharedPtr get_inc_rowset_by_version(const Version& version) const;
+    const RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
 
     const RowsetSharedPtr rowset_with_max_version() const;
 

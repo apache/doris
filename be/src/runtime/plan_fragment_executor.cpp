@@ -48,6 +48,7 @@ namespace doris {
 PlanFragmentExecutor::PlanFragmentExecutor(
     ExecEnv* exec_env, const report_status_callback& report_status_cb)
     : _exec_env(exec_env),
+      _plan(nullptr),
       _report_status_cb(report_status_cb),
       _report_thread_active(false),
       _done(false),
@@ -205,6 +206,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         _collect_query_statistics_with_every_batch = params.__isset.send_query_statistics_with_every_batch ?
             params.send_query_statistics_with_every_batch : false;
     } else {
+        // _sink is set to NULL
         _sink.reset(NULL);
     }
 
@@ -221,7 +223,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _prepared = true;
 
     _query_statistics.reset(new QueryStatistics());
-    _sink->set_query_statistics(_query_statistics);
+    if (_sink.get() != NULL) {
+        _sink->set_query_statistics(_query_statistics);
+    }
     return Status::OK();
 }
 

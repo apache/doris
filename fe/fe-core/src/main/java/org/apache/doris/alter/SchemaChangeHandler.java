@@ -900,6 +900,10 @@ public class SchemaChangeHandler extends AlterHandler {
         // If StorageFormat is set to TStorageFormat.V2
         // which will create tablet with preferred_rowset_type set to BETA
         // for both base table and rollup index
+        if (hasIndexChange) {
+            // only V2 support index, so if there is index changed, storage format must be V2
+            storageFormat = TStorageFormat.V2;
+        }
         schemaChangeJob.setStorageFormat(storageFormat);
 
         // begin checking each table

@@ -371,7 +371,10 @@ void* StorageEngine::_path_gc_thread_callback(void* arg) {
     LOG(INFO) << "try to start path gc thread!";
 
     while (!_stop_bg_worker) {
-        LOG(INFO) << "try to perform path gc!";
+        LOG(INFO) << "try to perform path gc by tablet!";
+        ((DataDir*)arg)->perform_path_gc_by_tablet();
+        
+        LOG(INFO) << "try to perform path gc by rowsetid!";
         // perform path gc by rowset id
         ((DataDir*)arg)->perform_path_gc_by_rowsetid();
 

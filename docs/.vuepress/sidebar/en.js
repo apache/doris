@@ -357,7 +357,7 @@ module.exports = [
               "SHOW MIGRATIONS",
               "SHOW PLUGINS",
               "SHOW TABLE STATUS",
-              "UNINTALL PLUGIN",
+              "UNINSTALL PLUGIN",
             ],
           },
           {

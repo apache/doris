@@ -17,15 +17,18 @@
 
 package org.apache.doris.load.loadv2;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -33,6 +36,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -57,13 +61,9 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-import org.apache.spark.launcher.SparkAppHandle;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -269,7 +269,7 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                handler.getEtlJobStatus((SparkAppHandle) any, appId, anyLong, etlOutputPath,
+                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
                                         (SparkResource) any, (BrokerDesc) any);
                 result = status;
             }
@@ -292,7 +292,7 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                handler.getEtlJobStatus((SparkAppHandle) any, appId, anyLong, etlOutputPath,
+                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
                                         (SparkResource) any, (BrokerDesc) any);
                 result = status;
             }
@@ -312,7 +312,7 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                handler.getEtlJobStatus((SparkAppHandle) any, appId, anyLong, etlOutputPath,
+                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
                                         (SparkResource) any, (BrokerDesc) any);
                 result = status;
             }
@@ -343,7 +343,7 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                handler.getEtlJobStatus((SparkAppHandle) any, appId, anyLong, etlOutputPath,
+                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
                                         (SparkResource) any, (BrokerDesc) any);
                 result = status;
                 handler.getEtlFilePaths(etlOutputPath, (BrokerDesc) any);
@@ -412,6 +412,22 @@ public class SparkLoadJobTest {
         Assert.assertEquals(99, job.progress);
         Set<Long> fullTablets = Deencapsulation.getField(job, "fullTablets");
         Assert.assertTrue(fullTablets.contains(tabletId));
+    }
+
+    @Test
+    public void testSubmitTasksWhenStateFinished(@Mocked Catalog catalog, @Injectable String originStmt,
+                                                 @Injectable Database db) throws Exception {
+        new Expectations() {
+            {
+                catalog.getDb(dbId);
+                result = db;
+            }
+        };
+
+        SparkLoadJob job = getEtlStateJob(originStmt);
+        job.state = JobState.FINISHED;
+        Set<Long> totalTablets = Deencapsulation.invoke(job, "submitPushTasks");
+        Assert.assertTrue(totalTablets.isEmpty());
     }
 
     @Test

@@ -529,7 +529,7 @@ build_libunixodbc() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-static=yes 
+    ./configure --prefix=$TP_INSTALL_DIR --with-included-ltdl --enable-static=yes 
     make -j$PARALLEL && make install
 }
   
@@ -698,6 +698,21 @@ build_cctz() {
     make -j$PARALLEL && make install
 }
 
+# all js and csss related
+build_js_and_css() {
+    check_if_source_exist $DATATABLES_SOURCE
+    check_if_source_exist Bootstrap-3.3.7/
+    check_if_source_exist jQuery-3.3.1/
+
+    mkdir $TP_INSTALL_DIR/webroot/
+    cd $TP_SOURCE_DIR/
+    cp -r $DATATABLES_SOURCE $TP_INSTALL_DIR/webroot/
+    cp -r Bootstrap-3.3.7/ $TP_INSTALL_DIR/webroot/
+    cp -r jQuery-3.3.1/ $TP_INSTALL_DIR/webroot/
+    cp bootstrap-table.min.js $TP_INSTALL_DIR/webroot/Bootstrap-3.3.7/js
+    cp bootstrap-table.min.css $TP_INSTALL_DIR/webroot/Bootstrap-3.3.7/css
+}
+
 # See https://github.com/apache/incubator-doris/issues/2910
 # LLVM related codes have already be removed in master, so there is
 # no need to build llvm tool here.
@@ -735,5 +750,6 @@ build_bitshuffle
 build_croaringbitmap
 build_orc
 build_cctz
+build_js_and_css
 
 echo "Finihsed to build all thirdparties"
