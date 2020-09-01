@@ -230,7 +230,7 @@ public class InPredicate extends Predicate {
         msg.in_predicate = new TInPredicate(isNotIn);
         msg.node_type = TExprNodeType.IN_PRED;
         msg.setOpcode(opcode);
-        msg.setVector_opcode(vectorOpcode);
+        msg.setVectorOpcode(vectorOpcode);
     }
 
     @Override

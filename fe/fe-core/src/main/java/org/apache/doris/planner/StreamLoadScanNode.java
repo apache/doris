@@ -90,9 +90,9 @@ public class StreamLoadScanNode extends LoadScanNode {
                 rangeDesc.setJsonpaths(taskInfo.getJsonPaths());
             }
             if (!taskInfo.getJsonRoot().isEmpty()) {
-                rangeDesc.setJson_root(taskInfo.getJsonRoot());
+                rangeDesc.setJsonRoot(taskInfo.getJsonRoot());
             }
-            rangeDesc.setStrip_outer_array(taskInfo.isStripOuterArray());
+            rangeDesc.setStripOuterArray(taskInfo.isStripOuterArray());
         }
         rangeDesc.splittable = false;
         switch (taskInfo.getFileType()) {
@@ -128,15 +128,15 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         if (taskInfo.getColumnSeparator() != null) {
             String sep = taskInfo.getColumnSeparator().getColumnSeparator();
-            params.setColumn_separator(sep.getBytes(Charset.forName("UTF-8"))[0]);
+            params.setColumnSeparator(sep.getBytes(Charset.forName("UTF-8"))[0]);
         } else {
-            params.setColumn_separator((byte) '\t');
+            params.setColumnSeparator((byte) '\t');
         }
-        params.setLine_delimiter((byte) '\n');
-        params.setDest_tuple_id(desc.getId().asInt());
+        params.setLineDelimiter((byte) '\n');
+        params.setDestTupleId(desc.getId().asInt());
         brokerScanRange.setParams(params);
 
-        brokerScanRange.setBroker_addresses(Lists.newArrayList());
+        brokerScanRange.setBrokerAddresses(Lists.newArrayList());
     }
 
     @Override
@@ -149,8 +149,8 @@ public class StreamLoadScanNode extends LoadScanNode {
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         TScanRangeLocations locations = new TScanRangeLocations();
         TScanRange scanRange = new TScanRange();
-        scanRange.setBroker_scan_range(brokerScanRange);
-        locations.setScan_range(scanRange);
+        scanRange.setBrokerScanRange(brokerScanRange);
+        locations.setScanRange(scanRange);
         locations.setLocations(Lists.newArrayList());
         return Lists.newArrayList(locations);
     }

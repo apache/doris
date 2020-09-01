@@ -529,7 +529,7 @@ build_libunixodbc() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-static=yes 
+    ./configure --prefix=$TP_INSTALL_DIR --with-included-ltdl --enable-static=yes 
     make -j$PARALLEL && make install
 }
   

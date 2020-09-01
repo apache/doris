@@ -1318,7 +1318,7 @@ Status SpillSorter::create_merger(int num_runs) {
     _merger.reset(
             new SortedRunMerger(_compare_less_than, _output_row_desc, _profile, true));
 
-    vector<function<Status (RowBatch**)> > merge_runs;
+    vector<function<Status (RowBatch**)>> merge_runs;
     merge_runs.reserve(num_runs);
     for (int i = 0; i < num_runs; ++i) {
         Run* run = _sorted_runs.front();

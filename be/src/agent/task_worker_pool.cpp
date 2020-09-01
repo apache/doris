@@ -509,6 +509,9 @@ void TaskWorkerPool::_alter_tablet(TaskWorkerPool* worker_pool_this,
                                           &error_msgs, process_name);
         OLAPStatus sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
         if (sc_status != OLAP_SUCCESS) {
+            if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
+                error_msgs.push_back("The data quality does not satisfy, please check your data. ");
+            }
             status = DORIS_ERROR;
         } else {
             status = DORIS_SUCCESS;

@@ -59,9 +59,9 @@ public class TabletStatMgr extends MasterDaemon {
             try {
                 address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
-                TTabletStatResult result = client.get_tablet_stat();
+                TTabletStatResult result = client.getTabletStat();
 
-                LOG.info("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTablets_statsSize());
+                LOG.info("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
                 updateTabletStat(backend.getId(), result);
 
                 ok = true;
@@ -126,7 +126,7 @@ public class TabletStatMgr extends MasterDaemon {
     private void updateTabletStat(Long beId, TTabletStatResult result) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
 
-        for (Map.Entry<Long, TTabletStat> entry : result.getTablets_stats().entrySet()) {
+        for (Map.Entry<Long, TTabletStat> entry : result.getTabletsStats().entrySet()) {
             if (invertedIndex.getTabletMeta(entry.getKey()) == null) {
                 // the replica is obsolete, ignore it.
                 continue;
@@ -137,7 +137,7 @@ public class TabletStatMgr extends MasterDaemon {
                 continue;
             }
             // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num
-            replica.updateStat(entry.getValue().getData_size(), entry.getValue().getRow_num());
+            replica.updateStat(entry.getValue().getDataSize(), entry.getValue().getRowNum());
         }
     }
 }

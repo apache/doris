@@ -109,7 +109,7 @@ public class DataSplitSink extends DataSink {
                 RollupSchema.mapToThrift(rollups));
 
         TDataSink tDataSink = new TDataSink(TDataSinkType.DATA_SPLIT_SINK);
-        tDataSink.setSplit_sink(tSplitSink);
+        tDataSink.setSplitSink(tSplitSink);
         return tDataSink;
     }
 
@@ -140,10 +140,10 @@ public class DataSplitSink extends DataSink {
         public TRollupSchema toThrift() {
             TRollupSchema tRollupSchema = new TRollupSchema();
 
-            tRollupSchema.setKeys_type(keysType.name());
+            tRollupSchema.setKeysType(keysType.name());
             tRollupSchema.setKeys(Expr.treesToThrift(keys));
             tRollupSchema.setValues(Expr.treesToThrift(values));
-            tRollupSchema.setValue_ops(Lists.transform(valueOps,
+            tRollupSchema.setValueOps(Lists.transform(valueOps,
                 new Function<AggregateType, TAggregationType>() {
                     @Override
                     public TAggregationType apply(AggregateType aggregateType) {
@@ -303,8 +303,8 @@ public class DataSplitSink extends DataSink {
         public TRangePartition toThrift(boolean containDist) {
             TRangePartition tRangePartition = new TRangePartition(id, range.toThrift());
             if (containDist) {
-                tRangePartition.setDistributed_exprs(Expr.treesToThrift(distributeExprs));
-                tRangePartition.setDistribute_bucket(distributeBuckets);
+                tRangePartition.setDistributedExprs(Expr.treesToThrift(distributeExprs));
+                tRangePartition.setDistributeBucket(distributeBuckets);
             }
             return tRangePartition;
         }

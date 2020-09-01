@@ -45,6 +45,8 @@ public:
 
 private:
     
+    OLAPStatus _do_clone();
+    
     virtual OLAPStatus _finish_clone(Tablet* tablet, const std::string& clone_dir,
                                     int64_t committed_version, bool is_incremental_clone);
     

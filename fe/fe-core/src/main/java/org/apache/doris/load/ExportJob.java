@@ -549,7 +549,7 @@ public class ExportJob implements Writable {
 
             AgentClient client = new AgentClient(host, port);
             TAgentResult result = client.releaseSnapshot(snapshotPath.second);
-            if (result == null || result.getStatus().getStatus_code() != TStatusCode.OK) {
+            if (result == null || result.getStatus().getStatusCode() != TStatusCode.OK) {
                 continue;
             }
         }

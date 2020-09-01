@@ -99,7 +99,7 @@ Status EsScanNode::open(RuntimeState* state) {
     row_schema.__isset.cols = true;
 
     // TExtOpenParams.predicates
-    vector<vector<TExtPredicate> > predicates;
+    vector<vector<TExtPredicate>> predicates;
     vector<int> predicate_to_conjunct;
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         VLOG(1) << "conjunct: " << _conjunct_ctxs[i]->root()->debug_string();

@@ -61,7 +61,7 @@ public:
 
 private:
     typedef boost::unordered_map<TUniqueId, boost::shared_ptr<BufferControlBlock>> BufferMap;
-    typedef std::map<time_t, std::vector<TUniqueId> > TimeoutMap;
+    typedef std::map<time_t, std::vector<TUniqueId>> TimeoutMap;
 
     boost::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 

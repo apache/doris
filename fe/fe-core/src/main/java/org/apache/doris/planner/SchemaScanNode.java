@@ -101,13 +101,13 @@ public class SchemaScanNode extends ScanNode {
 
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
-            msg.schema_scan_node.setThread_id(ConnectContext.get().getConnectionId());
+            msg.schema_scan_node.setThreadId(ConnectContext.get().getConnectionId());
         }
         msg.schema_scan_node.setIp(frontendIP);
         msg.schema_scan_node.setPort(frontendPort);
 
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
-        msg.schema_scan_node.setCurrent_user_ident(tCurrentUser);
+        msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
     }
 
     /**

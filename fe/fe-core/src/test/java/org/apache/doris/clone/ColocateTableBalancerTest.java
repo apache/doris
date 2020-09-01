@@ -151,4 +151,37 @@ public class ColocateTableBalancerTest {
         Assert.assertFalse(changed);
         Assert.assertTrue(balancedBackendsPerBucketSeq.isEmpty());
     }
+
+    @Test
+    public void testFixBalanceEndlessLoop() {
+        GroupId groupId = new GroupId(10000, 10001);
+        List<Column> distributionCols = Lists.newArrayList();
+        distributionCols.add(new Column("k1", PrimitiveType.INT));
+        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, (short) 1);
+        Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
+        group2Schema.put(groupId, groupSchema);
+
+        // 1. only one available backend
+        // [[7], [7], [7], [7], [7]]
+        ColocateTableIndex colocateTableIndex = createColocateIndex(groupId, Lists.newArrayList(7L, 7L, 7L, 7L, 7L));
+        Deencapsulation.setField(colocateTableIndex, "group2Schema", group2Schema);
+
+        List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
+        List<Long> allAvailBackendIds = Lists.newArrayList(7L);
+        boolean changed = Deencapsulation.invoke(balancer, "balance", groupId, allAvailBackendIds,
+                                                 colocateTableIndex, infoService, balancedBackendsPerBucketSeq);
+        Assert.assertFalse(changed);
+
+        // 2. all backends are checked but this round is not changed
+        // [[7], [7], [7], [7], [7]]
+        // and add new backends 8, 9 that are on the same host with 7
+        colocateTableIndex = createColocateIndex(groupId, Lists.newArrayList(7L, 7L, 7L, 7L, 7L));
+        Deencapsulation.setField(colocateTableIndex, "group2Schema", group2Schema);
+
+        balancedBackendsPerBucketSeq = Lists.newArrayList();
+        allAvailBackendIds = Lists.newArrayList(7L, 8L, 9L);
+        changed = Deencapsulation.invoke(balancer, "balance", groupId, allAvailBackendIds,
+                                         colocateTableIndex, infoService, balancedBackendsPerBucketSeq);
+        Assert.assertFalse(changed);
+    }
 }

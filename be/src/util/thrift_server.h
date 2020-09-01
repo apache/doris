@@ -137,7 +137,7 @@ private:
 
     // Map of active session keys to shared_ptr containing that key; when a key is
     // removed it is automatically freed.
-    typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey> > SessionKeySet;
+    typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey>> SessionKeySet;
     SessionKeySet _session_keys;
 
     // Helper class which monitors starting servers. Needs access to internal members, and

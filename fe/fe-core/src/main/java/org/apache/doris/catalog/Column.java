@@ -263,7 +263,7 @@ public class Column implements Writable {
 
     public TColumn toThrift() {
         TColumn tColumn = new TColumn();
-        tColumn.setColumn_name(this.name);
+        tColumn.setColumnName(this.name);
 
         TColumnType tColumnType = new TColumnType();
         tColumnType.setType(this.getDataType().toThrift());
@@ -271,15 +271,15 @@ public class Column implements Writable {
         tColumnType.setPrecision(this.getPrecision());
         tColumnType.setScale(this.getScale());
 
-        tColumnType.setIndex_len(this.getOlapColumnIndexSize());
+        tColumnType.setIndexLen(this.getOlapColumnIndexSize());
 
-        tColumn.setColumn_type(tColumnType);
+        tColumn.setColumnType(tColumnType);
         if (null != this.aggregationType) {
-            tColumn.setAggregation_type(this.aggregationType.toThrift());
+            tColumn.setAggregationType(this.aggregationType.toThrift());
         }
-        tColumn.setIs_key(this.isKey);
-        tColumn.setIs_allow_null(this.isAllowNull);
-        tColumn.setDefault_value(this.defaultValue);
+        tColumn.setIsKey(this.isKey);
+        tColumn.setIsAllowNull(this.isAllowNull);
+        tColumn.setDefaultValue(this.defaultValue);
         tColumn.setVisible(visible);
         // The define expr does not need to be serialized here for now.
         // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.

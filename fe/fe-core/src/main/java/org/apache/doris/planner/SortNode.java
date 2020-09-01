@@ -154,18 +154,18 @@ public class SortNode extends PlanNode {
                 info.getIsAscOrder(),
                 info.getNullsFirst());
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        sortInfo.setSort_tuple_slot_exprs(Expr.treesToThrift(resolvedTupleExprs));
+        sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
 
         // TODO(lingbin): remove blew codes, because it is duplicate with TSortInfo
-        msg.sort_node.setOrdering_exprs(Expr.treesToThrift(info.getOrderingExprs()));
-        msg.sort_node.setIs_asc_order(info.getIsAscOrder());
-        msg.sort_node.setNulls_first(info.getNullsFirst());
+        msg.sort_node.setOrderingExprs(Expr.treesToThrift(info.getOrderingExprs()));
+        msg.sort_node.setIsAscOrder(info.getIsAscOrder());
+        msg.sort_node.setNullsFirst(info.getNullsFirst());
         if (info.getSortTupleSlotExprs() != null) {
-            msg.sort_node.setSort_tuple_slot_exprs(Expr.treesToThrift(info.getSortTupleSlotExprs()));
+            msg.sort_node.setSortTupleSlotExprs(Expr.treesToThrift(info.getSortTupleSlotExprs()));
         }
     }
 

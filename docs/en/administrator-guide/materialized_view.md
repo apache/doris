@@ -90,6 +90,9 @@ The aggregate functions currently supported by the materialized view function ar
 + SUM, MIN, MAX (Version 0.12)
 + COUNT, BITMAP\_UNION, HLL\_UNION (Version 0.13)
 
++ The form of BITMAP\_UNION must be: `BITMAP_UNION(TO_BITMAP(COLUMN))` The column type can only be an integer (largeint also does not support), or `BITMAP_UNION(COLUMN)` and the base table is an AGG model.
++ The form of HLL\_UNION must be: `HLL_UNION(HLL_HASH(COLUMN))` The column type cannot be DECIMAL, or `HLL_UNION(COLUMN)` and the base table is an AGG model.
+
 ### Update strategy
 
 In order to ensure the data consistency between the materialized view table and the Base table, Doris will import, delete and other operations on the Base table are synchronized to the materialized view table. And through incremental update to improve update efficiency. To ensure atomicity through transaction.
@@ -483,3 +486,8 @@ This problem can be solved by creating a materialized view with k3 as the first 
 2. If the conditional column of the delete statement does not exist in the materialized view, the delete operation cannot be performed. If you must delete data, you need to delete the materialized view before deleting the data.
 3. Too many materialized views on a single table will affect the efficiency of importing: When importing data, the materialized view and base table data are updated synchronously. If a table has more than 10 materialized view tables, it may cause the import speed to be very high. slow. This is the same as a single import needs to import 10 tables at the same time.
 4. The same column with different aggregate functions cannot appear in a materialized view at the same time. For example, select sum(a), min(a) from table are not supported.
+
+## Error
+1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data"
+Materialized view creation failed due to data quality issues.
+Note: The bitmap type only supports positive integers. If there are negative Numbers in the original data, the materialized view will fail to be created

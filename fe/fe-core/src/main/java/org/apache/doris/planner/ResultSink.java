@@ -59,9 +59,9 @@ public class ResultSink extends DataSink {
         TResultSink tResultSink = new TResultSink();
         tResultSink.setType(sinkType);
         if (fileSinkOptions != null) {
-            tResultSink.setFile_options(fileSinkOptions);
+            tResultSink.setFileOptions(fileSinkOptions);
         }
-        result.setResult_sink(tResultSink);
+        result.setResultSink(tResultSink);
         return result;
     }
 
@@ -95,6 +95,6 @@ public class ResultSink extends DataSink {
 
     public void setBrokerAddr(String ip, int port) {
         Preconditions.checkNotNull(fileSinkOptions);
-        fileSinkOptions.setBroker_addresses(Lists.newArrayList(new TNetworkAddress(ip, port)));
+        fileSinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(ip, port)));
     }
 }

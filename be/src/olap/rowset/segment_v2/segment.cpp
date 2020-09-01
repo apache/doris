@@ -64,6 +64,7 @@ Status Segment::new_iterator(const Schema& schema,
                              const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     DCHECK_NOTNULL(read_options.stats);
+    read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
@@ -74,6 +75,7 @@ Status Segment::new_iterator(const Schema& schema,
             if (!_column_readers[column_id]->match_condition(column_condition.second)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(schema));
+                read_options.stats->filtered_segment_number++;
                 return Status::OK();
             }
         }

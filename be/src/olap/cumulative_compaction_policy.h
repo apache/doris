@@ -114,6 +114,8 @@ public:
                                             int64_t current_cumulative_point,
                                             int64_t* cumulative_point) = 0;
 
+    /// Fetch cumulative policy name
+    virtual std::string name() = 0;
 };
 
 /// Num based cumulative compcation policy implemention. Num based policy which derives CumulativeCompactionPolicy is early 
@@ -159,6 +161,7 @@ public:
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
 
+    std::string name() { return CUMULATIVE_NUM_BASED_POLICY; }
 };
 
 /// SizeBased cumulative compcation policy implemention. SizeBased policy which derives CumulativeCompactionPolicy is a optimized
@@ -212,6 +215,8 @@ public:
     void calc_cumulative_compaction_score(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
+
+    std::string name() { return CUMULATIVE_SIZE_BASED_POLICY; }
 
 private:
     /// calculate promotion size using current base rowset meta size and promition configs

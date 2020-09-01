@@ -311,7 +311,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
 }
 
 OLAPStatus SegmentGroup::add_zone_maps(
-        std::vector<std::pair<std::string, std::string> > &zone_map_strings,
+        std::vector<std::pair<std::string, std::string>> &zone_map_strings,
         std::vector<bool> &null_vec) {
     DCHECK(_empty || zone_map_strings.size() <= get_num_zone_map_columns());
     for (size_t i = 0; i < zone_map_strings.size(); ++i) {
@@ -577,6 +577,7 @@ OLAPStatus SegmentGroup::add_segment() {
             return OLAP_ERR_MALLOC_ERROR;
         }
 
+        memset(_short_key_buf, 0, _short_key_length);
         if (_current_index_row.init(*_schema) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("init _current_index_row fail.");
             return OLAP_ERR_INIT_FAILED;

@@ -166,6 +166,8 @@ OLAP_SCAN_NODE (id=0):(Active: 4.050ms, non-child: 35.68%)
    - IndexLoadTime: 1.521ms # 仅 V1 中，读取 Index Stream 的耗时。
    - NumDiskAccess: 6   # 该 ScanNode 节点涉及到的磁盘数量。
    - NumScanners: 25    # 该 ScanNode 生成的 Scanner 数量。
+   - NumSegmentFiltered: 4   # 在生成 Segment Iterator 时，通过列统计信息和查询条件，完全过滤掉的 Segment 数量。
+   - NumSegmentTotal: 20    # 查询涉及的所有 Segment 数量。
    - PeakMemoryUsage: 0     # 无意义
    - PerReadThreadRawHdfsThroughput: 0.00 /sec  # 无意义
    - RawRowsRead: 141.71K   # 存储引擎中读取的原始行数。详情见下文。
@@ -198,6 +200,11 @@ OLAP_SCAN_NODE (id=0):(Active: 4.050ms, non-child: 35.68%)
 * Profile 中关于行数的一些说明
 
     在 Profile 中和行数相关的指标有：
+
+    * NumSegmentFiltered
+    * NumSegmentTotal
+
+    通过这两个指标可以得到实际读取的 Segment 数量。
     
     * RowsKeyRangeFiltered
     * RowsBitmapIndexFiltered

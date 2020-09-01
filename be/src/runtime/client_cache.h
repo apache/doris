@@ -102,7 +102,7 @@ private:
 
     // map from (host, port) to list of client keys for that address
     typedef boost::unordered_map <
-    TNetworkAddress, std::list<void*> > ClientCacheMap;
+    TNetworkAddress, std::list<void*>> ClientCacheMap;
     ClientCacheMap _client_cache;
 
     // Map from client key back to its associated ThriftClientImpl transport

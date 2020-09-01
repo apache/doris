@@ -57,7 +57,7 @@ public class AgentClient {
         try {
             borrowClient();
             // submit etl task
-            result = client.submit_etl_task(request);
+            result = client.submitEtlTask(request);
             ok = true;
         } catch (Exception e) {
             LOG.warn("submit etl task error", e);
@@ -73,7 +73,7 @@ public class AgentClient {
         try {
             borrowClient();
             // submit make snapshot task
-            result = client.make_snapshot(request);
+            result = client.makeSnapshot(request);
             ok = true;
         } catch (Exception e) {
             LOG.warn("submit make snapshot error", e);
@@ -89,7 +89,7 @@ public class AgentClient {
         try {
             borrowClient();
             // submit release snapshot task
-            result = client.release_snapshot(snapshotPath);
+            result = client.releaseSnapshot(snapshotPath);
             ok = true;
         } catch (Exception e) {
             LOG.warn("submit release snapshot error", e);
@@ -105,7 +105,7 @@ public class AgentClient {
         try {
             borrowClient();
             // submit export task
-            TStatus status = client.submit_export_task(request);
+            TStatus status = client.submitExportTask(request);
             result = new Status(status);
         } catch (Exception e) {
             LOG.warn("submit export task error", e);
@@ -123,7 +123,7 @@ public class AgentClient {
         try {
             borrowClient();
             // get etl status
-            result = client.get_etl_status(request);
+            result = client.getEtlStatus(request);
             ok = true;
         } catch (Exception e) {
             LOG.warn("get etl status error", e);
@@ -140,7 +140,7 @@ public class AgentClient {
         try {
             borrowClient();
             // get export status
-            result = client.get_export_status(request);
+            result = client.getExportStatus(request);
             ok = true;
         } catch (Exception e) {
             LOG.warn("get export status error", e);
@@ -157,7 +157,7 @@ public class AgentClient {
         try {
             borrowClient();
             // erase export task
-            TStatus status = client.erase_export_task(request);
+            TStatus status = client.eraseExportTask(request);
             result = new Status(status);
         } catch (Exception e) {
             LOG.warn("submit export task error", e);
@@ -174,7 +174,7 @@ public class AgentClient {
         try {
             borrowClient();
             // delete etl files
-            client.delete_etl_files(request);
+            client.deleteEtlFiles(request);
             ok = true;
         } catch (Exception e) {
             LOG.warn("delete etl files error", e);
