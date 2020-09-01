@@ -749,6 +749,10 @@ public final class SparkDpp implements java.io.Serializable {
                 LOG.warn("parse path failed:" + filePath);
                 throw e;
             }
+            if (fileGroup.columnSeparator == null) {
+                LOG.warn("invalid null column separator!");
+                throw new SparkDppException("Reason: invalid null column separator!");
+            }
             Dataset<Row> dataframe = null;
 
             dataframe = loadDataFromPath(spark, fileGroup, filePath, baseIndex, baseIndex.columns);

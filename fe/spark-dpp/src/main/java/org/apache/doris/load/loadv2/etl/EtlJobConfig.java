@@ -510,7 +510,7 @@ public class EtlJobConfig implements Serializable {
             this.where = where;
             this.partitions = partitions;
 
-            // Handle some special characters
+            // Convert some special characters in column separator
             char sep = Strings.isNullOrEmpty(columnSeparator) ? '\t' : columnSeparator.charAt(0);
             if (".$|()[]{}^?*+\\".indexOf(sep) != -1) {
                 this.columnSeparator = new String(new char[]{'\\', sep});
