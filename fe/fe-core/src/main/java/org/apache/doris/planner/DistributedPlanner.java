@@ -825,7 +825,16 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            return createMergeAggregationFragment(node, childFragment);
+
+            // Check table's distribution. See #4481.
+            PlanNode childPlan = childFragment.getPlanRoot();
+            if (childPlan instanceof OlapScanNode &&
+                    ((OlapScanNode) childPlan).getOlapTable().meetAggDistributionRequirements(node.getAggInfo())) {
+                childFragment.addPlanRoot(node);
+                return childFragment;
+            } else {
+                return createMergeAggregationFragment(node, childFragment);
+            }
         }
     }
 

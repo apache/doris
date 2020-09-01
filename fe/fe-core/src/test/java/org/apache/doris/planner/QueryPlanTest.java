@@ -308,6 +308,30 @@ public class QueryPlanTest {
                 "\"database\" = \"db1\",\n" +
                 "\"table\" = \"tbl1\"\n" +
                 ");");
+
+        createTable("CREATE TABLE test.`table_partitioned` (\n" +
+                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+                "PARTITION BY RANGE(`dt`)\n" +
+                "(PARTITION p20200101 VALUES [(\"-1\"), (\"20200101\")),\n" +
+                "PARTITION p20200201 VALUES [(\"20200101\"), (\"20200201\")))\n" +
+                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.`table_unpartitioned` (\n" +
+                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -1036,6 +1060,21 @@ public class QueryPlanTest {
         infoFunc = new InformationFunction("current_user");
         infoFunc.analyze(analyzer);
         Assert.assertEquals("'root'@'%'", infoFunc.getStrValue());
+    }
+
+    @Test
+    public void testAggregateSatisfyOlapTableDistribution() throws Exception {
+        FeConstants.runningUnitTest = true;
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "SELECT dt, dis_key, COUNT(1) FROM table_unpartitioned  group by dt, dis_key";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+
+        sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
     }
 }
 
