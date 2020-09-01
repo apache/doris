@@ -558,14 +558,7 @@ public final class SparkDpp implements java.io.Serializable {
         JavaRDD<Row> rowRDD = sourceDataRdd.flatMap(
                 record -> {
                     scannedRowsAcc.add(1);
-                    char sep = fileGroup.columnSeparator;
-                    String regex = null;
-                    if (".$|()[]{}^?*+\\".indexOf(sep) != -1) {
-                        regex = new String(new char[]{'\\', sep});
-                    } else {
-                        regex = Character.toString(sep);
-                    }
-                    String[] attributes = record.split(regex);
+                    String[] attributes = record.split(fileGroup.columnSeparator);
                     List<Row> result = new ArrayList<>();
                     boolean validRow = true;
                     if (attributes.length != columnSize) {

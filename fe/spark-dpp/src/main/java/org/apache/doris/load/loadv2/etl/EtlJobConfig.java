@@ -17,15 +17,14 @@
 
 package org.apache.doris.load.loadv2.etl;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
-
-import org.apache.parquet.Strings;
 
 import java.io.Serializable;
 import java.util.Comparator;
@@ -473,7 +472,7 @@ public class EtlJobConfig implements Serializable {
         @SerializedName(value = "columnsFromPath")
         public List<String> columnsFromPath;
         @SerializedName(value = "columnSeparator")
-        public char columnSeparator;
+        public String columnSeparator;
         @SerializedName(value = "lineDelimiter")
         public String lineDelimiter;
         @SerializedName(value = "isNegative")
@@ -504,13 +503,20 @@ public class EtlJobConfig implements Serializable {
             this.filePaths = filePaths;
             this.fileFieldNames = fileFieldNames;
             this.columnsFromPath = columnsFromPath;
-            this.columnSeparator = Strings.isNullOrEmpty(columnSeparator)?'\t': columnSeparator.charAt(0);
             this.lineDelimiter = lineDelimiter;
             this.isNegative = isNegative;
             this.fileFormat = fileFormat;
             this.columnMappings = columnMappings;
             this.where = where;
             this.partitions = partitions;
+
+            // Handle some special characters
+            char sep = Strings.isNullOrEmpty(columnSeparator) ? '\t' : columnSeparator.charAt(0);
+            if (".$|()[]{}^?*+\\".indexOf(sep) != -1) {
+                this.columnSeparator = new String(new char[]{'\\', sep});
+            } else {
+                this.columnSeparator = Character.toString(sep);
+            }
         }
 
         // for data from table
