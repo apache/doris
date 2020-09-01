@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -340,7 +339,6 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-        whereClauseRewrite();
         fromClause_.setNeedToSql(needToSql);
         fromClause_.analyze(analyzer);
 
@@ -439,6 +437,7 @@ public class SelectStmt extends QueryStmt {
         }
         // do this before whereClause.analyze , some expr is not analyzed, this may cause some
         // function not work as expected such as equals;
+        whereClauseRewrite();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
@@ -524,25 +523,6 @@ public class SelectStmt extends QueryStmt {
         return result;
     }
 
-    private Expr filterDeleteSignCol(Expr origExpr) throws AnalysisException {
-        Expr expr = origExpr;
-        for (TableRef tableRef : fromClause_.getTableRefs()) {
-            tableRef = analyzer.resolveTableRef(tableRef);
-            if (!isForbiddenMVRewrite() && tableRef instanceof BaseTableRef && tableRef.getTable() instanceof OlapTable
-                    && ((OlapTable) tableRef.getTable()).getKeysType() == KeysType.UNIQUE_KEYS
-                    && ((OlapTable) tableRef.getTable()).hasDeleteSign()) {
-                BinaryPredicate filterDeleteExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                        new SlotRef(tableRef.getName(), Column.DELETE_SIGN), new IntLiteral(0));
-                if (expr == null) {
-                    expr = filterDeleteExpr;
-                } else {
-                    expr = new CompoundPredicate(CompoundPredicate.Operator.AND, filterDeleteExpr, expr);
-                }
-            }
-        }
-        return expr;
-    }
-
     private void whereClauseRewrite() throws AnalysisException {
         if (whereClause instanceof IntLiteral) {
             if (((IntLiteral) whereClause).getLongValue() == 0) {
@@ -550,22 +530,6 @@ public class SelectStmt extends QueryStmt {
             } else {
                 whereClause = new BoolLiteral(true);
             }
-        }
-        // filter deleted data by and DELETE_SIGN column = 0, DELETE_SIGN is a hidden column
-        // that indicates whether the row is delete
-        if (fromClause_.getTableRefs().size() == 2
-                && (fromClause_.getTableRefs().get(1).getJoinOp() == JoinOperator.LEFT_SEMI_JOIN
-                || fromClause_.getTableRefs().get(1).getJoinOp() == JoinOperator.RIGHT_SEMI_JOIN
-                || fromClause_.getTableRefs().get(1).getJoinOp() == JoinOperator.LEFT_ANTI_JOIN
-                || fromClause_.getTableRefs().get(1).getJoinOp() == JoinOperator.RIGHT_ANTI_JOIN)) {
-            fromClause_.getTableRefs().get(1).setOnClause(
-                    filterDeleteSignCol(fromClause_.getTableRefs().get(1).getOnClause()));
-        } else {
-            whereClause = filterDeleteSignCol(whereClause);
-        }
-        Expr deDuplicatedWhere = deduplicateOrs(whereClause);
-        if (deDuplicatedWhere != null) {
-            whereClause = deDuplicatedWhere;
         }
     }
 

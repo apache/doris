@@ -33,6 +33,7 @@ import org.apache.doris.analysis.GroupByClause;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.InlineViewRef;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.LiteralExpr;
@@ -52,6 +53,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -1360,7 +1362,15 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
-                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
+                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(),
+                        "OlapScanNode");
+                if (((OlapTable) tblRef.getTable()).hasDeleteSign()) {
+                    Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                            new SlotRef(tblRef.getAliasAsName(), Column.DELETE_SIGN), new IntLiteral(0));
+                    conjunct.analyze(analyzer);
+                    analyzer.registerConjunct(conjunct, tblRef.getDesc().getId());
+                }
+
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;
                 break;

@@ -429,15 +429,13 @@ public class SelectStmtTest {
     }
     @Test
     public void testDeleteSign() throws Exception {
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
-        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
-        Assert.assertTrue(stmt1.toSql().contains("ON (`default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0) " +
-                "AND ((`default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0) AND " +
-                "(`db1`.`table1`.`siteid` = `db1`.`table2`.`siteid`))"));
+        Assert.assertTrue(dorisAssert.query(sql1).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
-        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
-        Assert.assertTrue(stmt2.toSql().contains(" WHERE (`default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0)" +
-                " AND (`default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0)"));
+        Assert.assertTrue(dorisAssert.query(sql2).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql3 = "SELECT * FROM table1";
+        Assert.assertTrue(dorisAssert.query(sql3).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql4 = " SELECT * FROM table1 table2";
+        Assert.assertTrue(dorisAssert.query(sql4).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
     }
 }
