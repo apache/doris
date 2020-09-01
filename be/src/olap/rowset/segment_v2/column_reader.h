@@ -133,20 +133,10 @@ public:
     // Now, we call this method in ColumnReader::create.
     Status init();
 
-    virtual TypeInfo* get_type_info_for_read() = 0;
-
     ColumnReader(const ColumnReaderOptions& opts,
                  const ColumnMetaPB& meta,
                  uint64_t num_rows,
                  const std::string& file_name);
-
-
-protected:
-    ColumnMetaPB _meta;
-    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
-    const EncodingInfo* _encoding_info = nullptr; // initialized in init(), used for create PageDecoder
-
-    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
 
 private:
 
@@ -185,9 +175,14 @@ private:
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
+    ColumnMetaPB _meta;
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
     std::string _file_name;
+
+    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
+    const EncodingInfo* _encoding_info = nullptr; // initialized in init(), used for create PageDecoder
+    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
 
     // meta for various column indexes (null if the index is absent)
     const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
@@ -211,8 +206,6 @@ public:
             : ColumnReader(opts, meta, num_rows, file_name) {}
     ~ScalarColumnReader() override = default;
     Status new_iterator(ColumnIterator** iterator) override;
-protected:
-    TypeInfo* get_type_info_for_read() override;
 };
 
 class ArrayColumnReader : public ColumnReader {
@@ -225,8 +218,6 @@ public:
     ~ArrayColumnReader() override = default;
 
     Status new_iterator(ColumnIterator** iterator) override;
-protected:
-    TypeInfo* get_type_info_for_read() override;
 
 private:
     std::unique_ptr<ColumnReader> _item_reader;

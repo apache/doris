@@ -80,7 +80,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
 ColumnReader::~ColumnReader() = default;
 
 Status ColumnReader::init() {
-    _type_info = get_type_info_for_read();
+    _type_info = get_type_info(&_meta);
     if (_type_info == nullptr) {
         return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
@@ -320,10 +320,6 @@ Status ScalarColumnReader::new_iterator(ColumnIterator** iterator) {
     return Status::OK();
 }
 
-TypeInfo* ScalarColumnReader::get_type_info_for_read() {
-    return get_type_info(&_meta);
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 Status ArrayColumnReader::new_iterator(ColumnIterator** iterator) {
@@ -331,10 +327,6 @@ Status ArrayColumnReader::new_iterator(ColumnIterator** iterator) {
     _item_reader->new_iterator(&item_iterator);
     *iterator = new ArrayFileColumnIterator(this, item_iterator);
     return Status::OK();
-}
-
-TypeInfo* ArrayColumnReader::get_type_info_for_read() {
-    return get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
 }
 
 ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader)

@@ -169,13 +169,27 @@ DataBuffer<T>::DataBuffer(size_t new_size): buf(nullptr), current_size(0), curre
 }
 
 template <class T>
-DataBuffer<T>::~DataBuffer(){
-    SAFE_DELETE_ARRAY(buf);
+DataBuffer<T>::~DataBuffer() {
+    for(uint64_t i = current_size; i > 0; --i) {
+        (buf + i - 1) -> ~T();
+    }
+    if (buf) {
+        std::free(buf);
+    }
 }
 
 template <class T>
 void DataBuffer<T>::resize(size_t new_size) {
     reserve(new_size);
+    if (current_size  > new_size) {
+        for(uint64_t i=current_size; i > new_size; --i) {
+            (buf + i - 1)->~T();
+        }
+    } else if (new_size > current_size) {
+        for(uint64_t i=current_size; i < new_size; ++i) {
+            new (buf + i) T();
+        }
+    }
     current_size = new_size;
 }
 
@@ -184,11 +198,11 @@ void DataBuffer<T>::reserve(size_t new_capacity) {
     if (new_capacity > current_capacity || !buf) {
         if (buf) {
             T* buf_old = buf;
-            buf = new T[new_capacity];
-            memcpy(buf, buf_old, sizeof(T) * current_capacity);
-            SAFE_DELETE_ARRAY(buf_old);
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_capacity));
+            memcpy(buf, buf_old, sizeof(T) * current_size);
+            std::free(buf_old);
         } else {
-            buf = new T[new_capacity];
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_capacity));
         }
         current_capacity = new_capacity;
     }
