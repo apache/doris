@@ -336,7 +336,9 @@ public class CreateTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
         // add a hidden column as delete flag for unique table
-        if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+        if (Config.enable_batch_delete_by_default
+                && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
         }
         int rowLengthBytes = 0;
@@ -349,7 +351,6 @@ public class CreateTableStmt extends DdlStmt {
             if (columnDef.getType().isHllType()) {
                 hasHll = true;
             }
-
 
             if (columnDef.getAggregateType() == AggregateType.BITMAP_UNION) {
                 hasBitmap = columnDef.getType().isBitmapType();
