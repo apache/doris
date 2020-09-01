@@ -220,5 +220,16 @@ public class UtFrameUtils {
             return ctx.getState().getErrorMessage();
         }
     }
+
+    public static Planner getSQLPlanner(ConnectContext ctx, String queryStr) throws Exception {
+        ctx.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            return stmtExecutor.planner();
+        } else {
+            return null;
+        }
+    }
 }
 
