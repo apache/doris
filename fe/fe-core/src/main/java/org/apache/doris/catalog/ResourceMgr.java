@@ -68,7 +68,7 @@ public class ResourceMgr implements Writable {
 
     public void createResource(CreateResourceStmt stmt) throws DdlException {
         if (stmt.getResourceType() != ResourceType.SPARK) {
-            throw new DdlException("Only support Spark.");
+            throw new DdlException("Only support Spark Resource.");
         }
 
         String resourceName = stmt.getResourceName();
