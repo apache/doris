@@ -466,6 +466,12 @@ public class DistributedPlanner {
             return false;
         }
 
+        // If user have a join hint to use proper way of join, can not be colocate join
+        if (node.getInnerRef().hasJoinHints()) {
+            cannotReason.add("Has join hint");
+            return false;
+        }
+
         PlanNode leftRoot = leftChildFragment.getPlanRoot();
         PlanNode rightRoot = rightChildFragment.getPlanRoot();
 
