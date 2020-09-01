@@ -64,11 +64,42 @@ public class SelectStmtTest {
                 "\"storage_type\" = \"COLUMN\",\n" +
                 "\"replication_num\" = \"1\"\n" +
                 ");";
+
+        String tbl1 = "CREATE TABLE db1.table1 (\n" +
+                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
+                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
+                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")";
+        String tbl2 = "CREATE TABLE db1.table2 (\n" +
+                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
+                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
+                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(createTblStmtStr)
                    .withTable(createBaseAllStmtStr)
-                   .withTable(createPratitionTableStr);
+                   .withTable(createPratitionTableStr)
+                   .withTable(tbl1)
+                   .withTable(tbl2);
     }
 
     @Test
@@ -395,5 +426,18 @@ public class SelectStmtTest {
                 .query(sql)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
+    }
+    @Test
+    public void testDeleteSign() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        Assert.assertTrue(stmt1.toSql().contains("ON (`default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0) " +
+                "AND ((`default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0) AND " +
+                "(`db1`.`table1`.`siteid` = `db1`.`table2`.`siteid`))"));
+        String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+        Assert.assertTrue(stmt2.toSql().contains(" WHERE (`default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0)" +
+                " AND (`default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0)"));
     }
 }
