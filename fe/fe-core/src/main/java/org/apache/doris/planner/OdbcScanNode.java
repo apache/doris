@@ -154,8 +154,8 @@ public class OdbcScanNode extends ScanNode {
         msg.node_type = TPlanNodeType.ODBC_SCAN_NODE;
 
         TOdbcScanNode odbcScanNode = new TOdbcScanNode();
-        odbcScanNode.setTuple_id(desc.getId().asInt());
-        odbcScanNode.setTable_name(tblName);
+        odbcScanNode.setTupleId(desc.getId().asInt());
+        odbcScanNode.setTableName(tblName);
         odbcScanNode.setDriver(driver);
         odbcScanNode.setType(odbcType);
         odbcScanNode.setColumns(columns);

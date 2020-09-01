@@ -288,6 +288,7 @@ public class ExportJob implements Writable {
                 break;
             case ODBC:
                 scanNode = new OdbcScanNode(new PlanNodeId(0), exportTupleDesc, (OdbcTable) this.exportTable);
+                break;
             case MYSQL:
                 scanNode = new MysqlScanNode(new PlanNodeId(0), exportTupleDesc, (MysqlTable) this.exportTable);
                 break;

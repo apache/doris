@@ -323,6 +323,17 @@ public class QueryPlanTest {
                 "\"replication_num\" = \"1\"\n" +
                 ");");
 
+        createTable("CREATE TABLE test.`table_unpartitioned` (\n" +
+                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
         Config.enable_odbc_table = true;
         createTable("create external table test.odbc_mysql\n" +
                 "(k1 int, k2 int)\n" +
