@@ -78,9 +78,9 @@ public class CancelLoadStmt extends DdlStmt {
 
             if (whereClause instanceof BinaryPredicate) {
                 BinaryPredicate binaryPredicate = (BinaryPredicate) whereClause;
+                isAccurateMatch = true;
                 if (binaryPredicate.getOp() != Operator.EQ) {
                     valid = false;
-                    isAccurateMatch = true;
                     break;
                 }
             } else if (whereClause instanceof LikePredicate) {

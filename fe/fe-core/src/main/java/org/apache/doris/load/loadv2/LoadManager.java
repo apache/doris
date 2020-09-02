@@ -302,7 +302,7 @@ public class LoadManager implements Writable{
             // get jobs by label
             List<LoadJob> matchLoadJobs = Lists.newArrayList();
             if (isAccurateMatch) {
-                if (!labelToLoadJobs.containsKey(stmt.getLabel())) {
+                if (labelToLoadJobs.containsKey(stmt.getLabel())) {
                     matchLoadJobs.addAll(labelToLoadJobs.get(stmt.getLabel()));
                 }
             } else {

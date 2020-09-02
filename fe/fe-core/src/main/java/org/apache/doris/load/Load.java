@@ -1603,7 +1603,7 @@ public class Load {
             // get jobs by label
             List<LoadJob> matchLoadJobs = Lists.newArrayList();
             if (isAccurateMatch) {
-                if (!labelToLoadJobs.containsKey(label)) {
+                if (labelToLoadJobs.containsKey(label)) {
                     matchLoadJobs.addAll(labelToLoadJobs.get(label));
                 }
             } else {
