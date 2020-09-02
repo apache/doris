@@ -91,6 +91,9 @@ public class SparkLoadAppHandle implements Writable {
         this.process = process;
     }
 
+    // only for unit test
+    public SparkLoadAppHandle() { }
+
     public void addListener(Listener listener) {
         if (this.listeners == null) {
             this.listeners = Lists.newArrayList();
