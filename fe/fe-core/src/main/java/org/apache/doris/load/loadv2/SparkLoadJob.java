@@ -149,6 +149,7 @@ public class SparkLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(dbId, label, originStmt);
         this.resourceDesc = resourceDesc;
+        this.sparkLoadAppHandle = new SparkLoadAppHandle();
         timeoutSecond = Config.spark_load_default_timeout_second;
         jobType = EtlJobType.SPARK;
     }
@@ -716,13 +717,11 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     public void clearSparkLauncherLog() {
-        if (sparkLoadAppHandle != null) {
-            String logPath = sparkLoadAppHandle.getLogPath();
-            if (!Strings.isNullOrEmpty(logPath)) {
-                File file = new File(logPath);
-                if (file.exists()) {
-                    file.delete();
-                }
+        String logPath = sparkLoadAppHandle.getLogPath();
+        if (!Strings.isNullOrEmpty(logPath)) {
+            File file = new File(logPath);
+            if (file.exists()) {
+                file.delete();
             }
         }
     }
