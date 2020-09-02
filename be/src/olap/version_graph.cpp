@@ -191,6 +191,7 @@ bool TimestampedVersionTracker::_find_path_from_stale_map(
     while (map_iter != second_version_map.end()) {
         // the version greater than second_version, we can't find path in stale_map
         if (map_iter->first > second_version) {
+            map_iter++;
             continue;
         }
         // backtracking _find_path_from_stale_map find from map_iter->first + 1 to second_version
