@@ -53,18 +53,18 @@ private:
 
 TEST_F(MetricsActionTest, prometheus_output) {
     MetricRegistry metric_registry("test");
-    MetricEntity* entity = metric_registry.register_entity("metrics_action_test.prometheus_output", {});
+    std::shared_ptr<MetricEntity> entity = metric_registry.register_entity("metrics_action_test.prometheus_output");
 
-    IntGauge cpu_idle;
+    IntGauge* cpu_idle = nullptr;
     DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(cpu_idle, MetricUnit::PERCENT);
-    METRIC_REGISTER(entity, cpu_idle);
+    INT_GAUGE_METRIC_REGISTER(entity, cpu_idle);
 
-    IntCounter put_requests_total;
+    IntCounter* put_requests_total = nullptr;
     DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(put_requests_total, MetricUnit::NOUNIT, "", requests_total, Labels({{"type", "put"}, {"path", "/sports"}}));
-    METRIC_REGISTER(entity, put_requests_total);
+    INT_COUNTER_METRIC_REGISTER(entity, put_requests_total);
 
-    cpu_idle.set_value(50);
-    put_requests_total.increment(2345);
+    cpu_idle->set_value(50);
+    put_requests_total->increment(2345);
 
     s_expect_response =
         "# TYPE test_cpu_idle gauge\n"
@@ -78,13 +78,13 @@ TEST_F(MetricsActionTest, prometheus_output) {
 
 TEST_F(MetricsActionTest, prometheus_no_prefix) {
     MetricRegistry metric_registry("");
-    MetricEntity* entity = metric_registry.register_entity("metrics_action_test.prometheus_no_prefix", {});
+    std::shared_ptr<MetricEntity> entity = metric_registry.register_entity("metrics_action_test.prometheus_no_prefix");
 
-    IntGauge cpu_idle;
+    IntGauge* cpu_idle = nullptr;
     DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(cpu_idle, MetricUnit::PERCENT);
-    METRIC_REGISTER(entity, cpu_idle);
+    INT_GAUGE_METRIC_REGISTER(entity, cpu_idle);
 
-    cpu_idle.set_value(50);
+    cpu_idle->set_value(50);
 
     s_expect_response =
         "# TYPE cpu_idle gauge\n"
