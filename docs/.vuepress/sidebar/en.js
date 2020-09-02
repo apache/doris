@@ -55,6 +55,7 @@ module.exports = [
           "insert-into-manual",
           "delete-manual",
           "load-json-format",
+          "batch-delete-manual",
         ],
         sidebarDepth: 2,
       },

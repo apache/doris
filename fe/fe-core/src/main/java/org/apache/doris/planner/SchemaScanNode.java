@@ -91,6 +91,7 @@ public class SchemaScanNode extends ScanNode {
                 msg.schema_scan_node.setDb("SESSION");
             }
         }
+        msg.schema_scan_node.show_hidden_cloumns = ConnectContext.get().getSessionVariable().showHiddenColumns();
 
         if (schemaTable != null) {
             msg.schema_scan_node.setTable(schemaTable);

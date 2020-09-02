@@ -524,13 +524,13 @@ public class OlapTable extends Table {
     public Map<Long, List<Column>> getIndexIdToSchema() {
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().getSchema());
+            result.put(entry.getKey(), entry.getValue().getSchema(Util.showHiddenColumns()));
         }
         return result;
     }
 
     public List<Column> getSchemaByIndexId(Long indexId) {
-        return indexIdToMeta.get(indexId).getSchema();
+        return getSchemaByIndexId(indexId, Util.showHiddenColumns());
     }
 
     public List<Column> getSchemaByIndexId(Long indexId, boolean full) {
