@@ -65,6 +65,7 @@ public class FileSystemManager {
     // supported scheme
     private static final String HDFS_SCHEME = "hdfs";
     private static final String S3A_SCHEME = "s3a";
+    private static final String OSS_SCHEME = "oss";
 
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
@@ -94,6 +95,14 @@ public class FileSystemManager {
     private static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
     // This property is used like 'fs.hdfs.impl.disable.cache'
     private static final String FS_S3A_IMPL_DISABLE_CACHE = "fs.s3a.impl.disable.cache";
+
+    //arguments for oss
+    private static final String FS_OSS_ACCESS_KEY = "fs.oss.access.key";
+    private static final String FS_OSS_SECRET_KEY = "fs.oss.secret.key";
+    private static final String FS_OSS_ENDPOINT = "fs.oss.endpoint";
+    // This property is used like 'fs.hdfs.impl.disable.cache'
+    private static final String FS_OSS_IMPL_DISABLE_CACHE = "fs.oss.impl.disable.cache";
+    private static final String FS_OSS_IMPL = "fs.oss.impl";
 
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
     
@@ -151,6 +160,8 @@ public class FileSystemManager {
             brokerFileSystem = getDistributedFileSystem(path, properties);
         } else if (scheme.equals(S3A_SCHEME)) {
             brokerFileSystem = getS3AFileSystem(path, properties);
+        } else if (scheme.equals(OSS_SCHEME)) {
+            brokerFileSystem = getOSSFileSystem(path, properties);
         } else {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
                 "invalid path. scheme is not supported");
@@ -400,6 +411,59 @@ public class FileSystemManager {
                 conf.set(FS_S3A_IMPL_DISABLE_CACHE, "true");
                 FileSystem s3AFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(s3AFileSystem);
+            }
+            return fileSystem;
+        } catch (Exception e) {
+            logger.error("errors while connect to " + path, e);
+            throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
+        } finally {
+            fileSystem.getLock().unlock();
+        }
+    }
+
+    /**
+     * visible for test
+     *
+     * file system handle is cached, the identity is host + accessKey_secretKey
+     * @param path
+     * @param properties
+     * @return
+     * @throws URISyntaxException
+     * @throws Exception
+     */
+    public BrokerFileSystem getOSSFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        String accessKey = properties.getOrDefault(FS_OSS_ACCESS_KEY, "");
+        String secretKey = properties.getOrDefault(FS_OSS_SECRET_KEY, "");
+        String endpoint = properties.getOrDefault(FS_OSS_ENDPOINT, "");
+        String host = OSS_SCHEME + "://" + endpoint;
+        String s3aUgi = accessKey + "," + secretKey;
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, s3aUgi);
+        BrokerFileSystem fileSystem = null;
+        cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
+        fileSystem = cachedFileSystem.get(fileSystemIdentity);
+        if (fileSystem == null) {
+            // it means it is removed concurrently by checker thread
+            return null;
+        }
+        fileSystem.getLock().lock();
+        try {
+            if (!cachedFileSystem.containsKey(fileSystemIdentity)) {
+                // this means the file system is closed by file system checker thread
+                // it is a corner case
+                return null;
+            }
+            if (fileSystem.getDFSFileSystem() == null) {
+                logger.info("could not find file system for path " + path + " create a new one");
+                // create a new filesystem
+                Configuration conf = new Configuration();
+                conf.set(FS_OSS_ACCESS_KEY, accessKey);
+                conf.set(FS_OSS_SECRET_KEY, secretKey);
+                conf.set(FS_OSS_ENDPOINT, endpoint);
+                conf.set(FS_OSS_IMPL, "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
+                conf.set(FS_OSS_IMPL_DISABLE_CACHE, "true");
+                FileSystem ossFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                fileSystem.setFileSystem(ossFileSystem);
             }
             return fileSystem;
         } catch (Exception e) {
