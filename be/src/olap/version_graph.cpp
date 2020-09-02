@@ -101,19 +101,11 @@ void TimestampedVersionTracker::_init_stale_version_path_map(
         // 2.1 find a path in stale_map can replace current stale_meta version
         bool r = _find_path_from_stale_map(stale_map, stale_meta->start_version(), stale_meta->end_version(), &stale_path);
 
-        // 2.2 add stale_meta to stale_map
-        auto start_iter = stale_map.find(stale_meta->start_version());
-        if (start_iter != stale_map.end()) {
-            start_iter->second[stale_meta->end_version()] = stale_meta;
-        } else {
-            std::unordered_map<int64_t, RowsetMetaSharedPtr> item;
-            item[stale_meta->end_version()] = stale_meta;
-            stale_map[stale_meta->start_version()] = std::move(item);
-        }
-        // 2.3 add version to version_graph
+        // 2.2 add version to version_graph
         Version stale_meta_version = stale_meta->version();
         add_version(stale_meta_version);
-        // 2.4 find the path
+        
+        // 2.3 find the path
         if (r) {
             // add the path to _stale_version_path_map
             add_stale_path_version(stale_path);
@@ -125,6 +117,16 @@ void TimestampedVersionTracker::_init_stale_version_path_map(
                     stale_map.erase(stale_item->start_version());
                 }
             }
+        }
+
+        // 2.4 add stale_meta to stale_map
+        auto start_iter = stale_map.find(stale_meta->start_version());
+        if (start_iter != stale_map.end()) {
+            start_iter->second[stale_meta->end_version()] = stale_meta;
+        } else {
+            std::unordered_map<int64_t, RowsetMetaSharedPtr> item;
+            item[stale_meta->end_version()] = stale_meta;
+            stale_map[stale_meta->start_version()] = std::move(item);
         }
     }
 
