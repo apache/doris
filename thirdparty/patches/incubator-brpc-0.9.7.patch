@@ -1,0 +1,21 @@
+--- src/CMakeLists.txt	2020-01-16 19:29:28.000000000 +0800
++++ src/CMakeLists.txt	2020-09-02 14:45:50.777499989 +0800
+@@ -62,11 +62,13 @@ add_executable(protoc-gen-mcpack ${proto
+ target_link_libraries(protoc-gen-mcpack brpc-shared)
+     
+ #install directory
+-install(TARGETS brpc-shared
+-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+-        )
++if(BUILD_SHARED_LIBS)
++    install(TARGETS brpc-shared
++            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
++            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
++            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
++            )
++endif()
+ 
+ install(TARGETS brpc-static
+         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

@@ -68,7 +68,8 @@ else
 fi
 
 # prepare installed prefix
-mkdir -p ${TP_DIR}/installed
+mkdir -p ${TP_DIR}/installed/lib64
+ln -sf ${TP_DIR}/installed/lib64 ${TP_DIR}/installed/lib
 
 check_prerequest() {
     local CMD=$1
@@ -179,11 +180,6 @@ build_openssl() {
     LIBDIR="lib" \
     ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared ${OPENSSL_PLATFORM}
     make -j$PARALLEL && make install
-    if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
-        mkdir -p $TP_INSTALL_DIR/lib && \
-        cp $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
-        cp $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
-    fi
     # NOTE(zc): remove this dynamic library files to make libcurl static link.
     # If I don't remove this files, I don't known how to make libcurl link static library
     if [ -f $TP_INSTALL_DIR/lib64/libcrypto.so ]; then
@@ -191,12 +187,6 @@ build_openssl() {
     fi
     if [ -f $TP_INSTALL_DIR/lib64/libssl.so ]; then
         rm -rf $TP_INSTALL_DIR/lib64/libssl.so*
-    fi
-    if [ -f $TP_INSTALL_DIR/lib/libcrypto.so ]; then
-        rm -rf $TP_INSTALL_DIR/lib/libcrypto.so*
-    fi
-    if [ -f $TP_INSTALL_DIR/lib/libssl.so ]; then
-        rm -rf $TP_INSTALL_DIR/lib/libssl.so*
     fi
 }
 
@@ -329,17 +319,12 @@ build_snappy() {
     -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
     -DSNAPPY_BUILD_TESTS=0 ../
     make -j$PARALLEL && make install
-    if [ -f $TP_INSTALL_DIR/lib64/libsnappy.a ]; then
-        mkdir -p $TP_INSTALL_DIR/lib && cp $TP_INSTALL_DIR/lib64/libsnappy.a $TP_INSTALL_DIR/lib/libsnappy.a
-
-    fi
 
     #build for libarrow.a
     cp $TP_INCLUDE_DIR/snappy/snappy-c.h  $TP_INCLUDE_DIR/snappy-c.h && \
     cp $TP_INCLUDE_DIR/snappy/snappy-sinksource.h  $TP_INCLUDE_DIR/snappy-sinksource.h && \
     cp $TP_INCLUDE_DIR/snappy/snappy-stubs-public.h  $TP_INCLUDE_DIR/snappy-stubs-public.h && \
-    cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h && \
-    cp $TP_INSTALL_DIR/lib/libsnappy.a $TP_INSTALL_DIR/libsnappy.a
+    cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h 
 }
 
 # gperftools
@@ -486,13 +471,9 @@ build_brpc() {
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     $CMAKE_CMD -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DBRPC_WITH_GLOG=ON -DWITH_GLOG=ON -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
-    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" \
-    -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc \
-    -DProtobuf_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc ..
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib64" \
+    -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc .. 
     make -j$PARALLEL && make install
-    if [ -f $TP_INSTALL_DIR/lib/libbrpc.a ]; then
-        mkdir -p $TP_INSTALL_DIR/lib64 && cp $TP_INSTALL_DIR/lib/libbrpc.a $TP_INSTALL_DIR/lib64/libbrpc.a
-    fi
 }
 
 # rocksdb
