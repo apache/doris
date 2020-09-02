@@ -133,8 +133,7 @@ public class DdlExecutor {
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             boolean isAccurateMatch = ((CancelLoadStmt) ddlStmt).isAccurateMatch();
-            boolean isLabelExist = false;
-            isLabelExist = catalog.getLoadInstance().isLabelExist(
+            boolean isLabelExist = catalog.getLoadInstance().isLabelExist(
                     ((CancelLoadStmt) ddlStmt).getDbName(),
                     ((CancelLoadStmt) ddlStmt).getLabel(), isAccurateMatch);
             if (isLabelExist) {

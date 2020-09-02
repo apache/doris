@@ -137,4 +137,9 @@ public class CancelLoadStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
+    @Override
+    public String toString() {
+        return toSql();
+    }
+
 }
