@@ -127,7 +127,7 @@ public class SparkLoadJob extends BulkLoadJob {
     // --- members below not persist ---
     private ResourceDesc resourceDesc;
     // for spark standalone
-    private SparkLoadAppHandle sparkLoadAppHandle;
+    private SparkLoadAppHandle sparkLoadAppHandle = new SparkLoadAppHandle();
     // for straggler wait long time to commit transaction
     private long quorumFinishTimestamp = -1;
     // below for push task
@@ -149,7 +149,6 @@ public class SparkLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(dbId, label, originStmt);
         this.resourceDesc = resourceDesc;
-        this.sparkLoadAppHandle = new SparkLoadAppHandle();
         timeoutSecond = Config.spark_load_default_timeout_second;
         jobType = EtlJobType.SPARK;
     }
