@@ -140,8 +140,8 @@ public class ResourceMgr implements Writable {
             }
 
             List<Comparable> comparableRow = Lists.newArrayList();
-            for (Comparable solt : row) {
-                comparableRow.add(solt);
+            for (Comparable slot : row) {
+                comparableRow.add(slot);
             }
             returnRows.add(comparableRow);
         }
