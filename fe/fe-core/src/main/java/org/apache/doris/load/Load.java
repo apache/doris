@@ -1742,7 +1742,6 @@ public class Load {
         return true;
     }
 
-
     public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg) {
         return cancelLoadJob(job, cancelType, msg, null);
     }
