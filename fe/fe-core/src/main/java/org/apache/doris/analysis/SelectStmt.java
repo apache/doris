@@ -531,6 +531,10 @@ public class SelectStmt extends QueryStmt {
                 whereClause = new BoolLiteral(true);
             }
         }
+        Expr deDuplicatedWhere = deduplicateOrs(whereClause);
+        if (deDuplicatedWhere != null) {
+            whereClause = deDuplicatedWhere;
+        }
     }
 
     /**
