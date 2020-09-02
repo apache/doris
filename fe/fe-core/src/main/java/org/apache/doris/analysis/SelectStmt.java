@@ -523,7 +523,7 @@ public class SelectStmt extends QueryStmt {
         return result;
     }
 
-    private void whereClauseRewrite() throws AnalysisException {
+    private void whereClauseRewrite() {
         if (whereClause instanceof IntLiteral) {
             if (((IntLiteral) whereClause).getLongValue() == 0) {
                 whereClause = new BoolLiteral(false);
