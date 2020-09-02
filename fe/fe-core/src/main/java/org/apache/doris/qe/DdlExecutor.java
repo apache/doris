@@ -133,10 +133,14 @@ public class DdlExecutor {
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             if (catalog.getLoadInstance().isLabelExist(
-                    ((CancelLoadStmt) ddlStmt).getDbName(), ((CancelLoadStmt) ddlStmt).getLabel())) {
-                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt);
+                    ((CancelLoadStmt) ddlStmt).getDbName(),
+                    ((CancelLoadStmt) ddlStmt).getLabel(),
+                    ((CancelLoadStmt) ddlStmt).isAccurateMatch())) {
+                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        ((CancelLoadStmt) ddlStmt).isAccurateMatch());
             } else {
-                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        ((CancelLoadStmt) ddlStmt).isAccurateMatch());
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);

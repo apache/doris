@@ -107,7 +107,6 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -133,6 +132,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
@@ -1545,7 +1545,7 @@ public class Load {
         return false;
     }
 
-    public boolean isLabelExist(String dbName, String label) throws DdlException {
+    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException {
         // get load job and check state
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
@@ -1557,8 +1557,19 @@ public class Load {
             if (labelToLoadJobs == null) {
                 return false;
             }
-            List<LoadJob> loadJobs = labelToLoadJobs.get(label);
-            if (loadJobs == null) {
+            List<LoadJob> loadJobs = Lists.newArrayList();
+            if (isAccurateMatch) {
+                if (labelToLoadJobs.containsKey(labelValue)) {
+                    loadJobs.addAll(labelToLoadJobs.get(labelValue));
+                }
+            } else {
+                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                    if (entry.getKey().contains(labelValue)) {
+                        loadJobs.addAll(entry.getValue());
+                    }
+                }
+            }
+            if (loadJobs.isEmpty()) {
                 return false;
             }
             if (loadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).count() == 0) {
@@ -1568,6 +1579,105 @@ public class Load {
         } finally {
             readUnlock();
         }
+    }
+
+    public boolean cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+        // get params
+        String dbName = stmt.getDbName();
+        String label = stmt.getLabel();
+
+        // get load job and check state
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + dbName);
+        }
+        // List of load jobs waiting to be cancelled
+        List<LoadJob> loadJobs = Lists.newArrayList();
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // get jobs by label
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
+            if (isAccurateMatch) {
+                if (!labelToLoadJobs.containsKey(label)) {
+                    matchLoadJobs.addAll(labelToLoadJobs.get(label));
+                }
+            } else {
+                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                    if (entry.getKey().contains(label)) {
+                        matchLoadJobs.addAll(entry.getValue());
+                    }
+                }
+            }
+
+            if (matchLoadJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // check state here
+            if (isAccurateMatch) {
+                // only the last one should be running
+                LoadJob job = matchLoadJobs.get(matchLoadJobs.size() - 1);
+                JobState state = job.getState();
+                if (state == JobState.CANCELLED) {
+                    throw new DdlException("Load job has been cancelled");
+                } else if (state == JobState.QUORUM_FINISHED || state == JobState.FINISHED) {
+                    throw new DdlException("Load job has been finished");
+                }
+                loadJobs.add(job);
+            } else {
+                List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(job -> {
+                    JobState state = job.getState();
+                    return state != JobState.CANCELLED && state != JobState.QUORUM_FINISHED && state != JobState.FINISHED;
+                }).collect(Collectors.toList());
+                if (uncompletedLoadJob.isEmpty()) {
+                    throw new DdlException("Load jobs which label like " + stmt.getLabel() +
+                            " have all been cancelled or finished");
+                }
+                loadJobs.addAll(uncompletedLoadJob);
+            }
+        } finally {
+            readUnlock();
+        }
+
+        // check auth here, cause we need table info
+        Set<String> tableNames = Sets.newHashSet();
+        for (LoadJob loadJob : loadJobs) {
+            tableNames.addAll(loadJob.getTableNames());
+        }
+
+        if (tableNames.isEmpty()) {
+            if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                    PrivPredicate.LOAD)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
+                        PrivPredicate.LOAD)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(), tblName);
+                }
+            }
+        }
+
+        // cancel job
+        for (LoadJob loadJob : loadJobs) {
+            List<String> failedMsg = Lists.newArrayList();
+            boolean ok = cancelLoadJob(loadJob, CancelType.USER_CANCEL, "user cancel", failedMsg);
+            if (!ok) {
+                throw new DdlException("Cancel load job [" + loadJob.getId() + "] fail, " +
+                        "label=[" + loadJob.getLabel() + "] failed msg=" +
+                        (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
+            }
+        }
+
+        return true;
     }
 
     public boolean cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
@@ -1609,16 +1719,16 @@ public class Load {
         if (tableNames.isEmpty()) {
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                                   PrivPredicate.LOAD)) {
+                    PrivPredicate.LOAD)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
             }
         } else {
             for (String tblName : tableNames) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                                                                        PrivPredicate.LOAD)) {
+                        PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
-                                                   ConnectContext.get().getQualifiedUser(),
-                                                   ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(), tblName);
                 }
             }
         }
@@ -1631,6 +1741,7 @@ public class Load {
 
         return true;
     }
+
 
     public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg) {
         return cancelLoadJob(job, cancelType, msg, null);
