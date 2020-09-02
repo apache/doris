@@ -363,7 +363,7 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
         LOG(INFO) << "try to perform path scan!";
         data_dir->perform_path_scan();
 
-        int32_t interval = config::path_scan_interval_second;
+        interval = config::path_scan_interval_second;
         if (interval <= 0) {
             LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
                          << "will be forced set to one day";
