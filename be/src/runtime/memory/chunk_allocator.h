@@ -77,7 +77,7 @@ private:
     // each core has a ChunkArena
     std::vector<std::unique_ptr<ChunkArena>> _arenas;
 
-    MetricEntity* _chunk_allocator_metric_entity;
+    std::shared_ptr<MetricEntity> _chunk_allocator_metric_entity;
 };
 
 }

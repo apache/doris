@@ -137,8 +137,8 @@ void* calculate_metrics(void* dummy) {
 
         if (last_ts == -1L) {
             last_ts = GetCurrentTimeMicros() / 1000;
-            lst_push_bytes = DorisMetrics::instance()->push_request_write_bytes.value();
-            lst_query_bytes = DorisMetrics::instance()->query_scan_bytes.value();
+            lst_push_bytes = DorisMetrics::instance()->push_request_write_bytes->value();
+            lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
             DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         } else {
@@ -147,21 +147,21 @@ void* calculate_metrics(void* dummy) {
             last_ts = current_ts;
 
             // 1. push bytes per second
-            int64_t current_push_bytes = DorisMetrics::instance()->push_request_write_bytes.value();
+            int64_t current_push_bytes = DorisMetrics::instance()->push_request_write_bytes->value();
             int64_t pps = (current_push_bytes - lst_push_bytes) / (interval + 1);
-            DorisMetrics::instance()->push_request_write_bytes_per_second.set_value(
+            DorisMetrics::instance()->push_request_write_bytes_per_second->set_value(
                 pps < 0 ? 0 : pps);
             lst_push_bytes = current_push_bytes;
 
             // 2. query bytes per second
-            int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes.value();
+            int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             int64_t qps = (current_query_bytes - lst_query_bytes) / (interval + 1);
-            DorisMetrics::instance()->query_scan_bytes_per_second.set_value(
+            DorisMetrics::instance()->query_scan_bytes_per_second->set_value(
                 qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
             // 3. max disk io util
-            DorisMetrics::instance()->max_disk_io_util_percent.set_value(
+            DorisMetrics::instance()->max_disk_io_util_percent->set_value(
                 DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time, 15));
             // update lst map
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
@@ -171,8 +171,8 @@ void* calculate_metrics(void* dummy) {
             int64_t max_receive = 0;
             DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
                 lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
-            DorisMetrics::instance()->max_network_send_bytes_rate.set_value(max_send);
-            DorisMetrics::instance()->max_network_receive_bytes_rate.set_value(max_receive);
+            DorisMetrics::instance()->max_network_send_bytes_rate->set_value(max_send);
+            DorisMetrics::instance()->max_network_receive_bytes_rate->set_value(max_receive);
             // update lst map
             DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         }

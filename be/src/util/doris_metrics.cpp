@@ -131,103 +131,103 @@ const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
 
 DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
-    _server_metric_entity = _metric_registry.register_entity("server", {});
+    _server_metric_entity = _metric_registry.register_entity("server");
 
-    METRIC_REGISTER(_server_metric_entity, fragment_requests_total);
-    METRIC_REGISTER(_server_metric_entity, fragment_request_duration_us);
-    METRIC_REGISTER(_server_metric_entity, http_requests_total);
-    METRIC_REGISTER(_server_metric_entity, http_request_send_bytes);
-    METRIC_REGISTER(_server_metric_entity, query_scan_bytes);
-    METRIC_REGISTER(_server_metric_entity, query_scan_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_request_duration_us);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, http_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, http_request_send_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);
 
-    METRIC_REGISTER(_server_metric_entity, push_requests_success_total);
-    METRIC_REGISTER(_server_metric_entity, push_requests_fail_total);
-    METRIC_REGISTER(_server_metric_entity, push_request_duration_us);
-    METRIC_REGISTER(_server_metric_entity, push_request_write_bytes);
-    METRIC_REGISTER(_server_metric_entity, push_request_write_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_success_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_fail_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_request_duration_us);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_request_write_rows);
 
     // engine_requests_total
-    METRIC_REGISTER(_server_metric_entity, create_tablet_requests_total);
-    METRIC_REGISTER(_server_metric_entity, create_tablet_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, drop_tablet_requests_total);
-    METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_total);
-    METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, report_tablet_requests_total);
-    METRIC_REGISTER(_server_metric_entity, report_tablet_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, report_disk_requests_total);
-    METRIC_REGISTER(_server_metric_entity, report_disk_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, report_task_requests_total);
-    METRIC_REGISTER(_server_metric_entity, report_task_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, schema_change_requests_total);
-    METRIC_REGISTER(_server_metric_entity, schema_change_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, create_rollup_requests_total);
-    METRIC_REGISTER(_server_metric_entity, create_rollup_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, storage_migrate_requests_total);
-    METRIC_REGISTER(_server_metric_entity, delete_requests_total);
-    METRIC_REGISTER(_server_metric_entity, delete_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, clone_requests_total);
-    METRIC_REGISTER(_server_metric_entity, clone_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, finish_task_requests_total);
-    METRIC_REGISTER(_server_metric_entity, finish_task_requests_failed);
-    METRIC_REGISTER(_server_metric_entity, base_compaction_request_total);
-    METRIC_REGISTER(_server_metric_entity, base_compaction_request_failed);
-    METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_total);
-    METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_failed);
-    METRIC_REGISTER(_server_metric_entity, publish_task_request_total);
-    METRIC_REGISTER(_server_metric_entity, publish_task_failed_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_tablet_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_tablet_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, drop_tablet_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_tablet_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_tablet_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_disk_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_disk_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_task_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_task_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, schema_change_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, schema_change_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_rollup_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_rollup_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, storage_migrate_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, delete_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, delete_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, clone_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, clone_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, finish_task_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, finish_task_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_request_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_failed_total);
 
-    METRIC_REGISTER(_server_metric_entity, base_compaction_deltas_total);
-    METRIC_REGISTER(_server_metric_entity, base_compaction_bytes_total);
-    METRIC_REGISTER(_server_metric_entity, cumulative_compaction_deltas_total);
-    METRIC_REGISTER(_server_metric_entity, cumulative_compaction_bytes_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_deltas_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_bytes_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_deltas_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_bytes_total);
 
-    METRIC_REGISTER(_server_metric_entity, meta_write_request_total);
-    METRIC_REGISTER(_server_metric_entity, meta_write_request_duration_us);
-    METRIC_REGISTER(_server_metric_entity, meta_read_request_total);
-    METRIC_REGISTER(_server_metric_entity, meta_read_request_duration_us);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_write_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_write_request_duration_us);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_read_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_read_request_duration_us);
 
-    METRIC_REGISTER(_server_metric_entity, segment_read_total);
-    METRIC_REGISTER(_server_metric_entity, segment_row_total);
-    METRIC_REGISTER(_server_metric_entity, segment_rows_by_short_key);
-    METRIC_REGISTER(_server_metric_entity, segment_rows_read_by_zone_map);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_rows_by_short_key);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_rows_read_by_zone_map);
 
-    METRIC_REGISTER(_server_metric_entity, txn_begin_request_total);
-    METRIC_REGISTER(_server_metric_entity, txn_commit_request_total);
-    METRIC_REGISTER(_server_metric_entity, txn_rollback_request_total);
-    METRIC_REGISTER(_server_metric_entity, txn_exec_plan_total);
-    METRIC_REGISTER(_server_metric_entity, stream_receive_bytes_total);
-    METRIC_REGISTER(_server_metric_entity, stream_load_rows_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_begin_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_commit_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_rollback_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_exec_plan_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_receive_bytes_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_rows_total);
 
-    METRIC_REGISTER(_server_metric_entity, memtable_flush_total);
-    METRIC_REGISTER(_server_metric_entity, memtable_flush_duration_us);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_duration_us);
 
-    METRIC_REGISTER(_server_metric_entity, memory_pool_bytes_total);
-    METRIC_REGISTER(_server_metric_entity, process_thread_num);
-    METRIC_REGISTER(_server_metric_entity, process_fd_num_used);
-    METRIC_REGISTER(_server_metric_entity, process_fd_num_limit_soft);
-    METRIC_REGISTER(_server_metric_entity, process_fd_num_limit_hard);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, memory_pool_bytes_total);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_thread_num);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_fd_num_used);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_fd_num_limit_soft);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_fd_num_limit_hard);
 
-    METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
-    METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
 
-    METRIC_REGISTER(_server_metric_entity, push_request_write_bytes_per_second);
-    METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);
-    METRIC_REGISTER(_server_metric_entity, max_disk_io_util_percent);
-    METRIC_REGISTER(_server_metric_entity, max_network_send_bytes_rate);
-    METRIC_REGISTER(_server_metric_entity, max_network_receive_bytes_rate);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes_per_second);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_disk_io_util_percent);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_network_send_bytes_rate);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_network_receive_bytes_rate);
 
-    METRIC_REGISTER(_server_metric_entity, readable_blocks_total);
-    METRIC_REGISTER(_server_metric_entity, writable_blocks_total);
-    METRIC_REGISTER(_server_metric_entity, blocks_created_total);
-    METRIC_REGISTER(_server_metric_entity, blocks_deleted_total);
-    METRIC_REGISTER(_server_metric_entity, bytes_read_total);
-    METRIC_REGISTER(_server_metric_entity, bytes_written_total);
-    METRIC_REGISTER(_server_metric_entity, disk_sync_total);
-    METRIC_REGISTER(_server_metric_entity, blocks_open_reading);
-    METRIC_REGISTER(_server_metric_entity, blocks_open_writing);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, readable_blocks_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, writable_blocks_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, blocks_created_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, blocks_deleted_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, bytes_read_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, bytes_written_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, disk_sync_total);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, blocks_open_reading);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, blocks_open_writing);
 
-    METRIC_REGISTER(_server_metric_entity, load_rows);
-    METRIC_REGISTER(_server_metric_entity, load_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_bytes);
 
     _server_metric_entity->register_hook(_s_hook_name, std::bind(&DorisMetrics::_update, this));
 }
@@ -257,11 +257,11 @@ void DorisMetrics::_update_process_thread_num() {
     Status st = FileUtils::get_children_count(Env::Default(), ss.str(), &count);
     if (!st.ok()) {
         LOG(WARNING) << "failed to count thread num from: " << ss.str();
-        process_thread_num.set_value(0);
+        process_thread_num->set_value(0);
         return;
     }
 
-    process_thread_num.set_value(count);
+    process_thread_num->set_value(count);
 }
 
 // get num of file descriptor of doris_be process
@@ -275,10 +275,10 @@ void DorisMetrics::_update_process_fd_num() {
     Status st = FileUtils::get_children_count(Env::Default(), ss.str(), &count);
     if (!st.ok()) {
         LOG(WARNING) << "failed to count fd from: " << ss.str();
-        process_fd_num_used.set_value(0);
+        process_fd_num_used->set_value(0);
         return;
     }
-    process_fd_num_used.set_value(count);
+    process_fd_num_used->set_value(count);
 
     // fd limits
     std::stringstream ss2;
@@ -301,8 +301,8 @@ void DorisMetrics::_update_process_fd_num() {
         int num = sscanf(line_ptr, "Max open files %" PRId64 " %" PRId64,
                          &values[0], &values[1]);
         if (num == 2) {
-            process_fd_num_limit_soft.set_value(values[0]);
-            process_fd_num_limit_hard.set_value(values[1]);
+            process_fd_num_limit_soft->set_value(values[0]);
+            process_fd_num_limit_hard->set_value(values[1]);
             break;
         }
     }

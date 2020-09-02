@@ -71,7 +71,7 @@ Status ClientCacheHelper::get_client(
     _client_map[*client_key]->set_recv_timeout(timeout_ms);
 
     if (_metrics_enabled) {
-        thrift_used_clients.increment(1);
+        thrift_used_clients->increment(1);
     }
 
     return Status::OK();
@@ -96,7 +96,7 @@ Status ClientCacheHelper::reopen_client(client_factory factory_method, void** cl
     *client_key = NULL;
 
     if (_metrics_enabled) {
-        thrift_opened_clients.increment(-1);
+        thrift_opened_clients->increment(-1);
     }
 
     RETURN_IF_ERROR(create_client(make_network_address(
@@ -127,7 +127,7 @@ Status ClientCacheHelper::create_client(
     _client_map[*client_key] = client_impl.release();
 
     if (_metrics_enabled) {
-        thrift_opened_clients.increment(1);
+        thrift_opened_clients->increment(1);
     }
 
     return Status::OK();
@@ -149,14 +149,14 @@ void ClientCacheHelper::release_client(void** client_key) {
         delete info;
 
         if (_metrics_enabled) {
-            thrift_opened_clients.increment(-1);
+            thrift_opened_clients->increment(-1);
         }
     } else {
         j->second.push_back(*client_key);
     }
 
     if (_metrics_enabled) {
-        thrift_used_clients.increment(-1);
+        thrift_used_clients->increment(-1);
     }
 
     *client_key = NULL;
@@ -222,8 +222,8 @@ void ClientCacheHelper::init_metrics(const std::string& name) {
     _thrift_client_metric_entity =
         DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("thrift_client.") + name, {{"name", name}});
-    METRIC_REGISTER(_thrift_client_metric_entity, thrift_used_clients);
-    METRIC_REGISTER(_thrift_client_metric_entity, thrift_opened_clients);
+    INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_used_clients);
+    INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_opened_clients);
 
     _metrics_enabled = true;
 }
