@@ -326,6 +326,8 @@ TEST_F(HybirdSetTest, string) {
     ASSERT_FALSE(set->find(&b));
 }
 TEST_F(HybirdSetTest, timestamp) {
+    CpuInfo::init();
+
     HybirdSetBase* set = HybirdSetBase::create_set(TYPE_DATETIME);
     char s1[] = "2012-01-20 01:10:01";
     char s2[] = "1990-10-20 10:10:10.123456  ";

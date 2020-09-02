@@ -34,7 +34,6 @@ public:
         init();
     }
     static void SetUpTestCase() {
-        CpuInfo::init();
         UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
@@ -458,5 +457,6 @@ TEST_F(PushHandlerTest, PushBrokerReaderNormal) {
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    CpuInfo::init();
     return RUN_ALL_TESTS();
 }

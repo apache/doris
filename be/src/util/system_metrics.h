@@ -89,6 +89,7 @@ private:
     char* _line_ptr = nullptr;
     size_t _line_buf_size = 0;
     MetricRegistry* _registry = nullptr;
+    std::shared_ptr<MetricEntity> _server_entity = nullptr;
 };
 
 }

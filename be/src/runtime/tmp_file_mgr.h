@@ -192,7 +192,7 @@ private:
     std::vector<Dir> _tmp_dirs;
 
     // Metric to track active scratch directories.
-    IntGauge active_scratch_dirs;
+    IntGauge* active_scratch_dirs;
 };
 
 } // end namespace doris

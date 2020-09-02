@@ -34,6 +34,8 @@ using std::string;
 
 namespace doris {
 
+StorageEngine* k_engine = nullptr;
+
 class CgroupsMgrTest : public testing::Test {
 public:
     // create a mock cgroup folder 
@@ -41,6 +43,14 @@ public:
         ASSERT_FALSE(boost::filesystem::exists(_s_cgroup_path));
         // create a mock cgroup path
         ASSERT_TRUE(boost::filesystem::create_directory(_s_cgroup_path));
+        
+        std::vector<StorePath> paths;
+        paths.emplace_back(config::storage_root_path, -1);
+
+        doris::EngineOptions options;
+        options.store_paths = paths;
+        Status s = doris::StorageEngine::open(options, &k_engine);
+        ASSERT_TRUE(s.ok()) << s.to_string();
     }
 
     // delete the mock cgroup folder
