@@ -17,14 +17,15 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import org.apache.commons.lang3.tuple.Pair;
+import scala.Tuple2;
+
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -55,6 +56,7 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.LongAccumulator;
+import org.apache.spark.util.SerializableConfiguration;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -70,9 +72,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
-
-import org.apache.spark.util.SerializableConfiguration;
-import scala.Tuple2;
 
 // This class is a Spark-based data preprocessing program,
 // which will make use of the distributed compute framework of spark to
