@@ -20,6 +20,7 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Version;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
@@ -43,6 +44,7 @@ public class BootstrapFinishAction extends RestBaseAction {
     public static final String REPLAYED_JOURNAL_ID = "replayedJournalId";
     public static final String QUERY_PORT = "queryPort";
     public static final String RPC_PORT = "rpcPort";
+    public static final String VERSION = "version";
 
     public BootstrapFinishAction(ActionController controller) {
         super(controller);
@@ -92,6 +94,7 @@ public class BootstrapFinishAction extends RestBaseAction {
                     result.setMaxReplayedJournal(replayedJournalId);
                     result.setQueryPort(Config.query_port);
                     result.setRpcPort(Config.rpc_port);
+                    result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 }
             }
         } else {
@@ -108,6 +111,7 @@ public class BootstrapFinishAction extends RestBaseAction {
         private long replayedJournalId = 0;
         private int queryPort = 0;
         private int rpcPort = 0;
+        private String version = "";
 
         public BootstrapResult() {
             super();
@@ -139,6 +143,14 @@ public class BootstrapFinishAction extends RestBaseAction {
 
         public int getRpcPort() {
             return rpcPort;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        public void setVersion(String version) {
+            this.version = version;
         }
 
         @Override

@@ -44,22 +44,22 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("IP").add("HostName").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
-            .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
+            .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg").add("Version")
             .build();
-    
+
     public static final int HOSTNAME_INDEX = 2;
 
     private Catalog catalog;
-    
+
     public FrontendsProcNode(Catalog catalog) {
         this.catalog = catalog;
     }
-    
+
     @Override
     public ProcResult fetchResult() {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        
+
         List<List<String>> infos = Lists.newArrayList();
 
         getFrontendsInfo(catalog, infos);
@@ -82,13 +82,13 @@ public class FrontendsProcNode implements ProcNodeInterface {
             // this may happen when majority of FOLLOWERS are down and no MASTER right now.
             LOG.warn("failed to get leader: {}", e.getMessage());
         }
-        
+
         // get all node which are joined in bdb group
         List<InetSocketAddress> allFe = catalog.getHaProtocol().getElectableNodes(true /* include leader */);
         allFe.addAll(catalog.getHaProtocol().getObserverNodes());
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
         List<Pair<String, Integer>> helperNodes = catalog.getHelperNodes();
-        
+
         for (Frontend fe : catalog.getFrontends(null /* all */)) {
 
             List<String> info = new ArrayList<String>();
@@ -112,7 +112,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             info.add(Integer.toString(catalog.getClusterId()));
             info.add(String.valueOf(isJoin(allFeHosts, fe)));
-            
+
             if (fe.getHost().equals(catalog.getSelfNode().first)) {
                 info.add("true");
                 info.add(Long.toString(catalog.getEditLog().getMaxJournalId()));
@@ -121,15 +121,17 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 info.add(Long.toString(fe.getReplayedJournalId()));
             }
             info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
-            
+
             info.add(String.valueOf(isHelperNode(helperNodes, fe)));
 
             info.add(fe.getHeartbeatErrMsg());
 
+            info.add(fe.getVersion());
+
             infos.add(info);
         }
     }
-    
+
     private static boolean isHelperNode(List<Pair<String, Integer>> helperNodes, Frontend fe) {
         return helperNodes.stream().anyMatch(p -> p.first.equals(fe.getHost()) && p.second == fe.getEditLogPort());
     }
@@ -142,7 +144,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
         return false;
     }
-    
+
     private static List<Pair<String, Integer>> convertToHostPortPair(List<InetSocketAddress> addrs) {
         List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
         for (InetSocketAddress addr : addrs) {
