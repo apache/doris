@@ -380,6 +380,21 @@ public class SelectStmtTest {
     }
 
     @Test
+    public void testRandFunction() throws Exception {
+        String sql = "select rand(db1.tbl1.k1) from db1.tbl1;";
+        try {
+            dorisAssert.query(sql).explainQuery();
+            Assert.fail("The param of rand function must be literal");
+        } catch (AnalysisException e) {
+            System.out.println(e.getMessage());
+        }
+        sql = "select rand(1234) from db1.tbl1;";
+        dorisAssert.query(sql).explainQuery();
+        sql = "select rand() from db1.tbl1;";
+        dorisAssert.query(sql).explainQuery();
+   }
+
+    @Test
     public void testVarcharToLongSupport() throws Exception {
         String sql = "select count(*)\n" +
                 "from db1.partition_table\n" +
