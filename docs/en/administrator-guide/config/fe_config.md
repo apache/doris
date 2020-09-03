@@ -277,6 +277,9 @@ This configuration can play a role in certain scenarios. Assume that the initial
 
 ### `enable_auth_check`
 
+### `enable_batch_delete_by_default`
+Whether to add a delete sign column when create unique table
+
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`

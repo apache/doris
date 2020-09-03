@@ -275,6 +275,9 @@ FE 的配置项有两种方式进行配置：
 
 ### `enable_auth_check`
 
+### `enable_batch_delete_by_default`
+在创建 unique 表时是否自动启用批量删除功能
+
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`
