@@ -25,6 +25,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/tuple_row.h"
 #include "util/url_parser.h"
+#include <algorithm>
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
@@ -803,7 +804,7 @@ void StringFunctions::parse_url_prepare(
         std::stringstream ss;
         ss << "Invalid URL part: " << AnyValUtil::to_string(*part) << std::endl
             << "(Valid URL parts are 'PROTOCOL', 'HOST', 'PATH', 'REF', 'AUTHORITY', 'FILE', "
-            << "'USERINFO', and 'QUERY')";
+            << "'USERINFO', 'PORT' and 'QUERY')";
         ctx->set_error(ss.str().c_str());
         return;
     }
@@ -815,13 +816,16 @@ StringVal StringFunctions::parse_url(
     if (url.is_null || part.is_null) {
         return StringVal::null();
     }
+    std::string part_str = std::string(reinterpret_cast<const char *>(part.ptr), part.len);
+    transform(part_str.begin(), part_str.end(), part_str.begin(), ::toupper);
+    StringVal newPart = AnyValUtil::from_string_temp(ctx, part_str);
     void* state = ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     UrlParser::UrlPart url_part;
     if (state != NULL) {
         url_part = *reinterpret_cast<UrlParser::UrlPart*>(state);
     } else {
         DCHECK(!ctx->is_arg_constant(1));
-        url_part = UrlParser::get_url_part(StringValue::from_string_val(part));
+        url_part = UrlParser::get_url_part(StringValue::from_string_val(newPart));
     }
 
     StringValue result;
@@ -829,7 +833,7 @@ StringVal StringFunctions::parse_url(
         // url is malformed, or url_part is invalid.
         if (url_part == UrlParser::INVALID) {
             std::stringstream ss;
-            ss << "Invalid URL part: " << AnyValUtil::to_string(part);
+            ss << "Invalid URL part: " << AnyValUtil::to_string(newPart);
             ctx->add_warning(ss.str().c_str());
         } else {
             std::stringstream ss;
