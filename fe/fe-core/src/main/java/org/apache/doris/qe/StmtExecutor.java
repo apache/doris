@@ -589,41 +589,62 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
-    private void sendChannel(MysqlChannel channel, List<CacheProxy.CacheValue> cacheValues, boolean isEos)
+    // send values from cache.
+    // return true if the meta fields has been sent, otherwise, return false.
+    // the meta fields must be sent right before the first batch of data(or eos flag).
+    // so if it has data(or eos is true), this method must return true.
+    private boolean sendCachedValues(MysqlChannel channel, List<CacheProxy.CacheValue> cacheValues,
+                                     SelectStmt selectStmt, boolean isSendFields, boolean isEos)
             throws Exception {
         RowBatch batch = null;
+        boolean isSend = isSendFields;
         for (CacheBeProxy.CacheValue value : cacheValues) {
             batch = value.getRowBatch();
+            if (!isSend) {
+                // send meta fields before sending first data batch.
+                sendFields(selectStmt.getColLabels(), selectStmt.getResultExprs());
+                isSend = true;
+            }
             for (ByteBuffer row : batch.getBatch().getRows()) {
                 channel.sendOnePacket(row);
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
+
         if (isEos) {
             if (batch != null) {
                 statisticsForAuditLog = batch.getQueryStatistics();
             }
+            if (!isSend) {
+                sendFields(selectStmt.getColLabels(), selectStmt.getResultExprs());
+                isSend = true;
+            }
             context.getState().setEof();
-            return;
         }
+        return isSend;
     }
 
-    private boolean handleCacheStmt(CacheAnalyzer cacheAnalyzer,MysqlChannel channel) throws Exception {
+    /**
+     * Handle the SelectStmt via Cache.
+     */
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel, SelectStmt selectStmt) throws Exception {
         RowBatch batch = null;
         CacheBeProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
         CacheMode mode = cacheAnalyzer.getCacheMode();
+        SelectStmt newSelectStmt = selectStmt;
+        boolean isSendFields = false;
         if (cacheResult != null) {
             isCached = true;
             if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
-                sendChannel(channel, cacheResult.getValueList(), true);
-                return true;
+                sendCachedValues(channel, cacheResult.getValueList(), newSelectStmt, isSendFields, true);
+                return;
             }
-            //rewrite sql
+            // rewrite sql
             if (mode == CacheMode.Partition) {
                 if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
-                    sendChannel(channel, cacheResult.getValueList(), false);
+                    isSendFields = sendCachedValues(channel, cacheResult.getValueList(), newSelectStmt, isSendFields, false);
                 }
-                SelectStmt newSelectStmt = cacheAnalyzer.getRewriteStmt();
+                newSelectStmt = cacheAnalyzer.getRewriteStmt();
                 newSelectStmt.reset();
                 analyzer = new Analyzer(context.getCatalog(), context);
                 newSelectStmt.analyze(analyzer);
@@ -652,13 +673,19 @@ public class StmtExecutor {
         }
         
         if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
-            sendChannel(channel, cacheResult.getValueList(), false);
+            isSendFields = sendCachedValues(channel, cacheResult.getValueList(), newSelectStmt, isSendFields, false);
         }
 
         cacheAnalyzer.updateCache();
+
+        if (!isSendFields) {
+            sendFields(newSelectStmt.getColLabels(), newSelectStmt.getResultExprs());
+            isSendFields = true;
+        }
+
         statisticsForAuditLog = batch.getQueryStatistics();
         context.getState().setEof();
-        return false;
+        return;
     }
 
     // Process a select statement.
@@ -682,6 +709,17 @@ public class StmtExecutor {
             return;
         }
 
+        RowBatch batch;
+        MysqlChannel channel = context.getMysqlChannel();
+        boolean isOutfileQuery = queryStmt.hasOutFileClause();
+
+        // Sql and PartitionCache
+        CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
+        if (cacheAnalyzer.enableCache() && !isOutfileQuery && queryStmt instanceof SelectStmt) {
+            handleCacheStmt(cacheAnalyzer, channel, (SelectStmt) queryStmt);
+            return;
+        }
+
         // send result
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -690,21 +728,7 @@ public class StmtExecutor {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
-        RowBatch batch;
-        MysqlChannel channel = context.getMysqlChannel();
-        boolean isOutfileQuery = queryStmt.hasOutFileClause();
         boolean isSendFields = false;
-        if (!isOutfileQuery) {
-            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
-        }
-        
-        //Sql and PartitionCache
-        CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
-        if (cacheAnalyzer.enableCache()) {
-            handleCacheStmt(cacheAnalyzer, channel);
-            return;
-        }
-
         coord = new Coordinator(context, analyzer, planner);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
