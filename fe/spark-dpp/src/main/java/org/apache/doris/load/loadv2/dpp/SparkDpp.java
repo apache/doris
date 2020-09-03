@@ -62,6 +62,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -553,12 +554,13 @@ public final class SparkDpp implements java.io.Serializable {
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
             parsers.add(ColumnParser.create(column));
         }
+        char separator = (char)fileGroup.columnSeparator.getBytes(Charset.forName("UTF-8"))[0];
         // now we first support csv file
         // TODO: support parquet file and orc file
         JavaRDD<Row> rowRDD = sourceDataRdd.flatMap(
                 record -> {
                     scannedRowsAcc.add(1);
-                    String[] attributes = splitLine(record, fileGroup.columnSeparator);
+                    String[] attributes = splitLine(record, separator);
                     List<Row> result = new ArrayList<>();
                     boolean validRow = true;
                     if (attributes.length != columnSize) {
@@ -641,8 +643,7 @@ public final class SparkDpp implements java.io.Serializable {
     }
 
     // This method is to keep the splitting consistent with broker load / mini load
-    private String[] splitLine(String line, String columnSeparator) {
-        char sep = columnSeparator.charAt(0);
+    private String[] splitLine(String line, char sep) {
         int index = 0;
         int lastIndex = 0;
         // line-begin char and line-end char are considered to be 'delimeter'
