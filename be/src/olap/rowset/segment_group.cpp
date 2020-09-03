@@ -264,7 +264,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
             schema_mapping[i].ref_column >= zone_map_fields.size()) {
             
             // the sequence of columns in _zone_maps and _schema must be consistent, so here
-            // process should not add missed zonemap and we break the loap.
+            // process should not add missed zonemap and we break the loop.
             break; 
         }
         const TabletColumn& column = _schema->column(i);
