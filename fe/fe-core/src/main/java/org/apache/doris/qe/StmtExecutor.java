@@ -662,6 +662,10 @@ public class StmtExecutor {
             batch = coord.getNext();
             if (batch.getBatch() != null) {
                 cacheAnalyzer.copyRowBatch(batch);
+                if (!isSendFields) {
+                    sendFields(newSelectStmt.getColLabels(), newSelectStmt.getResultExprs());
+                    isSendFields = true;
+                }
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
                 }
