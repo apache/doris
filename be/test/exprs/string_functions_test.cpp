@@ -529,6 +529,58 @@ TEST_F(StringFunctionsTest, replace) {
         StringFunctions::replace(ctx, StringVal("http://中国hello:9090"), StringVal("中国hello"), StringVal("华夏zhongguo")));
 }
 
+TEST_F(StringFunctionsTest, parse_url) {
+    ASSERT_EQ(StringVal("facebook.com"),
+        StringFunctions::parse_url(ctx, StringVal("http://facebook.com/path/p1.php?query=1"), StringVal("AUTHORITY")));
+    ASSERT_EQ(StringVal("facebook.com"),
+        StringFunctions::parse_url(ctx, StringVal("http://facebook.com/path/p1.php?query=1"), StringVal("authority")));
+
+    ASSERT_EQ(StringVal("/a/b/c.php"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090/a/b/c.php"), StringVal("FILE")));
+    ASSERT_EQ(StringVal("/a/b/c.php"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090/a/b/c.php"), StringVal("file")));
+
+    ASSERT_EQ(StringVal("/a/b/c.php"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090/a/b/c.php"), StringVal("PATH")));
+    ASSERT_EQ(StringVal("/a/b/c.php"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090/a/b/c.php"), StringVal("path")));
+
+    ASSERT_EQ(StringVal("www.baidu.com"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090"), StringVal("HOST")));
+    ASSERT_EQ(StringVal("www.baidu.com"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090"), StringVal("host")));
+
+    ASSERT_EQ(StringVal("http"),
+        StringFunctions::parse_url(ctx, StringVal("http://facebook.com/path/p1.php?query=1"), StringVal("PROTOCOL")));
+    ASSERT_EQ(StringVal("http"),
+        StringFunctions::parse_url(ctx, StringVal("http://facebook.com/path/p1.php?query=1"), StringVal("protocol")));
+
+    ASSERT_EQ(StringVal("a=b"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("QUERY")));
+    ASSERT_EQ(StringVal("a=b"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("query")));
+
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("REF")));
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("ref")));
+
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("USERINFO")));
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("userinfo")));
+
+    ASSERT_EQ(StringVal("9090"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("PORT")));
+    ASSERT_EQ(StringVal("9090"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090/a/b/c?a=b"), StringVal("PORT")));
+    ASSERT_EQ(StringVal::null(),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com?a=b"), StringVal("PORT")));
+    ASSERT_EQ(StringVal("9090"),
+        StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"), StringVal("port")));
+
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {
