@@ -27,6 +27,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.base.Preconditions;
@@ -121,7 +122,14 @@ public class FEFunctions {
 
     @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
-        return DateLiteral.dateParser(date.getStringValue(), fmtLiteral.getStringValue());
+        DateLiteral dateLiteral = new DateLiteral();
+        try {
+            dateLiteral.fromDateFormatStr(fmtLiteral.getStringValue(), date.getStringValue(), false);
+            return dateLiteral;
+        } catch (InvalidFormatException e) {
+            e.printStackTrace();
+            throw new AnalysisException(e.getMessage());
+        }
     }
 
     @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
