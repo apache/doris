@@ -262,7 +262,10 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         if (_schema->keys_type() == DUP_KEYS && 
             schema_mapping[i].ref_column != -1 &&
             schema_mapping[i].ref_column >= zone_map_fields.size()) {
-            break; // _zone_maps follows _schema column index
+            
+            // the sequence of columns in _zone_maps and _schema must be consistent, so here
+            // should not this column missed zonemap and we break the loap.
+            break; 
         }
         const TabletColumn& column = _schema->column(i);
 
@@ -299,6 +302,8 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
             } 
         }
 
+        // first and second can be nullptr, because when type is Varchar then default_value and zone_map_fields in old column
+        // can be nullptr,  and it is checked in olap_cond.cpp eval function.
         _zone_maps.push_back(std::make_pair(first, second));
     }
 
