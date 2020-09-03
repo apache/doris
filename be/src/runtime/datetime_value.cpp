@@ -1073,6 +1073,8 @@ static int check_word(const char* lib[], const char* str, const char* end, const
     return pos;
 }
 
+// this method is exaclty same as fromDateFormatStr() in DateLiteral.java in FE
+// change this method should also change that.
 bool DateTimeValue::from_date_format_str(
         const char* format, int format_len,
         const char* value, int value_len,
@@ -1315,14 +1317,14 @@ bool DateTimeValue::from_date_format_str(
                 date_part_used = true;
                 break;
             case 'r':
-                if (from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
                     return false;
                 }
                 val = tmp;
                 time_part_used = true;
                 break;
             case 'T':
-                if (from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                     return false;
                 }
                 time_part_used = true;
@@ -1363,6 +1365,33 @@ bool DateTimeValue::from_date_format_str(
         }
     }
 
+    // continue to iterate pattern if has
+    // to find out if it has time part.
+    while (ptr < end) {
+        if (*ptr == '%' && ptr + 1 < end) {
+            ptr++;
+            switch (*ptr++) {
+                case 'H':
+                case 'h':
+                case 'I':
+                case 'i':
+                case 'k':
+                case 'l':
+                case 'r':
+                case 's':
+                case 'S':
+                case 'p':
+                case 'T':
+                    time_part_used = true;
+                    break;
+                default:
+                    break;               
+            }
+        } else {
+            ptr++;
+        }
+    }
+
     if (usa_time) {
         if (_hour > 12 || _hour < 1) {
             return false;
@@ -1371,7 +1400,7 @@ bool DateTimeValue::from_date_format_str(
     }
     if (sub_val_end) {
         *sub_val_end = val;
-        return 0;
+        return true;
     }
     // Year day
     if (yearday > 0) {
