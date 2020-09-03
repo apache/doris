@@ -104,6 +104,7 @@ public:
     }
 
     void set_null_bits(size_t offset, size_t num_rows, bool val) {
+        // TODO llj: use memcpy
         for (size_t i = 0; i < num_rows; ++i) {
             set_is_null(offset + i, val);
         }
@@ -204,7 +205,7 @@ public:
     void put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx, size_t size);
 
     // Generate collection slots.
-    void transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx);
+    void prepare_for_read(size_t start_idx, size_t end_idx);
 
 private:
     DataBuffer<Collection> _data;

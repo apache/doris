@@ -63,8 +63,8 @@ Status ColumnReader::create(const ColumnReaderOptions& opts,
                 std::unique_ptr<ColumnReader> array_reader(
                         new ColumnReader(opts, meta, num_rows, file_name));
                 RETURN_IF_ERROR(array_reader->init());
-                array_reader->_sub_writers.resize(1);
-                array_reader->_sub_writers[0] = std::move(item_reader);
+                array_reader->_sub_readers.resize(1);
+                array_reader->_sub_readers[0] = std::move(item_reader);
                 *reader = std::move(array_reader);
                 return Status::OK();
             }
@@ -326,8 +326,9 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
         switch(type) {
             case FieldType::OLAP_FIELD_TYPE_ARRAY: {
                 ColumnIterator* item_iterator;
-                RETURN_IF_ERROR(_sub_writers[0]->new_iterator(&item_iterator));
-                *iterator = new ArrayFileColumnIterator(this, item_iterator);
+                RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&item_iterator));
+                FileColumnIterator* offset_iterator = new FileColumnIterator(this);
+                *iterator = new ArrayFileColumnIterator(offset_iterator, item_iterator);
                 return Status::OK();
             }
             default:
@@ -338,16 +339,16 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader)
-: FileColumnIterator(offset_reader) {
-    _item_iterator.reset(item_reader);
+ArrayFileColumnIterator::ArrayFileColumnIterator(FileColumnIterator* offset_reader, ColumnIterator* item_iterator) {
+    _offset_iterator.reset(offset_reader);
+    _item_iterator.reset(item_iterator);
 }
 
 Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(FileColumnIterator::init(opts));
+    RETURN_IF_ERROR(_offset_iterator->init(opts));
+    RETURN_IF_ERROR(_item_iterator->init(opts));
     TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
     RETURN_IF_ERROR(ColumnVectorBatch::create(1024, true, bigint_type_info, &_offset_batch));
-    RETURN_IF_ERROR(_item_iterator->init(opts));
     return Status::OK();
 }
 
@@ -357,25 +358,27 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     _offset_batch->resize(*n + 1);
     ColumnBlock ordinal_block(_offset_batch.get(), nullptr);
     ColumnBlockView ordinal_view(&ordinal_block);
-    RETURN_IF_ERROR(FileColumnIterator::next_batch(n, &ordinal_view));
+    RETURN_IF_ERROR(_offset_iterator->next_batch(n, &ordinal_view));
 
     if (*n == 0) {
         return Status::OK();
     }
 
     // 2. Because we should read n + 1 offsets, so read one more here.
-    if (_page->data_decoder->has_remaining()) { // not _page->has_remaining()
+    PageDecoder* offset_page_decoder = _offset_iterator->get_current_page()->data_decoder;
+    if (offset_page_decoder->has_remaining()) { // not _page->has_remaining()
         size_t i = 1;
-        _page->data_decoder->peek_next_batch(&i, &ordinal_view); // not null
+        offset_page_decoder->peek_next_batch(&i, &ordinal_view); // not null
         DCHECK(i == 1);
     } else {
-        *(reinterpret_cast<ordinal_t*>(ordinal_view.data())) = _page->next_array_item_ordinal;
+        *(reinterpret_cast<ordinal_t*>(ordinal_view.data())) =
+                _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
     ordinal_view.set_null_bits(1, false);
     ordinal_view.advance(1);
 
     // 3. For nullable data，fill null ordinals from last to start: 0 N N 3 N 5 -> 0 3 3 3 5 5
-    if (_reader->is_nullable()) {
+    if (_offset_iterator->is_nullable()) {
         size_t j = *n + 1;
         while(--j > 0) { // j can not be less than 0
             ColumnBlockCell cell = ordinal_block.cell(j - 1);
@@ -408,17 +411,15 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     }
 
     if (dst->is_nullable()) {
-        for (size_t i = 0; i < *n; ++i) {
-            dst->set_null_bits(1, ordinal_block.is_null(i));
-            dst->advance(1);
-        }
+        bool* collection_nulls = const_cast<bool *>(&collection_batch->null_signs()[dst->current_offset()]);
+        memcpy(collection_nulls, ordinal_block.vector_batch()->null_signs(), sizeof(bool) * *n);
+        dst->advance(*n);
     } else {
         dst->set_null_bits(*n, false);
         dst->advance(*n);
     }
 
-    collection_batch->transform_offsets_and_elements_to_data(0, end_offset);
-
+    collection_batch->prepare_for_read(0, end_offset);
     return Status::OK();
 }
 
@@ -641,7 +642,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 ((Slice*)_mem_value)->data = string_buffer;
             } else if (_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
                 // TODO llj for Array default value
-                return Status::NotSupported("unsupported list default type");
+                return Status::NotSupported("Array default type is unsupported");
             } else {
                 s = _type_info->from_string(_mem_value, _default_value);
             }

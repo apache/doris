@@ -151,7 +151,7 @@ void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, s
     }
 }
 
-void ArrayColumnVectorBatch::transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx) {
+void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t end_idx) {
     for (size_t idx = start_idx; idx < end_idx; ++idx) {
         if (!is_null_at(idx)) {
             _data[idx] = Collection(

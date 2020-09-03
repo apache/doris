@@ -92,7 +92,7 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
     ASSERT_TRUE(item_cvb->resize(first_write_item).ok());
     memcpy(item_cvb->mutable_cell_ptr(0), src_item, first_write_item * ITEM_TYPE_SIZE);
     item_cvb->set_null_bits(0, first_write_item, false);
-    list_cvb->transform_offsets_and_elements_to_data(0, list_init_size);
+    list_cvb->prepare_for_read(0, list_init_size);
 
     // second write
     ASSERT_TRUE(list_cvb->resize(list_size).ok());
@@ -105,7 +105,7 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
            src_item + first_write_item,
            second_write_item * ITEM_TYPE_SIZE);
     item_cvb->set_null_bits(first_write_item, second_write_item, false);
-    list_cvb->transform_offsets_and_elements_to_data(0, list_size);
+    list_cvb->prepare_for_read(0, list_size);
 
     for (size_t idx = 0; idx < list_size; ++idx) {
         ASSERT_TRUE(list_type_info->equal(&result[idx], list_cvb->cell_ptr(idx))) << "idx:" << idx;
