@@ -558,7 +558,7 @@ public final class SparkDpp implements java.io.Serializable {
         JavaRDD<Row> rowRDD = sourceDataRdd.flatMap(
                 record -> {
                     scannedRowsAcc.add(1);
-                    String[] attributes = record.split(fileGroup.columnSeparator);
+                    String[] attributes = splitLine(record, fileGroup.columnSeparator);
                     List<Row> result = new ArrayList<>();
                     boolean validRow = true;
                     if (attributes.length != columnSize) {
@@ -638,6 +638,23 @@ public final class SparkDpp implements java.io.Serializable {
         }
         StructType srcSchema = DataTypes.createStructType(fields);
         return srcSchema;
+    }
+
+    // This method is to keep the splitting consistent with broker load / mini load
+    private String[] splitLine(String line, String columnSeparator) {
+        char sep = columnSeparator.charAt(0);
+        int index = 0;
+        int lastIndex = 0;
+        // line-begin char and line-end char are considered to be 'delimeter'
+        List<String> values = new ArrayList<>();
+        for (int i = 0 ; i < line.length(); i++, index++) {
+            if (line.charAt(index) == sep) {
+                values.add(line.substring(lastIndex, index));
+                lastIndex = index + 1;
+            }
+        }
+        values.add(line.substring(lastIndex, index));
+        return values.toArray(new String[0]);
     }
 
     // partition keys will be parsed into double from json

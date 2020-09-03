@@ -503,6 +503,7 @@ public class EtlJobConfig implements Serializable {
             this.filePaths = filePaths;
             this.fileFieldNames = fileFieldNames;
             this.columnsFromPath = columnsFromPath;
+            this.columnSeparator = Strings.isNullOrEmpty(columnSeparator) ? "\t" : columnSeparator;
             this.lineDelimiter = lineDelimiter;
             this.isNegative = isNegative;
             this.fileFormat = fileFormat;
@@ -511,12 +512,12 @@ public class EtlJobConfig implements Serializable {
             this.partitions = partitions;
 
             // Convert some special characters in column separator
-            char sep = Strings.isNullOrEmpty(columnSeparator) ? '\t' : columnSeparator.charAt(0);
-            if (".$|()[]{}^?*+\\".indexOf(sep) != -1) {
-                this.columnSeparator = new String(new char[]{'\\', sep});
-            } else {
-                this.columnSeparator = Character.toString(sep);
-            }
+//            char sep = Strings.isNullOrEmpty(columnSeparator) ? '\t' : columnSeparator.charAt(0);
+//            if (".$|()[]{}^?*+\\".indexOf(sep) != -1) {
+//                this.columnSeparator = new String(new char[]{'\\', sep});
+//            } else {
+//                this.columnSeparator = Character.toString(sep);
+//            }
         }
 
         // for data from table
