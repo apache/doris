@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -340,7 +339,6 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-
         fromClause_.setNeedToSql(needToSql);
         fromClause_.analyze(analyzer);
 
@@ -531,21 +529,6 @@ public class SelectStmt extends QueryStmt {
                 whereClause = new BoolLiteral(false);
             } else {
                 whereClause = new BoolLiteral(true);
-            }
-        }
-        // filter deleted data by and DELETE_SIGN column = 0, DELETE_SIGN is a hidden column
-        // that indicates whether the row is delete
-        for (TableRef tableRef : fromClause_.getTableRefs()) {
-            if (!isForbiddenMVRewrite() && tableRef instanceof BaseTableRef && tableRef.getTable() instanceof OlapTable
-                    && ((OlapTable) tableRef.getTable()).getKeysType() == KeysType.UNIQUE_KEYS
-                    && ((OlapTable) tableRef.getTable()).hasDeleteSign()) {
-                BinaryPredicate filterDeleteExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                        new SlotRef(tableRef.getName(), Column.DELETE_SIGN), new IntLiteral(0));
-                if (whereClause == null) {
-                    whereClause = filterDeleteExpr;
-                } else {
-                    whereClause = new CompoundPredicate(CompoundPredicate.Operator.AND, filterDeleteExpr, whereClause);
-                }
             }
         }
         Expr deDuplicatedWhere = deduplicateOrs(whereClause);
