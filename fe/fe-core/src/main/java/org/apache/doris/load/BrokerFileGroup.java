@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import com.google.common.base.Strings;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -81,6 +82,8 @@ public class BrokerFileGroup implements Writable {
     private Expr whereExpr;
     private Expr deleteCondition;
     private LoadTask.MergeType mergeType;
+    // sequence column name
+    private String sequenceCol;
 
     // load from table
     private long srcTableId = -1;
@@ -108,6 +111,7 @@ public class BrokerFileGroup implements Writable {
         this.whereExpr = dataDescription.getWhereExpr();
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
+        this.sequenceCol = dataDescription.getSequenceCol();
     }
 
     // NOTE: DBLock will be held
@@ -266,6 +270,14 @@ public class BrokerFileGroup implements Writable {
 
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
     }
 
     @Override

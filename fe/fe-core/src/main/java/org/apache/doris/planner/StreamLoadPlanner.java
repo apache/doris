@@ -105,6 +105,13 @@ public class StreamLoadPlanner {
                 && !destTable.hasDeleteSign() ) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
+
+        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol()) {
+            throw new UserException("Table " + destTable.getName() + " has sequence column, need to specify the sequence column");
+        }
+        if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
+            throw new UserException("There is no sequence column in the table " + destTable.getName());
+        }
         resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");

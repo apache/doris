@@ -306,6 +306,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         ColumnSeparator columnSeparator = null;
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt importWhereStmt = null;
+        ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
         for (ParseNode parseNode : loadPropertyList) {
@@ -341,10 +342,17 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     throw new AnalysisException("repeat setting of delete predicate");
                 }
                 importDeleteOnStmt = (ImportDeleteOnStmt) parseNode;
+            } else if (parseNode instanceof ImportSequenceStmt) {
+                // check sequence column
+                if (importSequenceStmt != null) {
+                    throw new AnalysisException("repeat setting of sequence column");
+                }
+                importSequenceStmt = (ImportSequenceStmt) parseNode;
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
-                partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType);
+                        partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+                        importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
     private void checkJobProperties() throws UserException {

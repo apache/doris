@@ -23,9 +23,11 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -224,6 +226,11 @@ public class BrokerScanNode extends LoadScanNode {
                 columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
             } else if (mergeType == LoadTask.MergeType.DELETE) {
                 columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            }
+            // add columnExpr for sequence column
+            if (context.fileGroup.hasSequenceCol()) {
+                columnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, context.fileGroup.getSequenceCol())));
             }
         }
 
