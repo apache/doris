@@ -3032,6 +3032,13 @@ public class Catalog {
         if (engineName.equals("olap")) {
             createOlapTable(db, stmt);
             return;
+        } else if (engineName.equals("odbc")) {
+            if (Config.enable_odbc_table) {
+                createOdbcTable(db, stmt);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
+            }
         } else if (engineName.equals("mysql")) {
             createMysqlTable(db, stmt);
             return;
@@ -3830,6 +3837,21 @@ public class Catalog {
         return;
     }
 
+    private void createOdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+
+        List<Column> columns = stmt.getColumns();
+
+        long tableId = Catalog.getCurrentCatalog().getNextId();
+        OdbcTable odbcTable = new OdbcTable(tableId, tableName, columns, stmt.getProperties());
+        odbcTable.setComment(stmt.getComment());
+        if (!db.createTableWithLock(odbcTable, false, stmt.isSetIfNotExists())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        return;
+    }
+
     private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
@@ -3907,7 +3929,7 @@ public class Catalog {
 
         // 1.2 other table type
         sb.append("CREATE ");
-        if (table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
+        if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
                 || table.getType() == TableType.BROKER || table.getType() == TableType.HIVE) {
             sb.append("EXTERNAL ");
         }
@@ -4028,6 +4050,22 @@ public class Catalog {
             sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.ODBC) {
+            OdbcTable odbcTable = (OdbcTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"host\" = \"").append(odbcTable.getHost()).append("\",\n");
+            sb.append("\"port\" = \"").append(odbcTable.getPort()).append("\",\n");
+            sb.append("\"user\" = \"").append(odbcTable.getUserName()).append("\",\n");
+            sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
+            sb.append("\"database\" = \"").append(odbcTable.getOdbcDatabaseName()).append("\",\n");
+            sb.append("\"table\" = \"").append(odbcTable.getOdbcTableName()).append("\",\n");
+            sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
+            sb.append("\"type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.BROKER) {
             BrokerTable brokerTable = (BrokerTable) table;
