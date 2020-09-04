@@ -176,6 +176,13 @@ under the License.
             fs.s3a.secret.key：AmazonS3的secret key
             fs.s3a.endpoint：AmazonS3的endpoint 
         
+        5. Aliyun OSS
+
+            需提供：
+            fs.oss.accessKeyId：Aliyun OSS的access key
+            fs.oss.accessKeySecret：Aliyun OSS的secret key
+            fs.oss.endpoint：Aliyun OSS的endpoint 
+
     4. opt_properties
 
         用于指定一些特殊参数。
