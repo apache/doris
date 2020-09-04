@@ -506,6 +506,7 @@ public class MaterializedViewHandler extends AlterHandler {
         // a. all columns should exist in base rollup schema
         // b. value after key
         // c. if rollup contains REPLACE column, all keys on base index should be included.
+        // d. if base index has sequence column for unique_keys, rollup should add the sequence column
         List<Column> rollupSchema = new ArrayList<Column>();
         // check (a)(b)
         boolean meetValue = false;
@@ -550,6 +551,19 @@ public class MaterializedViewHandler extends AlterHandler {
                     } else {
                         throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
                     }
+                }
+            }
+            if (KeysType.UNIQUE_KEYS == keysType && olapTable.hasSequenceCol()) {
+                if (meetValue) {
+                    // check sequence column already exist in the rollup schema
+                    for (Column col : rollupSchema) {
+                        if (col.isSequenceColumn()) {
+                            throw new DdlException("sequence column already exist in the Rollup schema");
+                        }
+                    }
+                    // add the sequence column
+                    rollupSchema.add(new Column(Column.SEQUENCE_COL, olapTable.getSequenceType(),
+                            false, AggregateType.REPLACE, true, null, "", false));
                 }
             }
         } else if (KeysType.DUP_KEYS == keysType) {

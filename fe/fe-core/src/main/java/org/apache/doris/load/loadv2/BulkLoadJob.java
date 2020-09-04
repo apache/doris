@@ -255,13 +255,13 @@ public abstract class BulkLoadJob extends LoadJob {
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt = null;
         try {
-            stmt = (LoadStmt) SqlParserUtils.getStmt(parser, originStmt.idx);
-            for (DataDescription dataDescription : stmt.getDataDescriptions()) {
-                dataDescription.analyzeWithoutCheckPriv();
-            }
             Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db == null) {
                 throw new DdlException("Database[" + dbId + "] does not exist");
+            }
+            stmt = (LoadStmt) SqlParserUtils.getStmt(parser, originStmt.idx);
+            for (DataDescription dataDescription : stmt.getDataDescriptions()) {
+                dataDescription.analyzeWithoutCheckPriv(db.getFullName());
             }
             checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
         } catch (Exception e) {

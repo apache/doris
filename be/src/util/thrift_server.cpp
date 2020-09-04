@@ -226,8 +226,8 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
         _thrift_server->_session_handler->session_start(*_session_key);
     }
 
-    _thrift_server->thrift_connections_total.increment(1L);
-    _thrift_server->thrift_current_connections.increment(1L);
+    _thrift_server->thrift_connections_total->increment(1L);
+    _thrift_server->thrift_current_connections->increment(1L);
 
     // Store the _session_key in the per-client context to avoid recomputing
     // it. If only this were accessible from RPC method calls, we wouldn't have to
@@ -256,7 +256,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
         _thrift_server->_session_keys.erase(_session_key);
     }
 
-    _thrift_server->thrift_current_connections.increment(-1L);
+    _thrift_server->thrift_current_connections->increment(-1L);
 }
 
 ThriftServer::ThriftServer(
@@ -275,8 +275,8 @@ ThriftServer::ThriftServer(
             _processor(processor),
             _session_handler(NULL) {
     _thrift_server_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("thrift_server.") + name, {{"name", name}});
-    METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
-    METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
+    INT_GAUGE_METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
+    INT_COUNTER_METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
 }
 
 Status ThriftServer::start() {

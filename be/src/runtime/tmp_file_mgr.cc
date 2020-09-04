@@ -54,15 +54,15 @@ const uint64_t _s_available_space_threshold_mb = 1024;
 
 TmpFileMgr::TmpFileMgr(ExecEnv* exec_env) :
         _exec_env(exec_env), _initialized(false), _dir_status_lock(), _tmp_dirs() {
-    METRIC_REGISTER(DorisMetrics::instance()->metric_registry()->get_entity("server"), active_scratch_dirs);
+    INT_GAUGE_METRIC_REGISTER(DorisMetrics::instance()->server_entity(), active_scratch_dirs);
 }
 
 TmpFileMgr::TmpFileMgr() {
-    METRIC_REGISTER(DorisMetrics::instance()->metric_registry()->get_entity("server"), active_scratch_dirs);
+    INT_GAUGE_METRIC_REGISTER(DorisMetrics::instance()->server_entity(), active_scratch_dirs);
 }
 
 TmpFileMgr::~TmpFileMgr() {
-    METRIC_DEREGISTER(DorisMetrics::instance()->metric_registry()->get_entity("server"), active_scratch_dirs);
+    METRIC_DEREGISTER(DorisMetrics::instance()->server_entity(), active_scratch_dirs);
 }
 
 Status TmpFileMgr::init() {
@@ -124,7 +124,7 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
         }
     }
 
-    active_scratch_dirs.set_value(_tmp_dirs.size());
+    active_scratch_dirs->set_value(_tmp_dirs.size());
 
     _initialized = true;
 
@@ -176,7 +176,7 @@ void TmpFileMgr::blacklist_device(DeviceId device_id) {
         added = _tmp_dirs[device_id].blacklist();
     }
     if (added) {
-        active_scratch_dirs.increment(-1);
+        active_scratch_dirs->increment(-1);
     }
 }
 

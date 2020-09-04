@@ -271,9 +271,9 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) {
-        if (node instanceof MysqlScanNode) {
+        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        } else if (node instanceof SchemaScanNode) {
+        }  else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else {
             // es scan node, olap scan node are random partitioned
@@ -463,6 +463,12 @@ public class DistributedPlanner {
 
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
             cannotReason.add("Session disabled");
+            return false;
+        }
+
+        // If user have a join hint to use proper way of join, can not be colocate join
+        if (node.getInnerRef().hasJoinHints()) {
+            cannotReason.add("Has join hint");
             return false;
         }
 
