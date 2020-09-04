@@ -437,8 +437,8 @@ public class FileSystemManager {
         String secretKey = properties.getOrDefault(FS_OSS_SECRET_KEY, "");
         String endpoint = properties.getOrDefault(FS_OSS_ENDPOINT, "");
         String host = OSS_SCHEME + "://" + endpoint;
-        String s3aUgi = accessKey + "," + secretKey;
-        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, s3aUgi);
+        String ossUgi = accessKey + "," + secretKey;
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, ossUgi);
         BrokerFileSystem fileSystem = null;
         cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
         fileSystem = cachedFileSystem.get(fileSystemIdentity);
