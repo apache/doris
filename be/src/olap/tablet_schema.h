@@ -115,6 +115,8 @@ public:
     inline void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
     inline int32_t delete_sign_idx() const { return _delete_sign_idx; }
     inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
+    inline bool has_sequence_col() const { return  _sequence_col_idx != -1; }
+    inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -135,6 +137,7 @@ private:
     double _bf_fpp = 0;
     bool _is_in_memory = false;
     int32_t _delete_sign_idx = -1;
+    int32_t _sequence_col_idx = -1;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
