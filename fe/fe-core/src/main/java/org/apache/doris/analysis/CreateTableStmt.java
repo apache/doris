@@ -83,6 +83,7 @@ public class CreateTableStmt extends DdlStmt {
     static {
         engineNames = Sets.newHashSet();
         engineNames.add("olap");
+        engineNames.add("odbc");
         engineNames.add("mysql");
         engineNames.add("broker");
         engineNames.add("elasticsearch");
@@ -458,7 +459,7 @@ public class CreateTableStmt extends DdlStmt {
             throw new AnalysisException("Unknown engine name: " + engineName);
         }
 
-        if (engineName.equals("mysql") || engineName.equals("broker") 
+        if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")) {
             if (!isExternal) {
                 // this is for compatibility
