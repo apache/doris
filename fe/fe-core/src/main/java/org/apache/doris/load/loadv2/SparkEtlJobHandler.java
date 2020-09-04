@@ -264,7 +264,7 @@ public class SparkEtlJobHandler {
 
     public void killEtlJob(SparkLoadAppHandle handle, String appId, long loadJobId, SparkResource resource) throws LoadException {
         if (resource.isYarnMaster()) {
-            // The appId may be empty in when the load job is in PENDING phase. This is because the appId is
+            // The appId may be empty when the load job is in PENDING phase. This is because the appId is
             // parsed from the spark launcher process's output (spark launcher process submit job and then
             // return appId). In this case, the spark job has still not been submitted, we only need to kill
             // the spark launcher process.
