@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -395,5 +397,27 @@ public class SelectStmtTest {
                 .query(sql)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
+    }
+
+    @Test
+    public void testSelectHintSetVar() throws Exception {
+        String sql = "SELECT sleep(3);";
+        Planner planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(VariableMgr.getDefaultSessionVariable().getQueryTimeoutS(),
+                planner.getPlannerContext().getQueryOptions().query_timeout);
+
+        sql = "SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(1, planner.getPlannerContext().getQueryOptions().query_timeout);
+
+        sql = "select * from db1.partition_table where datekey=20200726";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(VariableMgr.getDefaultSessionVariable().getMaxExecMemByte(),
+                planner.getPlannerContext().getQueryOptions().mem_limit);
+
+        sql = "select /*+ SET_VAR(exec_mem_limit = 8589934592) */ poi_id, count(*) from db1.partition_table " +
+                "where datekey=20200726 group by 1";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(8589934592L, planner.getPlannerContext().getQueryOptions().mem_limit);
     }
 }
