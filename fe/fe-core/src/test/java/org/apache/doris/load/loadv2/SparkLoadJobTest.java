@@ -87,6 +87,7 @@ public class SparkLoadJobTest {
     private String broker;
     private long transactionId;
     private long pendingTaskId;
+    private SparkLoadAppHandle sparkLoadAppHandle;
     private String appId;
     private String etlOutputPath;
     private long tableId;
@@ -107,6 +108,7 @@ public class SparkLoadJobTest {
         broker = "broker0";
         transactionId = 2L;
         pendingTaskId = 3L;
+        sparkLoadAppHandle = new SparkLoadAppHandle();
         appId = "application_15888888888_0088";
         etlOutputPath = "hdfs://127.0.0.1:10000/tmp/doris/100/label/101";
         tableId = 10L;
@@ -448,7 +450,7 @@ public class SparkLoadJobTest {
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
         SparkLoadJobStateUpdateInfo info = new SparkLoadJobStateUpdateInfo(
-                id, state, transactionId, etlStartTimestamp, appId, etlOutputPath,
+                id, state, transactionId, sparkLoadAppHandle, etlStartTimestamp, appId, etlOutputPath,
                 loadStartTimestamp, tabletMetaToFileInfo);
         info.write(out);
         out.flush();
@@ -480,8 +482,8 @@ public class SparkLoadJobTest {
         }
         file.createNewFile();
         out = new DataOutputStream(new FileOutputStream(file));
-        info = new SparkLoadJobStateUpdateInfo(id, state, transactionId, etlStartTimestamp, appId, etlOutputPath,
-                                               loadStartTimestamp, tabletMetaToFileInfo);
+        info = new SparkLoadJobStateUpdateInfo(id, state, transactionId, sparkLoadAppHandle, etlStartTimestamp,
+                appId, etlOutputPath, loadStartTimestamp, tabletMetaToFileInfo);
         info.write(out);
         out.flush();
         out.close();
