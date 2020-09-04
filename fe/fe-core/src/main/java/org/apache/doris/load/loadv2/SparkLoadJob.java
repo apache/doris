@@ -45,6 +45,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -103,8 +104,8 @@ import java.util.Set;
 /**
  * There are 4 steps in SparkLoadJob:
  * Step1: SparkLoadPendingTask will be created by unprotectedExecuteJob method and submit spark etl job.
- * Step2: LoadEtlChecker will check spark etl job status periodly and send push tasks to be when spark etl job is finished.
- * Step3: LoadLoadingChecker will check loading status periodly and commit transaction when push tasks are finished.
+ * Step2: LoadEtlChecker will check spark etl job status periodically and send push tasks to be when spark etl job is finished.
+ * Step3: LoadLoadingChecker will check loading status periodically and commit transaction when push tasks are finished.
  * Step4: PublishVersionDaemon will send publish version tasks to be and finish transaction.
  */
 public class SparkLoadJob extends BulkLoadJob {
@@ -126,7 +127,7 @@ public class SparkLoadJob extends BulkLoadJob {
     // --- members below not persist ---
     private ResourceDesc resourceDesc;
     // for spark standalone
-    private SparkLoadAppHandle sparkLoadAppHandle;
+    private SparkLoadAppHandle sparkLoadAppHandle = new SparkLoadAppHandle();
     // for straggler wait long time to commit transaction
     private long quorumFinishTimestamp = -1;
     // below for push task
@@ -715,13 +716,11 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     public void clearSparkLauncherLog() {
-        if (sparkLoadAppHandle != null) {
-            String logPath = sparkLoadAppHandle.getLogPath();
-            if (!Strings.isNullOrEmpty(logPath)) {
-                File file = new File(logPath);
-                if (file.exists()) {
-                    file.delete();
-                }
+        String logPath = sparkLoadAppHandle.getLogPath();
+        if (!Strings.isNullOrEmpty(logPath)) {
+            File file = new File(logPath);
+            if (file.exists()) {
+                file.delete();
             }
         }
     }
@@ -730,6 +729,7 @@ public class SparkLoadJob extends BulkLoadJob {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         sparkResource.write(out);
+        sparkLoadAppHandle.write(out);
         out.writeLong(etlStartTimestamp);
         Text.writeString(out, appId);
         Text.writeString(out, etlOutputPath);
@@ -744,6 +744,9 @@ public class SparkLoadJob extends BulkLoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         sparkResource = (SparkResource) Resource.read(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_91) {
+            sparkLoadAppHandle = SparkLoadAppHandle.read(in);
+        }
         etlStartTimestamp = in.readLong();
         appId = Text.readString(in);
         etlOutputPath = Text.readString(in);
@@ -760,7 +763,7 @@ public class SparkLoadJob extends BulkLoadJob {
      */
     private void unprotectedLogUpdateStateInfo() {
         SparkLoadJobStateUpdateInfo info = new SparkLoadJobStateUpdateInfo(
-                id, state, transactionId, etlStartTimestamp, appId, etlOutputPath,
+                id, state, transactionId, sparkLoadAppHandle, etlStartTimestamp, appId, etlOutputPath,
                 loadStartTimestamp, tabletMetaToFileInfo);
         Catalog.getCurrentCatalog().getEditLog().logUpdateLoadJob(info);
     }
@@ -769,6 +772,7 @@ public class SparkLoadJob extends BulkLoadJob {
     public void replayUpdateStateInfo(LoadJobStateUpdateInfo info) {
         super.replayUpdateStateInfo(info);
         SparkLoadJobStateUpdateInfo sparkJobStateInfo = (SparkLoadJobStateUpdateInfo) info;
+        sparkLoadAppHandle = sparkJobStateInfo.getSparkLoadAppHandle();
         etlStartTimestamp = sparkJobStateInfo.getEtlStartTimestamp();
         appId = sparkJobStateInfo.getAppId();
         etlOutputPath = sparkJobStateInfo.getEtlOutputPath();
@@ -792,6 +796,8 @@ public class SparkLoadJob extends BulkLoadJob {
      * Used for spark load job journal log when job state changed to ETL or LOADING
      */
     public static class SparkLoadJobStateUpdateInfo extends LoadJobStateUpdateInfo {
+        @SerializedName(value = "sparkLoadAppHandle")
+        private SparkLoadAppHandle sparkLoadAppHandle;
         @SerializedName(value = "etlStartTimestamp")
         private long etlStartTimestamp;
         @SerializedName(value = "appId")
@@ -801,14 +807,19 @@ public class SparkLoadJob extends BulkLoadJob {
         @SerializedName(value = "tabletMetaToFileInfo")
         private Map<String, Pair<String, Long>> tabletMetaToFileInfo;
 
-        public SparkLoadJobStateUpdateInfo(long jobId, JobState state, long transactionId, long etlStartTimestamp,
-                                           String appId, String etlOutputPath, long loadStartTimestamp,
+        public SparkLoadJobStateUpdateInfo(long jobId, JobState state, long transactionId, SparkLoadAppHandle sparkLoadAppHandle,
+                                           long etlStartTimestamp, String appId, String etlOutputPath, long loadStartTimestamp,
                                            Map<String, Pair<String, Long>> tabletMetaToFileInfo) {
             super(jobId, state, transactionId, loadStartTimestamp);
+            this.sparkLoadAppHandle = sparkLoadAppHandle;
             this.etlStartTimestamp = etlStartTimestamp;
             this.appId = appId;
             this.etlOutputPath = etlOutputPath;
             this.tabletMetaToFileInfo = tabletMetaToFileInfo;
+        }
+
+        public SparkLoadAppHandle getSparkLoadAppHandle() {
+            return sparkLoadAppHandle;
         }
 
         public long getEtlStartTimestamp() {
