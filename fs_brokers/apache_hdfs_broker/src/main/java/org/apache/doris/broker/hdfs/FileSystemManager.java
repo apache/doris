@@ -97,8 +97,8 @@ public class FileSystemManager {
     private static final String FS_S3A_IMPL_DISABLE_CACHE = "fs.s3a.impl.disable.cache";
 
     //arguments for oss
-    private static final String FS_OSS_ACCESS_KEY = "fs.oss.access.key";
-    private static final String FS_OSS_SECRET_KEY = "fs.oss.secret.key";
+    private static final String FS_OSS_ACCESS_KEY = "fs.oss.accessKeyId";
+    private static final String FS_OSS_SECRET_KEY = "fs.oss.accessKeySecret";
     private static final String FS_OSS_ENDPOINT = "fs.oss.endpoint";
     // This property is used like 'fs.hdfs.impl.disable.cache'
     private static final String FS_OSS_IMPL_DISABLE_CACHE = "fs.oss.impl.disable.cache";
@@ -614,11 +614,11 @@ public class FileSystemManager {
                             currentStreamOffset, offset);
                 }
             }
-            ByteBuffer buf;
+            byte[] buf;
             if (length > readBufferSize) {
-                buf = ByteBuffer.allocate(readBufferSize);
+                buf = new byte[readBufferSize];
             } else {
-                buf = ByteBuffer.allocate((int) length);
+                buf = new byte[(int)length];
             }
             try {
                 int readLength = readByteBufferFully(fsDataInputStream, buf);
@@ -627,9 +627,9 @@ public class FileSystemManager {
                             "end of file reached");
                 }
                 if (logger.isDebugEnabled()) {
-                    logger.debug("read buffer from input stream, buffer size:" + buf.capacity() + ", read length:" + readLength);
+                    logger.debug("read buffer from input stream, buffer size:" + buf.length + ", read length:" + readLength);
                 }
-                return buf;
+                return ByteBuffer.wrap(buf, 0, readLength);
             } catch (IOException e) {
                 logger.error("errors while read data from stream", e);
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
@@ -727,27 +727,16 @@ public class FileSystemManager {
         return new TBrokerFD(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
     }
 
-    private int readByteBuffer(FSDataInputStream is, ByteBuffer dest) throws IOException {
-        int pos = dest.position();
-        int result = is.read(dest);
-        if (result > 0) {
-            // Ensure this explicitly since versions before 2.7 read doesn't do it.
-            dest.position(pos + result);
-        }
-        return result;
-    }
-
-    private int readByteBufferFully(FSDataInputStream is, ByteBuffer dest) throws IOException {
-        int result = 0;
-        while (dest.remaining() > 0) {
-            int n = readByteBuffer(is, dest);
+    private int readByteBufferFully(FSDataInputStream is, byte[] dest) throws IOException {
+        int readSize = 0;
+        while (readSize < dest.length) {
+            int n = is.read(dest , readSize, dest.length - readSize);
             if (n <= 0) {
                 break;
             }
-            result += n;
+            readSize += n;
         }
-        dest.flip();
-        return result;
+        return readSize;
     }
     
     class FileSystemExpirationChecker implements Runnable {

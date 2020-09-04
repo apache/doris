@@ -273,13 +273,6 @@ under the License.
             <version>2.7.3</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-aliyun -->
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aliyun</artifactId>
-            <version>3.3.0</version>
-        </dependency>
-
     </dependencies>
 
     <build>
