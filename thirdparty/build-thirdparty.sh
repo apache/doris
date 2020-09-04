@@ -69,7 +69,9 @@ fi
 
 # prepare installed prefix
 mkdir -p ${TP_DIR}/installed/lib64
-ln -sf ${TP_DIR}/installed/lib64 ${TP_DIR}/installed/lib
+pushd  ${TP_DIR}/installed/
+ln -sf lib64 lib
+popd
 
 check_prerequest() {
     local CMD=$1
@@ -307,6 +309,10 @@ build_rapidjson() {
 }
 
 # snappy
+# The reason for performing two-pass compilation is to generate shared and static lib
+# at the same time. There is no practical use for generating shared lib,
+# but to ensure that brpc can be compiled successfully,
+# because brpc cannot really disable the compilation of shared lib
 build_snappy() {
     check_if_source_exist $SNAPPY_SOURCE
     cd $TP_SOURCE_DIR/$SNAPPY_SOURCE
@@ -314,7 +320,17 @@ build_snappy() {
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CFLAGS="-O3" CXXFLAGS="-O3" $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DCMAKE_INSTALL_LIBDIR=lib64 \
+    -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=On \
+    -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
+    -DSNAPPY_BUILD_TESTS=0 ../
+    make -j$PARALLEL && make install
+
+    cd $TP_SOURCE_DIR/$SNAPPY_SOURCE
+
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    rm -rf CMakeCache.txt CMakeFiles/
+    CFLAGS="-O3" CXXFLAGS="-O3" $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_POSITION_INDEPENDENT_CODE=On \
     -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
     -DSNAPPY_BUILD_TESTS=0 ../
@@ -539,18 +555,17 @@ build_arrow() {
     export ARROW_LZ4_URL=${TP_SOURCE_DIR}/${LZ4_NAME}
     export ARROW_FLATBUFFERS_URL=${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}
     export ARROW_ZSTD_URL=${TP_SOURCE_DIR}/${ZSTD_NAME}
+    export ARROW_Thrift_URL=${TP_SOURCE_DIR}/${THRIFT_NAME}
     export ARROW_JEMALLOC_URL=${TP_SOURCE_DIR}/${JEMALLOC_NAME}
     export LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
 
     ${CMAKE_CMD} -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_USE_GLOG=off -DARROW_BUILD_SHARED=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF -DARROW_GFLAGS_USE_SHARED=OFF -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=$TP_INSTALL_DIR \
     -Dgflags_ROOT=$TP_INSTALL_DIR/ \
     -DSnappy_ROOT=$TP_INSTALL_DIR/ \
     -DGLOG_ROOT=$TP_INSTALL_DIR/ \
-    -DLZ4_ROOT=$TP_INSTALL_DIR/ \
-    -DThrift_ROOT=$TP_INSTALL_DIR/ ..
+    -DLZ4_ROOT=$TP_INSTALL_DIR/ ..
 
     make -j$PARALLEL && make install
     #copy dep libs
@@ -581,7 +596,7 @@ build_s2() {
     -DWITH_GFLAGS=ON \
     -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
     -DWITH_GLOG=ON \
-    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib64" ..
     make -j$PARALLEL && make install
 }
 
@@ -647,7 +662,7 @@ build_croaringbitmap() {
     $CMAKE_CMD -v -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DENABLE_ROARING_TESTS=OFF \
-    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib64" ..
     make -j$PARALLEL && make install
 }
 #orc
