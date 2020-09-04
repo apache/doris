@@ -258,34 +258,52 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
 
     for (size_t i = 0; i < zonemap_col_num; ++i) {
         
-        // in duplicated table update from 0.11 to 0.12, zone map index may be missed
+        // in duplicated table update from 0.11 to 0.12, zone map index may be missed and may not a new column.
         if (_schema->keys_type() == DUP_KEYS && 
             schema_mapping[i].ref_column != -1 &&
             schema_mapping[i].ref_column >= zone_map_fields.size()) {
-            continue;
+            
+            // the sequence of columns in _zone_maps and _schema must be consistent, so here
+            // process should not add missed zonemap and we break the loop.
+            break; 
         }
         const TabletColumn& column = _schema->column(i);
 
-        WrapperField* first = WrapperField::create(column);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
-
-        WrapperField* second = WrapperField::create(column);
-        DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
+        // nullptr is checked in olap_cond.cpp eval, note: When we apply column statistic, Field can be NULL when type is Varchar.
+        WrapperField* first = nullptr;
+        WrapperField* second = nullptr;
 
         // when this is no ref_column (add new column), fill default value
         if (schema_mapping[i].ref_column == -1 || schema_mapping[i].ref_column >= zone_map_fields.size()) {
             // ref_column == -1 means this is a new column.
             // for new column, use default value to fill into column_statistics
             if (schema_mapping[i].default_value != nullptr) {
+                first = WrapperField::create(column);
+                DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
                 first->copy(schema_mapping[i].default_value);
+                second = WrapperField::create(column);
+                DCHECK(second != nullptr) << "failed to allocate memory for field: " << i;
                 second->copy(schema_mapping[i].default_value);
-            }
+            } 
         } else {
-            // use src column's zone map value to fill
-            first->copy(zone_map_fields[schema_mapping[i].ref_column].first);
-            second->copy(zone_map_fields[schema_mapping[i].ref_column].second);
+            WrapperField* wfirst = zone_map_fields[schema_mapping[i].ref_column].first;
+            WrapperField* wsecond = zone_map_fields[schema_mapping[i].ref_column].second;
+
+            if (wfirst != nullptr) {
+                first = WrapperField::create(column);
+                DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
+                first->copy(wfirst);
+            }
+
+            if (wsecond != nullptr) {
+                second = WrapperField::create(column);
+                DCHECK(second != nullptr) << "failed to allocate memory for field: " << i;
+                second->copy(wsecond);
+            } 
         }
 
+        // first and second can be nullptr, because when type is Varchar then default_value and zone_map_fields in old column
+        // can be nullptr,  and it is checked in olap_cond.cpp eval function.
         _zone_maps.push_back(std::make_pair(first, second));
     }
 
