@@ -17,7 +17,6 @@
 
 package org.apache.doris.task;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.util.DebugUtil;
@@ -30,8 +29,8 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
 
@@ -82,7 +81,7 @@ public abstract class LoadPendingTask extends MasterTask {
             // create etl request and make some guarantee for schema change and rollup
             if (job.getTransactionId() < 0) {
                 long transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                        .beginTransaction(dbId, Lists.newArrayList(tableId), DebugUtil.printId(UUID.randomUUID()),
+                        .beginTransaction(dbId, job.getAllTableIds(), DebugUtil.printId(UUID.randomUUID()),
                                           new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                                           LoadJobSourceType.FRONTEND,
                                           job.getTimeoutSecond());
