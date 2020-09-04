@@ -644,6 +644,9 @@ public final class SparkDpp implements java.io.Serializable {
 
     // This method is to keep the splitting consistent with broker load / mini load
     private String[] splitLine(String line, char sep) {
+        if (line == null || line.equals("")) {
+            return new String[0];
+        }
         int index = 0;
         int lastIndex = 0;
         // line-begin char and line-end char are considered to be 'delimeter'
