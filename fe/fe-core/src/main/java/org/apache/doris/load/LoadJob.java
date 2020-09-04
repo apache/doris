@@ -544,6 +544,14 @@ public class LoadJob implements Writable {
         this.idToTableLoadInfo = idToTableLoadInfo;
     }
 
+    public List<Long> getAllTableIds() {
+        List<Long> tblIds = Lists.newArrayList();
+        if (idToTableLoadInfo != null) {
+            tblIds.addAll(idToTableLoadInfo.keySet());
+        }
+        return tblIds;
+    }
+
     public Map<Long, TabletLoadInfo> getIdToTabletLoadInfo() {
         return idToTabletLoadInfo;
     }
@@ -692,7 +700,7 @@ public class LoadJob implements Writable {
             pushTasks.clear();
             pushTasks = null;
         }
-        
+
         resourceInfo = null;
     }
 
