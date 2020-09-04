@@ -42,6 +42,12 @@ rm -rf ${BROKER_OUTPUT}
 install -d ${BROKER_OUTPUT}/bin ${BROKER_OUTPUT}/conf \
            ${BROKER_OUTPUT}lib/
 
+# download aliyun hadoop oss jar, this can not be found in maven repository, so we download it manually
+wget http://gosspublic.alicdn.com/hadoop-spark/hadoop-oss-2.7.2.tar.gz
+tar xzf hadoop-oss-2.7.2.tar.gz
+mv hadoop-oss-2.7.2/hadoop-aliyun-2.7.2.jar ${BROKER_OUTPUT}/lib/
+rm -r hadoop-oss-2.7.2 hadoop-oss-2.7.2.tar.gz
+
 cp -r -p ${BROKER_HOME}/bin/*.sh ${BROKER_OUTPUT}/bin/
 cp -r -p ${BROKER_HOME}/conf/*.conf ${BROKER_OUTPUT}/conf/
 cp -r -p ${BROKER_HOME}/conf/*.xml ${BROKER_OUTPUT}/conf/
