@@ -48,6 +48,7 @@ public class Table extends MetaObject implements Writable {
 
     public enum TableType {
         MYSQL,
+        ODBC,
         OLAP,
         SCHEMA,
         INLINE_VIEW,
@@ -180,6 +181,8 @@ public class Table extends MetaObject implements Writable {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
+        } else if (type == TableType.ODBC) {
+            table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
             table = new MysqlTable();
         } else if (type == TableType.VIEW) {
@@ -273,6 +276,8 @@ public class Table extends MetaObject implements Writable {
     public String getEngine() {
         if (this instanceof OlapTable) {
             return "Doris";
+        } else if (this instanceof OdbcTable) {
+            return "Odbc";
         } else if (this instanceof MysqlTable) {
             return "MySQL";
         } else if (this instanceof SchemaTable) {

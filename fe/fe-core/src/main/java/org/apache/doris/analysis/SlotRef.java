@@ -326,6 +326,10 @@ public class SlotRef extends Expr {
         return table;
     }
 
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
     public String getColumnName() {
         return col;
     }
