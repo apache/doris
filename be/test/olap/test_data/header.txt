@@ -50,7 +50,8 @@
         "compress_kind": "COMPRESS_LZ4",
         "next_column_unique_id": 3,
         "is_in_memory": false,
-        "delete_sign_idx": -1
+        "delete_sign_idx": -1,
+        "sequence_col_idx": -1
     },
     "rs_metas": [
         {

@@ -224,6 +224,20 @@ Status OlapScanner::_init_return_columns() {
         _return_columns.push_back(index);
         _query_slots.push_back(slot);
     }
+    // expand the sequence column
+    if (_tablet->tablet_schema().has_sequence_col()) {
+        bool has_replace_col = false;
+        for (auto col : _return_columns) {
+            if (_tablet->tablet_schema().column(col).aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                has_replace_col = true;
+                break;
+            }
+        }
+        if (has_replace_col) {
+            _return_columns.push_back(_tablet->tablet_schema().sequence_col_idx());
+        }
+    }
+
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }

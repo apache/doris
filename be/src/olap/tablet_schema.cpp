@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "olap/tablet_schema.h"
+#include "tablet_meta.h"
 
 namespace doris {
 
@@ -372,6 +373,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     }
     _is_in_memory = schema.is_in_memory();
     _delete_sign_idx = schema.delete_sign_idx();
+    _sequence_col_idx = schema.sequence_col_idx();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
@@ -389,6 +391,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_next_column_unique_id(_next_column_unique_id);
     tablet_meta_pb->set_is_in_memory(_is_in_memory);
     tablet_meta_pb->set_delete_sign_idx(_delete_sign_idx);
+    tablet_meta_pb->set_sequence_col_idx(_sequence_col_idx);
 }
 
 size_t TabletSchema::row_size() const {

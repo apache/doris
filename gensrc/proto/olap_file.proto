@@ -270,7 +270,7 @@ message TabletSchemaPB {
     optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
     optional bool is_in_memory = 8 [default=false];
     optional int32 delete_sign_idx = 9 [default = -1];
-
+    optional int32 sequence_col_idx = 10 [default= -1];
 }
 
 enum TabletStatePB {

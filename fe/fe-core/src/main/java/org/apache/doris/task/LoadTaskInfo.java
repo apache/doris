@@ -36,6 +36,7 @@ public interface LoadTaskInfo {
     public PartitionNames getPartitions();
     public LoadTask.MergeType getMergeType();
     public Expr getDeleteCondition();
+    public boolean hasSequenceCol();
     public TFileType getFileType();
     public TFileFormatType getFormatType();
     public String getJsonPaths();
