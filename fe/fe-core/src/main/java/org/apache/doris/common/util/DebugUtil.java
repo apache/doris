@@ -120,6 +120,9 @@ public class DebugUtil {
     }
 
     public static String printId(final TUniqueId id) {
+        if (id == null) {
+            return "";
+        }
         StringBuilder builder = new StringBuilder();
         builder.append(Long.toHexString(id.hi)).append("-").append(Long.toHexString(id.lo));
         return builder.toString();

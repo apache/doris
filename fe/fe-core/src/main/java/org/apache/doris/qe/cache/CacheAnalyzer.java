@@ -28,11 +28,13 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableRef;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.OlapScanNode;
@@ -40,11 +42,10 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.Status;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-import org.apache.doris.thrift.TUniqueId;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -179,9 +180,11 @@ public class CacheAnalyzer {
 
     private CacheMode innerCheckCacheMode(long now) {
         if (!enableCache()) {
+            LOG.debug("cache is disabled. queryid {}", DebugUtil.printId(queryId));
             return CacheMode.NoNeed;
         }
         if (!(parsedStmt instanceof SelectStmt) || scanNodes.size() == 0) {
+            LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
             return CacheMode.NoNeed;
         }
         MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
@@ -192,6 +195,7 @@ public class CacheAnalyzer {
         for (int i = 0; i < scanNodes.size(); i++) {
             ScanNode node = scanNodes.get(i);
             if (!(node instanceof OlapScanNode)) {
+                LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
             OlapScanNode oNode = (OlapScanNode) node;
@@ -217,6 +221,7 @@ public class CacheAnalyzer {
         }
 
         if (!enablePartitionCache()) {
+            LOG.debug("partition query cache is disabled. queryid {}", DebugUtil.printId(queryId));
             return CacheMode.None;
         }
 
@@ -224,33 +229,34 @@ public class CacheAnalyzer {
         //Only one table can be updated in Config.cache_last_version_interval_second range
         for (int i = 1; i < tblTimeList.size(); i++) {
             if ((now - tblTimeList.get(i).latestTime) < Config.cache_last_version_interval_second * 1000) {
-                LOG.info("the time of other tables is newer than {}", Config.cache_last_version_interval_second);
+                LOG.debug("the time of other tables is newer than {} s, queryid {}",
+                        Config.cache_last_version_interval_second, DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
         }
         olapTable = latestTable.olapTable;
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
-            LOG.debug("the partition of OlapTable not RANGE type");
+            LOG.debug("the partition of OlapTable not RANGE type, queryid {}", DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
-            LOG.info("the size of columns for partition key is {}", columns.size());
+            LOG.debug("more than one partition column, queryid {}", columns.size(), DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-            LOG.info("not group by partition key, key {}", partColumn.getName());
+            LOG.debug("group by columns does not contains all partition column, queryid {}", DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
         getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
-            LOG.info("the predicate size include partition key has {}", compoundPredicates.size());
+            LOG.debug("empty or more than one predicates contain partition column, queryid {}", DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         partitionPredicate = compoundPredicates.get(0);
@@ -265,22 +271,21 @@ public class CacheAnalyzer {
         CacheProxy.FetchCacheResult cacheResult = null;
         cacheMode = innerCheckCacheMode(0);
         if (cacheMode == CacheMode.NoNeed) {
-            return cacheResult;
+            return null;
         }
         if (cacheMode == CacheMode.None) {
-            LOG.info("check cache mode {}, queryid {}", cacheMode, DebugUtil.printId(queryId));
-            return cacheResult;
+            return null;
         }
         Status status = new Status();
         cacheResult = cache.getCacheData(status);
 
         if (status.ok() && cacheResult != null) {
-            LOG.info("hit cache, mode {}, queryid {}, all count {}, value count {}, row count {}, data size {}",
+            LOG.debug("hit cache, mode {}, queryid {}, all count {}, value count {}, row count {}, data size {}",
                     cacheMode, DebugUtil.printId(queryId),
                     cacheResult.all_count, cacheResult.value_count,
                     cacheResult.row_count, cacheResult.data_size);
         } else {
-            LOG.info("miss cache, mode {}, queryid {}, code {}, msg {}", cacheMode,
+            LOG.debug("miss cache, mode {}, queryid {}, code {}, msg {}", cacheMode,
                     DebugUtil.printId(queryId), status.getErrorCode(), status.getErrorMsg());
             cacheResult = null;
         }
