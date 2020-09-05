@@ -621,7 +621,7 @@ public class FileSystemManager {
                 buf = new byte[(int)length];
             }
             try {
-                int readLength = readByteBufferFully(fsDataInputStream, buf);
+                int readLength = readByteArrayFully(fsDataInputStream, buf);
                 if (readLength < 0) {
                     throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
                             "end of file reached");
@@ -727,16 +727,16 @@ public class FileSystemManager {
         return new TBrokerFD(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
     }
 
-    private int readByteBufferFully(FSDataInputStream is, byte[] dest) throws IOException {
-        int readSize = 0;
-        while (readSize < dest.length) {
-            int n = is.read(dest , readSize, dest.length - readSize);
+    private int readByteArrayFully(FSDataInputStream is, byte[] dest) throws IOException {
+        int readLength = 0;
+        while (readLength < dest.length) {
+            int n = is.read(dest , readLength, dest.length - readLength);
             if (n <= 0) {
                 break;
             }
-            readSize += n;
+            readLength += n;
         }
-        return readSize;
+        return readLength;
     }
     
     class FileSystemExpirationChecker implements Runnable {
