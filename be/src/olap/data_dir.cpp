@@ -602,6 +602,36 @@ OLAPStatus DataDir::set_convert_finished() {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
+
+    auto check_incompatible_old_func = [this](int64_t tablet_id, int32_t schema_hash,
+                                              const std::string& value) -> bool {
+                                                  
+        // if strict check incompatible old format, then log fatal
+        if (config::storage_strict_check_incompatible_old_format) {
+            LOG(FATAL) << "There are incompatible old format metas, current version does not support "
+                       << "and it may lead to data missing!!! "
+                       << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+        } else {
+            LOG(WARNING)
+                    << "There are incompatible old format metas, current version does not support "
+                    << "and it may lead to data missing!!! "
+                    << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+        }
+        return false;
+    };
+
+    // seek old header prefix. when check_incompatible_old_func is called, it has old format in olap_meta
+    OLAPStatus check_incompatible_old_status = TabletMetaManager::traverse_headers(
+            _meta, check_incompatible_old_func, OLD_HEADER_PREFIX);
+    if (check_incompatible_old_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "check incompatible old format meta fails, it may lead to data missing!!!" << _path;
+    } else {
+        LOG(INFO) << "successfully check incompatible old format meta " << _path;
+    }
+    return check_incompatible_old_status;
+}
+
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus DataDir::load() {
     LOG(INFO) << "start to load tablets from " << _path;
@@ -609,6 +639,10 @@ OLAPStatus DataDir::load() {
     // COMMITTED: add to txn manager
     // VISIBLE: add to tablet
     // if one rowset load failed, then the total data dir will not be loaded
+    
+    // necessarily check incompatible old format. when there are old metas, it may load to data missing
+    _check_incompatible_old_format_tablet();
+
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
     auto load_rowset_func = [&dir_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
