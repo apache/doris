@@ -625,7 +625,7 @@ OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
     OLAPStatus check_incompatible_old_status = TabletMetaManager::traverse_headers(
             _meta, check_incompatible_old_func, OLD_HEADER_PREFIX);
     if (check_incompatible_old_status != OLAP_SUCCESS) {
-        LOG(WARNING) << "check incompatible old format meta fails, it may lead to data missing!!!" << _path;
+        LOG(WARNING) << "check incompatible old format meta fails, it may lead to data missing!!! " << _path;
     } else {
         LOG(INFO) << "successfully check incompatible old format meta " << _path;
     }
