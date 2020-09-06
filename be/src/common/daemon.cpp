@@ -64,34 +64,26 @@ namespace doris {
 
 bool k_doris_exit = false;
 
-void* tcmalloc_gc_thread(void* dummy) {
-    while (1) {
-        sleep(10);
+void Daemon::tcmalloc_gc_thread() {
+    while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
 
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes", &used_size);
         MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes", &free_size);
-#endif
         size_t alloc_size = used_size + free_size;
 
         if (alloc_size > config::tc_use_memory_min) {
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
             size_t max_free_size = alloc_size * config::tc_free_memory_rate / 100;
             if (free_size > max_free_size) {
                 MallocExtension::instance()->ReleaseToSystem(free_size - max_free_size);
             }
-#endif
         }
     }
-
-    return NULL;
 }
 
-void* memory_maintenance_thread(void* dummy) {
-    while (true) {
-        sleep(config::memory_maintenance_sleep_time_s);
+void Daemon::memory_maintenance_thread() {
+    while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(config::memory_maintenance_sleep_time_s))) {
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
@@ -111,8 +103,6 @@ void* memory_maintenance_thread(void* dummy) {
             }
         }
     }
-
-    return NULL;
 }
 
 /*
@@ -123,7 +113,7 @@ void* memory_maintenance_thread(void* dummy) {
  * 4. max network send bytes rate
  * 5. max network receive bytes rate
  */
-void* calculate_metrics(void* dummy) {
+void Daemon::calculate_metrics_thread() {
     int64_t last_ts = -1L;
     int64_t lst_push_bytes = -1;
     int64_t lst_query_bytes = -1;
@@ -132,7 +122,7 @@ void* calculate_metrics(void* dummy) {
     std::map<std::string, int64_t> lst_net_send_bytes;
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
-    while (true) {
+    do {
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
@@ -176,11 +166,7 @@ void* calculate_metrics(void* dummy) {
             // update lst map
             DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         }
-
-        sleep(15); // 15 seconds
-    }
-
-    return NULL;
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(15)));
 }
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
@@ -205,11 +191,6 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     }
     DorisMetrics::instance()->initialize(
         init_system_metrics, disk_devices, network_interfaces);
-
-    if (config::enable_metric_calculator) {
-        pthread_t calculator_pid;
-        pthread_create(&calculator_pid, NULL, calculate_metrics, NULL);
-    }
 }
 
 void sigterm_handler(int signo) {
@@ -242,7 +223,7 @@ void init_signals() {
     }
 }
 
-void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
+void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     // google::SetVersionString(get_build_version(false));
     // google::ParseCommandLineFlags(&argc, &argv, true);
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -278,19 +259,49 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     HllFunctions::init();
     HashFunctions::init();
 
-    pthread_t tc_malloc_pid;
-    pthread_create(&tc_malloc_pid, NULL, tcmalloc_gc_thread, NULL);
-
-    pthread_t buffer_pool_pid;
-    pthread_create(&buffer_pool_pid, NULL, memory_maintenance_thread, NULL);
-
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
     LOG(INFO) << MemInfo::debug_string();
+
     init_doris_metrics(paths);
     init_signals();
 
     ChunkAllocator::init_instance(config::chunk_reserved_bytes_limit);
 }
 
+void Daemon::start() {
+    Status st;
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+    st = Thread::create("Daemon", "tcmalloc_gc_thread",
+                        [this]() { this->tcmalloc_gc_thread(); },
+                        &_tcmalloc_gc_thread);
+    CHECK(st.ok()) << st.to_string();
+#endif
+    st = Thread::create("Daemon", "memory_maintenance_thread",
+                        [this]() { this->memory_maintenance_thread(); },
+                        &_memory_maintenance_thread);
+    CHECK(st.ok()) << st.to_string();
+
+    if (config::enable_metric_calculator) {
+        st = Thread::create("Daemon", "calculate_metrics_thread",
+                            [this]() { this->calculate_metrics_thread(); },
+                            &_calculate_metrics_thread);
+        CHECK(st.ok()) << st.to_string();
+    }
 }
+
+void Daemon::stop() {
+    _stop_background_threads_latch.count_down();
+
+    if (_tcmalloc_gc_thread) {
+        _tcmalloc_gc_thread->join();
+    }
+    if (_memory_maintenance_thread) {
+        _memory_maintenance_thread->join();
+    }
+    if (_calculate_metrics_thread) {
+        _calculate_metrics_thread->join();
+    }
+}
+
+}  // namespace doris
