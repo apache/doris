@@ -318,6 +318,10 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `version`
 
     Used for compatibility with MySQL clients. No practical effect.
+
+* `performance_schema`
+
+    Used for compatibility with MySQL JDBC 8.0.16 or later version. No practical effect.    
     
 * `version_comment`
 
