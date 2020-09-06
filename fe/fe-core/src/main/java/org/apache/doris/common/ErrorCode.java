@@ -210,7 +210,7 @@ public enum ErrorCode {
             "Table %s is not a colocated table"),
     ERR_INVALID_OPERATION(5065, new byte[] { '4', '2', '0', '0', '0' }, "Operation %s is invalid"),
     ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[] {'4', '2', '0', '0', '0'},
-            "Unsupported time unit %s. Expect DAY/WEEK/MONTH."),
+            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH."),
     ERROR_DYNAMIC_PARTITION_START_ZERO(5066, new byte[] {'4', '2', '0', '0', '0'},
             "Dynamic partition start must less than 0"),
     ERROR_DYNAMIC_PARTITION_START_FORMAT(5066, new byte[] {'4', '2', '0', '0', '0'},
