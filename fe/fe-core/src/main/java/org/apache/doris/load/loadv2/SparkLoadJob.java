@@ -715,6 +715,10 @@ public class SparkLoadJob extends BulkLoadJob {
         return etlStartTimestamp;
     }
 
+    public SparkLoadAppHandle getHandle() {
+        return sparkLoadAppHandle;
+    }
+
     public void clearSparkLauncherLog() {
         String logPath = sparkLoadAppHandle.getLogPath();
         if (!Strings.isNullOrEmpty(logPath)) {

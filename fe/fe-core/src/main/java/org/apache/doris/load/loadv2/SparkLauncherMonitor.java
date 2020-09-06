@@ -106,6 +106,11 @@ public class SparkLauncherMonitor {
         // UNKNOWN/SUBMITTED for a long time.
         @Override
         public void run() {
+            if (handle.getState() == SparkLoadAppHandle.State.KILLED) {
+                // If handle has been killed, kill the process
+                process.destroyForcibly();
+                return;
+            }
             BufferedReader outReader = null;
             String line = null;
             long startTime = System.currentTimeMillis();
