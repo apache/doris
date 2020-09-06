@@ -172,7 +172,9 @@ int main(int argc, char** argv) {
     // add logger for thrift internal
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
-    doris::init_daemon(argc, argv, paths);
+    doris::Daemon daemon;
+    daemon.init(argc, argv, paths);
+    daemon.start();
 
     doris::ResourceTls::init();
     if (!doris::BackendOptions::init()) {
@@ -258,12 +260,22 @@ int main(int argc, char** argv) {
 #endif
         sleep(10);
     }
+    http_service.stop();
+    brpc_service.join();
+    daemon.stop();
     heartbeat_thrift_server->stop();
     heartbeat_thrift_server->join();
     be_server->stop();
     be_server->join();
+    engine->stop();
 
     delete be_server;
+    be_server = nullptr;
+    delete engine;
+    engine = nullptr;
+    delete heartbeat_thrift_server;
+    heartbeat_thrift_server = nullptr;
+    doris::ExecEnv::destroy(exec_env);
     return 0;
 }
 

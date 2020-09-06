@@ -29,6 +29,7 @@ namespace doris {
 
 class HttpHandler;
 class HttpRequest;
+class ThreadPool;
 
 class EvHttpServer {
 public:
@@ -42,7 +43,7 @@ public:
 
     void register_static_file_handler(HttpHandler* handler);
 
-    Status start();
+    void start();
     void stop();
     void join();
 
@@ -67,7 +68,8 @@ private:
     int _real_port;
 
     int _server_fd = -1;
-    std::vector<std::thread> _workers;
+    std::unique_ptr<ThreadPool> _workers;
+    std::vector<std::shared_ptr<event_base>> event_bases;
 
     pthread_rwlock_t _rw_lock;
 
