@@ -134,6 +134,10 @@ public class SparkLoadAppHandle implements Writable {
 
     public String getLogPath() { return this.logPath; }
 
+    public void setProcess(Process process) {
+        this.process = process;
+    }
+
     public void setState(State state) {
         this.state = state;
         this.fireEvent(false);
