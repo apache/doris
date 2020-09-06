@@ -408,7 +408,7 @@ public class BrokerUtil {
         return pair;
     }
 
-    private static TNetworkAddress getAddress(BrokerDesc brokerDesc) throws UserException {
+    public static TNetworkAddress getAddress(BrokerDesc brokerDesc) throws UserException {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
