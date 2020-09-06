@@ -36,6 +36,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -238,8 +240,19 @@ public class StmtExecutor {
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
         try {
+            // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
+            SessionVariable sessionVariable = context.getSessionVariable();
+            if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
+                SelectStmt selectStmt = (SelectStmt) parsedStmt;
+                Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
+                if(optHints != null) {
+                    for (String key : optHints.keySet()) {
+                        VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
+                    }
+                }
+            }
             // analyze this query
-            analyze(context.getSessionVariable().toThrift());
+            analyze(sessionVariable.toThrift());
 
             if (isForwardToMaster()) {
                 forwardToMaster();
