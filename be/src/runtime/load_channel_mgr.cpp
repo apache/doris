@@ -63,7 +63,7 @@ static int64_t calc_job_timeout_s(int64_t timeout_in_req_s) {
     return load_channel_timeout_s;
 }
 
-LoadChannelMgr::LoadChannelMgr() : _is_stopped(false) {
+LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     REGISTER_HOOK_METRIC(load_channel_count, [this]() {
         std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
@@ -73,9 +73,9 @@ LoadChannelMgr::LoadChannelMgr() : _is_stopped(false) {
 
 LoadChannelMgr::~LoadChannelMgr() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
-    _is_stopped.store(true);
-    if (_load_channels_clean_thread.joinable()) {
-        _load_channels_clean_thread.join();
+    _stop_background_threads_latch.count_down();
+    if (_load_channels_clean_thread) {
+        _load_channels_clean_thread->join();
     }
     delete _lastest_success_channel;
 }
@@ -215,22 +215,22 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 }
 
 Status LoadChannelMgr::_start_bg_worker() {
-    _load_channels_clean_thread = std::thread(
-        [this] {
+    RETURN_IF_ERROR(
+        Thread::create("LoadChannelMgr", "cancel_timeout_load_channels",
+                       [this]() {
 #ifdef GOOGLE_PROFILER
-            ProfilerRegisterThread();
+                           ProfilerRegisterThread();
 #endif
-
 #ifndef BE_TEST
-            uint32_t interval = 60;
+                           uint32_t interval = 60;
 #else
-            uint32_t interval = 1;
+                           uint32_t interval = 1;
 #endif
-            while (!_is_stopped.load()) {
-                _start_load_channels_clean();
-                sleep(interval);
-            }
-        });
+                           while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
+                               _start_load_channels_clean();
+                           }},
+                       &_load_channels_clean_thread));
+
     return Status::OK();
 }
 

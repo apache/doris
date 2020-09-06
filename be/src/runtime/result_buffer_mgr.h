@@ -28,6 +28,9 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "util/uid_util.h"
+#include "gutil/ref_counted.h"
+#include "util/thread.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -69,7 +72,6 @@ private:
     // when fe crush, this thread clear the buffer avoid memory leak in this backend
     void cancel_thread();
 
-    bool _is_stop;
     // lock for buffer map
     boost::mutex _lock;
     // buffer block map
@@ -82,7 +84,8 @@ private:
     // cancel time maybe equal, so use one list
     TimeoutMap _timeout_map;
 
-    boost::scoped_ptr<boost::thread> _cancel_thread;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _clean_thread;
 };
 
 // TUniqueId hash function used for boost::unordered_map
