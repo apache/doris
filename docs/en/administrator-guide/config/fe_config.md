@@ -691,3 +691,11 @@ Default is false.
 If this parameter is set to true, Doris can support ODBC external table creation and query. For specific usage of ODBC table, please refer to the use document of ODBC table
 
 The function is still in the experimental stage, so the default value is false.
+
+### `default_db_data_quota_bytes`
+
+Used to set default database quota size, default is 1T.
+
+### `default_db_replica_quota_bytes`
+
+Used to set default database replica quota size, default is 1G.
