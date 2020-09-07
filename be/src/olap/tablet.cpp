@@ -440,6 +440,11 @@ void Tablet::delete_expired_stale_rowset() {
         LOG(WARNING) << "lastest_delta is null " << tablet_id();
         return;
     }
+
+    // fetch missing version before delete
+    std::vector<Version> missed_versions;
+    calc_missed_versions_unlocked(lastest_delta->end_version(), &missed_versions);
+
     // do check consistent operation
     auto path_id_iter = path_id_vec.begin();
 
@@ -454,19 +459,39 @@ void Tablet::delete_expired_stale_rowset() {
         OLAPStatus status = capture_consistent_versions(test_version, nullptr);
         // When there is no consistent versions, we must reconstruct the tracker.
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "The consistent version check fails, there are bugs. "
-                         << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
+            
+            // fetch missing version after delete
+            std::vector<Version> after_missed_versions;
+            calc_missed_versions_unlocked(lastest_delta->end_version(), &after_missed_versions);
 
-            _timestamped_version_tracker.recover_versioned_tracker(stale_version_path_map);
+            // check whether missed_versions and after_missed_versions are the same.
+            // when they are the same, it means we can delete the path securely.
+            bool is_missng = missed_versions.size() != after_missed_versions.size();
+            
+            if (!is_missng) {
+                for (int ver_index = 0; ver_index < missed_versions.size(); ver_index++) {
+                    if(missed_versions[ver_index] != after_missed_versions[ver_index]) {
+                        is_missng = true;
+                        break;
+                    }
+                }
+            }
 
-            // double check the consistent versions
-            status = capture_consistent_versions(test_version, nullptr);
+            if (is_missng) {
+                LOG(WARNING) << "The consistent version check fails, there are bugs. "
+                            << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
 
-            if (status != OLAP_SUCCESS) {
-                if (!config::ignore_rowset_stale_unconsistent_delete) {
-                    LOG(FATAL) << "rowset stale unconsistent delete. tablet= " << tablet_id();
-                } else {
-                    LOG(WARNING) << "rowset stale unconsistent delete. tablet= " << tablet_id();
+                _timestamped_version_tracker.recover_versioned_tracker(stale_version_path_map);
+
+                // double check the consistent versions
+                status = capture_consistent_versions(test_version, nullptr);
+
+                if (status != OLAP_SUCCESS) {
+                    if (!config::ignore_rowset_stale_unconsistent_delete) {
+                        LOG(FATAL) << "rowset stale unconsistent delete. tablet= " << tablet_id();
+                    } else {
+                        LOG(WARNING) << "rowset stale unconsistent delete. tablet= " << tablet_id();
+                    }
                 }
             }
             return;
