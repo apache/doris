@@ -19,6 +19,8 @@ package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 import org.joda.time.DateTime;
 
 import java.io.Serializable;
@@ -28,6 +30,9 @@ import java.util.Date;
 
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
+
+    protected static final Logger LOG = LogManager.getLogger(ColumnParser.class);
+
     public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws SparkDppException {
         String columnType = etlColumn.columnType;
         if (columnType.equalsIgnoreCase("TINYINT")) {
@@ -69,10 +74,7 @@ class TinyIntParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Short parsed = Short.parseShort(value);
-            if (parsed > 127 || parsed < -128) {
-                return false;
-            }
+            Byte.parseByte(value);
         } catch (NumberFormatException e) {
             return false;
         }
@@ -120,11 +122,11 @@ class FloatParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Float.parseFloat(value);
+            Float ret = Float.parseFloat(value);
+            return !ret.isNaN() && !ret.isInfinite();
         } catch (NumberFormatException e) {
             return false;
         }
-        return true;
     }
 }
 
@@ -132,11 +134,11 @@ class DoubleParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Double.parseDouble(value);
+            Double ret = Double.parseDouble(value);
+            return !ret.isInfinite() && !ret.isNaN();
         } catch (NumberFormatException e) {
             return false;
         }
-        return true;
     }
 }
 
@@ -204,7 +206,7 @@ class DecimalParser extends ColumnParser {
 
     public DecimalParser(EtlJobConfig.EtlColumn etlColumn) {
         StringBuilder precisionStr = new StringBuilder();
-        for (int i = 0; i < etlColumn.precision; i++) {
+        for (int i = 0; i < etlColumn.precision - etlColumn.scale; i++) {
             precisionStr.append("9");
         }
         StringBuilder scaleStr = new StringBuilder();
@@ -238,12 +240,18 @@ class DecimalParser extends ColumnParser {
 
 class LargeIntParser extends ColumnParser {
 
+    private BigInteger maxValue = new BigInteger("170141183460469231731687303715884105727");
+    private BigInteger minValue = new BigInteger("-170141183460469231731687303715884105728");
+
     @Override
     public boolean parse(String value) {
         try {
-            BigInteger bigInteger = new BigInteger(value);
-            return true;
+            BigInteger inputValue = new BigInteger(value);
+            return inputValue.compareTo(maxValue) < 0 && inputValue.compareTo(minValue) > 0;
         } catch (NumberFormatException e) {
+            return false;
+        } catch (ArithmeticException e) {
+            LOG.warn("int value is too big even for java BigInteger,value={}" + value);
             return false;
         } catch (Exception e) {
             throw new RuntimeException("large int parse failed:" + value, e);

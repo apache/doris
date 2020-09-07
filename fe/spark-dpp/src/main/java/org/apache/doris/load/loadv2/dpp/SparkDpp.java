@@ -60,6 +60,7 @@ import org.apache.spark.util.LongAccumulator;
 import org.apache.spark.util.SerializableConfiguration;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URI;
@@ -108,6 +109,8 @@ public final class SparkDpp implements java.io.Serializable {
     private SerializableConfiguration serializableHadoopConf;
     private DppResult dppResult = new DppResult();
 
+    // just for ut
+    public SparkDpp() {}
 
     public SparkDpp(SparkSession spark, EtlJobConfig etlJobConfig) {
         this.spark = spark;
@@ -365,7 +368,7 @@ public final class SparkDpp implements java.io.Serializable {
     /**
      *   check decimal,char/varchar
      */
-    private boolean validateData(Object srcValue, EtlJobConfig.EtlColumn etlColumn, ColumnParser columnParser,Row row) {
+    public boolean validateData(Object srcValue, EtlJobConfig.EtlColumn etlColumn, ColumnParser columnParser, Row row) {
 
         switch (etlColumn.columnType.toUpperCase()) {
             case "DECIMALV2":
@@ -375,16 +378,21 @@ public final class SparkDpp implements java.io.Serializable {
                 if (srcValue != null && (decimalParser.getMaxValue().compareTo(srcBigDecimal) < 0 || decimalParser.getMinValue().compareTo(srcBigDecimal) > 0)) {
                     LOG.warn(String.format("decimal value is not valid for defination, column=%s, value=%s,precision=%s,scale=%s",
                             etlColumn.columnName, srcValue.toString(), srcBigDecimal.precision(), srcBigDecimal.scale()));
-                    abnormalRowAcc.add(1);
                     return false;
                 }
                 break;
             case "CHAR":
             case "VARCHAR":
                 // TODO(wb) padding char type
-                if (srcValue != null && srcValue.toString().length() > etlColumn.stringLength) {
-                    LOG.warn(String.format("the length of input is too long than schema. column_name:%s,input_str[%s],schema length:%s,actual length:%s",
-                            etlColumn.columnName, row.toString(), etlColumn.stringLength, srcValue.toString().length()));
+                try {
+                    int strSize = 0;
+                    if (srcValue != null && (strSize = srcValue.toString().getBytes("UTF-8").length) > etlColumn.stringLength) {
+                        LOG.warn(String.format("the length of input is too long than schema. column_name:%s,input_str[%s],schema length:%s,actual length:%s",
+                                etlColumn.columnName, row.toString(), etlColumn.stringLength, strSize));
+                        return false;
+                    }
+                } catch (UnsupportedEncodingException e) {
+                    LOG.warn("input string value can not encode with utf-8,value=" + srcValue.toString());
                     return false;
                 }
                 break;
@@ -438,6 +446,7 @@ public final class SparkDpp implements java.io.Serializable {
                     String columnName = keyColumnNames.get(i);
                     Object columnObject = row.get(row.fieldIndex(columnName));
                     if(!validateData(columnObject, baseIndex.getColumn(columnName), parsers.get(i), row)) {
+                        abnormalRowAcc.add(1);
                         return result.iterator();
                     };
                     keyColumns.add(columnObject);
@@ -447,6 +456,7 @@ public final class SparkDpp implements java.io.Serializable {
                     String columnName = valueColumnNames.get(i);
                     Object columnObject = row.get(row.fieldIndex(columnName));
                     if(!validateData(columnObject,  baseIndex.getColumn(columnName), parsers.get(i + keyColumnNames.size()),row)) {
+                        abnormalRowAcc.add(1);
                         return result.iterator();
                     };
                     valueColumns.add(columnObject);
@@ -464,6 +474,7 @@ public final class SparkDpp implements java.io.Serializable {
                         LOG.info("invalid rows contents:" + invalidRows.value());
                     }
                 } else {
+                    // TODO(wb) support lagreint for hash
                     long hashValue = DppUtils.getHashValue(row, distributeColumns, dstTableSchema);
                     int bucketId = (int) ((hashValue & 0xffffffff) % partitionInfo.partitions.get(pid).bucketNum);
                     long partitionId = partitionInfo.partitions.get(pid).partitionId;
@@ -695,6 +706,9 @@ public final class SparkDpp implements java.io.Serializable {
             } else if (dstClass.equals(Long.class)) {
                 return ((Double) srcValue).longValue();
             } else if (dstClass.equals(BigInteger.class)) {
+                // TODO(wb) gson will cast origin value to double by default
+                // when the partition column is largeint, this will cause error data
+                // need fix it thoroughly
                 return new BigInteger(((Double) srcValue).toString());
             } else if (dstClass.equals(java.sql.Date.class) || dstClass.equals(java.util.Date.class)) {
                 double srcValueDouble = (double)srcValue;
@@ -846,18 +860,24 @@ public final class SparkDpp implements java.io.Serializable {
             @Override
             public Iterator<Row> call(Row row) throws Exception {
                 List<Row> result = new ArrayList<>();
+                Set<Integer> columnIndexNeedToRepalceNull = new HashSet<Integer>();
                 boolean validRow = true;
                 for (int i = 0; i < columnNameArray.length; i++) {
                     EtlJobConfig.EtlColumn column = columnNameArray[i];
-                    Object value = row.get(row.fieldIndex(column.columnName));
+                    int fieldIndex = row.fieldIndex(column.columnName);
+                    Object value = row.get(fieldIndex);
                     if (value == null && !column.isAllowNull) {
                         validRow = false;
                         LOG.warn("column:" + i + " can not be null. row:" + row.toString());
                         break;
                     }
-                    if (value != null && isStrictMode && !columnParserArray[i].parse(value.toString())) {
-                        validRow = false;
-                        LOG.warn(String.format("row parsed failed in strict mode, column name %s, src row %s", column.columnName, row.toString()));
+                    if (value != null && !columnParserArray[i].parse(value.toString())) {
+                        if (isStrictMode) {
+                            validRow = false;
+                            LOG.warn(String.format("row parsed failed in strict mode, column name %s, src row %s", column.columnName, row.toString()));
+                        } else {
+                            columnIndexNeedToRepalceNull.add(fieldIndex);
+                        }
                     }
                 }
                 if (!validRow) {
@@ -866,6 +886,16 @@ public final class SparkDpp implements java.io.Serializable {
                     if (abnormalRowAcc.value() <= 5) {
                         invalidRows.add(row.toString());
                     }
+                } if (columnIndexNeedToRepalceNull.size() != 0) {
+                    Object[] newRow = new Object[row.size()];
+                    for (int i = 0; i < row.size(); i++) {
+                        if (columnIndexNeedToRepalceNull.contains(i)) {
+                            newRow[i] = null;
+                        } else {
+                            newRow[i] = row.get(i);
+                        }
+                    }
+                    result.add(RowFactory.create(newRow));
                 } else {
                     result.add(row);
                 }
