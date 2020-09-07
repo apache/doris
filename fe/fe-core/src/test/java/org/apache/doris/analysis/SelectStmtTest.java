@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.VariableMgr;
