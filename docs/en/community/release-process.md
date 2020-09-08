@@ -168,9 +168,13 @@ Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? o
 Real name needs to be consistent with the ID shown in ID. apache. org.
 Email address is apache's mailbox.
 
+Enter passphrase, you need to enter it twice. The passphrase must more than 8 characters.
+
+**The passphrase here must be remembered, it will be used when signing later**
+
 ##### View and Output
 
-The first line shows the name of the public key file (pubring.gpg), the second line shows the public key characteristics (4096 bits, Hash string and generation time), the third line shows the "user ID", and the fourth line shows the private key characteristics.
+The first line displays the public key file name (pubring.gpg), the second line displays the characteristics of the public key (4096 bits, Hash string and the generation time), the third line displays "User ID", comments, email, and the fourth line displays Private key characteristics.
 
 ```
 $ gpg --list-keys
@@ -189,6 +193,7 @@ gpg --armor --output public-key.txt --export [UserID]
 
 ```
 $ gpg --armor --output public-key.txt --export xxx-yyy
+文件‘public-key.txt’已存在。 是否覆盖？(y/N)y
 $ cat public-key.txt
 -----BEGIN PGP PUBLIC KEY BLOCK-----
 Version: GnuPG V2.0.22 (GNU /Linux)
@@ -348,7 +353,7 @@ svn add 0.9.0-rc1
 svn commit -m "Release Apache Doris (incubating) 0.9.0 rc1"
 ```
 
-### Send community voting emails
+### Send e-mail to community dev@doris.apache.org about voting
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 

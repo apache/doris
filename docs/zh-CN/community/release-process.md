@@ -36,7 +36,11 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	2. 创建分支用于发布
 	3. 清理 issue
 	4. 将必要的 Patch 合并到发布的分支
-3. 社区发布投票流程
+3. 验证分支
+        1. QA 稳定性测试
+        2. 验证编译镜像正确性
+        3. 准备 Release Nodes
+4. 社区发布投票流程
 	1. 将 tag 打包，签名并上传到[Apache Dev svn 仓库](https://dist.apache.org/repos/dist/dev/incubator/doris)
 	2. 在 [Doris 社区](dev@doris.apache.org)发起投票
 	3. 投票通过后，在Doris社区发 Result 邮件
@@ -44,7 +48,7 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	5. 发 Result 邮件到 general@incubator.apache.org
 4. 完成工作
 	1. 上传签名的软件包到 [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接
-	2. 准备 release note 并发 Announce 邮件到 general@incubator.apache.org
+	2. 发送 Announce 邮件到 general@incubator.apache.org
 	3. 在 Doris 官网和 github 发布下载链接
 
 ## 准备环境
@@ -164,9 +168,13 @@ Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? o
 其中 Real name 需保持和 id.apache.org 中显示的 id 一致。
 Email address 为 apache 的邮箱。
 
+输入 passphrase, 一共要输入两遍，超过8个字符即可。
+
+**这里的秘钥一定要记住，后面签名的时候会用到**
+
 ##### 查看和输出
 
-第一行显示公钥文件名（pubring.gpg），第二行显示公钥特征（4096位，Hash字符串和生成时间），第三行显示"用户ID"，第四行显示私钥特征。
+第一行显示公钥文件名（pubring.gpg），第二行显示公钥特征（4096位，Hash字符串和生成时间），第三行显示"用户ID"，注释，邮件，第四行显示私钥特征。
 
 ```
 $ gpg --list-keys
@@ -185,6 +193,7 @@ gpg --armor --output public-key.txt --export [用户ID]
 
 ```
 $ gpg --armor --output public-key.txt --export xxx-yyy
+文件‘public-key.txt’已存在。 是否覆盖？(y/N)y
 $ cat public-key.txt
 -----BEGIN PGP PUBLIC KEY BLOCK-----
 Version: GnuPG v2.0.22 (GNU/Linux)
@@ -271,6 +280,32 @@ $ git checkout -b branch-0.9
 
 在发布等待过程中，可能会有比较重要的Patch合入，如果社区有人说要有重要的Bug需要合入，那么 Release Manager 需要评估并将重要的Patch合入到发布分支中。
 
+## 验证分支
+
+### QA 稳定性测试
+
+将打好的分支交给 QA 同学进行稳定性测试。如果在测试过程中，出现需要修复的问题，则如果在测试过程中，出现需要修复的问题，待修复好后，需要将修复问题的 PR 合入到待发版本的分支中。
+
+待整个分支稳定后，才能准备发版本。
+
+### 验证编译镜像正确性
+
+1. 下载编译镜像
+
+	```
+	docker pull apachedoris/doris-dev:build-env-1.2
+	```
+
+2. 使用官方文档编译新分支，编译方式见[Docker 开发镜像编译](http://doris.apache.org/master/zh-CN/installing/compilation.html)
+
+	进入镜像后，编译可能需要大概3~4小时左右，请耐心等待。	
+
+	如果编译中缺少某些三方库导致编译失败，则说明编译镜像需要更新。
+
+3. 重新打编译镜像
+
+### 准备 Release Nodes
+
 ## 社区发布投票流程
 
 ### 打 tag
@@ -335,7 +370,7 @@ svn add 0.11.0-rc1
 svn commit -m "Add 0.11.0-rc1"
 ```
 
-### 发社区投票邮件
+### 发邮件到社区 dev@doris.apache.org 进行投票
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
