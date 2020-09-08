@@ -17,6 +17,12 @@
 
 package org.apache.doris.load.loadv2;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.PartitionKeyDesc;
@@ -49,17 +55,11 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 import java.util.List;
 import java.util.Map;
@@ -70,7 +70,7 @@ public class SparkLoadPendingTaskTest {
     public void testExecuteTask(@Injectable SparkLoadJob sparkLoadJob,
                                 @Injectable SparkResource resource,
                                 @Injectable BrokerDesc brokerDesc,
-                                @Mocked Catalog catalog,
+                                @Mocked Catalog catalog, @Injectable SparkLoadAppHandle handle,
                                 @Injectable Database database,
                                 @Injectable OlapTable table) throws LoadException {
         long dbId = 0L;
@@ -106,6 +106,8 @@ public class SparkLoadPendingTaskTest {
             {
                 catalog.getDb(dbId);
                 result = database;
+                sparkLoadJob.getHandle();
+                result = handle;
                 database.getTable(tableId);
                 result = table;
                 table.getPartitions();
@@ -131,7 +133,7 @@ public class SparkLoadPendingTaskTest {
         new MockUp<SparkEtlJobHandler>() {
             @Mock
             public void submitEtlJob(long loadJobId, String loadLabel, EtlJobConfig etlJobConfig,
-                                     SparkResource resource, BrokerDesc brokerDesc,
+                                     SparkResource resource, BrokerDesc brokerDesc, SparkLoadAppHandle handle,
                                      SparkPendingTaskAttachment attachment) throws LoadException {
                 attachment.setAppId(appId);
             }
