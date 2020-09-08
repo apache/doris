@@ -329,6 +329,10 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `version`
 
     用于兼容 MySQL 客户端。无实际作用。
+
+* `performance_schema`
+
+    用于兼容 8.0.16及以上版本的MySQL JDBC。无实际作用。     
     
 * `version_comment`
 
