@@ -37,12 +37,14 @@ import java.util.Map;
 
 public class CreateResourceStmtTest {
     private Analyzer analyzer;
-    private String resourceName;
+    private String resourceName1;
+    private String resourceName2;
 
     @Before()
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        resourceName = "spark0";
+        resourceName1 = "spark0";
+        resourceName2 = "odbc";
     }
 
     @Test
@@ -58,11 +60,20 @@ public class CreateResourceStmtTest {
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("type", "spark");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, resourceName, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, resourceName1, properties);
         stmt.analyze(analyzer);
-        Assert.assertEquals(resourceName, stmt.getResourceName());
+        Assert.assertEquals(resourceName1, stmt.getResourceName());
         Assert.assertEquals(Resource.ResourceType.SPARK, stmt.getResourceType());
         Assert.assertEquals("CREATE EXTERNAL RESOURCE 'spark0' PROPERTIES(\"type\"  =  \"spark\")", stmt.toSql());
+
+        properties = Maps.newHashMap();
+        properties.put("type", "external_catalog");
+        stmt = new CreateResourceStmt(true, resourceName2, properties);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(resourceName2, stmt.getResourceName());
+        Assert.assertEquals(Resource.ResourceType.EXTERNAL_CATALOG, stmt.getResourceType());
+        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'odbc' PROPERTIES(\"type\"  =  \"external_catalog\")", stmt.toSql());
+
     }
 
     @Test(expected = AnalysisException.class)
@@ -78,7 +89,7 @@ public class CreateResourceStmtTest {
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("type", "hadoop");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, resourceName, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, resourceName1, properties);
         stmt.analyze(analyzer);
     }
 }

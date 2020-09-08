@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import com.google.common.collect.Maps;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TOdbcTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -43,6 +45,7 @@ import java.util.zip.Adler32;
 public class OdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
+    private static final String EXTERNAL_CATALOG_RESOURCE = "external_catalog_resource";
     private static final String ODBC_HOST = "host";
     private static final String ODBC_PORT = "port";
     private static final String ODBC_USER = "user";
@@ -50,7 +53,7 @@ public class OdbcTable extends Table {
     private static final String ODBC_DATABASE = "database";
     private static final String ODBC_TABLE = "table";
     private static final String ODBC_DRIVER = "driver";
-    private static final String ODBC_TYPE = "type";
+    private static final String ODBC_TYPE = "odbc_type";
 
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
     static {
@@ -62,6 +65,7 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
+    private String externalCatalogResourceName;
     private String host;
     private String port;
     private String userName;
@@ -84,41 +88,79 @@ public class OdbcTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of odbc table, "
-                    + "they are: host, port, user, password, database and table");
+                    + "they are: external_catalog_resource or [host, port, user, password, driver, odbc_type]" +
+                    " and database and table");
         }
 
-        // Set up
-        host = properties.get(ODBC_HOST);
-        if (Strings.isNullOrEmpty(host)) {
-            throw new DdlException("Host of Odbc table is null. "
-                    + "Please add properties('host'='xxx.xxx.xxx.xxx') when create table");
-        }
+        if (properties.containsKey(EXTERNAL_CATALOG_RESOURCE)) {
+            externalCatalogResourceName = properties.get(EXTERNAL_CATALOG_RESOURCE);
 
-        port = properties.get(ODBC_PORT);
-        if (Strings.isNullOrEmpty(port)) {
-            // Maybe null pointer or number convert
-            throw new DdlException("Port of Odbc table is null. "
-                    + "Please add properties('port'='3306') when create table");
-        } else {
-            try {
-                Integer.valueOf(port);
-            } catch (Exception e) {
-                throw new DdlException("Port of Odbc table must be a number."
-                        + "Please add properties('port'='3306') when create table");
-
+            // 1. check whether resource exist
+            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(externalCatalogResourceName);
+            if (oriResource == null) {
+                throw new DdlException("Resource does not exist. name: " + externalCatalogResourceName);
             }
-        }
 
-        userName = properties.get(ODBC_USER);
-        if (Strings.isNullOrEmpty(userName)) {
-            throw new DdlException("User of Odbc table is null. "
-                    + "Please add properties('user'='root') when create table");
-        }
+            // 2. check resource usage privilege
+            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+                    externalCatalogResourceName,
+                    PrivPredicate.USAGE)) {
+                throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
+                        + "'@'" + ConnectContext.get().getRemoteIP()
+                        + "' for resource '" + externalCatalogResourceName + "'");
+            }
+        } else {
+            // Set up
+            host = properties.get(ODBC_HOST);
+            if (Strings.isNullOrEmpty(host)) {
+                throw new DdlException("Host of Odbc table is null. "
+                        + "Please set proper resource or add properties('host'='xxx.xxx.xxx.xxx') when create table");
+            }
 
-        passwd = properties.get(ODBC_PASSWORD);
-        if (passwd == null) {
-            throw new DdlException("Password of Odbc table is null. "
-                    + "Please add properties('password'='xxxx') when create table");
+            port = properties.get(ODBC_PORT);
+            if (Strings.isNullOrEmpty(port)) {
+                // Maybe null pointer or number convert
+                throw new DdlException("Port of Odbc table is null. "
+                        + "Please set external_catalog_resource or add properties('port'='3306') when create table");
+            } else {
+                try {
+                    Integer.valueOf(port);
+                } catch (Exception e) {
+                    throw new DdlException("Port of Odbc table must be a number."
+                            + "Please set external_catalog_resource or add properties('port'='3306') when create table");
+
+                }
+            }
+
+            userName = properties.get(ODBC_USER);
+            if (Strings.isNullOrEmpty(userName)) {
+                throw new DdlException("User of Odbc table is null. "
+                        + "Please set external_catalog_resource or add properties('user'='root') when create table");
+            }
+
+            passwd = properties.get(ODBC_PASSWORD);
+            if (passwd == null) {
+                throw new DdlException("Password of Odbc table is null. "
+                        + "Please set external_catalog_resource or add properties('password'='xxxx') when create table");
+            }
+
+            driver = properties.get(ODBC_DRIVER);
+            if (Strings.isNullOrEmpty(driver)) {
+                throw new DdlException("Driver of Odbc table is null. "
+                        + "Please set external_catalog_resource or add properties('diver'='xxxx') when create table");
+            }
+
+            String tableType = properties.get(ODBC_TYPE);
+            if (Strings.isNullOrEmpty(tableType)) {
+                throw new DdlException("Type of Odbc table is null. "
+                        + "Please set external_catalog_resource or add properties('odbc_type'='xxxx') when create table");
+            } else {
+                odbcTableTypeName = tableType.toLowerCase();
+                if (!TABLE_TYPE_MAP.containsKey(odbcTableTypeName)) {
+                    throw new DdlException("Invaild Odbc table type:" + tableType
+                            + " Now Odbc table type only support:" + supportTableType());
+                }
+            }
         }
 
         odbcDatabaseName = properties.get(ODBC_DATABASE);
@@ -132,40 +174,52 @@ public class OdbcTable extends Table {
             throw new DdlException("Database of Odbc table is null. "
                     + "Please add properties('table'='xxxx') when create table");
         }
+    }
 
-        driver = properties.get(ODBC_DRIVER);
-        if (Strings.isNullOrEmpty(driver)) {
-            throw new DdlException("Driver of Odbc table is null. "
-                    + "Please add properties('diver'='xxxx') when create table");
+    private String getPropertyFromResource(String propertyName) {
+        ExternalCatalogResource externalCatalogResource = (ExternalCatalogResource)
+                (Catalog.getCurrentCatalog().getResourceMgr().getResource(externalCatalogResourceName));
+        if (externalCatalogResource == null) {
+            throw new RuntimeException("Resource does not exist. name: " + externalCatalogResourceName);
         }
 
-        String tableType = properties.get(ODBC_TYPE);
-        if (Strings.isNullOrEmpty(tableType)) {
-            throw new DdlException("Type of Odbc table is null. "
-                    + "Please add properties('type'='xxxx') when create table");
-        } else {
-            odbcTableTypeName = tableType.toLowerCase();
-            if (!TABLE_TYPE_MAP.containsKey(odbcTableTypeName)) {
-                throw new DdlException("Invaild Odbc table type:" + tableType
-                + " Now Odbc table type only support:" + supportTableType());
-            }
+        String property = externalCatalogResource.getProperties(propertyName);
+        if (property == null) {
+            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + externalCatalogResourceName);
         }
+        return property;
+    }
+
+    public String getExternalCatalogResourceName() {
+        return externalCatalogResourceName;
     }
 
     public String getHost() {
-        return host;
+        if (host != null) {
+            return host;
+        }
+        return getPropertyFromResource(ODBC_HOST);
     }
 
     public String getPort() {
-        return port;
+        if (port != null) {
+            return port;
+        }
+        return getPropertyFromResource(ODBC_PORT);
     }
 
     public String getUserName() {
-        return userName;
+        if (userName != null) {
+            return userName;
+        }
+        return getPropertyFromResource(ODBC_USER);
     }
 
     public String getPasswd() {
-        return passwd;
+        if (passwd != null) {
+            return passwd;
+        }
+        return getPropertyFromResource(ODBC_PASSWORD);
     }
 
     public String getOdbcDatabaseName() {
@@ -177,27 +231,33 @@ public class OdbcTable extends Table {
     }
 
     public String getOdbcDriver() {
-        return driver;
+        if (driver != null) {
+            return driver;
+        }
+        return getPropertyFromResource(ODBC_DRIVER);
     }
 
     public String getOdbcTableTypeName() {
-        return odbcTableTypeName;
+        if (odbcTableTypeName != null) {
+            return odbcTableTypeName;
+        }
+        return getPropertyFromResource(ODBC_TYPE);
     }
 
     public TOdbcTableType getOdbcTableType() {
-        return TABLE_TYPE_MAP.get(odbcTableTypeName);
+        return TABLE_TYPE_MAP.get(getOdbcTableTypeName());
     }
 
     public TTableDescriptor toThrift() {
         TOdbcTable tOdbcTable = new TOdbcTable();
 
-        tOdbcTable.setHost(host);
-        tOdbcTable.setPort(port);
-        tOdbcTable.setUser(userName);
-        tOdbcTable.setPasswd(passwd);
-        tOdbcTable.setDb(odbcDatabaseName);
-        tOdbcTable.setTable(odbcTableName);
-        tOdbcTable.setDriver(driver);
+        tOdbcTable.setHost(getHost());
+        tOdbcTable.setPort(getPort());
+        tOdbcTable.setUser(getUserName());
+        tOdbcTable.setPasswd(getPasswd());
+        tOdbcTable.setDb(getOdbcDatabaseName());
+        tOdbcTable.setTable(getOdbcTableName());
+        tOdbcTable.setDriver(getOdbcDriver());
         tOdbcTable.setType(getOdbcTableType());
 
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ODBC_TABLE,
@@ -213,6 +273,8 @@ public class OdbcTable extends Table {
         String charsetName = "UTF-8";
 
         try {
+            // resource name
+            adler32.update(externalCatalogResourceName.getBytes(charsetName));
             // name
             adler32.update(name.getBytes(charsetName));
             // type
@@ -246,6 +308,8 @@ public class OdbcTable extends Table {
         super.write(out);
 
         Map<String, String> serializeMap = Maps.newHashMap();
+
+        serializeMap.put(EXTERNAL_CATALOG_RESOURCE, externalCatalogResourceName);
         serializeMap.put(ODBC_HOST, host);
         serializeMap.put(ODBC_PORT, port);
         serializeMap.put(ODBC_USER, userName);
@@ -255,11 +319,16 @@ public class OdbcTable extends Table {
         serializeMap.put(ODBC_DRIVER, driver);
         serializeMap.put(ODBC_TYPE, odbcTableTypeName);
 
-        int size = serializeMap.size();
+        int size = (int) serializeMap.values().stream().filter(v -> {
+            return v != null;
+        }).count();
         out.writeInt(size);
+
         for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
-            Text.writeString(out, kv.getKey());
-            Text.writeString(out, kv.getValue());
+            if (kv.getValue() != null) {
+                Text.writeString(out, kv.getKey());
+                Text.writeString(out, kv.getValue());
+            }
         }
     }
 
@@ -275,6 +344,7 @@ public class OdbcTable extends Table {
             serializeMap.put(key, value);
         }
 
+        externalCatalogResourceName = serializeMap.get(EXTERNAL_CATALOG_RESOURCE);
         host = serializeMap.get(ODBC_HOST);
         port = serializeMap.get(ODBC_PORT);
         userName = serializeMap.get(ODBC_USER);

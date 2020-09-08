@@ -346,7 +346,7 @@ public class QueryPlanTest {
                 "\"database\" = \"db1\",\n" +
                 "\"table\" = \"tbl1\",\n" +
                 "\"driver\" = \"Oracle Driver\",\n" +
-                "\"type\" = \"oracle\"\n" +
+                "\"odbc_type\" = \"oracle\"\n" +
                 ");");
 
         createTable("create external table test.odbc_mysql\n" +

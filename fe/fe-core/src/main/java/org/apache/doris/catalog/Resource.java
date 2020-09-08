@@ -34,7 +34,8 @@ import java.util.Map;
 public abstract class Resource implements Writable {
     public enum ResourceType {
         UNKNOWN,
-        SPARK;
+        SPARK,
+        EXTERNAL_CATALOG;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -62,6 +63,9 @@ public abstract class Resource implements Writable {
         switch (type) {
             case SPARK:
                 resource = new SparkResource(stmt.getResourceName());
+                break;
+            case EXTERNAL_CATALOG:
+                resource = new ExternalCatalogResource(stmt.getResourceName());
                 break;
             default:
                 throw new DdlException("Only support Spark resource.");
