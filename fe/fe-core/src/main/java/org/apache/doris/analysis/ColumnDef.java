@@ -268,15 +268,11 @@ public class ColumnDef {
     }
 
     public String toSql() {
-        return toSql(true);
-    }
-
-    public String toSql(boolean inUnique) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         sb.append(typeDef.toSql()).append(" ");
 
-        if (aggregateType != null && inUnique) {
+        if (aggregateType != null) {
             sb.append(aggregateType.name()).append(" ");
         }
 

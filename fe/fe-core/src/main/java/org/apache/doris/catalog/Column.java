@@ -389,11 +389,16 @@ public class Column implements Writable {
     }
 
     public String toSql() {
+        return toSql(false);
+    }
+
+    public String toSql(boolean isUniqueTable) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
         sb.append(typeStr).append(" ");
-        if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
+        if (aggregationType != null && aggregationType != AggregateType.NONE
+                && !isUniqueTable &&  !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
         if (isAllowNull) {
