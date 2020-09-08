@@ -493,7 +493,7 @@ public class CreateTableStmt extends DdlStmt {
             if (idx != 0) {
                 sb.append(",\n");
             }
-            sb.append("  ").append(columnDef.toSql());
+            sb.append("  ").append(columnDef.toSql(keysDesc !=null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS));
             idx++;
         }
         if (CollectionUtils.isNotEmpty(indexDefs)) {
