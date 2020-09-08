@@ -238,6 +238,8 @@ private:
     RWMutex _meta_lock;
 };
 
+static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
+
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;
 }

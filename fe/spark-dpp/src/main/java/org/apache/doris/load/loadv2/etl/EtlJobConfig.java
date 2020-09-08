@@ -17,8 +17,9 @@
 
 package org.apache.doris.load.loadv2.etl;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
@@ -502,7 +503,7 @@ public class EtlJobConfig implements Serializable {
             this.filePaths = filePaths;
             this.fileFieldNames = fileFieldNames;
             this.columnsFromPath = columnsFromPath;
-            this.columnSeparator = columnSeparator;
+            this.columnSeparator = Strings.isNullOrEmpty(columnSeparator) ? "\t" : columnSeparator;
             this.lineDelimiter = lineDelimiter;
             this.isNegative = isNegative;
             this.fileFormat = fileFormat;

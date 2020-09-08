@@ -197,9 +197,13 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     smatch what;
 
     try {
-        // Condition string format
+        // Condition string format, the format is (column_name)(op)(value) 
+        // eg:  condition_str="c1 = 1597751948193618247  and length(source)<1;\n;\n"
+        //  group1:  (\w+) matchs "c1"
+        //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matchs  "="
+        //  group3:  ((?:[\s\S]+)?) matchs "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
-                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*((?:[\S ]+)?))";
+                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*((?:[\s\S]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {

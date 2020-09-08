@@ -18,7 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -45,6 +48,7 @@ public class SelectStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
+        Config.enable_batch_delete_by_default = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
@@ -64,11 +68,42 @@ public class SelectStmtTest {
                 "\"storage_type\" = \"COLUMN\",\n" +
                 "\"replication_num\" = \"1\"\n" +
                 ");";
+
+        String tbl1 = "CREATE TABLE db1.table1 (\n" +
+                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
+                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
+                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")";
+        String tbl2 = "CREATE TABLE db1.table2 (\n" +
+                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
+                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
+                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(createTblStmtStr)
                    .withTable(createBaseAllStmtStr)
-                   .withTable(createPratitionTableStr);
+                   .withTable(createPratitionTableStr)
+                   .withTable(tbl1)
+                   .withTable(tbl2);
     }
 
     @Test
@@ -380,6 +415,21 @@ public class SelectStmtTest {
     }
 
     @Test
+    public void testRandFunction() throws Exception {
+        String sql = "select rand(db1.tbl1.k1) from db1.tbl1;";
+        try {
+            dorisAssert.query(sql).explainQuery();
+            Assert.fail("The param of rand function must be literal");
+        } catch (AnalysisException e) {
+            System.out.println(e.getMessage());
+        }
+        sql = "select rand(1234) from db1.tbl1;";
+        dorisAssert.query(sql).explainQuery();
+        sql = "select rand() from db1.tbl1;";
+        dorisAssert.query(sql).explainQuery();
+   }
+
+    @Test
     public void testVarcharToLongSupport() throws Exception {
         String sql = "select count(*)\n" +
                 "from db1.partition_table\n" +
@@ -395,5 +445,38 @@ public class SelectStmtTest {
                 .query(sql)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
+    }
+    @Test
+    public void testDeleteSign() throws Exception {
+        String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertTrue(dorisAssert.query(sql1).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertTrue(dorisAssert.query(sql2).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql3 = "SELECT * FROM table1";
+        Assert.assertTrue(dorisAssert.query(sql3).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql4 = " SELECT * FROM table1 table2";
+        Assert.assertTrue(dorisAssert.query(sql4).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+    }
+
+    @Test
+    public void testSelectHintSetVar() throws Exception {
+        String sql = "SELECT sleep(3);";
+        Planner planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(VariableMgr.getDefaultSessionVariable().getQueryTimeoutS(),
+                planner.getPlannerContext().getQueryOptions().query_timeout);
+
+        sql = "SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(1, planner.getPlannerContext().getQueryOptions().query_timeout);
+
+        sql = "select * from db1.partition_table where datekey=20200726";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(VariableMgr.getDefaultSessionVariable().getMaxExecMemByte(),
+                planner.getPlannerContext().getQueryOptions().mem_limit);
+
+        sql = "select /*+ SET_VAR(exec_mem_limit = 8589934592) */ poi_id, count(*) from db1.partition_table " +
+                "where datekey=20200726 group by 1";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(8589934592L, planner.getPlannerContext().getQueryOptions().mem_limit);
     }
 }

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
@@ -307,6 +308,45 @@ public class QueryPlanTest {
                 "\"password\" = \"123\",\n" +
                 "\"database\" = \"db1\",\n" +
                 "\"table\" = \"tbl1\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.`table_partitioned` (\n" +
+                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+                "PARTITION BY RANGE(`dt`)\n" +
+                "(PARTITION p20200101 VALUES [(\"-1\"), (\"20200101\")),\n" +
+                "PARTITION p20200201 VALUES [(\"20200101\"), (\"20200201\")))\n" +
+                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.`table_unpartitioned` (\n" +
+                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        Config.enable_odbc_table = true;
+        createTable("create external table test.odbc_mysql\n" +
+                "(k1 int, k2 int)\n" +
+                "ENGINE=ODBC\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\",\n" +
+                "\"driver\" = \"Oracle Driver\",\n" +
+                "\"type\" = \"oracle\"\n" +
                 ");");
     }
 
@@ -917,6 +957,10 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
 
+        queryStr = "explain select * from test.colocate1 t1 join [shuffle] test.colocate2 t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: false"));
+
         // t1.k1 = t2.k2 not same order with distribute column
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -974,6 +1018,66 @@ public class QueryPlanTest {
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+
+        // should clear the jointest table to make sure do not affect other test
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(0);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 0, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testJoinWithOdbcTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // set data size and row count for the olap table
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+
+        queryStr = "explain select * from jointest t1, odbc_mysql t2 where t1.k1 = t2.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+
+        queryStr = "explain select * from jointest t1, odbc_mysql t2, odbc_mysql t3 where t1.k1 = t3.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+
+        // should clear the jointest table to make sure do not affect other test
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(0);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 0, 0);
+                    }
+                }
+            }
+        }
     }
 
     @Test
@@ -1036,6 +1140,21 @@ public class QueryPlanTest {
         infoFunc = new InformationFunction("current_user");
         infoFunc.analyze(analyzer);
         Assert.assertEquals("'root'@'%'", infoFunc.getStrValue());
+    }
+
+    @Test
+    public void testAggregateSatisfyOlapTableDistribution() throws Exception {
+        FeConstants.runningUnitTest = true;
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "SELECT dt, dis_key, COUNT(1) FROM table_unpartitioned  group by dt, dis_key";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+
+        sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
     }
 }
 

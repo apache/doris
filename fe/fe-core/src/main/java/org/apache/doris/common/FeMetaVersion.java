@@ -192,6 +192,8 @@ public final class FeMetaVersion {
     public static final int VERSION_89 = 89;
     // for global variable persist
     public static final int VERSION_90 = 90;
+    // sparkLoadAppHandle
+    public static final int VERSION_91 = 91;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_90;
+    public static final int VERSION_CURRENT = VERSION_91;
 }

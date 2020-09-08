@@ -49,6 +49,9 @@ using std::sort;
 using std::string;
 using std::vector;
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_count, MetricUnit::OPERATIONS);
+
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                 DataDir* data_dir) {
     return std::make_shared<Tablet>(tablet_meta, data_dir);
@@ -67,6 +70,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
+
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_count);
 }
 
 OLAPStatus Tablet::_init_once_action() {
@@ -429,6 +435,11 @@ void Tablet::delete_expired_stale_rowset() {
         return;
     }
 
+    const RowsetSharedPtr lastest_delta = rowset_with_max_version();
+    if (lastest_delta == nullptr) {
+        LOG(WARNING) << "lastest_delta is null " << tablet_id();
+        return;
+    }
     // do check consistent operation
     auto path_id_iter = path_id_vec.begin();
 
@@ -436,12 +447,8 @@ void Tablet::delete_expired_stale_rowset() {
     while (path_id_iter != path_id_vec.end()) {
 
         PathVersionListSharedPtr version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(*path_id_iter);
-        const std::vector<TimestampedVersionSharedPtr>& to_delete_version = version_path->timestamped_versions();
 
-        auto first_version = to_delete_version.front();
-        auto end_version = to_delete_version.back();
-        Version test_version = Version(first_version->version().first, end_version->version().second);
-
+        Version test_version = Version(0, lastest_delta->end_version());
         stale_version_path_map[*path_id_iter] = version_path;
 
         OLAPStatus status = capture_consistent_versions(test_version, nullptr);

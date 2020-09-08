@@ -66,8 +66,8 @@ OLAPStatus CumulativeCompaction::compact() {
               << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 6. add metric to cumulative compaction
-    DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(_input_rowsets.size());
-    DorisMetrics::instance()->cumulative_compaction_bytes_total.increment(_input_rowsets_size);
+    DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
+    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
     TRACE("save cumulative compaction metrics");
 
     return OLAP_SUCCESS;

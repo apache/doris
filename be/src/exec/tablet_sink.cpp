@@ -411,7 +411,8 @@ bool IndexChannel::has_intolerable_failure() {
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024),
+          _stop_background_threads_latch(1) {
     if (!texprs.empty()) {
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
@@ -592,7 +593,9 @@ Status OlapTableSink::open(RuntimeState* state) {
         }
     }
 
-    _sender_thread = std::thread(&OlapTableSink::_send_batch_process, this);
+    RETURN_IF_ERROR(Thread::create("OlapTableSink", "send_batch_process",
+                                   [this]() { this->_send_batch_process(); },
+                                   &_sender_thread));
 
     return Status::OK();
 }
@@ -604,8 +607,8 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     state->update_num_rows_load_total(input_batch->num_rows());
     state->update_num_bytes_load_total(input_batch->total_byte_size());
-    DorisMetrics::instance()->load_rows.increment(input_batch->num_rows());
-    DorisMetrics::instance()->load_bytes.increment(input_batch->total_byte_size());
+    DorisMetrics::instance()->load_rows->increment(input_batch->num_rows());
+    DorisMetrics::instance()->load_bytes->increment(input_batch->total_byte_size());
     RowBatch* batch = input_batch;
     if (!_output_expr_ctxs.empty()) {
         SCOPED_RAW_TIMER(&_convert_batch_ns);
@@ -722,8 +725,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
-    if (_sender_thread.joinable()) {
-        _sender_thread.join();
+    _stop_background_threads_latch.count_down();
+    if (_sender_thread) {
+        _sender_thread->join();
     }
 
     Expr::close(_output_expr_ctxs, state);
@@ -899,7 +903,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
 
 void OlapTableSink::_send_batch_process() {
     SCOPED_RAW_TIMER(&_non_blocking_send_ns);
-    while (true) {
+    do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num](NodeChannel* ch) {
@@ -912,8 +916,7 @@ void OlapTableSink::_send_batch_process() {
                          "consumer thread exit.";
             return;
         }
-        SleepFor(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms));
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms)));
 }
 
 } // namespace stream_load

@@ -144,6 +144,56 @@ TEST_F(TabletMgrTest, CreateTablet) {
     ASSERT_TRUE(create_st == OLAP_ERR_CE_TABLET_ID_EXIST);
 }
 
+TEST_F(TabletMgrTest, CreateTabletWithSequence) {
+    std::vector<TColumn> cols;
+    TColumn col1;
+    col1.column_type.type = TPrimitiveType::SMALLINT;
+    col1.__set_column_name("col1");
+    col1.__set_is_key(true);
+    cols.push_back(col1);
+
+    TColumn col2;
+    col2.column_type.type = TPrimitiveType::INT;
+    col2.__set_column_name(SEQUENCE_COL);
+    col2.__set_is_key(false);
+    col2.__set_aggregation_type(TAggregationType::REPLACE);
+    cols.push_back(col2);
+
+    TColumn col3;
+    col3.column_type.type = TPrimitiveType::INT;
+    col3.__set_column_name("v1");
+    col3.__set_is_key(false);
+    col3.__set_aggregation_type(TAggregationType::REPLACE);
+    cols.push_back(col3);
+
+
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_short_key_column_count(1);
+    tablet_schema.__set_schema_hash(3333);
+    tablet_schema.__set_keys_type(TKeysType::UNIQUE_KEYS);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+    tablet_schema.__set_columns(cols);
+    tablet_schema.__set_sequence_col_idx(1);
+
+    TCreateTabletReq create_tablet_req;
+    create_tablet_req.__set_tablet_schema(tablet_schema);
+    create_tablet_req.__set_tablet_id(111);
+    create_tablet_req.__set_version(2);
+    create_tablet_req.__set_version_hash(3333);
+    vector<DataDir*> data_dirs;
+    data_dirs.push_back(_data_dir);
+    OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    ASSERT_TRUE(create_st == OLAP_SUCCESS);
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
+    ASSERT_TRUE(tablet != nullptr);
+    // check dir exist
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
+    ASSERT_TRUE(dir_exist);
+    // check meta has this tablet
+    TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
+    OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
+    ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
+}
 
 TEST_F(TabletMgrTest, DropTablet) {
     TColumnType col_type;

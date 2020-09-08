@@ -34,6 +34,8 @@
 #include "util/bitmap.h"
 #include "util/ref_count_closure.h"
 #include "util/thrift_util.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -360,7 +362,8 @@ private:
     // index_channel
     std::vector<IndexChannel*> _channels;
 
-    std::thread _sender_thread;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _sender_thread;
 
     std::vector<DecimalValue> _max_decimal_val;
     std::vector<DecimalValue> _min_decimal_val;

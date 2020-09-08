@@ -17,29 +17,44 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 
-public class SparkLoadAppHandle {
+public class SparkLoadAppHandle implements Writable {
     private static final Logger LOG = LogManager.getLogger(SparkLoadAppHandle.class);
     // 5min
     private static final long SUBMIT_APP_TIMEOUT_MS = 300 * 1000;
 
     private Process process;
 
+    @SerializedName("appId")
     private String appId;
+    @SerializedName("state")
     private State state;
+    @SerializedName("queue")
     private String queue;
+    @SerializedName("startTime")
     private long startTime;
+    @SerializedName("finalStatus")
     private FinalApplicationStatus finalStatus;
+    @SerializedName("trackingUrl")
     private String trackingUrl;
+    @SerializedName("user")
     private String user;
+    @SerializedName("logPath")
     private String logPath;
 
     private List<Listener> listeners;
@@ -74,6 +89,10 @@ public class SparkLoadAppHandle {
     public SparkLoadAppHandle(Process process) {
         this.state = State.UNKNOWN;
         this.process = process;
+    }
+
+    public SparkLoadAppHandle() {
+        this.state = State.UNKNOWN;
     }
 
     public void addListener(Listener listener) {
@@ -114,6 +133,10 @@ public class SparkLoadAppHandle {
     public String getUser() { return this.user; }
 
     public String getLogPath() { return this.logPath; }
+
+    public void setProcess(Process process) {
+        this.process = process;
+    }
 
     public void setState(State state) {
         this.state = state;
@@ -168,6 +191,16 @@ public class SparkLoadAppHandle {
                 }
             }
         }
+    }
 
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static SparkLoadAppHandle read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, SparkLoadAppHandle.class);
     }
 }

@@ -22,7 +22,11 @@
 #include <string>
 #include <vector>
 #include <mutex>
+
 #include "common/status.h"
+#include "gutil/ref_counted.h"
+#include "util/thread.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -34,9 +38,7 @@ class ExecEnv;
 class LoadPathMgr {
 public:
     LoadPathMgr(ExecEnv* env);
-
-    ~LoadPathMgr() {
-    }
+    ~LoadPathMgr();
 
     Status init();
 
@@ -61,8 +63,6 @@ private:
     void clean();
     void process_path(time_t now, const std::string& path, int64_t reserve_hours);
 
-    static void* cleaner(void* param);
-
     ExecEnv* _exec_env;
     std::mutex _lock;
     std::vector<std::string> _path_vec;
@@ -72,6 +72,8 @@ private:
     std::string _error_log_dir;
     uint32_t _next_shard;
     uint32_t _error_path_next_shard;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _clean_thread;
 };
 
 }

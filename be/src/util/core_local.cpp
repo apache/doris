@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -48,8 +49,11 @@ public:
     virtual ~CoreDataAllocatorImpl();
     void* get_or_create(size_t id) override {
         size_t block_id = id / ELEMENTS_PER_BLOCK;
-        if (block_id >= _blocks.size()) {
-            _blocks.resize(block_id + 1);
+        {
+            std::lock_guard<SpinLock> l(_lock);
+            if (block_id >= _blocks.size()) {
+                _blocks.resize(block_id + 1);
+            }
         }
         CoreDataBlock* block = _blocks[block_id];
         if (block == nullptr) {
@@ -61,6 +65,7 @@ public:
     }
 private:
     static constexpr int ELEMENTS_PER_BLOCK = BLOCK_SIZE / ELEMENT_BYTES;
+    SpinLock _lock; // lock to protect the modification of _blocks
     std::vector<CoreDataBlock*> _blocks;
 };
 

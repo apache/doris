@@ -275,6 +275,9 @@ FE 的配置项有两种方式进行配置：
 
 ### `enable_auth_check`
 
+### `enable_batch_delete_by_default`
+在创建 unique 表时是否自动启用批量删除功能
+
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`
@@ -679,6 +682,12 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 
 默认为 false。
 
+
+### `enable_odbc_table`
+
+将此参数设置为 true，则 Doris 能够支持ODBC的外表建立，查询。具体ODBC表的使用方式，参考ODBC表的使用文档。
+
+在该功能仍然在实验阶段，所以当前改参数默认为 false。
 
 
 

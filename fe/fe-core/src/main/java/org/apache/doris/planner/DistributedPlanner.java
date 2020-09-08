@@ -271,9 +271,9 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) {
-        if (node instanceof MysqlScanNode) {
+        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        } else if (node instanceof SchemaScanNode) {
+        }  else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else {
             // es scan node, olap scan node are random partitioned
@@ -463,6 +463,12 @@ public class DistributedPlanner {
 
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
             cannotReason.add("Session disabled");
+            return false;
+        }
+
+        // If user have a join hint to use proper way of join, can not be colocate join
+        if (node.getInnerRef().hasJoinHints()) {
+            cannotReason.add("Has join hint");
             return false;
         }
 
@@ -825,7 +831,16 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            return createMergeAggregationFragment(node, childFragment);
+
+            // Check table's distribution. See #4481.
+            PlanNode childPlan = childFragment.getPlanRoot();
+            if (childPlan instanceof OlapScanNode &&
+                    ((OlapScanNode) childPlan).getOlapTable().meetAggDistributionRequirements(node.getAggInfo())) {
+                childFragment.addPlanRoot(node);
+                return childFragment;
+            } else {
+                return createMergeAggregationFragment(node, childFragment);
+            }
         }
     }
 
