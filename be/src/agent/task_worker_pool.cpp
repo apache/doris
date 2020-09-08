@@ -192,8 +192,10 @@ void TaskWorkerPool::start() {
             .set_max_threads(_worker_count)
             .build(&_thread_pool);
 
-    auto st = _thread_pool->submit_func(cb);
-    CHECK(st.ok()) << st.to_string();
+    for (int i = 0; i < _worker_count; i++) {
+        auto st = _thread_pool->submit_func(cb);
+        CHECK(st.ok()) << st.to_string();
+    }
 #endif
 }
 
