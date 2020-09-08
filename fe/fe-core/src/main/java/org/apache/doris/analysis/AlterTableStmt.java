@@ -87,7 +87,7 @@ public class AlterTableStmt extends DdlStmt {
                 // has rollup table
                 if (table.getVisibleIndex().size() > 1) {
                     for (MaterializedIndex idx : table.getVisibleIndex()) {
-                        // add a column to rollup index it will add to base table automaticlly,
+                        // add a column to rollup index it will add to base table automatically,
                         // if add a column here it will duplicated
                         if (idx.getId() == table.getBaseIndexId()) {
                             continue;
@@ -100,7 +100,7 @@ public class AlterTableStmt extends DdlStmt {
                 } else {
                     // no rollup tables
                     AddColumnClause addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                            table.getIndexNameById(table.getBaseIndexId()), null);
+                           null, null);
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);
                 }
