@@ -457,14 +457,14 @@ void Tablet::delete_expired_stale_rowset() {
         stale_version_path_map[*path_id_iter] = version_path;
 
         OLAPStatus status = capture_consistent_versions(test_version, nullptr);
-        // When there is no consistent versions, we must reconstruct the tracker.
+        // 1. When there is no consistent versions, we must reconstruct the tracker.
         if (status != OLAP_SUCCESS) {
             
-            // fetch missing version after delete
+            // 2. fetch missing version after delete
             std::vector<Version> after_missed_versions;
             calc_missed_versions_unlocked(lastest_delta->end_version(), &after_missed_versions);
 
-            // check whether missed_versions and after_missed_versions are the same.
+            // 2.1 check whether missed_versions and after_missed_versions are the same.
             // when they are the same, it means we can delete the path securely.
             bool is_missng = missed_versions.size() != after_missed_versions.size();
             
@@ -481,12 +481,29 @@ void Tablet::delete_expired_stale_rowset() {
                 LOG(WARNING) << "The consistent version check fails, there are bugs. "
                             << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
 
+                // 3. try to recover
                 _timestamped_version_tracker.recover_versioned_tracker(stale_version_path_map);
 
-                // double check the consistent versions
-                status = capture_consistent_versions(test_version, nullptr);
+                // 4. double check the consistent versions
+                // fetch missing version after recover
+                std::vector<Version> recover_missed_versions;
+                calc_missed_versions_unlocked(lastest_delta->end_version(), &recover_missed_versions);
 
-                if (status != OLAP_SUCCESS) {
+                // 4.1 check whether missed_versions and recover_missed_versions are the same.
+                // when they are the same, it means we recover successlly.
+                bool is_recover_missng = missed_versions.size() != recover_missed_versions.size();
+                
+                if (!is_recover_missng) {
+                    for (int ver_index = 0; ver_index < missed_versions.size(); ver_index++) {
+                        if(missed_versions[ver_index] != recover_missed_versions[ver_index]) {
+                            is_recover_missng = true;
+                            break;
+                        }
+                    }
+                }
+
+                // 5. check recover fail, version is mission
+                if (is_recover_missng) {
                     if (!config::ignore_rowset_stale_unconsistent_delete) {
                         LOG(FATAL) << "rowset stale unconsistent delete. tablet= " << tablet_id();
                     } else {
