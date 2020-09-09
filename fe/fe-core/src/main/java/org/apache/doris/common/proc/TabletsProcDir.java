@@ -42,7 +42,6 @@ import java.util.List;
  * show tablets' detail info within an index
  */
 public class TabletsProcDir implements ProcDirInterface {
-
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
             .add("VersionHash").add("LstSuccessVersion").add("LstSuccessVersionHash")
