@@ -149,7 +149,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             int idx = 0;
@@ -181,7 +182,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
@@ -214,7 +216,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
     }
 }
 
-template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB list_encoding>
+template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB array_encoding>
 void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
     Collection* src = src_data;
     ColumnMetaPB meta;
@@ -241,7 +243,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
         writer_opts.meta->set_unique_id(0);
         writer_opts.meta->set_type(OLAP_FIELD_TYPE_ARRAY);
         writer_opts.meta->set_length(0);
-        writer_opts.meta->set_encoding(list_encoding);
+        writer_opts.meta->set_encoding(array_encoding);
         writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
         writer_opts.meta->set_is_nullable(true);
         writer_opts.data_page_size = 5 * 8;
@@ -306,7 +308,8 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
             MemTracker tracker;
             MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             int idx = 0;
@@ -332,7 +335,8 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
             MemTracker tracker;
             MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
@@ -359,12 +363,12 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
 }
 
 
-TEST_F(ColumnReaderWriterTest, test_list_type) {
+TEST_F(ColumnReaderWriterTest, test_array_type) {
     size_t num_list = 24 * 1024;
     size_t num_item = num_list * 3;
 
-    uint8_t* list_is_null = new uint8_t[BitmapSize(num_list)];
-    Collection* list_val = new Collection[num_list];
+    uint8_t* array_is_null = new uint8_t[BitmapSize(num_list)];
+    Collection* array_val = new Collection[num_list];
     bool* item_is_null = new bool[num_item];
     uint8_t* item_val = new uint8_t[num_item];
     for (int i = 0; i < num_item; ++i) {
@@ -373,22 +377,22 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
         if (i % 3 == 0) {
             size_t list_index = i / 3;
             bool is_null = (list_index % 4) == 1;
-            BitmapChange(list_is_null, list_index, is_null);
+            BitmapChange(array_is_null, list_index, is_null);
             if (is_null) {
                 continue;
             }
-            list_val[list_index].data = &item_val[i];
-            list_val[list_index].null_signs = &item_is_null[i];
-            list_val[list_index].length = 3;
+            array_val[list_index].data = &item_val[i];
+            array_val[list_index].null_signs = &item_is_null[i];
+            array_val[list_index].length = 3;
         }
     }
-    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_bs");
+    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(array_val, array_is_null, num_list, "null_array_bs");
 
-    delete[] list_val;
+    delete[] array_val;
     delete[] item_val;
     delete[] item_is_null;
 
-    list_val = new Collection[num_list];
+    array_val = new Collection[num_list];
     Slice* varchar_vals = new Slice[3];
     item_is_null = new bool[3];
     for (int i = 0; i < 3; ++i) {
@@ -399,21 +403,21 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
     }
     for (int i = 0; i <  num_list; ++i) {
         bool is_null = (i % 4) == 1;
-        BitmapChange(list_is_null, i, is_null);
+        BitmapChange(array_is_null, i, is_null);
         if (is_null) {
             continue;
         }
-        list_val[i].data = varchar_vals;
-        list_val[i].null_signs = item_is_null;
-        list_val[i].length = 3;
+        array_val[i].data = varchar_vals;
+        array_val[i].null_signs = item_is_null;
+        array_val[i].length = 3;
     }
-    test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_chars");
+    test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(array_val, array_is_null, num_list, "null_array_chars");
 
-    delete[] list_val;
+    delete[] array_val;
     delete[] varchar_vals;
     delete[] item_is_null;
 
-    delete[] list_is_null;
+    delete[] array_is_null;
 }
 
 
@@ -440,7 +444,8 @@ void test_read_default_value(string value, void* result) {
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             int idx = 0;
@@ -467,7 +472,8 @@ void test_read_default_value(string value, void* result) {
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             for (int rowid = 0; rowid < 2048; rowid += 128) {

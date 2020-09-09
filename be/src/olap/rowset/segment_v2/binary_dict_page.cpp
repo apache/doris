@@ -202,7 +202,7 @@ Status BinaryDictPageDecoder::init() {
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
 
         RETURN_IF_ERROR(ColumnVectorBatch::create(
-                1024,
+                0,
                 false,
                 type_info,
                 &_batch));
