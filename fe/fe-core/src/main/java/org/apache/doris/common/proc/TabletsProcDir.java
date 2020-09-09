@@ -104,7 +104,7 @@ public class TabletsProcDir implements ProcDirInterface {
                                 || (state != null && replica.getState() != state)) {
                             continue;
                         }
-                        ArrayList<Comparable> tabletInfo = new ArrayList<Comparable>();
+                        List<Comparable> tabletInfo = new ArrayList<Comparable>();
                         // tabletId -- replicaId -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
