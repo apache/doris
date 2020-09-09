@@ -22,15 +22,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 // Alter table statement.
 public class AlterTableStmt extends DdlStmt {
@@ -79,11 +82,28 @@ public class AlterTableStmt extends DdlStmt {
     public void rewriteAlterClause(OlapTable table) throws UserException {
         List<AlterClause> clauses = new ArrayList<>();
         for (AlterClause alterClause : ops) {
-            if (alterClause instanceof EnableFeatureClause
-                    && ((EnableFeatureClause) alterClause).getFeature() == EnableFeatureClause.Features.BATCH_DELETE) {
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
-                    throw new AnalysisException("Batch delete only supported in unique tables.");
+            if (alterClause instanceof EnableFeatureClause) {
+                EnableFeatureClause.Features alterFeature  = ((EnableFeatureClause) alterClause).getFeature();
+                if (alterFeature == null || alterFeature == EnableFeatureClause.Features.UNKNOWN) {
+                    throw new AnalysisException("unknown feature for alter clause");
                 }
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                    throw new AnalysisException("enable feature only supported in unique tables now.");
+                }
+                // analyse sequence column
+                Type sequenceColType = null;
+                if (alterFeature == EnableFeatureClause.Features.SEQUENCE_COLUMN) {
+                    Map<String, String> propertyMap = alterClause.getProperties();
+                    try {
+                        sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
+                        if (sequenceColType == null) {
+                            throw new AnalysisException("unknown sequence column type");
+                        }
+                    } catch (Exception e) {
+                        throw new AnalysisException(e.getMessage());
+                    }
+                }
+
                 // has rollup table
                 if (table.getVisibleIndex().size() > 1) {
                     for (MaterializedIndex idx : table.getVisibleIndex()) {
@@ -92,27 +112,50 @@ public class AlterTableStmt extends DdlStmt {
                         if (idx.getId() == table.getBaseIndexId()) {
                             continue;
                         }
-                        AddColumnClause addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                                table.getIndexNameById(idx.getId()), null);
+                        AddColumnClause addColumnClause = null;
+                        if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
+                            addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
+                                    table.getIndexNameById(idx.getId()), null);
+                        } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_COLUMN) {
+                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
+                                    table.getIndexNameById(idx.getId()), null);
+                        } else {
+                            throw new AnalysisException("unknown feature : " + alterFeature);
+                        }
                         addColumnClause.analyze(analyzer);
                         clauses.add(addColumnClause);
                     }
                 } else {
                     // no rollup tables
-                    AddColumnClause addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                           null, null);
+                    AddColumnClause addColumnClause = null;
+                    if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
+                        addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
+                                null, null);
+                    } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_COLUMN) {
+                        addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
+                                null, null);
+                    }
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);
                 }
             // add hidden column to rollup table
             } else if (alterClause instanceof AddRollupClause && table.getKeysType() == KeysType.UNIQUE_KEYS
-                    && table.getColumn(Column.DELETE_SIGN) != null) {
-                if (!((AddRollupClause) alterClause).getColumnNames()
-                        .stream()
-                        .anyMatch(x -> x.equalsIgnoreCase(Column.DELETE_SIGN))) {
-                    ((AddRollupClause) alterClause).getColumnNames().add(Column.DELETE_SIGN);
-                    alterClause.analyze(analyzer);
+                    && table.hasHiddenColumn()) {
+                if (table.getColumn(Column.DELETE_SIGN) != null) {
+                    if (!((AddRollupClause) alterClause).getColumnNames()
+                            .stream()
+                            .anyMatch(x -> x.equalsIgnoreCase(Column.DELETE_SIGN))) {
+                        ((AddRollupClause) alterClause).getColumnNames().add(Column.DELETE_SIGN);
+                    }
                 }
+                if (table.getColumn(Column.SEQUENCE_COL) != null) {
+                    if (!((AddRollupClause) alterClause).getColumnNames()
+                            .stream()
+                            .anyMatch(x -> x.equalsIgnoreCase(Column.SEQUENCE_COL))) {
+                        ((AddRollupClause) alterClause).getColumnNames().add(Column.SEQUENCE_COL);
+                    }
+                }
+                alterClause.analyze(analyzer);
                 clauses.add(alterClause);
             } else {
                 clauses.add(alterClause);

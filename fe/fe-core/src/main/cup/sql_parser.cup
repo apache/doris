@@ -981,6 +981,10 @@ alter_table_clause ::=
     {:
         RESULT = new EnableFeatureClause(featureName);
     :}
+    | KW_ENABLE KW_FEATURE STRING_LITERAL:featureName KW_WITH opt_properties:properties
+    {:
+        RESULT = new EnableFeatureClause(featureName, properties);
+    :}
     ;
 
 alter_system_clause ::=

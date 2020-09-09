@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -810,7 +811,7 @@ public class OlapTable extends Table {
         this.sequenceType = type;
 
         // sequence column is value column with REPLACE aggregate type
-        Column sequenceCol = new Column(Column.SEQUENCE_COL, type, false, AggregateType.REPLACE, true, null, "", false);
+        Column sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
         // add sequence column at last
         fullSchema.add(sequenceCol);
         nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
@@ -831,6 +832,10 @@ public class OlapTable extends Table {
 
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
+    }
+
+    public boolean hasHiddenColumn() {
+        return getBaseSchema().stream().anyMatch(column -> !column.isVisible());
     }
 
     public Type getSequenceType() {

@@ -55,6 +55,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -889,6 +890,17 @@ public class SchemaChangeHandler extends AlterHandler {
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
 
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
+
+        // analyse sequence column
+        Type sequenceColType = null;
+        try {
+            sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, olapTable.getKeysType());
+            if (sequenceColType != null) {
+
+            }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
 
         // create job
         Catalog catalog = Catalog.getCurrentCatalog();

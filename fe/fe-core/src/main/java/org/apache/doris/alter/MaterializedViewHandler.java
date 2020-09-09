@@ -553,19 +553,6 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
                 }
             }
-            if (KeysType.UNIQUE_KEYS == keysType && olapTable.hasSequenceCol()) {
-                if (meetValue) {
-                    // check sequence column already exist in the rollup schema
-                    for (Column col : rollupSchema) {
-                        if (col.isSequenceColumn()) {
-                            throw new DdlException("sequence column already exist in the Rollup schema");
-                        }
-                    }
-                    // add the sequence column
-                    rollupSchema.add(new Column(Column.SEQUENCE_COL, olapTable.getSequenceType(),
-                            false, AggregateType.REPLACE, true, null, "", false));
-                }
-            }
         } else if (KeysType.DUP_KEYS == keysType) {
             // supplement the duplicate key
             if (addRollupClause.getDupKeys() == null || addRollupClause.getDupKeys().isEmpty()) {
