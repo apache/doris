@@ -32,10 +32,7 @@ import org.apache.doris.system.Backend;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -45,8 +42,6 @@ import java.util.List;
  * show tablets' detail info within an index
  */
 public class TabletsProcDir implements ProcDirInterface {
-
-    private static final Logger LOG = LogManager.getLogger(TabletsProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
@@ -63,12 +58,6 @@ public class TabletsProcDir implements ProcDirInterface {
     public TabletsProcDir(Database db, MaterializedIndex index) {
         this.db = db;
         this.index = index;
-    }
-
-    public static int getCapacity(ArrayList<?> l) throws NoSuchFieldException, IllegalAccessException {
-        Field dataField = ArrayList.class.getDeclaredField("elementData");
-        dataField.setAccessible(true);
-        return ((Object[]) dataField.get(l)).length;
     }
 
     public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state) {
@@ -116,7 +105,6 @@ public class TabletsProcDir implements ProcDirInterface {
                             continue;
                         }
                         ArrayList<Comparable> tabletInfo = new ArrayList<Comparable>();
-                        LOG.info("initial tablet info capacity " + getCapacity(tabletInfo) + " size " + tabletInfo.size());
                         // tabletId -- replicaId -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
@@ -151,15 +139,10 @@ public class TabletsProcDir implements ProcDirInterface {
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(compactionUrl);
-                        LOG.info("tablet info capacity : " + getCapacity(tabletInfo) + " size " + tabletInfo.size());
                         tabletInfos.add(tabletInfo);
                     }
                 }
             }
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
         } finally {
             db.readUnlock();
         }
