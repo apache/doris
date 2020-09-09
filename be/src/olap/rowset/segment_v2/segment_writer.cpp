@@ -48,23 +48,30 @@ SegmentWriter::SegmentWriter(fs::WritableBlock* wblock,
 
 SegmentWriter::~SegmentWriter() = default;
 
+void SegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t* column_id, const TabletColumn& column) {
+    // TODO(zc): Do we need this column_id??
+    meta->set_column_id((*column_id)++);
+    meta->set_unique_id(column.unique_id());
+    meta->set_type(column.type());
+    meta->set_length(column.length());
+    meta->set_encoding(DEFAULT_ENCODING);
+    meta->set_compression(LZ4F);
+    meta->set_is_nullable(column.is_nullable());
+    if (column.get_subtype_count() > 0) {
+        for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
+            _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
+        }
+    }
+}
+
 Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))) {
     uint32_t column_id = 0;
     _column_writers.reserve(_tablet_schema->columns().size());
     for (auto& column : _tablet_schema->columns()) {
-        std::unique_ptr<Field> field(FieldFactory::create(column));
-        DCHECK(field.get() != nullptr);
-
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
-        // TODO(zc): Do we need this column_id??
-        opts.meta->set_column_id(column_id++);
-        opts.meta->set_unique_id(column.unique_id());
-        opts.meta->set_type(field->type());
-        opts.meta->set_length(column.length());
-        opts.meta->set_encoding(DEFAULT_ENCODING);
-        opts.meta->set_compression(LZ4F);
-        opts.meta->set_is_nullable(column.is_nullable());
+
+        _init_column_meta(opts.meta, &column_id, column);
 
         // now we create zone map for key columns
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() == KeysType::DUP_KEYS;

@@ -215,7 +215,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
 }
 
 template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB list_encoding>
-void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
+void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
     Collection* src = src_data;
     ColumnMetaPB meta;
 
@@ -227,6 +227,14 @@ void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num
         Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
+        TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
+        int32 item_length = 0;
+        if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
+            item_length = 10;
+        }
+        TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
+        list_column.add_sub_column(item_column);
+
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
         writer_opts.meta->set_column_id(0);
@@ -236,16 +244,17 @@ void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num
         writer_opts.meta->set_encoding(list_encoding);
         writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
         writer_opts.meta->set_is_nullable(true);
-        writer_opts.need_zone_map = false;
         writer_opts.data_page_size = 5 * 8;
 
-        TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
-        int32 item_length = 0;
-        if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
-            item_length = 10;
-        }
-        TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
-        list_column.add_sub_column(item_column);
+        ColumnMetaPB* child_meta = meta.add_children_columns();
+
+        child_meta->set_column_id(1);
+        child_meta->set_unique_id(1);
+        child_meta->set_type(item_type);
+        child_meta->set_length(item_length);
+        child_meta->set_encoding(item_encoding);
+        child_meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+        child_meta->set_is_nullable(true);
 
         std::unique_ptr<ColumnWriter> writer;
         ColumnWriter::create(writer_opts, &list_column, wblock.get(), &writer);
@@ -373,7 +382,7 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
             list_val[list_index].length = 3;
         }
     }
-    test_list_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_bs");
+    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_bs");
 
     delete[] list_val;
     delete[] item_val;
@@ -398,7 +407,7 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
         list_val[i].null_signs = item_is_null;
         list_val[i].length = 3;
     }
-    test_list_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_chars");
+    test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_chars");
 
     delete[] list_val;
     delete[] varchar_vals;
