@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TPlanNode;
@@ -91,7 +92,7 @@ public class SchemaScanNode extends ScanNode {
                 msg.schema_scan_node.setDb("SESSION");
             }
         }
-        msg.schema_scan_node.show_hidden_cloumns = ConnectContext.get().getSessionVariable().showHiddenColumns();
+        msg.schema_scan_node.show_hidden_cloumns = Util.showHiddenColumns();
 
         if (schemaTable != null) {
             msg.schema_scan_node.setTable(schemaTable);
