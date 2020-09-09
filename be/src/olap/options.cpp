@@ -66,7 +66,7 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     string extension = path_util::file_extension(tmp_vec[0]);
     if (!extension.empty()) {
         medium_str = to_upper(extension.substr(1));
-        tmp_vec[0].erase(tmp_vec[0].find("."));
+        tmp_vec[0].erase(tmp_vec[0].rfind("."));
     }
 
     string canonicalized_path;

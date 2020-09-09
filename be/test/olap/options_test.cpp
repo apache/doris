@@ -41,6 +41,7 @@ TEST_F(OptionsTest, parse_root_path) {
         boost::filesystem::system_complete("./test_run").string();
     std::string path1 = path_prefix + "/palo";
     std::string path2 = path_prefix + "/palo.ssd";
+    std::string path2_ = path_prefix + "/palo";
 
     std::string root_path;
     StorePath path;
@@ -56,14 +57,14 @@ TEST_F(OptionsTest, parse_root_path) {
     {
         root_path = path2;
         ASSERT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
-        ASSERT_STREQ(path2.c_str(), path.path.c_str());
+        ASSERT_STREQ(path2_.c_str(), path.path.c_str());
         ASSERT_EQ(-1, path.capacity_bytes);
         ASSERT_EQ(TStorageMedium::SSD, path.storage_medium);
     }
     {
         root_path = path2 + ", 50";
         ASSERT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
-        ASSERT_STREQ(path2.c_str(), path.path.c_str());
+        ASSERT_STREQ(path2_.c_str(), path.path.c_str());
         ASSERT_EQ(50 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         ASSERT_EQ(TStorageMedium::SSD, path.storage_medium);
     }
@@ -100,7 +101,7 @@ TEST_F(OptionsTest, parse_root_path) {
     {
         root_path = path2 + ", medium: hdd, 60, capacity: 10";
         ASSERT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
-        ASSERT_STREQ(path2.c_str(), path.path.c_str());
+        ASSERT_STREQ(path2_.c_str(), path.path.c_str());
         ASSERT_EQ(10 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         ASSERT_EQ(TStorageMedium::HDD, path.storage_medium);
     }
