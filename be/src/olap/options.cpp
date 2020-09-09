@@ -59,6 +59,16 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
+    // parse root path capacity and storage medium
+    string capacity_str;
+    string medium_str = HDD_UC;
+
+    string extension = path_util::file_extension(tmp_vec[0]);
+    if (!extension.empty()) {
+        medium_str = to_upper(extension.substr(1));
+        tmp_vec[0].erase(tmp_vec[0].find("."));
+    }
+
     string canonicalized_path;
     Status status = Env::Default()->canonicalize(tmp_vec[0], &canonicalized_path);
     if (!status.ok()) {
@@ -67,14 +77,6 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     }
     path->path = tmp_vec[0];
 
-    // parse root path capacity and storage medium
-    string capacity_str;
-    string medium_str = HDD_UC;
-
-    string extension = path_util::file_extension(canonicalized_path);
-    if (!extension.empty()) {
-        medium_str = to_upper(extension.substr(1));
-    }
 
     for (int i = 1; i < tmp_vec.size(); i++) {
         // <property>:<value> or <value>
