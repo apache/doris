@@ -263,7 +263,7 @@ public class SessionVariable implements Serializable, Writable {
     private int maxScanKeyNum = -1;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     private int maxPushdownConditionsPerColumn = -1;
-    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS)
+    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     private boolean showHiddenColumns = false;
 
     public long getMaxExecMemByte() {
