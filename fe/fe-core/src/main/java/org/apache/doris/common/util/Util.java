@@ -480,12 +480,7 @@ public class Util {
     }
 
     public static boolean showHiddenColumns() {
-        try {
-            return ConnectContext.get().getSessionVariable().showHiddenColumns();
-        } catch (Exception e) {
-            LOG.info("get showHiddenColumns error:", e);
-            return false;
-        }
+        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().showHiddenColumns();
     }
 }
 
