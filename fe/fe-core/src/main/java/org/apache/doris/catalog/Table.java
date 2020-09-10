@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -141,12 +142,12 @@ public class Table extends MetaObject implements Writable {
     }
 
     public List<Column> getFullSchema() {
-        return fullSchema;
+        return getBaseSchema();
     }
 
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
-        return fullSchema;
+        return getBaseSchema(Util.showHiddenColumns());
     }
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
