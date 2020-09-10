@@ -251,15 +251,6 @@ public class OlapTable extends Table {
         }
     }
 
-    @Override
-    public List<Column> getBaseSchema(boolean full) {
-        if (full) {
-            return getSchemaByIndexId(baseIndexId);
-        } else {
-            return getSchemaByIndexId(baseIndexId).stream().filter(column -> column.isVisible()).collect(Collectors.toList());
-        }
-    }
-
     public boolean hasMaterializedIndex(String indexName) {
         return indexNameToId.containsKey(indexName);
     }
