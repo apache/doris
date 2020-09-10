@@ -76,7 +76,7 @@ public class SchemaTable extends Table {
                             "tables",
                             TableType.SCHEMA,
                             builder()
-                                    .column(" TABLE_CATALOG", ScalarType.createVarchar(FN_REFLEN))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(FN_REFLEN))
                                     .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .column("TABLE_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))

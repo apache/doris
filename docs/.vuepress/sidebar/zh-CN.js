@@ -56,7 +56,6 @@ module.exports = [
           "spark-load-manual",
           "delete-manual",
           "load-json-format",
-          "batch-delete-manual",
         ],
         sidebarDepth: 2,
       },
