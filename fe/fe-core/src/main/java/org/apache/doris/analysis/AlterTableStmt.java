@@ -92,7 +92,7 @@ public class AlterTableStmt extends DdlStmt {
                 }
                 // analyse sequence column
                 Type sequenceColType = null;
-                if (alterFeature == EnableFeatureClause.Features.SEQUENCE_COLUMN) {
+                if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                     Map<String, String> propertyMap = alterClause.getProperties();
                     try {
                         sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
@@ -116,7 +116,7 @@ public class AlterTableStmt extends DdlStmt {
                         if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                             addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                     table.getIndexNameById(idx.getId()), null);
-                        } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_COLUMN) {
+                        } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                             addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
                                     table.getIndexNameById(idx.getId()), null);
                         } else {
@@ -131,7 +131,7 @@ public class AlterTableStmt extends DdlStmt {
                     if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                         addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                 null, null);
-                    } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_COLUMN) {
+                    } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                         addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
                                 null, null);
                     }

@@ -178,10 +178,10 @@ public class AlterTest {
 
     @Test
     public void alterTableWithEnableFeature() throws Exception {
-        String stmt = "alter table test.tbl5 enable feature \"SEQUENCE_COLUMN\" with properties (\"function_column.sequence_type\" = \"int\") ";
+        String stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"int\") ";
         alterTable(stmt, false);
 
-        stmt = "alter table test.tbl5 enable feature \"SEQUENCE_COLUMN\" with properties (\"function_column.sequence_type\" = \"double\") ";
+        stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
         alterTable(stmt, true);
     }
 

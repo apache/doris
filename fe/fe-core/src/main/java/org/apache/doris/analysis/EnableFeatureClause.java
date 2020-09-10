@@ -32,7 +32,7 @@ public class EnableFeatureClause extends AlterTableClause {
 
     public enum Features {
         BATCH_DELETE,
-        SEQUENCE_COLUMN,
+        SEQUENCE_LOAD,
         UNKNOWN
     }
 
@@ -72,9 +72,9 @@ public class EnableFeatureClause extends AlterTableClause {
                 this.needSchemaChange = true;
                 this.feature = Features.BATCH_DELETE;
                 break;
-            case  "SEQUENCE_COLUMN":
+            case  "SEQUENCE_LOAD":
                 this.needSchemaChange = true;
-                this.feature = Features.SEQUENCE_COLUMN;
+                this.feature = Features.SEQUENCE_LOAD;
                 if (properties == null || properties.isEmpty()) {
                     throw new AnalysisException("Properties is not set");
                 }

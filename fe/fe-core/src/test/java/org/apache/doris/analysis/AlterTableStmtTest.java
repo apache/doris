@@ -114,11 +114,11 @@ public class AlterTableStmtTest {
         List<AlterClause> ops = Lists.newArrayList();
         Map<String, String> properties = Maps.newHashMap();
         properties.put("function_column.sequence_type", "int");
-        ops.add(new EnableFeatureClause("sequence_column", properties));
+        ops.add(new EnableFeatureClause("sequence_load", properties));
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ENABLE FEATURE \"sequence_column\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
+        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
                 stmt.toSql());
         Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
     }
