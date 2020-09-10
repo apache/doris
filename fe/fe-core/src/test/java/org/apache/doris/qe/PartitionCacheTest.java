@@ -23,6 +23,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TStorageType;
 
 import org.apache.doris.qe.ConnectScheduler;
@@ -77,6 +78,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Tested;
 import mockit.Injectable;
@@ -147,7 +150,12 @@ public class PartitionCacheTest {
     public void setUp() {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
-        
+        new MockUp<Util>() {
+            @Mock
+            public boolean showHiddenColumns() {
+                return true;
+            }
+        };
         db = new Database(1L, fullDbName);
             
         OlapTable tbl1 = createOrderTable();
