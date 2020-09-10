@@ -24,12 +24,14 @@
 #include <sstream>
 
 #include "common/configbase.h"
+#include "gutil/strings/numbers.h"
+#include "gutil/strings/substitute.h"
+#include "http/action/tablets_info_action.h"
 #include "http/web_page_handler.h"
 #include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
-#include "http/action/tablets_info_action.h"
 
 using std::vector;
 using std::shared_ptr;
@@ -117,7 +119,7 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
     (*ej) = tablet_info_action.get_tablets_info(tablet_num_to_return);
 }
 
-// Registered to handle "/mem-trackers", and prints out memory tracker information.
+// Registered to handle "/mem_tracker", and prints out memory tracker information.
 void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h1>Memory usage by subsystem</h1>\n";
     (*output) << "<table data-toggle='table' "
@@ -139,14 +141,14 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     vector<shared_ptr<MemTracker>> trackers;
     MemTracker::ListTrackers(&trackers);
     for (const shared_ptr<MemTracker>& tracker : trackers) {
-        string parent = tracker->parent() == nullptr ? "none" : tracker->parent()->id();
+        string parent = tracker->parent() == nullptr ? "none" : tracker->parent()->label();
         string limit_str = tracker->limit() == -1 ? "none" :
-                           HumanReadableNumBytes::ToString(tracker->limit());
-        string current_consumption_str = HumanReadableNumBytes::ToString(tracker->consumption());
-        string peak_consumption_str = HumanReadableNumBytes::ToString(tracker->peak_consumption());
-        (*output) << Substitute("<tr><td>$0</td><td>$1</td><td>$2</td>" // id, parent, limit
+                           ItoaKMGT(tracker->limit());
+        string current_consumption_str = ItoaKMGT(tracker->consumption());
+        string peak_consumption_str = ItoaKMGT(tracker->peak_consumption());
+        (*output) << strings::Substitute("<tr><td>$0</td><td>$1</td><td>$2</td>" // id, parent, limit
                                 "<td>$3</td><td>$4</td></tr>\n", // current, peak
-                                tracker->id(), parent, limit_str, current_consumption_str,
+                                tracker->label(), parent, limit_str, current_consumption_str,
                                 peak_consumption_str);
     }
     (*output) << "</tbody></table>\n";
