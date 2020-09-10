@@ -938,7 +938,7 @@ public class Coordinator {
                 // If the fragment has three children, then the first child and the second child are the child(both exchange node) of shuffle HashJoinNode,
                 // and the third child is the right child(ExchangeNode) of broadcast HashJoinNode.
                 // We only need to pay attention to the maximum parallelism among the two ExchangeNodes of shuffle HashJoinNode.
-                int childrenCount = fatherNode.getChildren().size();
+                int childrenCount = (fatherNode  != null) ? fatherNode.getChildren().size() : 1;
                 for (int j = 0; j < childrenCount; j++) {
                     int currentChildFragmentParallelism = fragmentExecParamsMap.get(fragment.getChild(j).getFragmentId()).instanceExecParams.size();
                     if (currentChildFragmentParallelism > maxParallelism) {
