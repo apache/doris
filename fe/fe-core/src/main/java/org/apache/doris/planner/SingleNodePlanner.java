@@ -60,7 +60,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -1365,7 +1364,7 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
-                if (Util.showHiddenColumns() && ((OlapTable) tblRef.getTable()).hasDeleteSign()) {
+                if (((OlapTable) tblRef.getTable()).hasDeleteSign()) {
                     Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                             new SlotRef(tblRef.getAliasAsName(), Column.DELETE_SIGN), new IntLiteral(0));
                     conjunct.analyze(analyzer);

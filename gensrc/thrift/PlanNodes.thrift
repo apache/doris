@@ -291,7 +291,6 @@ struct TSchemaScanNode {
   9: optional i64 thread_id
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
-  12: optional bool show_hidden_cloumns = false
 }
 
 struct TMetaScanNode {
