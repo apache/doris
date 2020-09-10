@@ -142,7 +142,7 @@ public class Table extends MetaObject implements Writable {
     }
 
     public List<Column> getFullSchema() {
-        return getBaseSchema();
+        return fullSchema;
     }
 
     // should override in subclass if necessary
