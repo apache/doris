@@ -3953,7 +3953,11 @@ public class Catalog {
             }
             // There MUST BE 2 space in front of each column description line
             // sqlalchemy requires this to parse SHOW CREATE TAEBL stmt.
-            sb.append("  ").append(column.toSql());
+            if (table.getType() == TableType.OLAP) {
+                sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+            } else {
+                sb.append("  ").append(column.toSql());
+            }
         }
         if (table.getType() == TableType.OLAP) {
             OlapTable olapTable = (OlapTable) table;
