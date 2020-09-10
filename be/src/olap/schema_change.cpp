@@ -2090,14 +2090,21 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
         }
     }
 
+    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
+    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
+    if (ref_tablet_schema.keys_type() != new_tablet_schema.keys_type()) {
+        // only when base table is dup and mv is agg
+        // the rollup job must be reagg.
+        *sc_sorting = true;
+        return OLAP_SUCCESS; 
+    }
+
     if (base_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
         return OLAP_SUCCESS;
     }
 
-    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
-    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
