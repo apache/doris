@@ -251,15 +251,6 @@ public class OlapTable extends Table {
         }
     }
 
-    @Override
-    public List<Column> getBaseSchema(boolean full) {
-        if (full) {
-            return getSchemaByIndexId(baseIndexId);
-        } else {
-            return getSchemaByIndexId(baseIndexId).stream().filter(column -> column.isVisible()).collect(Collectors.toList());
-        }
-    }
-
     public boolean hasMaterializedIndex(String indexName) {
         return indexNameToId.containsKey(indexName);
     }
@@ -559,7 +550,7 @@ public class OlapTable extends Table {
     }
 
     public Column getDeleteSignColumn() {
-        for (Column column : getBaseSchema()) {
+        for (Column column : getBaseSchema(true)) {
             if (column.isDeleteSignColumn()) {
                 return column;
             }
@@ -821,7 +812,7 @@ public class OlapTable extends Table {
     }
 
     public Column getSequenceCol() {
-        for (Column column : getBaseSchema()) {
+        for (Column column : getBaseSchema(true)) {
             if (column.isSequenceColumn()) {
                 return column;
             }
@@ -1406,6 +1397,11 @@ public class OlapTable extends Table {
     @Override
     public List<Column> getBaseSchema() {
         return getSchemaByIndexId(baseIndexId);
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        return getSchemaByIndexId(baseIndexId, full);
     }
 
     public Column getBaseColumn(String columnName) {
