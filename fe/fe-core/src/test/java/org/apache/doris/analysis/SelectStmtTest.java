@@ -52,12 +52,6 @@ public class SelectStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        new MockUp<Util>() {
-            @Mock
-            public boolean showHiddenColumns() {
-                return true;
-            }
-        };
         Config.enable_batch_delete_by_default = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
@@ -466,6 +460,20 @@ public class SelectStmtTest {
         Assert.assertTrue(dorisAssert.query(sql3).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql4 = " SELECT * FROM table1 table2";
         Assert.assertTrue(dorisAssert.query(sql4).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+        new MockUp<Util>() {
+            @Mock
+            public boolean showHiddenColumns() {
+                return true;
+            }
+        };
+        String sql5 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertFalse(dorisAssert.query(sql5).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql6 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertFalse(dorisAssert.query(sql6).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql7 = "SELECT * FROM table1";
+        Assert.assertFalse(dorisAssert.query(sql7).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql8 = " SELECT * FROM table1 table2";
+        Assert.assertFalse(dorisAssert.query(sql8).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
     }
 
     @Test
