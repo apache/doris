@@ -1,7 +1,7 @@
 ---
 {
-    "title": "CONFIG ACTION",
-    "language": "zh-CN"
+    "title": "Config Action",
+    "language": "en"
 }
 ---
 
@@ -34,19 +34,19 @@ GET /rest/v1/config/fe/
 
 ## Description
 
-Config Action 用于获取当前 FE 的配置信息
+Config Action is used to obtain current FE configuration information.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -80,4 +80,4 @@ Config Action 用于获取当前 FE 的配置信息
 }
 ```
     
-返回结果同 `System Action`。是一个表格的描述。
+The returned result is the same as `System Action`. Is a description of the table.

@@ -81,7 +81,7 @@ under the License.
 1. 下载指定id的文件
 
     ```
-    GET /api/get_small_file?token=98e8c0a6-3a41-48b8-a72b-0432e42a7fe5\&file_id=11002
+    GET /api/get_small_file?token=98e8c0a6-3a41-48b8-a72b-0432e42a7fe5&file_id=11002
     
     Response:
     

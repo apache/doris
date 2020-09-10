@@ -1,7 +1,7 @@
 ---
 {
     "title": "Query Detail Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,17 +32,17 @@ under the License.
 
 ## Description
 
-用于获取指定时间点之后的所有查询的信息
-    
+Used to obtain information about all queries after a specified time point
+
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `event_time`
 
-    指定的时间点（Unix 时间戳，单位毫秒），获取该时间点之后的查询信息。
+    At the specified time point (Unix timestamp, in milliseconds), obtain query information after that time point.
     
 ## Request body
 
@@ -81,7 +81,7 @@ under the License.
     
 ## Examples
 
-1. 获取指定时间点之后的查询详情。
+1. Get query details after the specified time point.
 
     ```
     GET /api/query_detail?event_time=1596462079958

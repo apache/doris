@@ -32,8 +32,7 @@ under the License.
 
 ## Description
 
-用于动态设置 FE 的参数。该命令等通过 `ADMIN SET FRONTEND CONFIG` 命令。但该命令仅会设置对应 FE 节点的配置。并且不会自动转发 `MasterOnly` 配置项给 Master
- FE 节点。
+用于动态设置 FE 的参数。该命令等通过 `ADMIN SET FRONTEND CONFIG` 命令。但该命令仅会设置对应 FE 节点的配置。并且不会自动转发 `MasterOnly` 配置项给 Master FE 节点。
     
 ## Path parameters
 

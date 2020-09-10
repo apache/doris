@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SESSION ACTION",
-    "language": "zh-CN"
+    "title": "Session Action",
+    "language": "en"
 }
 ---
 
@@ -34,19 +34,19 @@ GET /rest/v1/session
 
 ## Description
 
-Session Action 用于获取当前的会话信息。
+Session Action is used to obtain the current session information.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -72,4 +72,4 @@ Session Action 用于获取当前的会话信息。
 }
 ```
     
-返回结果同 `System Action`。是一个表格的描述。
+The returned result is the same as `System Action`. Is a description of the table.

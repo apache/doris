@@ -1,7 +1,7 @@
 ---
 {
     "title": "Check Decommission Action",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
@@ -32,27 +32,27 @@ under the License.
 
 ## Description
 
-Used to determine whether the specified BE can be decommissioned. For example, after the node being decommissioned, whether the remaining nodes can meet the space requirements and the number of replicas.
+用于判断指定的BE是否能够被下线。比如判断节点下线后，剩余的节点是否能够满足空间要求和副本数要求等。
     
 ## Path parameters
 
-None
+无
 
 ## Query parameters
 
 * `host_ports`
 
-    Specify one or more BEs, separated by commas. Such as: `ip1:port1,ip2:port2,...`.
+    指定一个多个BE，由逗号分隔。如：`ip1:port1,ip2:port2,...`。
 
-    Where port is the heartbeat port of BE.
+    其中 port 为 BE 的 heartbeat port。
 
 ## Request body
 
-None
+无
 
 ## Response
 
-Return a list of nodes that can be decommissioned
+返回可以被下线的节点列表
 
 ```
 {
@@ -65,7 +65,7 @@ Return a list of nodes that can be decommissioned
     
 ## Examples
 
-1. Check whether the specified BE node can be decommissioned
+1. 查看指定BE节点是否可以下线
 
     ```
     GET /api/check_decommission?host_ports=192.168.10.11:9050,192.168.10.11:9050

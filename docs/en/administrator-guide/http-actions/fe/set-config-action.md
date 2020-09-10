@@ -1,7 +1,7 @@
 ---
 {
     "title": "Set Config Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,22 +32,21 @@ under the License.
 
 ## Description
 
-用于动态设置 FE 的参数。该命令等通过 `ADMIN SET FRONTEND CONFIG` 命令。但该命令仅会设置对应 FE 节点的配置。并且不会自动转发 `MasterOnly` 配置项给 Master
- FE 节点。
+Used to dynamically set the configuration of FE. This command is passed through the `ADMIN SET FRONTEND CONFIG` command. But this command will only set the configuration of the corresponding FE node. And it will not automatically forward the `MasterOnly` configuration item to the Master FE node.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `confkey1=confvalue1`
 
-    指定要设置的配置名称，其值为要修改的配置值。
+    Specify the configuration name to be set, and its value is the configuration value to be modified.
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -68,11 +67,11 @@ under the License.
 }
 ```
 
-`set` 字段表示设置成功的配置。`err` 字段表示设置失败的配置。
+The `set` field indicates the successfully set configuration. The `err` field indicates the configuration that failed to be set.
     
 ## Examples
 
-1. 设置 `max_bytes_per_broker_scanner` 和 `max_broker_concurrency` 两个配置的值。
+1. Set the two configuration values of `max_bytes_per_broker_scanner` and `max_broker_concurrency`.
 
     ```
     GET /api/_set_config?max_bytes_per_broker_scanner=21474836480&max_broker_concurrency=20

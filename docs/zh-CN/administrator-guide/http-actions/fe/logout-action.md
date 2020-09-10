@@ -35,7 +35,7 @@ POST /rest/v1/logout
 
 ## Description
 
-Logout Action 用于推出当前登录。
+Logout Action 用于退出当前登录。
     
 ## Path parameters
 

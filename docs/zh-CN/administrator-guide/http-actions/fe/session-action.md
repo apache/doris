@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SESSION ACTION",
+    "title": "Session Action",
     "language": "zh-CN"
 }
 ---

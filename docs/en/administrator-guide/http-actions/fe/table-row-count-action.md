@@ -1,7 +1,7 @@
 ---
 {
     "title": "Table Row Count Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,25 +32,25 @@ under the License.
 
 ## Description
 
-用于获取指定表的行数统计信息。该接口目前用于 Spark-Doris-Connector 中，Spark 获取 Doris 的表统计信息。
+Used to obtain statistics about the number of rows in a specified table. This interface is currently used in Spark-Doris-Connector. Spark obtains Doris table statistics.
     
 ## Path parameters
 
 * `<db>`
 
-    指定数据库
+    Specify database
 
 * `<table>`
 
-    指定表
+    Specify table
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -66,11 +66,11 @@ under the License.
 }
 ```
 
-其中 `data.size` 字段表示指定表的行数。
+The `data.size` field indicates the number of rows in the specified table.
     
 ## Examples
 
-1. 获取指定表的行数。
+1. Get the number of rows in the specified table.
 
     ```
     GET /api/db1/tbl1/_count

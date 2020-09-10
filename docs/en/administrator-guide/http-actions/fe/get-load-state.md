@@ -1,7 +1,7 @@
 ---
 {
     "title": "Get Load State",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,23 +32,23 @@ under the License.
 
 ## Description
 
-返回指定label的导入事务的状态
+Returns the status of the load transaction of the specified label
     
 ## Path parameters
 
-* <db>
+* `<db>`
 
-    指定数据库
+    Specify database
 
 ## Query parameters
 
 * `label`
 
-    指定导入label
+    Specify label
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -61,7 +61,7 @@ under the License.
 }
 ```
 
-如label不存在，则返回：
+If label does not exist, return:
 
 ```
 {
@@ -74,7 +74,7 @@ under the License.
     
 ## Examples
 
-1. 回去指定label的导入事务的状态。
+1. Get the status of the load transaction of the specified label.
 
     ```
     GET /api/example_db/get_load_state?label=my_label

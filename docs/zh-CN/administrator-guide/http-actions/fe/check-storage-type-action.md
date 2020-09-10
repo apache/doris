@@ -1,7 +1,7 @@
 ---
 {
     "title": "Check Storage Type Action",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
@@ -32,21 +32,21 @@ under the License.
 
 ## Description
 
-It is used to check whether the storage format of the table under the specified database is the row storage format. (The row format is deprecated)
+用于检查指定数据库下的表的存储格式否是行存格式。（行存格式已废弃）
     
 ## Path parameters
 
-None
+无
 
 ## Query parameters
 
 * `db`
 
-    Specify the database
+    指定数据库
 
 ## Request body
 
-None
+无
 
 ## Response
 
@@ -62,11 +62,11 @@ None
 }
 ```
 
-If there is content after the table name, the base or rollup table whose storage format is row storage will be displayed.
+如果表名后有内容，则会显示存储格式为行存的 base 或者 rollup 表。
 
 ## Examples
 
-1. Check whether the storage format of the following table of the specified database is row format
+1. 检查指定数据库下表的存储格式是否为行存
 
     ```
     GET /api/_check_storagetype

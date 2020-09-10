@@ -1,6 +1,6 @@
 ---
 {
-    "title": "System ACTION",
+    "title": "System Action",
     "language": "zh-CN"
 }
 ---

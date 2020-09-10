@@ -1,7 +1,7 @@
 ---
 {
     "title": "Logout Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -35,19 +35,19 @@ POST /rest/v1/logout
 
 ## Description
 
-Logout Action 用于推出当前登录。
+Logout Action is used to log out of the current login.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ### Response
 

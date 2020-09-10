@@ -1,7 +1,7 @@
 ---
 {
     "title": "Hardware Info Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -34,20 +34,19 @@ GET /rest/v1/hardware_info/fe/
 
 ## Description
 
-Hardware Info Action 用于获取当前FE的硬件信息。
+Hardware Info Action is used to obtain the hardware information of the current FE.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
-
+None
 
 ## Response
 
@@ -60,7 +59,7 @@ Hardware Info Action 用于获取当前FE的硬件信息。
 			"Git": "git://host/core@5bc28f4c36c20c7b424792df662fc988436e679e",
 			"Version": "trunk",
 			"BuildInfo": "cmy@192.168.1",
-			"BuildTime": "二, 05 9月 2019 11:07:42 CST"
+			"BuildTime": "Tuesday, 05 September 2019 11:07:42 CST"
 		},
 		"HarewareInfo": {
 			"NetworkParameter": "...",
@@ -77,4 +76,4 @@ Hardware Info Action 用于获取当前FE的硬件信息。
 }
 ```
 
-* 其中 `HarewareInfo` 字段中的各个值的内容，都是以html格式展现的硬件信息文本。 
+* The contents of each value in the `HarewareInfo` field are all hardware information text displayed in html format.

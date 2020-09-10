@@ -56,7 +56,6 @@ Statement Execution Action 用于执行语句并返回结果。
 ```
 
 * sql 字段为具体的 SQL
-* variables 字段为一些需要设置的会话变量
 
 ### Response
 

@@ -59,22 +59,3 @@ under the License.
 	"count": 0
 }
 ```
-    
-## Examples
-
-1. 获取集群节点健康信息
-
-    ```
-    GET /api/health
-    
-    Response:
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"online_backend_num": 10,
-    		"total_backend_num": 10
-    	},
-    	"count": 0
-    }
-    ```

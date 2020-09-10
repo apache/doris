@@ -1,7 +1,7 @@
 ---
 {
     "title": "Row Count Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,25 +32,25 @@ under the License.
 
 ## Description
 
-用于手动更新指定表的行数统计信息。在更新行数统计信息的同时，也会以 JSON 格式返回表以及对应rollup的行数
+Used to manually update the row count statistics of the specified table. While updating the statistics of the number of rows, the table and the number of rows corresponding to the rollup will also be returned in JSON format
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `db`
 
-    指定的数据库
+    Specify database
 
 * `table`
 
-    指定的表名
+    Specify table
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -67,7 +67,7 @@ under the License.
     
 ## Examples
 
-1. 更新并获取指定 Table 的行数
+1. Update and get the number of rows in the specified Table
 
     ```
     GET /api/rowcount?db=example_db&table=tbl1

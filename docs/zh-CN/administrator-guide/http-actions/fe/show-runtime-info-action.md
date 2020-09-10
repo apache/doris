@@ -64,7 +64,7 @@ under the License.
     
 ## Examples
 
-1. 回去当前 FE 节点的 JVM 信息
+1. 获取当前 FE 节点的 JVM 信息
 
     ```
     GET /api/show_runtime_info

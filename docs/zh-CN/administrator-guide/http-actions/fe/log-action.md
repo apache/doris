@@ -1,6 +1,6 @@
 ---
 {
-    "title": "LOG ACTION",
+    "title": "Log Action",
     "language": "zh-CN"
 }
 ---

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "HA ACTION",
-    "language": "zh-CN"
+    "title": "HA Action",
+    "language": "en"
 }
 ---
 
@@ -34,19 +34,19 @@ GET /rest/v1/ha
 
 ## Description
 
-HA Action 用于获取 FE 集群的高可用组信息。
+HA Action is used to obtain the high availability group information of the FE cluster.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 

@@ -1,7 +1,7 @@
 ---
 {
     "title": "Meta Replay State Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -26,7 +26,7 @@ under the License.
 
 # Meta Replay State Action
 
-（未实现）
+(Not Implemented)
 
 ## Request
 
@@ -34,19 +34,19 @@ under the License.
 
 ## Description
 
-获取 FE 节点元数据回放的状态。
+Get the status of FE node metadata replay.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 

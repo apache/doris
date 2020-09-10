@@ -1,7 +1,7 @@
 ---
 {
     "title": "Table Schema Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,25 +32,25 @@ under the License.
 
 ## Description
 
-用于获取指定表的表结构信息。该接口目前用于 Spark-Doris-Connector 中，Spark 获取 Doris 的表结构信息。
+Used to obtain the table structure information of the specified table. This interface is currently used in Spark-Doris-Connector. Spark obtains Doris table structure information.
     
 ## Path parameters
 
 * `<db>`
 
-    指定数据库
+    Sepcify database
 
 * `<table>`
 
-    指定表
+    Specify table
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -76,7 +76,7 @@ under the License.
     
 ## Examples
 
-1. 获取指定表的表结构信息。
+1. Get the table structure information of the specified table.
 
     ```
     GET /api/db1/tbl1/_schema

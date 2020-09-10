@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CONFIG ACTION",
+    "title": "Config Action",
     "language": "zh-CN"
 }
 ---

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Set Data Action",
+    "title": "Show Data Action",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Set Data Action
+# Show Data Action
 
 ## Request
 

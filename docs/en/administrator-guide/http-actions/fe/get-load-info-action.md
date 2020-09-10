@@ -1,7 +1,7 @@
 ---
 {
     "title": "Get Load Info Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -33,23 +33,23 @@ under the License.
 
 ## Description
 
-用于获取指定label的导入作业的信息。
+Used to obtain the information of the load job of the specified label.
     
 ## Path parameters
 
 * `<db>`
 
-    指定数据库
+    Specify database
 
 ## Query parameters
 
 * `label`
 
-    指定导入Label
+    Specify load label
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -72,7 +72,7 @@ under the License.
     
 ## Examples
 
-1. 获取指定 label 的导入作业信息
+1. Get the load job information of the specified label
 
     ```
     GET /api/example_db/_load_info?label=my_label

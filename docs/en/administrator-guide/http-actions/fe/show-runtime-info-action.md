@@ -1,7 +1,7 @@
 ---
 {
     "title": "Show Runtime Info Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,19 +32,19 @@ under the License.
 
 ## Description
 
-用于获取 FE JVM 的 Runtime 信息
+Used to obtain Runtime information of FE JVM
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -64,7 +64,7 @@ under the License.
     
 ## Examples
 
-1. 回去当前 FE 节点的 JVM 信息
+1. Get the JVM information of the current FE node
 
     ```
     GET /api/show_runtime_info

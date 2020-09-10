@@ -1,6 +1,6 @@
 ---
 {
-    "title": "META INFO ACTION",
+    "title": "Meta Info Action",
     "language": "zh-CN"
 }
 ---
@@ -72,7 +72,7 @@ GET /api/meta/namespaces/<ns_name>/databases
 ```
 
 * data 字段返回数据库名列表。
-/Users/chenmingyu/Downloads/fe-ui-query-action.md
+
 ## 表列表
 
 ### Request

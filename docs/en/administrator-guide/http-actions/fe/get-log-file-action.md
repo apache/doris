@@ -1,7 +1,7 @@
 ---
 {
     "title": "Get FE log file",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -35,31 +35,30 @@ under the License.
 
 ## Description
 
-用户可以通过该 HTTP 接口获取 FE 的日志文件。
+Users can obtain FE log files through the HTTP interface.
 
-其中 HEAD 请求用于获取指定日志类型的日志文件列表。GET 请求用于下载指定的日志文件。
+The HEAD request is used to obtain the log file list of the specified log type. GET request is used to download the specified log file.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `type`
 
-    指定日志类型，支持如下类型：
+    Specify the log type. The following types are supported:
     
     * `fe.audit.log`：FE 审计日志
 
 * `file`
 
-    指定的文件名。
+    Specify file name
 
-指定表
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -72,15 +71,15 @@ under the License.
     connection: keep-alive
     ```
     
-    返回的 header 中罗列出了当前所有指定类型的日志文件，以及每个文件的大小。
+    The returned header lists all current log files of the specified type and the size of each file.
     
 * `GET`
 
-    以文本形式下载指定日志文件
+    Download the specified log file in text form
     
 ## Examples
 
-1. 获取对应类型的日志文件列表
+1. Get the log file list of the corresponding type
 
     ```
     HEAD /api/get_log/file?type=fe.audit.log
@@ -93,9 +92,9 @@ under the License.
     connection: keep-alive
     ```
     
-    在返回的 header 中，`file_infos` 字段以 json 格式展示文件列表以及对应文件大小（单位字节）
+    In the returned header, the `file_infos` field displays the file list and the corresponding file size (in bytes) in json format
     
-2. 下载日志文件
+2. Download log file
     
     ```
     GET /api/get_log/file?type=fe.audit.log&file=fe.audit.log.20190528.1

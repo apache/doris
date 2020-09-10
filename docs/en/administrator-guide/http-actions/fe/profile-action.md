@@ -1,7 +1,7 @@
 ---
 {
     "title": "Profile Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,21 +32,21 @@ under the License.
 
 ## Description
 
-用于获取指定 query id 的 query profile
+Used to obtain the query profile of the specified query id.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * query_id
 
-    指定的 query id
+    Specify query id
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -63,7 +63,7 @@ under the License.
     
 ## Examples
 
-1. 获取指定 query_id 的 query profile
+1. Get the query profile of the specified query id
 
     ```
     GET /api/profile?query_id=f732084bc8e74f39-8313581c9c3c0b58

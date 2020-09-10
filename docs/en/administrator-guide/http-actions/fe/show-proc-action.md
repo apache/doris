@@ -1,7 +1,7 @@
 ---
 {
     "title": "Show Proc Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,25 +32,25 @@ under the License.
 
 ## Description
 
-用于获取 PROC 信息。
+Used to obtain PROC information.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * path
 
-    指定的 Proc Path
+    Specify Proc Path
     
 * forward
 
-    是否转发给 Master FE 执行
+    Whether to forward to Master FE for execution
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -67,7 +67,7 @@ under the License.
     
 ## Examples
 
-1. 查看 `/statistic` 信息
+1. View `/statistic` information
 
     ```
     GET /api/show_proc?path=/statistic
@@ -85,7 +85,7 @@ under the License.
     }
     ```
     
-2. 转发到 Master 执行
+2. Forward to Master for execution
 
     ```
     GET /api/show_proc?path=/statistic&forward=true

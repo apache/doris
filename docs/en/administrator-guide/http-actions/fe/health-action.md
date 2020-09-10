@@ -1,7 +1,7 @@
 ---
 {
     "title": "Health Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,19 +32,19 @@ under the License.
 
 ## Description
 
-返回集群当前存活的 BE 节点数和宕机的 BE 节点数。
+Returns the number of BE nodes currently surviving in the cluster and the number of BE nodes that are down.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -59,22 +59,3 @@ under the License.
 	"count": 0
 }
 ```
-    
-## Examples
-
-1. 获取集群节点健康信息
-
-    ```
-    GET /api/health
-    
-    Response:
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"online_backend_num": 10,
-    		"total_backend_num": 10
-    	},
-    	"count": 0
-    }
-    ```

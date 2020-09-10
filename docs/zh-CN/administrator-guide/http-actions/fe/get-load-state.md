@@ -36,7 +36,7 @@ under the License.
     
 ## Path parameters
 
-* <db>
+* `<db>`
 
     指定数据库
 
@@ -74,7 +74,7 @@ under the License.
     
 ## Examples
 
-1. 回去指定label的导入事务的状态。
+1. 获取指定label的导入事务的状态。
 
     ```
     GET /api/example_db/get_load_state?label=my_label

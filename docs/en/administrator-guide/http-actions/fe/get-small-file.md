@@ -1,7 +1,7 @@
 ---
 {
     "title": "Get Small File Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,24 +32,25 @@ under the License.
 
 ## Description
 
-通过文件id，下载在文件管理器中的文件。    
+Through the file id, download the file in the small file manager.
+    
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `token`
 
-    集群的token。可以在 `palo-meta/image/VERSION` 文件中查看。
+    The token of the cluster. It can be viewed in the file `palo-meta/image/VERSION`.
 
 * `file_id`
     
-    文件管理器中显示的文件id。文件id可以通过 `SHOW FILE` 命令查看。
+    The file id displayed in the file manager. The file id can be viewed with the `SHOW FILE` command.
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -65,7 +66,7 @@ under the License.
 ... File Content ...
 ```
 
-如有错误，则返回：
+If there is an error, it returns:
 
 ```
 {
@@ -78,10 +79,10 @@ under the License.
     
 ## Examples
 
-1. 下载指定id的文件
+1. Download the file with the specified id
 
     ```
-    GET /api/get_small_file?token=98e8c0a6-3a41-48b8-a72b-0432e42a7fe5\&file_id=11002
+    GET /api/get_small_file?token=98e8c0a6-3a41-48b8-a72b-0432e42a7fe5&file_id=11002
     
     Response:
     

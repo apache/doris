@@ -1,7 +1,7 @@
 ---
 {
     "title": "Table Query Plan Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,23 +32,23 @@ under the License.
 
 ## Description
 
-给定一个 SQL，用于获取该 SQL 对应的查询计划。
+Given a SQL, it is used to obtain the query plan corresponding to the SQL.
 
-该接口目前用于 Spark-Doris-Connector 中，Spark 获取 Doris 的查询计划。
+This interface is currently used in Spark-Doris-Connector, Spark obtains Doris' query plan.
     
 ## Path parameters
 
 * `<db>`
 
-    指定数据库
+    Specify database
     
 * `<table>`
 
-    指定表
+    Specify table
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
@@ -80,11 +80,11 @@ under the License.
 }
 ```
 
-其中 `opaqued_query_plan` 为查询计划的二进制格式。
+Among them, `opaqued_query_plan` is the binary format of the query plan.
     
 ## Examples
 
-1. 获取指定 sql 的查询计划
+1. Get the query plan of the specified SQL
 
     ```
     POST /api/db1/tbl1/_query_plan
@@ -99,7 +99,7 @@ under the License.
     	"data": {
     		"partitions": {
     			"10039": {
-    				"routings": ["10.81.85.89:9062"],
+    				"routings": ["192.168.1.1:9060"],
     				"version": 2,
     				"versionHash": 982459448378619656,
     				"schemaHash": 1294206575

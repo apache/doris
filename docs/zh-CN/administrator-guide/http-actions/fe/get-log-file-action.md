@@ -55,8 +55,6 @@ under the License.
 
     指定的文件名。
 
-指定表
-
 ## Request body
 
 无

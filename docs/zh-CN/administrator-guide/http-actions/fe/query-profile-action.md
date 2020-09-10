@@ -1,6 +1,6 @@
 ---
 {
-    "title": "QUERY PROFILE ACTION",
+    "title": "Query Profile Action",
     "language": "zh-CN"
 }
 ---

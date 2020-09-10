@@ -1,7 +1,7 @@
 ---
 {
     "title": "Get DDL Statement Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,25 +32,25 @@ under the License.
 
 ## Description
 
-用于获取指定表的建表语句、建分区语句和建rollup语句。
+Used to get the table creation statement, partition creation statement and rollup statement of the specified table.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `db`
 
-    指定数据库
+    Specify database
 
 * `table`
     
-    指定表
+    Specify table
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -69,7 +69,7 @@ under the License.
     
 ## Examples
 
-1. 获取指定表的 DDL 语句
+1. Get the DDL statement of the specified table
 
     ```
     GET GET /api/_get_ddl?db=db1&table=tbl1

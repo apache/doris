@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Set Data Action",
-    "language": "zh-CN"
+    "title": "Show Data Action",
+    "language": "en"
 }
 ---
 
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Set Data Action
+# Show Data Action
 
 ## Request
 
@@ -32,25 +32,25 @@ under the License.
 
 ## Description
 
-用于获取集群的总数据量，或者指定数据库的数据量。单位字节。
+Used to get the total data volume of the cluster or the data volume of the specified database. Unit byte.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `db`
 
-    可选。如果指定，则获取指定数据库的数据量。
+    Optional. If specified, get the data volume of the specified database.
 
 ## Request body
 
-无
+None
 
 ## Response
 
-1. 指定数据库的数据量。
+1. Specify the amount of data in the database.
 
     ```
     {
@@ -63,7 +63,7 @@ under the License.
     }
     ```
     
-2. 总数据量
+2. Total data
 
     ```
     {
@@ -78,7 +78,7 @@ under the License.
     
 ## Examples
 
-1. 获取指定数据库的数据量
+1. Get the data volume of the specified database
 
     ```
     GET /api/show_data?db=db1
@@ -94,7 +94,7 @@ under the License.
     }
     ```
 
-2. 获取集群总数据量
+2. Get the total data volume of the cluster
 
     ```
     GET /api/show_data

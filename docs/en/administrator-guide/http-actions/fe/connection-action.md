@@ -1,7 +1,7 @@
 ---
 {
     "title": "Connection Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,9 +32,9 @@ under the License.
 
 ## Description
 
-给定一个 connection id，返回这个连接当前正在执行的，或最后一次执行完成的 query id。
+Given a connection id, return the query id that is currently being executed for this connection or the last execution completed.
 
-connection id 可以通过 MySQL 命令 `show processlist;` 中的 id 列查看。
+The connection id can be viewed through the id column in the MySQL command `show processlist;`.
     
 ## Path parameters
 
@@ -44,11 +44,11 @@ connection id 可以通过 MySQL 命令 `show processlist;` 中的 id 列查看�
 
 * `connection_id`
 
-    指定的 connection id
+    Specified connection id
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -65,7 +65,7 @@ connection id 可以通过 MySQL 命令 `show processlist;` 中的 id 列查看�
     
 ## Examples
 
-1. 获取指定 connection id 的 query id
+1. Get the query id of the specified connection id
 
     ```
     GET /api/connection?connection_id=101

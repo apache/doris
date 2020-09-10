@@ -1,7 +1,7 @@
 ---
 {
-    "title": "LOG ACTION",
-    "language": "zh-CN"
+    "title": "Log Action",
+    "language": "en"
 }
 ---
 
@@ -34,25 +34,25 @@ GET /rest/v1/log
 
 ## Description
 
-GET 用于获取 Doris 最新的一部分 WARNING 日志，POST 方法用于动态设置 FE 的日志级别。
+GET is used to obtain the latest part of Doris's WARNING log, and the POST method is used to dynamically set the log level of FE.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `add_verbose`
 
-    POST 方法可选参数。开启指定 Package 的 DEBUG 级别日志。
+    Optional parameters for the POST method. Enable the DEBUG level log of the specified package.
     
 * `del_verbose`
 
-    POST 方法可选参数。关闭指定 Package 的 DEBUG 级别日志。
-
+    Optional parameters for the POST method. Turn off the DEBUG level log of the specified package.
+    
 ## Request body
 
-无
+None
 
 ## Response
     
@@ -78,7 +78,7 @@ GET /rest/v1/log
 }  
 ```
     
-其中 `data.LogContents.log` 表示最新一部分 `fe.warn.log` 中的日志内容。
+Among them, `data.LogContents.log` means the log content in the latest part of `fe.warn.log`.
 
 ```
 POST /rest/v1/log?add_verbose=org

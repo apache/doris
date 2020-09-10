@@ -1,7 +1,7 @@
 ---
 {
-    "title": "System ACTION",
-    "language": "zh-CN"
+    "title": "System Action",
+    "language": "en"
 }
 ---
 
@@ -34,25 +34,25 @@ GET /rest/v1/system
 
 ## Description
 
-System Action 用于 Doris 内置的 Proc 系统的相关信息。
+System Action is used for information about the Proc system built in Doris.
     
 ## Path parameters
 
-无
+None
 
 ## Query parameters
 
 * `path`
 
-    可选参数，指定 proc 的 path
+    Optional parameter, specify the path of proc
 
 ## Request body
 
-无
+None
 
 ## Response
     
-以 `/dbs/10003/10054/partitions/10053/10055` 为例：
+Take `/dbs/10003/10054/partitions/10053/10055` as an example:
     
 ```
 {
@@ -90,4 +90,4 @@ System Action 用于 Doris 内置的 Proc 系统的相关信息。
 }
 ```
     
-其中 data 部分的 `column_names` 是表头信息，`href_columns` 表示表中的哪些列是超链接列。`rows` 数组中的每个元素表示一行。其中 `__hrefPaths ` 不是表数据，而是超链接列的链接URL，和 `href_columns` 中的列一一对应。
+The `column_names` in the data part is the header information, and `href_columns` indicates which columns in the table are hyperlink columns. Each element in the `rows` array represents a row. Among them, `__hrefPaths` is not the table data, but the link URL of the hyperlink column, which corresponds to the column in `href_columns` one by one.

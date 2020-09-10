@@ -1,7 +1,7 @@
 ---
 {
     "title": "Meta Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -41,71 +41,24 @@ GET /dump
 
 ## Description
 
-这是一组 FE 元数据相关的 API，除了 `/dump` 以外，都为 FE 节点之间内部通讯用。
+This is a set of APIs related to FE metadata, except for `/dump`, they are all used for internal communication between FE nodes.
     
 ## Path parameters
 
-* `<db>`
-
-    指定数据库
-
-* `<table>`
-
-    指定表
+TODO
 
 ## Query parameters
 
-无
+TODO
 
 ## Request body
 
-无
+TODO
 
 ## Response
 
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": {
-		"properties": [{
-			"type": "INT",
-			"name": "k1",
-			"comment": ""
-		}, {
-			"type": "INT",
-			"name": "k2",
-			"comment": ""
-		}],
-		"status": 200
-	},
-	"count": 0
-}
-```
+TODO
     
 ## Examples
 
-1. 获取指定表的表结构信息。
-
-    ```
-    GET /api/db1/tbl1/_schema
-    
-    Response:
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"properties": [{
-    			"type": "INT",
-    			"name": "k1",
-    			"comment": ""
-    		}, {
-    			"type": "INT",
-    			"name": "k2",
-    			"comment": ""
-    		}],
-    		"status": 200
-    	},
-    	"count": 0
-    }
-    ```
+TODO

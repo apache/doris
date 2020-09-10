@@ -1,7 +1,7 @@
 ---
 {
     "title": "Show Meta Info Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-用于显示一些元数据信息
+Used to display some metadata information
     
 ## Path parameters
 
@@ -42,19 +42,19 @@ under the License.
 
 * action
 
-    指定要获取的元数据信息类型。目前支持如下：
+    Specify the type of metadata information to be obtained. Currently supports the following:
     
     * `SHOW_DB_SIZE`
 
-        获取指定数据库的数据量大小，单位为字节。
+        Get the data size of the specified database, in bytes.
         
     * `SHOW_HA`
 
-        获取 FE 元数据日志的回放情况，以及可选举组的情况。
+        Obtain the playback status of FE metadata logs and the status of electable groups.
 
 ## Request body
 
-无
+None
 
 ## Response
 
@@ -96,7 +96,7 @@ under the License.
     
 ## Examples
 
-1. 查看集群各个数据库的数据量大小
+1. View the data size of each database in the cluster
 
     ```
     GET /api/show_meta_info?action=show_db_size
@@ -113,7 +113,7 @@ under the License.
     }
     ```
     
-2. 查看FE选举组情况
+2. View the FE election group situation
 
     ```
     GET /api/show_meta_info?action=show_ha

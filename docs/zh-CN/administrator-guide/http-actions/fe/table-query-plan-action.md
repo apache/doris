@@ -99,7 +99,7 @@ under the License.
     	"data": {
     		"partitions": {
     			"10039": {
-    				"routings": ["10.81.85.89:9062"],
+    				"routings": ["192.168.1.1:9060"],
     				"version": 2,
     				"versionHash": 982459448378619656,
     				"schemaHash": 1294206575

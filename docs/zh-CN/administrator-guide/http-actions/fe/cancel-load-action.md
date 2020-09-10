@@ -1,7 +1,7 @@
 ---
 {
     "title": "Cancel Load Action",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
@@ -32,27 +32,27 @@ under the License.
 
 ## Description
 
-Used to cancel the load transaction of the specified label.
+用于取消掉指定label的导入任务。
     
 ## Path parameters
 
 * `<db>`
 
-    Specify the database name
+    指定数据库名称
 
 ## Query parameters
 
 * `<label>`
 
-    Specify the load label
+    指定导入label
 
 ## Request body
 
-None
+无
 
 ## Response
 
-* Cancel success
+* 取消成功
 
     ```
     {
@@ -63,7 +63,7 @@ None
     }
     ```
 
-* Cancel failed
+* 取消失败
 
     ```
     {
@@ -76,7 +76,7 @@ None
     
 ## Examples
 
-1. Cancel the load transaction of the specified label
+1. 取消指定label的导入事务
 
     ```
     POST /api/example_db/_cancel?label=my_label1

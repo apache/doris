@@ -1,7 +1,7 @@
 ---
 {
     "title": "Statement Execution Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -35,17 +35,17 @@ POST /api/query/<ns_name>/<db_name>
 
 ## Description
 
-Statement Execution Action 用于执行语句并返回结果。
+Statement Execution Action is used to execute a statement and return the result.
     
 ## Path parameters
 
 * `<db_name>`
 
-    指定数据库名称。该数据库会被视为当前session的默认数据库，如果在 SQL 中的表名没有限定数据库名称的话，则使用该数据库。
+    Specify the database name. This database will be regarded as the default database of the current session. If the table name in SQL does not qualify the database name, this database will be used.
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
@@ -56,7 +56,6 @@ Statement Execution Action 用于执行语句并返回结果。
 ```
 
 * sql 字段为具体的 SQL
-* variables 字段为一些需要设置的会话变量
 
 ### Response
 
@@ -82,9 +81,9 @@ Statement Execution Action 用于执行语句并返回结果。
     }
     ```
 
-    * type 字段为 `result_set` 表示返回结果集。需要根据 meta 和 data 字段获取并展示结果。meta 字段描述返回的列信息。data 字段返回结果行。其中每一行的中的列类型，需要通过 meta 字段内容判断。status 字段返回 MySQL 的一些信息，如告警行数，状态码等。
+    * The type field is `result_set`, which means the result set is returned. The results need to be obtained and displayed based on the meta and data fields. The meta field describes the column information returned. The data field returns the result row. The column type in each row needs to be judged by the content of the meta field. The status field returns some information of MySQL, such as the number of alarm rows, status code, etc.
 
-* 返回执行结果
+* Return execution result
 
     ```
     {
@@ -98,4 +97,4 @@ Statement Execution Action 用于执行语句并返回结果。
     }
     ```
 
-    * type 字段为 `exec_status` 表示返回执行结果。目前收到该返回结果，则都表示语句执行成功。
+    * The type field is `exec_status`, which means the execution result is returned. At present, if the return result is received, it means that the statement was executed successfully.

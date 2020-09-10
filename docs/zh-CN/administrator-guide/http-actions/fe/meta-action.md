@@ -45,67 +45,16 @@ GET /dump
     
 ## Path parameters
 
-* `<db>`
-
-    指定数据库
-
-* `<table>`
-
-    指定表
+TODO
 
 ## Query parameters
 
-无
+TODO
 
 ## Request body
 
-无
+TODO
 
 ## Response
 
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": {
-		"properties": [{
-			"type": "INT",
-			"name": "k1",
-			"comment": ""
-		}, {
-			"type": "INT",
-			"name": "k2",
-			"comment": ""
-		}],
-		"status": 200
-	},
-	"count": 0
-}
-```
-    
-## Examples
-
-1. 获取指定表的表结构信息。
-
-    ```
-    GET /api/db1/tbl1/_schema
-    
-    Response:
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"properties": [{
-    			"type": "INT",
-    			"name": "k1",
-    			"comment": ""
-    		}, {
-    			"type": "INT",
-    			"name": "k2",
-    			"comment": ""
-    		}],
-    		"status": 200
-    	},
-    	"count": 0
-    }
-    ```
+TODO

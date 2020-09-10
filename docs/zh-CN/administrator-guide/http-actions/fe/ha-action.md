@@ -1,6 +1,6 @@
 ---
 {
-    "title": "HA ACTION",
+    "title": "HA Action",
     "language": "zh-CN"
 }
 ---
