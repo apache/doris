@@ -85,7 +85,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
-    public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
     /*
      * configure the mem limit of load process on BE. 
      * Previously users used exec_mem_limit to set memory limits.
@@ -263,8 +262,6 @@ public class SessionVariable implements Serializable, Writable {
     private int maxScanKeyNum = -1;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     private int maxPushdownConditionsPerColumn = -1;
-    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
-    private boolean showHiddenColumns = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -447,7 +444,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnablePartitionCache(boolean enablePartitionCache) {
         this.enablePartitionCache = enablePartitionCache;
     }
-
+    
     // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
@@ -511,15 +508,6 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
         this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
     }
-
-    public boolean showHiddenColumns() {
-        return showHiddenColumns;
-    }
-
-    public void setShowHiddenColumns(boolean showHiddenColumns) {
-        this.showHiddenColumns = showHiddenColumns;
-    }
-
 
     // Serialize to thrift object
     // used for rest api

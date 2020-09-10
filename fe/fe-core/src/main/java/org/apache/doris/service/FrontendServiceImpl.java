@@ -307,7 +307,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 Table table = db.getTable(params.getTableName());
                 if (table != null) {
-                    for (Column column : table.getBaseSchema(params.isShowHiddenColumns())) {
+                    for (Column column : table.getBaseSchema()) {
                         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
                         final Integer precision = column.getOriginType().getPrecision();
                         if (precision != null) {

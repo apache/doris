@@ -3947,7 +3947,7 @@ public class Catalog {
         sb.append("TABLE ");
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
-        for (Column column : table.getBaseSchema()) {
+        for (Column column : table.getBaseSchema(false)) {
             if (idx++ != 0) {
                 sb.append(",\n");
             }

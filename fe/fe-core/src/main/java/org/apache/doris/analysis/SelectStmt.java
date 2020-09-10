@@ -958,7 +958,7 @@ public class SelectStmt extends QueryStmt {
      * refs for each column to selectListExprs.
      */
     private void expandStar(TableName tblName, TupleDescriptor desc) {
-        for (Column col : desc.getTable().getBaseSchema()) {
+        for (Column col : desc.getTable().getBaseSchema(false)) {
             resultExprs.add(new SlotRef(tblName, col.getName()));
             colLabels.add(col.getName());
         }

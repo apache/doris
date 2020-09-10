@@ -19,9 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -34,9 +33,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.UUID;
-
-import mockit.Mock;
-import mockit.MockUp;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -52,12 +48,6 @@ public class SelectStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        new MockUp<Util>() {
-            @Mock
-            public boolean showHiddenColumns() {
-                return true;
-            }
-        };
         Config.enable_batch_delete_by_default = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
