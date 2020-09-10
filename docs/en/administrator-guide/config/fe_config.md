@@ -695,7 +695,3 @@ The function is still in the experimental stage, so the default value is false.
 ### `default_db_data_quota_bytes`
 
 Used to set default database data quota size, default is 1T.
-
-### `default_db_replica_quota_bytes`
-
-Used to set default database replica quota size, default is 1G.
