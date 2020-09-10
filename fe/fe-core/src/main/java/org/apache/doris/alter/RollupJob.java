@@ -903,6 +903,10 @@ public class RollupJob extends AlterJob {
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            if (olapTable == null) {
+                LOG.warn("table {} could not be found when replay rollup job", tableId);
+                return;
+            }
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
             db.writeUnlock();
