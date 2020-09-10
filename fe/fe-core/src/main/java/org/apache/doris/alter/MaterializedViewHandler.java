@@ -478,6 +478,9 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
             newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
         }
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
+            newMVColumns.add(new Column(olapTable.getSequenceCol()));
+        }
         return newMVColumns;
     }
 
