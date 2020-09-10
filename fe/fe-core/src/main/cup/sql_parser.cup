@@ -1858,10 +1858,10 @@ opt_keys ::=
         RESULT = null;
     :}
     /* primary_keys */
-    | KW_PRIMARY KW_KEY LPAREN ident_list:keys RPAREN
-    {:
-        RESULT = new KeysDesc(KeysType.PRIMARY_KEYS, keys);
-    :}
+    // | KW_PRIMARY KW_KEY LPAREN ident_list:keys RPAREN
+    // {:
+    //     RESULT = new KeysDesc(KeysType.PRIMARY_KEYS, keys);
+    // :}
     /* dup_keys */
     | KW_DUPLICATE KW_KEY LPAREN ident_list:keys RPAREN
     {:
