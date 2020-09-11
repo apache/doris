@@ -49,6 +49,7 @@ import org.apache.doris.http.rest.GetLogFileAction;
 import org.apache.doris.http.rest.GetSmallFileAction;
 import org.apache.doris.http.rest.GetStreamLoadState;
 import org.apache.doris.http.rest.HealthAction;
+import org.apache.doris.http.rest.TabletDiskDistributionAction;
 import org.apache.doris.http.rest.LoadAction;
 import org.apache.doris.http.rest.MetaReplayerCheckAction;
 import org.apache.doris.http.rest.MetricsAction;
@@ -161,6 +162,7 @@ public class HttpServer {
         MultiList.registerAction(controller);
 
         // rest action
+        TabletDiskDistributionAction.registerAction(controller);
         HealthAction.registerAction(controller);
         MetricsAction.registerAction(controller);
         ShowMetaInfoAction.registerAction(controller);
