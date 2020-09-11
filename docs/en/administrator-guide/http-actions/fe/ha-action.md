@@ -61,12 +61,12 @@ None
 			"Name": "FrontendRole"
 		}],
 		"Electablenodes": [{
-			"Value": "xafj-palo-rpm64.xafj.baidu.com",
-			"Name": "xafj-palo-rpm64.xafj.baidu.com"
+			"Value": "host1",
+			"Name": "host1"
 		}],
 		"allowedFrontends": [{
-			"Value": "name: 10.81.85.89_9213_1597652404352, role: FOLLOWER, 10.81.85.89:9213",
-			"Name": "10.81.85.89_9213_1597652404352"
+			"Value": "name: 192.168.1.1_9213_1597652404352, role: FOLLOWER, 192.168.1.1:9213",
+			"Name": "192.168.1.1_9213_1597652404352"
 		}],
 		"removedFronteds": [],
 		"CanRead": [{
