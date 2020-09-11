@@ -37,6 +37,12 @@ under the License.
     <name>doris-fe</name>
     <url>https://github.com/apache/incubator-doris</url>
 
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.2.0.RELEASE</version>
+    </parent>
+
     <properties>
         <doris.home>${basedir}/../</doris.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
