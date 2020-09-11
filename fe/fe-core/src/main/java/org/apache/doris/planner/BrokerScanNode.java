@@ -196,10 +196,10 @@ public class BrokerScanNode extends LoadScanNode {
         params.setLineDelimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
         params.setStrictMode(strictMode);
         params.setProperties(brokerDesc.getProperties());
-        initColumns(context);
-        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
         deleteCondition = fileGroup.getDeleteCondition();
         mergeType = fileGroup.getMergeType();
+        initColumns(context);
+        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
     }
 
     /**
