@@ -95,7 +95,7 @@ PROPERTIES
 
 ```
 
-#### reoutine load
+#### routine load
 
 routine load 在`columns` 字段增加映射 映射方式同上，示例如下
 
@@ -146,7 +146,57 @@ curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, ci
 ```
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: DELETE"  -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
 ```
+假设导入表中原有数据为:
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      3 |        2 | tom      |    2 |
+|      4 |        3 | bush     |    3 |
+|      5 |        3 | helen    |    3 |
++--------+----------+----------+------+
+```
+导入数据为：
+```
+3,2,tom,0
+``` 
+导入后数据变成:
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      4 |        3 | bush     |    3 |
+|      5 |        3 | helen    |    3 |
++--------+----------+----------+------+
+```
 3. 将导入数据中与`site_id=1` 的行的key列相同的行
 ```
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: MERGE" -H "delete: siteid=1"  -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
+```
+假设导入前数据为：
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      4 |        3 | bush     |    3 |
+|      5 |        3 | helen    |    3 |
+|      1 |        1 | jim      |    2 |
++--------+----------+----------+------+
+```
+ 导入数据为：
+```
+2,1,grace,2
+3,2,tom,2
+1,1,jim,2
+```
+导入后为：
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      4 |        3 | bush     |    3 |
+|      2 |        1 | grace    |    2 |
+|      3 |        2 | tom      |    2 |
+|      5 |        3 | helen    |    3 |
++--------+----------+----------+------+
 ```

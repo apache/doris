@@ -95,7 +95,7 @@ PROPERTIES
 
 ```
 
-#### reoutine load
+#### routine load
 
 Routine load adds a mapping to the `columns` field. The mapping method is the same as above, the example is as follows
 
@@ -146,7 +146,57 @@ curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, ci
 ```
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: DELETE" -T ~/table1_data http://127.0.0.1: 8130/api/test/table1/_stream_load
 ```
+Before load:
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      3 |        2 | tom      |    2 |
+|      4 |        3 | bush     |    3 |
+|      5 |        3 | helen    |    3 |
++--------+----------+----------+------+
+```
+Load data:
+```
+3,2,tom,0
+``` 
+After load:
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      4 |        3 | bush     |    3 |
+|      5 |        3 | helen    |    3 |
++--------+----------+----------+------+
+```
 3. Import the same row as the key column of the row with `site_id=1`
 ```
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: MERGE" -H "delete: siteid=1" -T ~/ table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
+```
+Before load:
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      4 |        3 | bush     |    3 |
+|      5 |        3 | helen    |    3 |
+|      1 |        1 | jim      |    2 |
++--------+----------+----------+------+
+```
+Load data:
+```
+2,1,grace,2
+3,2,tom,2
+1,1,jim,2
+```
+After load:
+```
++--------+----------+----------+------+
+| siteid | citycode | username | pv   |
++--------+----------+----------+------+
+|      4 |        3 | bush     |    3 |
+|      2 |        1 | grace    |    2 |
+|      3 |        2 | tom      |    2 |
+|      5 |        3 | helen    |    3 |
++--------+----------+----------+------+
 ```
