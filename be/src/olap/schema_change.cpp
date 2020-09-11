@@ -2099,6 +2099,22 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
         return OLAP_SUCCESS; 
     }
 
+    // If the sort of key has not been changed but the new keys num is less then base's,
+    // the new table should be re agg.
+    // So we also need to set  sc_sorting = true.
+    // A, B, C are keys(sort keys), D is value
+    // followings need resort:
+    //      old keys:    A   B   C   D
+    //      new keys:    A   B
+    if (new_tablet_schema.keys_type() != KeysType::DUP_KEYS
+            && new_tablet->num_key_columns() < base_tablet->num_key_columns()) {
+        // this is a table with aggregate key type, and num of key columns in new schema
+        // is less, which means the data in new tablet should be more aggregated.
+        // so we use sorting schema change to sort and merge the data.
+        *sc_sorting = true;
+        return OLAP_SUCCESS;
+    }
+
     if (base_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
