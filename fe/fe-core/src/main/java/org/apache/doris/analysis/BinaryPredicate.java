@@ -268,8 +268,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                 return true;
             }
             return false;
-        } else if (t1.isDateType() || t1.isStringType() || t1.isIntegerType()) {
-            if (t1.isStringType()) {
+        } else if (t2.isDateType()) {
+            if (t1.isDateType() || t1.isStringType() || t1.isIntegerType()) {
                 return true;
             }
             return false;
