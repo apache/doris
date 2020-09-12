@@ -183,6 +183,9 @@ OLAPStatus Compaction::gc_unused_rowsets() {
 
 // find the longest consecutive version path in "rowset", from begining.
 OLAPStatus Compaction::find_longest_consecutive_version(vector<RowsetSharedPtr>* rowsets) {
+    if (rowsets->empty()) {
+        return OLAP_SUCCESS;
+    }
     RowsetSharedPtr prev_rowset = rowsets->front();
     size_t i = 1;
     for (; i < rowsets->size(); ++i) {
