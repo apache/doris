@@ -80,8 +80,11 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
     DCHECK(params.tablet_ids_size() == params.row_batch().num_rows());
     std::lock_guard<std::mutex> l(_lock);
-    if (_state == kFinished) {
-        return _close_status;
+    if (_state != kOpened) {
+        return _state == kFinished
+                       ? _close_status
+                       : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
+                                                                   _key.to_string(), _state));
     }
     auto next_seq = _next_seqs[params.sender_id()];
     // check packet
