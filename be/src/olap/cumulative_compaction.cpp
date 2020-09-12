@@ -83,7 +83,10 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
-    RETURN_NOT_OK(check_version_continuity(candidate_rowsets));
+    // candidate_rowsets may not be continuous. Because some rowset may not be selected
+    // because the protection time has not expired(config::cumulative_compaction_skip_window_seconds).
+    // So we need to choose the longest continuous path from it.
+    RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets));
 
     size_t compaction_score = 0;
     int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(
