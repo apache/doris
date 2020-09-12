@@ -977,24 +977,14 @@ public class Coordinator {
                 continue;
             }
 
+            int parallelExecInstanceNum = fragment.getParallelExecNum();
             //for ColocateJoin fragment
             if (isColocateJoin(fragment.getPlanRoot()) && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
                     && fragmentIdToSeqToAddressMap.get(fragment.getFragmentId()).size() > 0) {
-                Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(fragment.getFragmentId());
-                for (Map.Entry<Integer, Map<Integer, List<TScanRangeParams>>> scanRanges : bucketSeqToScanRange.entrySet()) {
-                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, bucketSeqToAddress.get(scanRanges.getKey()), 0, params);
-
-                    Map<Integer, List<TScanRangeParams>> nodeScanRanges = scanRanges.getValue();
-                    for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRanges.entrySet()) {
-                        instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), nodeScanRange.getValue());
-                    }
-
-                    params.instanceExecParams.add(instanceParam);
-                }
+                computeColocateJoinInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params);
             } else {
                 // case A
                 Iterator iter = fragmentExecParamsMap.get(fragment.getFragmentId()).scanRangeAssignment.entrySet().iterator();
-                int parallelExecInstanceNum = fragment.getParallelExecNum();
                 while (iter.hasNext()) {
                     Map.Entry entry = (Map.Entry) iter.next();
                     TNetworkAddress key = (TNetworkAddress) entry.getKey();
@@ -1101,6 +1091,51 @@ public class Coordinator {
 
     private long getScanRangeLength(final TScanRange scanRange) {
         return 1;
+    }
+
+    private void computeColocateJoinInstanceParam(PlanFragmentId fragmentId, int parallelExecInstanceNum, FragmentExecParams params) {
+        Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(fragmentId);
+
+        // 1. count each node in one fragment should scan how many tablet, gather them in one list
+        Map<TNetworkAddress, List<Map<Integer, List<TScanRangeParams>>>> addressToScanRanges = Maps.newHashMap();
+        for (Map.Entry<Integer, Map<Integer, List<TScanRangeParams>>> scanRanges : bucketSeqToScanRange.entrySet()) {
+            TNetworkAddress address = bucketSeqToAddress.get(scanRanges.getKey());
+            Map<Integer, List<TScanRangeParams>> nodeScanRanges = scanRanges.getValue();
+
+            if (!addressToScanRanges.containsKey(address)) {
+                addressToScanRanges.put(address, Lists.newArrayList());
+            }
+            addressToScanRanges.get(address).add(nodeScanRanges);
+        }
+
+        for (Map.Entry<TNetworkAddress, List<Map<Integer, List<TScanRangeParams>>>> addressScanRange : addressToScanRanges.entrySet()) {
+            List<Map<Integer, List<TScanRangeParams>>> scanRange = addressScanRange.getValue();
+            int expectedInstanceNum = 1;
+            if (parallelExecInstanceNum > 1) {
+                //the scan instance num should not larger than the tablets num
+                expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
+            }
+
+            // 2. split how many scanRange one instance should scan
+            List<List<Map<Integer, List<TScanRangeParams>>>> perInstanceScanRanges = ListUtil.splitBySize(scanRange,
+                    expectedInstanceNum);
+
+            // 3.constuct instanceExecParam add the scanRange should be scan by instance
+            for (List<Map<Integer, List<TScanRangeParams>>> perInstanceScanRange : perInstanceScanRanges) {
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, addressScanRange.getKey(), 0, params);
+
+                for (Map<Integer, List<TScanRangeParams>> nodeScanRangeMap : perInstanceScanRange) {
+                    for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRangeMap.entrySet()) {
+                        if (!instanceParam.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
+                            instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), nodeScanRange.getValue());
+                        } else {
+                            instanceParam.perNodeScanRanges.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
+                        }
+                    }
+                }
+                params.instanceExecParams.add(instanceParam);
+            }
+        }
     }
 
     // Populates scan_range_assignment_.
