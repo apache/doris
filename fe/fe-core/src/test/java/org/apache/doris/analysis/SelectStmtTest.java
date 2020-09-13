@@ -72,7 +72,22 @@ public class SelectStmtTest {
                 "\"storage_type\" = \"COLUMN\",\n" +
                 "\"replication_num\" = \"1\"\n" +
                 ");";
-
+        String createDatePartitionTableStr = "CREATE TABLE db1.date_partition_table (\n" +
+                "  `dt` date NOT NULL COMMENT \"\",\n" +
+                "  `poi_id` bigint(20) NULL COMMENT \"poi_id\",\n" +
+                "  `uv1` bitmap BITMAP_UNION NOT NULL COMMENT \"\",\n" +
+                "  `uv2` bitmap BITMAP_UNION NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`dt`)\n" +
+                "(    PARTITION `p201701` VALUES LESS THAN (\"2020-09-08\"),\n" +
+                "    PARTITION `p201702` VALUES LESS THAN (\"2020-09-09\"),\n" +
+                "    PARTITION `p201703` VALUES LESS THAN (\"2020-09-10\"))\n" +
+                "DISTRIBUTED BY HASH(`poi_id`) BUCKETS 20\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"DEFAULT\"\n" +
+                ");";
         String tbl1 = "CREATE TABLE db1.table1 (\n" +
                 "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
                 "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
@@ -106,6 +121,7 @@ public class SelectStmtTest {
         dorisAssert.withTable(createTblStmtStr)
                    .withTable(createBaseAllStmtStr)
                    .withTable(createPratitionTableStr)
+                   .withTable(createDatePartitionTableStr)
                    .withTable(tbl1)
                    .withTable(tbl2);
     }
@@ -431,25 +447,32 @@ public class SelectStmtTest {
         dorisAssert.query(sql).explainQuery();
         sql = "select rand() from db1.tbl1;";
         dorisAssert.query(sql).explainQuery();
-   }
+    }
 
     @Test
-    public void testVarcharToLongSupport() throws Exception {
-        String sql = "select count(*)\n" +
-                "from db1.partition_table\n" +
-                "where datekey='20200730'";
+    public void testImplicitConvertSupport() throws Exception {
+        String sql1 = "select count(*) from db1.partition_table where datekey='20200730'";
         Assert.assertTrue(dorisAssert
-                .query(sql)
+                .query(sql1)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
-        sql = "select count(*)\n" +
-                "from db1.partition_table\n" +
-                "where '20200730'=datekey";
+        String sql2 = "select count(*) from db1.partition_table where '20200730'=datekey";
         Assert.assertTrue(dorisAssert
-                .query(sql)
+                .query(sql2)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
+        String sql3= "select count() from db1.date_partition_table where dt=20200908";
+        Assert.assertTrue(dorisAssert
+                .query(sql3)
+                .explainQuery()
+                .contains("`dt` = '2020-09-08 00:00:00'"));
+        String sql4= "select count() from db1.date_partition_table where dt='2020-09-08'";
+        Assert.assertTrue(dorisAssert
+                .query(sql4)
+                .explainQuery()
+                .contains("`dt` = '2020-09-08 00:00:00'"));
     }
+
     @Test
     public void testDeleteSign() throws Exception {
         String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";

@@ -289,7 +289,7 @@ public class CastExpr extends Expr {
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());
         } else if (type.isDateType()) {
-            return new DateLiteral(value.getStringValue(), type);
+            return new StringLiteral(value.getStringValue()).convertToDate(type);
         } else if (type.isBoolean()) {
             return new BoolLiteral(value.getStringValue());
         }
