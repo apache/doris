@@ -55,7 +55,7 @@ public class ResourceMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(ResourceMgr.class);
 
     public static final ImmutableList<String> RESOURCE_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("NAME").add("RESOURCETYPE").add("KEY").add("VALUE")
+            .add("Name").add("ResourceType").add("Item").add("Value")
             .build();
 
     // { resourceName -> Resource}
