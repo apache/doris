@@ -2090,14 +2090,37 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
         }
     }
 
+    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
+    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
+    if (ref_tablet_schema.keys_type() != new_tablet_schema.keys_type()) {
+        // only when base table is dup and mv is agg
+        // the rollup job must be reagg.
+        *sc_sorting = true;
+        return OLAP_SUCCESS; 
+    }
+
+    // If the sort of key has not been changed but the new keys num is less then base's,
+    // the new table should be re agg.
+    // So we also need to set  sc_sorting = true.
+    // A, B, C are keys(sort keys), D is value
+    // followings need resort:
+    //      old keys:    A   B   C   D
+    //      new keys:    A   B
+    if (new_tablet_schema.keys_type() != KeysType::DUP_KEYS
+            && new_tablet->num_key_columns() < base_tablet->num_key_columns()) {
+        // this is a table with aggregate key type, and num of key columns in new schema
+        // is less, which means the data in new tablet should be more aggregated.
+        // so we use sorting schema change to sort and merge the data.
+        *sc_sorting = true;
+        return OLAP_SUCCESS;
+    }
+
     if (base_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
         return OLAP_SUCCESS;
     }
 
-    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
-    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
