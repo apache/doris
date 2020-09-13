@@ -130,7 +130,7 @@ public final class RollupSelector {
         final List<Column> baseTableColumns = table.getKeyColumnsByIndexId(table.getBaseIndexId());
         for (MaterializedIndex rollup : rollups) {
             final Set<String> rollupColumns = Sets.newHashSet();
-            table.getSchemaByIndexId(rollup.getId())
+            table.getSchemaByIndexId(rollup.getId(), true)
                     .stream().forEach(column -> rollupColumns.add(column.getName()));
 
             if (rollupColumns.containsAll(outputColumns)) {

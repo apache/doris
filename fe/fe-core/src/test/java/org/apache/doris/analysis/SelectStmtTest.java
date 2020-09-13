@@ -19,8 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -33,6 +34,9 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.UUID;
+
+import mockit.Mock;
+import mockit.MockUp;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -456,6 +460,20 @@ public class SelectStmtTest {
         Assert.assertTrue(dorisAssert.query(sql3).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql4 = " SELECT * FROM table1 table2";
         Assert.assertTrue(dorisAssert.query(sql4).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+        new MockUp<Util>() {
+            @Mock
+            public boolean showHiddenColumns() {
+                return true;
+            }
+        };
+        String sql5 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertFalse(dorisAssert.query(sql5).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql6 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertFalse(dorisAssert.query(sql6).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql7 = "SELECT * FROM table1";
+        Assert.assertFalse(dorisAssert.query(sql7).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql8 = " SELECT * FROM table1 table2";
+        Assert.assertFalse(dorisAssert.query(sql8).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
     }
 
     @Test
