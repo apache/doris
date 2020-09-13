@@ -1240,7 +1240,7 @@ public class ShowExecutor {
                 } else {
                     partitions = olapTable.getPartitions();
                 }
-                List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
+                List<List<Comparable>> tabletInfos =  new ArrayList<>();
                 String indexName = showStmt.getIndexName();
                 long indexId = -1;
                 if (indexName != null) {
@@ -1260,18 +1260,18 @@ public class ShowExecutor {
                             continue;
                         }
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
-                        tableInfos.addAll(procDir.fetchComparableResult(
+                        tabletInfos.addAll(procDir.fetchComparableResult(
                                 showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
-                        if (sizeLimit > -1 && tableInfos.size() >= sizeLimit) {
+                        if (sizeLimit > -1 && tabletInfos.size() >= sizeLimit) {
                             stop = true;
                             break;
                         }
                     }
                 }
-                if (sizeLimit > -1 && tableInfos.size() < sizeLimit) {
-                    tableInfos.clear();
+                if (sizeLimit > -1 && tabletInfos.size() < sizeLimit) {
+                    tabletInfos.clear();
                 } else if (sizeLimit > -1) {
-                    tableInfos = tableInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                    tabletInfos = tabletInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
                 }
 
                 // order by
@@ -1279,15 +1279,15 @@ public class ShowExecutor {
                 ListComparator<List<Comparable>> comparator = null;
                 if (orderByPairs != null) {
                     OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                    comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+                    comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
                 } else {
                     // order by tabletId, replicaId
-                    comparator = new ListComparator<List<Comparable>>(0, 1);
+                    comparator = new ListComparator<>(0, 1);
                 }
-                Collections.sort(tableInfos, comparator);
+                Collections.sort(tabletInfos, comparator);
 
-                for (List<Comparable> tabletInfo : tableInfos) {
-                    List<String> oneTablet = new ArrayList<String>(tableInfos.size());
+                for (List<Comparable> tabletInfo : tabletInfos) {
+                    List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
                     for (Comparable column : tabletInfo) {
                         oneTablet.add(column.toString());
                     }
