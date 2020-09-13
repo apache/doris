@@ -137,7 +137,8 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
         std::function<bool(long, long, const std::string&)> const& func, const string& header_prefix) {
     auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
-        // key format: "hdr_" + tablet_id + "_" + schema_hash
+        // old format key format: "hdr_" + tablet_id + "_" + schema_hash  0.11
+        // new format key format: "tabletmata_" + tablet_id + "_" + schema_hash  0.10
         split_string<char>(key, '_', &parts);
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid tablet_meta key:" << key << ", splitted size:" << parts.size();
