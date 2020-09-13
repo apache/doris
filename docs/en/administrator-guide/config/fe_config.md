@@ -692,6 +692,13 @@ If this parameter is set to true, Doris can support ODBC external table creation
 
 The function is still in the experimental stage, so the default value is false.
 
+
 ### `default_db_data_quota_bytes`
 
 Used to set default database data quota size, default is 1T.
+
+
+### 'default_max_filter_ratio'
+
+Used to set default max filter ratio of load Job. It will be overridden by 'max_filter_ratio' of the load job properties，default value is 0, value range 0-1.
+
