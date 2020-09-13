@@ -223,6 +223,12 @@ namespace config {
     CONF_mInt32(disk_stat_monitor_interval, "5");
     CONF_mInt32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
+
+    // Config is used to check incompatible old format hdr_ format
+    // whether doris uses strict way. When config is true, process will log fatal
+    // and exit. When config is false, process will only log warning.
+    CONF_Bool(storage_strict_check_incompatible_old_format, "true");
+
     // BE process will exit if the percentage of error disk reach this value.
     CONF_mInt32(max_percentage_of_error_disk, "0");
     // CONF_Int32(default_num_rows_per_data_block, "1024");

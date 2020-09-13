@@ -482,6 +482,15 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `storage_root_path`
 
+### `storage_strict_check_incompatible_old_format`
+* 类型：bool
+* 描述：用来检查不兼容的旧版本格式时是否使用严格的验证方式
+* 默认值： true
+* 可动态修改：否
+
+配置用来检查不兼容的旧版本格式时是否使用严格的验证方式，当含有旧版本的 hdr 格式时，使用严谨的方式时，程序会
+打出 fatal log 并且退出运行；否则，程序仅打印 warn log.
+
 ### `streaming_load_max_mb`
 
 * 类型：int64
