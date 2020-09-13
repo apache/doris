@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.commons.collections.map.HashedMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Catalog;
@@ -89,6 +88,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -916,7 +916,9 @@ public class Coordinator {
                 continue;
             }
 
-            PlanNode leftMostNode = findLeftmostNode(fragment.getPlanRoot());
+            Pair<PlanNode, PlanNode> pairNodes = findLeftmostNode(fragment.getPlanRoot());
+            PlanNode fatherNode = pairNodes.first;
+            PlanNode leftMostNode = pairNodes.second;
 
             /*
              * Case A:
@@ -933,7 +935,11 @@ public class Coordinator {
 
                 int inputFragmentIndex = 0;
                 int maxParallelism = 0;
-                for (int j = 0; j < fragment.getChildren().size(); j++) {
+                // If the fragment has three children, then the first child and the second child are the child(both exchange node) of shuffle HashJoinNode,
+                // and the third child is the right child(ExchangeNode) of broadcast HashJoinNode.
+                // We only need to pay attention to the maximum parallelism among the two ExchangeNodes of shuffle HashJoinNode.
+                int childrenCount = (fatherNode != null) ? fatherNode.getChildren().size() : 1;
+                for (int j = 0; j < childrenCount; j++) {
                     int currentChildFragmentParallelism = fragmentExecParamsMap.get(fragment.getChild(j).getFragmentId()).instanceExecParams.size();
                     if (currentChildFragmentParallelism > maxParallelism) {
                         maxParallelism = currentChildFragmentParallelism;
@@ -1061,12 +1067,14 @@ public class Coordinator {
     
     // Returns the id of the leftmost node of any of the gives types in 'plan_root',
     // or INVALID_PLAN_NODE_ID if no such node present.
-    private PlanNode findLeftmostNode(PlanNode plan) {
+    private Pair<PlanNode, PlanNode> findLeftmostNode(PlanNode plan) {
         PlanNode newPlan = plan;
+        PlanNode fatherPlan = null;
         while (newPlan.getChildren().size() != 0 && !(newPlan instanceof ExchangeNode)) {
+            fatherPlan = newPlan;
             newPlan = newPlan.getChild(0);
         }
-        return newPlan;
+        return new Pair<PlanNode, PlanNode>(fatherPlan, newPlan);
     }
 
     private <K, V> V findOrInsert(HashMap<K, V> m, final K key, final V defaultVal) {
@@ -1736,3 +1744,4 @@ public class Coordinator {
         }
     }
 }
+
