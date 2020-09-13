@@ -27,7 +27,7 @@ under the License.
 # ODBC External Table Of Doris
 
 ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(ODBC)来访问外部表，外部表省去了繁琐的数据导入工作，让Doris可以具有了访问各式数据库的能力，并借助Doris本身的OLAP的能力来解决外部表的数据分析问题：
- 
+
  1. 支持各种数据源接入Doris
  2. 支持Doris与各种数据源中的表联合查询，进行更加复杂的分析操作
 
@@ -170,3 +170,9 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 7. 报错 `fail to convert odbc value 'PALO ' TO INT`
 
     类型转换出错，需要修改列的类型映射
+    
+8. 同时使用旧的MySQL表与ODBC外表的Driver时出现程序Crash
+
+    这个是MySQL数据库的Driver与现有Doris依赖MySQL外表的兼容问题。推荐解决的方式如下：
+    * 方式1：通过ODBC外表替换旧的MySQL外表，并重新编译BE，关闭WITH_MYSQL的选项
+    * 方式2：不使用最新8.X的MySQL的ODBC Driver，而是使用5.X的MySQL的ODBC Driver

@@ -28,7 +28,7 @@ under the License.
 # ODBC External Table Of Doris
 
 ODBC external table of Doris provides Doris access to external tables through the standard interface for database access (ODBC). The external table eliminates the tedious data import work and enables Doris to have the ability to access all kinds of databases. It solves the data analysis problem of external tables with Doris' OLAP capability.
- 
+
 1. Support various data sources to access Doris
 2. Support Doris query with tables in various data sources to perform more complex analysis operations
 
@@ -177,3 +177,11 @@ Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databa
 
     Type conversion error, type mapping of column needs to be modified
 
+8. BE crash occurs when using old MySQL table and ODBC external driver at the same time
+
+
+This is the compatibility problem between MySQL database ODBC driver and existing Doris depending on MySQL lib. The recommended solutions are as follows:
+
+* Method 1: replace the old MySQL External Table by ODBC External Table, recompile BE close options **WITH_MySQL**
+
+* Method 2: Do not use the latest 8. X MySQL ODBC driver replace with the 5. X MySQL ODBC driver
