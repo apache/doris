@@ -693,3 +693,9 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 ### `default_db_data_quota_bytes`
 
 用于设置database data的默认quota值，单位为 bytes，默认1T.
+
+### 'default_max_filter_ratio'
+
+默认的最大容忍可过滤（数据不规范等原因）的数据比例。它将被Load Job 中设置的"max_filter_ratio"覆盖，默认0，取值范围0-1.
+
+
