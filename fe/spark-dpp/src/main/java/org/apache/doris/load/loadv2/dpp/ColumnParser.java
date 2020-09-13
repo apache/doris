@@ -19,13 +19,20 @@ package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 import org.joda.time.DateTime;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Date;
 
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
+
+    protected static final Logger LOG = LogManager.getLogger(ColumnParser.class);
+
     public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws SparkDppException {
         String columnType = etlColumn.columnType;
         if (columnType.equalsIgnoreCase("TINYINT")) {
@@ -51,6 +58,10 @@ public abstract class ColumnParser implements Serializable {
                 || columnType.equalsIgnoreCase("BITMAP")
                 || columnType.equalsIgnoreCase("HLL")) {
             return new StringParser(etlColumn);
+        } else if (columnType.equalsIgnoreCase("DECIMALV2")) {
+            return new DecimalParser(etlColumn);
+        } else if (columnType.equalsIgnoreCase("LARGEINT")) {
+            return new LargeIntParser();
         } else {
             throw new SparkDppException("unsupported type:" + columnType);
         }
@@ -63,10 +74,7 @@ class TinyIntParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Short parsed = Short.parseShort(value);
-            if (parsed > 127 || parsed < -128) {
-                return false;
-            }
+            Byte.parseByte(value);
         } catch (NumberFormatException e) {
             return false;
         }
@@ -102,7 +110,7 @@ class BigIntParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Integer.parseInt(value);
+            Long.parseLong(value);
         } catch (NumberFormatException e) {
             return false;
         }
@@ -114,11 +122,11 @@ class FloatParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Float.parseFloat(value);
+            Float ret = Float.parseFloat(value);
+            return !ret.isNaN() && !ret.isInfinite();
         } catch (NumberFormatException e) {
             return false;
         }
-        return true;
     }
 }
 
@@ -126,11 +134,11 @@ class DoubleParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            Double.parseDouble(value);
+            Double ret = Double.parseDouble(value);
+            return !ret.isInfinite() && !ret.isNaN();
         } catch (NumberFormatException e) {
             return false;
         }
-        return true;
     }
 }
 
@@ -184,6 +192,69 @@ class StringParser extends ColumnParser {
             return value.getBytes("UTF-8").length <= etlColumn.stringLength;
         } catch (Exception e) {
             throw new RuntimeException("string check failed ", e);
+        }
+    }
+}
+
+class DecimalParser extends ColumnParser {
+
+    public static int PRECISION = 27;
+    public static int SCALE = 9;
+
+    private BigDecimal maxValue;
+    private BigDecimal minValue;
+
+    public DecimalParser(EtlJobConfig.EtlColumn etlColumn) {
+        StringBuilder precisionStr = new StringBuilder();
+        for (int i = 0; i < etlColumn.precision - etlColumn.scale; i++) {
+            precisionStr.append("9");
+        }
+        StringBuilder scaleStr = new StringBuilder();
+        for (int i = 0; i < etlColumn.scale; i++) {
+            scaleStr.append("9");
+        }
+        maxValue = new BigDecimal(precisionStr.toString() + "." + scaleStr.toString());
+        minValue = new BigDecimal("-" + precisionStr.toString() + "." + scaleStr.toString());
+    }
+
+    @Override
+    public boolean parse(String value) {
+        try {
+            BigDecimal bigDecimal = new BigDecimal(value);
+            return bigDecimal.precision() - bigDecimal.scale() <= PRECISION - SCALE && bigDecimal.scale() <= SCALE;
+        } catch (NumberFormatException e) {
+            return false;
+        } catch (Exception e) {
+            throw new RuntimeException("decimal parse failed ", e);
+        }
+    }
+
+    public BigDecimal getMaxValue() {
+        return maxValue;
+    }
+
+    public BigDecimal getMinValue() {
+        return minValue;
+    }
+}
+
+class LargeIntParser extends ColumnParser {
+
+    private BigInteger maxValue = new BigInteger("170141183460469231731687303715884105727");
+    private BigInteger minValue = new BigInteger("-170141183460469231731687303715884105728");
+
+    @Override
+    public boolean parse(String value) {
+        try {
+            BigInteger inputValue = new BigInteger(value);
+            return inputValue.compareTo(maxValue) < 0 && inputValue.compareTo(minValue) > 0;
+        } catch (NumberFormatException e) {
+            return false;
+        } catch (ArithmeticException e) {
+            LOG.warn("int value is too big even for java BigInteger,value={}" + value);
+            return false;
+        } catch (Exception e) {
+            throw new RuntimeException("large int parse failed:" + value, e);
         }
     }
 }

@@ -1026,7 +1026,7 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
         const void* value = _tuple->get_slot(slot->tuple_offset());
         // try execute init method defined in aggregateInfo
         // by default it only copies data into cell
-        _schema->column(i)->consume(&cell, (const char*)value, is_null, 
+        _schema->column(i)->consume(&cell, (const char*)value, is_null,
                                     _mem_pool.get(), _runtime_state->obj_pool());
         // if column(i) is a value column, try execute finalize method defined in aggregateInfo
         // to convert data into final format
