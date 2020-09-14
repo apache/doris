@@ -1,7 +1,7 @@
 ---
 {
     "title": "GET TABLETS DISTRIBUTION BETWEEN DIFFERENT DISKS",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
