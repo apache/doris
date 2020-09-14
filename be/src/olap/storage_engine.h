@@ -141,7 +141,7 @@ public:
 
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
-    void notify_listeners(bool submit_task);
+    void notify_listeners();
 
     OLAPStatus execute_task(EngineTask* task);
 

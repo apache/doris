@@ -44,7 +44,6 @@ class ThreadPool;
 class TaskWorkerPool {
 public:
     // You need to modify the content in TYPE_STRING at the same time,
-    // and pay attention to ensure that the order is consistent.
     enum TaskWorkerType {
         CREATE_TABLE,
         DROP_TABLE,
@@ -72,6 +71,35 @@ public:
         RECOVER_TABLET,
         UPDATE_TABLET_META_INFO
     };
+
+    inline const std::string TYPE_STRING(TaskWorkerType type) {
+        switch(type) {
+            case CREATE_TABLE: return "CREATE_TABLE";
+            case DROP_TABLE: return "DROP_TABLE";
+            case PUSH: return "PUSH";
+            case REALTIME_PUSH: return "REALTIME_PUSH";
+            case PUBLISH_VERSION: return "PUBLISH_VERSION";
+            case CLEAR_ALTER_TASK: return "CLEAR_ALTER_TASK";
+            case CLEAR_TRANSACTION_TASK: return "CLEAR_TRANSACTION_TASK";
+            case DELETE: return "DELETE";
+            case ALTER_TABLE: return "ALTER_TABLE";
+            case QUERY_SPLIT_KEY: return "QUERY_SPLIT_KEY";
+            case CLONE: return "CLONE";
+            case STORAGE_MEDIUM_MIGRATE: return "STORAGE_MEDIUM_MIGRATE";
+            case CHECK_CONSISTENCY: return "CHECK_CONSISTENCY";
+            case REPORT_TASK: return "REPORT_TASK";
+            case REPORT_DISK_STATE: return "REPORT_DISK_STATE";
+            case REPORT_OLAP_TABLE: return "REPORT_OLAP_TABLE";
+            case UPLOAD: return "UPLOAD";
+            case DOWNLOAD: return "DOWNLOAD";
+            case MAKE_SNAPSHOT: return "MAKE_SNAPSHOT";
+            case RELEASE_SNAPSHOT: return "RELEASE_SNAPSHOT";
+            case MOVE: return "MOVE";
+            case RECOVER_TABLET: return "RECOVER_TABLET";
+            case UPDATE_TABLET_META_INFO:  return "UPDATE_TABLET_META_INFO";
+            default: return "Unknown";
+        }
+    }
 
     TaskWorkerPool(
             const TaskWorkerType task_worker_type,
@@ -166,8 +194,6 @@ private:
 
     static Mutex _s_task_signatures_lock;
     static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
-
-    static const char *TYPE_STRING[];
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 };  // class TaskWorkerPool
