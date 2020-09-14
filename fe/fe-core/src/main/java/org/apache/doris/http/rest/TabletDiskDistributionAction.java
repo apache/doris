@@ -80,6 +80,7 @@ public class TabletDiskDistributionAction extends RestBaseAction {
         Map<Long, List<Pair<Long, Integer>>> partitionToTablet = new HashMap<Long, List<Pair<Long, Integer>>>();
         Map<Pair<Long, Integer>, Long> tabletToDataSize = new HashMap<Pair<Long, Integer>, Long>();
         Map<Pair<Long, Integer>, Long> tabletToPathHash = new HashMap<Pair<Long, Integer>, Long>();
+        Map<Long, String> partitionToTable = new HashMap<Long, String>();
         int tablet_total = 0;
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
         for (long dbId : dbIds) {
@@ -97,12 +98,14 @@ public class TabletDiskDistributionAction extends RestBaseAction {
                     if (table.getType() != TableType.OLAP) {
                         continue;
                     }
+                    String tableName = table.getName();
                     OlapTable olapTable = (OlapTable) table;
                     for (Partition partition : olapTable.getPartitions()) {
                         if (partition == null) {
                             continue;
                         }
                         long partitionId = partition.getId();
+                        partitionToTable.put(partitionId, tableName);
                         List<Pair<Long, Integer>> tabletSchemaHash = Lists.newArrayList();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                             for (Tablet tablet : index.getTablets()) {
@@ -138,6 +141,7 @@ public class TabletDiskDistributionAction extends RestBaseAction {
         for (long partitionId : partitionToTablet.keySet()) {
             JSONObject jsonObject_partition = new JSONObject();
             jsonObject_partition.put("partition_id", partitionId);
+            jsonObject_partition.put("table_name", partitionToTable.get(partitionId));
             List<JSONObject> jsonArray_disk = new ArrayList<JSONObject>();
             for (DiskInfo disk : disks.values()) {
                 long disk_path_hash = disk.getPathHash();
