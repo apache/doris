@@ -445,6 +445,10 @@ void Tablet::delete_expired_stale_rowset() {
     std::vector<Version> missed_versions;
     calc_missed_versions_unlocked(lastest_delta->end_version(), &missed_versions);
 
+    if (!missed_versions.empty()) {
+        return;
+    }
+
     // do check consistent operation
     auto path_id_iter = path_id_vec.begin();
 
