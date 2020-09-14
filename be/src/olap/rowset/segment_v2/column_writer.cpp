@@ -105,6 +105,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts,
                 item_options.meta->set_encoding(DEFAULT_ENCODING);
                 item_options.meta->set_compression(LZ4F);
                 item_options.meta->set_is_nullable(item_meta.is_nullable());
+                item_options.need_zone_map = false;
 
                 std::unique_ptr<ColumnWriter> item_writer;
                 RETURN_IF_ERROR(

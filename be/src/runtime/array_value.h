@@ -78,8 +78,8 @@ public:
 
     static ArrayValue from_array_val(const ArrayVal& val);
 
-private:
-    int _length;
+public:
+    int32_t _length;
     // null signs
     bool* _null_signs;
     // data(include null)

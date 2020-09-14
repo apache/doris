@@ -47,6 +47,7 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
             return OLAP_ERR_INIT_FAILED;
         }
         _variable_len += column_schema(cid)->get_variable_len();
+        LOG(WARNING) << "lalalalalal " << cid << "  " << column_schema(cid)->get_variable_len();
     }
 
     _fixed_len = _schema->schema_size();

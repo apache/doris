@@ -149,11 +149,12 @@ Status OlapScanNode::prepare(RuntimeState* state) {
             continue;
         }
 
-        if (!slots[i]->type().is_string_type()) {
-            continue;
+        if (slots[i]->type().is_string_type()) {
+            _string_slots.push_back(slots[i]);
         }
-
-        _string_slots.push_back(slots[i]);
+        else if (slots[i]->type().is_collection_type()) {
+            _collection_slots.push_back(slots[i]);
+        }
     }
 
     _runtime_state = state;

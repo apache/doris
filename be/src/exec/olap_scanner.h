@@ -107,6 +107,7 @@ private:
     const TupleDescriptor* _tuple_desc;      /**< tuple descripter */
     RuntimeProfile* _profile;
     const std::vector<SlotDescriptor*>& _string_slots;
+    const std::vector<SlotDescriptor*>& _collection_slots;
 
     std::vector<ExprContext*> _conjunct_ctxs;
 

@@ -49,6 +49,8 @@ class TTupleDescriptorBuilder;
 class TSlotDescriptorBuilder {
 public:
     TTypeDesc get_common_type(TPrimitiveType::type type) {
+
+        LOG(WARNING) <<"fffffffffff get_common_type " << type;
         TTypeNode node;
         node.type = TTypeNodeType::SCALAR;
         node.__isset.scalar_type = true;

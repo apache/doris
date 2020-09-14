@@ -51,6 +51,7 @@ OlapScanner::OlapScanner(
             _tuple_desc(parent->_tuple_desc),
             _profile(parent->runtime_profile()),
             _string_slots(parent->_string_slots),
+            _collection_slots(parent->_collection_slots),
             _is_open(false),
             _aggregation(aggregation),
             _need_agg_finalize(need_agg_finalize),
@@ -332,6 +333,42 @@ Status OlapScanner::get_batch(
                     }
                 }
 
+                LOG(WARNING) << "xxxxxxx xxxxx xxx xxx xxx ";
+
+                for (auto desc : _collection_slots) {
+                    LOG(WARNING) << "xxxxxxx xxxxx xxx xxx xxx 111 ";
+                    ArrayValue* slot = tuple->get_collection_slot(desc->tuple_offset());
+
+                    TypeDescriptor item_type = desc->type().children.at(0);
+                    size_t item_size = item_type.get_slot_size() * slot->_length;
+                    
+                    size_t nulls_size = slot->_length;
+                    uint8_t* data = batch->tuple_data_pool()->allocate(item_size + nulls_size);
+
+                    // copy null_signs
+                    memory_copy(data, slot->_null_signs, nulls_size);
+                    memory_copy(data + nulls_size, slot->_data, item_size);
+
+                    slot->_null_signs = reinterpret_cast<bool*>(data);
+                    slot->_data = reinterpret_cast<char*>(data + nulls_size);
+
+                    if (!item_type.is_string_type()) {
+                        continue;
+                    }
+
+                    for (int i = 0; i < slot->_length; ++i) {
+                        int item_offset = nulls_size + i * item_type.get_slot_size();
+                        if (slot->_null_signs[i]) {
+                            continue;
+                        }
+                        StringValue* dst_item_v = reinterpret_cast<StringValue*>(data + item_offset);
+                        if (dst_item_v->len != 0) {
+                            char* string_copy = reinterpret_cast<char*>(batch->tuple_data_pool()->allocate(dst_item_v->len));
+                            memory_copy(string_copy, dst_item_v->ptr, dst_item_v->len);
+                            dst_item_v->ptr = string_copy;
+                        }
+                    }
+                }
                 // the memory allocate by mem pool has been copied,
                 // so we should release these memory immediately
                 mem_pool->clear();
@@ -438,6 +475,14 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             if (!slot->from_olap_date(value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }
+            break;
+        }
+        case TYPE_ARRAY: {
+            ArrayValue* array_v = reinterpret_cast<ArrayValue*>(ptr);
+            ArrayValue* slot = tuple->get_collection_slot(slot_desc->tuple_offset());
+            slot->_length = array_v->_length;
+            slot->_data = array_v->_data;
+            slot->_null_signs = array_v->_null_signs;
             break;
         }
         default: {

@@ -33,6 +33,7 @@
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
 #include "util/slice.h"
+#include "runtime/array_value.h"
 
 namespace doris {
 
@@ -376,6 +377,19 @@ public:
         LOG(WARNING) << "aaaa consume " << _type_info->type();
         _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
     }
+
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto array_v = (ArrayValue*)cell_ptr;
+        array_v->_null_signs = reinterpret_cast<bool*>(variable_ptr + sizeof(ArrayValue));
+        array_v->_data = variable_ptr + sizeof(ArrayValue) + OLAP_ARRAY_MAX_LENGTH / sizeof(char*);
+        LOG(WARNING) << "aaaaaaaaaaaaafffffff  " << array_v->_data;
+        return variable_ptr + _length;
+    }
+
+    size_t get_variable_len() const override {
+        return  _length;
+    }
+
 };
 
 class CharField: public Field {

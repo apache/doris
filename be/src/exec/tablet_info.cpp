@@ -39,11 +39,13 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     std::map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
+
     for (auto& p_slot_desc : pschema.slot_descs()) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
         slots_map.emplace(slot_desc->col_name(), slot_desc);
     }
+    
     for (auto& p_index : pschema.indexes()) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
@@ -78,6 +80,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _tuple_desc->add_slot(slot_desc);
         slots_map.emplace(slot_desc->col_name(), slot_desc);
     }
+
     for (auto& t_index : tschema.indexes) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;

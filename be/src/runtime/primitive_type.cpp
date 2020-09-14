@@ -95,6 +95,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::OBJECT:
         return TYPE_OBJECT;
 
+    case TPrimitiveType::ARRAY:
+        return TYPE_ARRAY;
+
     default:
         return INVALID_TYPE;
     }
@@ -161,6 +164,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_OBJECT:
         return TPrimitiveType::OBJECT;
+
+    case TYPE_ARRAY:
+        return TPrimitiveType::ARRAY;
             
     default:
         return TPrimitiveType::INVALID_TYPE;
@@ -228,6 +234,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "OBJECT";
+
+    case TYPE_ARRAY:
+        return "ARRAY";
 
     default:
         return "";

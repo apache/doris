@@ -154,15 +154,21 @@ public:
         return reinterpret_cast<StringValue*>(reinterpret_cast<char*>(this) + offset);
     }
 
+    const StringValue* get_string_slot(int offset) const {
+        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        return reinterpret_cast<const StringValue*>(reinterpret_cast<const char*>(this) + offset);
+    }
+
+    ArrayValue* get_collection_slot(int offset) {
+        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        return reinterpret_cast<ArrayValue*>(reinterpret_cast<char*>(this) +
+                                                        offset);
+    }
+
     const CollectionValue* get_collection_slot(int offset) const {
         DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
         return reinterpret_cast<const CollectionValue*>(reinterpret_cast<const char*>(this) +
                                                         offset);
-    }
-
-    const StringValue* get_string_slot(int offset) const {
-        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const StringValue*>(reinterpret_cast<const char*>(this) + offset);
     }
 
     DateTimeValue* get_datetime_slot(int offset) {

@@ -257,7 +257,10 @@ public:
 
         // direct opy item
         for (size_t i = 0; i < src_value->length; ++i) {
+            LOG(WARNING) << "xxxxxxxxxx fffffff " << *(int *)((uint8_t*)(src_value->data) + i * _item_size);
+
             if (dest_value->null_signs[i]) continue;
+            LOG(WARNING) << "xxxxxxxxxx " << *(int *)((uint8_t*)(src_value->data) + i * _item_size);
             _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size,
                                          (uint8_t*)(src_value->data) + i * _item_size);
         }

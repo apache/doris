@@ -244,7 +244,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         case TPrimitiveType::HLL:
             return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
         case TPrimitiveType::ARRAY:
-            return string_length;
+            return OLAP_ARRAY_MAX_LENGTH;
         case TPrimitiveType::DECIMAL:
         case TPrimitiveType::DECIMALV2:
             return 12; // use 12 bytes in olap engine.

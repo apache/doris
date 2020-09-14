@@ -135,6 +135,9 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         scalar_type->set_scale(scale);
     } else if (type == TYPE_ARRAY) {
         node->set_type(TTypeNodeType::ARRAY);
+        BOOST_FOREACH(const TypeDescriptor& child, children) {
+            child.to_protobuf(ptype);
+        }
     }
 }
 
@@ -164,6 +167,8 @@ TypeDescriptor::TypeDescriptor(
     }
     case TTypeNodeType::ARRAY: {
         type = TYPE_ARRAY;
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
         break;
     }
     default:
@@ -182,6 +187,9 @@ std::string TypeDescriptor::debug_string() const {
         return ss.str();
     case TYPE_DECIMALV2:
         ss << "DECIMALV2(" << precision << ", " << scale << ")";
+        return ss.str();
+    case TYPE_ARRAY:
+        ss << "ARRAY(" << type_to_string(children[0].type) << ")";
         return ss.str();
     default:
         return type_to_string(type);

@@ -215,7 +215,11 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
         if (slot->type().is_string_type()) {
             _string_slots.push_back(slot);
             _has_varlen_slots = true;
-        } else {
+        } else if (slot->type().is_collection_type()) {
+            _collection_slots.push_back(slot);
+            _has_varlen_slots = true;
+        }
+        else {
             _no_string_slots.push_back(slot);
         }
     }
@@ -517,8 +521,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         if (entry == (*tbl)->_tuple_desc_map.end()) {
             return Status::InternalError("unknown tid in slot descriptor msg");
         }
-
         entry->second->add_slot(slot_d);
+        LOG(WARNING) << "aaaaaaaaa  " << entry->second->debug_string() ;
+        LOG(WARNING) << "bbbbbbbbb  " << entry->second->debug_string() ;
     }
 
     return Status::OK();

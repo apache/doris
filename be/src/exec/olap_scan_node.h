@@ -174,6 +174,8 @@ private:
     int _tuple_idx;
     // string slots
     std::vector<SlotDescriptor*> _string_slots;
+    // collection slots
+    std::vector<SlotDescriptor*> _collection_slots;
 
     bool _eos;
 

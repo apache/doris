@@ -226,7 +226,12 @@ public class Column implements Writable {
 
     public PrimitiveType getDataType() { return type.getPrimitiveType(); }
 
-    public Type getType() { return ScalarType.createType(type.getPrimitiveType()); }
+    public Type getType() { 
+        if (type.isArrayType()) {
+            return type;
+        }
+	return ScalarType.createType(type.getPrimitiveType()); 
+    }
 
     public void setType(Type type) {
         this.type = type;
