@@ -328,7 +328,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // GENERATION_EXPRESSION
     {
-        tuple->set_null(_tuple_desc->slots()[23]->null_indicator_offset());
+        tuple->set_null(_tuple_desc->slots()[22]->null_indicator_offset());
     }
     // SRS_ID
     {
