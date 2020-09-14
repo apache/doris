@@ -273,7 +273,7 @@ namespace config {
     // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
     // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring 
     // lower write amplification, trading off read amplification and space amplification.
-    CONF_String(cumulative_compaction_policy, "num_based");
+    CONF_String(cumulative_compaction_policy, "size_based");
 
     // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size, 
     // this rowset will be given to base compaction, unit is m byte.
