@@ -351,7 +351,7 @@ void StorageEngine::_start_disk_stat_monitor() {
     // If some tablets were dropped, we should notify disk_state_worker_thread and
     // tablet_worker_thread (see TaskWorkerPool) to make them report to FE ASAP.
     if (some_tablets_were_dropped) {
-        notify_listeners();
+        notify_listeners(false);
     }
 }
 
@@ -493,7 +493,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 
 void StorageEngine::stop() {
     // trigger the waitting threads
-    notify_listeners();
+    notify_listeners(false);
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
@@ -975,11 +975,17 @@ void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
     _report_listeners.erase(listener);
 }
 
-void StorageEngine::notify_listeners() {
+/// if submit_task is true, it will notify the listeners by submmiting a task.
+/// otherwise, it just notify the thread
+void StorageEngine::notify_listeners(bool submit_task) {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        TAgentTaskRequest task;
-        listener->submit_task(task);
+        if (submit_task) {
+            TAgentTaskRequest task;
+            listener->submit_task(task);
+        } else {
+            listener->notify_thread();
+        }
     }
 }
 

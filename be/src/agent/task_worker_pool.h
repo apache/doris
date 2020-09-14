@@ -43,6 +43,8 @@ class ThreadPool;
 
 class TaskWorkerPool {
 public:
+    // You need to modify the content in TYPE_STRING at the same time,
+    // and pay attention to ensure that the order is consistent.
     enum TaskWorkerType {
         CREATE_TABLE,
         DROP_TABLE,
@@ -88,6 +90,9 @@ public:
     // Input parameters:
     // * task: the task need callback thread to do
     virtual void submit_task(const TAgentTaskRequest& task);
+
+    // notify the worker. currently for task/disk/tablet report thread
+    void notify_thread();
 
 private:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
@@ -135,6 +140,9 @@ private:
             bool overwrite,
             std::vector<std::string>* error_msgs);
 
+private:
+    std::string _name;
+
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
     TBackend _backend;
@@ -158,6 +166,8 @@ private:
 
     static Mutex _s_task_signatures_lock;
     static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
+
+    static const char *TYPE_STRING[];
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 };  // class TaskWorkerPool
