@@ -159,7 +159,7 @@ public class TabletDiskDistributionAction extends RestBaseAction {
                         JSONObject jsonObject_tablet = new JSONObject();
                         jsonObject_tablet.put("tablet_id", tablet_id);
                         jsonObject_tablet.put("schema_hash", schema_hash);
-                        jsonObject_tablet.put("tablet_footprint", data_size);
+                        jsonObject_tablet.put("tablet_size", data_size);
                         jsonArray_tablet.add(jsonObject_tablet);
                         tablet_count++;
                     }
