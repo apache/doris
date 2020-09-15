@@ -183,8 +183,16 @@ under the License.
         grammar:
             ENABLE FEATURE "BATCH_DELETE"
         note:
-            Only support unique tables
+            1) Only support unique tables
+            2) Batch deletion is supported for old tables, while new tables are already supported when they are created
 
+    8. Enable the ability to import in order by the value of the sequence column
+        grammer:
+            ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
+        note:
+            1) Only support unique tables
+            2) The sequence_type is used to specify the type of the sequence column, which can be integral and time type
+            3) Only the orderliness of newly imported data is supported. Historical data cannot be changed
      
 
     Rename supports modification of the following names:
@@ -355,6 +363,12 @@ under the License.
     15. Modify the in_memory property of the table
 
         ALTER TABLE example_db.my_table set ("in_memory" = "true");
+    16. Enable batch delete support
+
+        ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE"
+    17. Enable the ability to import in order by the value of the Sequence column
+
+        ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
         
     [rename]
     1. Modify the table named table1 to table2
