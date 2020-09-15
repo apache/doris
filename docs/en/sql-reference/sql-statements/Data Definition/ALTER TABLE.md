@@ -354,11 +354,11 @@ under the License.
     
     14. Modify the dynamic partition properties of the table (support adding dynamic partition properties to tables without dynamic partition properties)
     
-        ALTER TABLE example_db.my_table set ("dynamic_partition_enable" = "false");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
     
         If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes
     
-        ALTER TABLE example_db.my_table set ("dynamic_partition. Enable "= "true", dynamic_partition. Time_unit" = "DAY", "dynamic_partition. End "= "3", "dynamic_partition. Prefix" = "p", "Dynamic_partition. Buckets" = "32");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable"= "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end "= "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
 
     15. Modify the in_memory property of the table
 
