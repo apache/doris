@@ -21,25 +21,35 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Map;
 
 public class EnableFeatureClause extends AlterTableClause {
     private static final Logger LOG = LogManager.getLogger(EnableFeatureClause.class);
 
     public enum Features {
         BATCH_DELETE,
+        SEQUENCE_LOAD,
         UNKNOWN
     }
 
     private String featureName;
     private boolean needSchemaChange;
     private Features feature;
+    private Map<String, String> properties;
 
     public EnableFeatureClause(String featureName) {
+        this(featureName, null);
+    }
+
+    public EnableFeatureClause(String featureName, Map<String, String> properties) {
         super(AlterOpType.ENABLE_FEATURE);
         this.featureName = featureName;
         this.needSchemaChange = false;
+        this.properties = properties;
     }
 
     public boolean needSchemaChange() {
@@ -51,11 +61,23 @@ public class EnableFeatureClause extends AlterTableClause {
     }
 
     @Override
+    public Map<String, String> getProperties() {
+        return this.properties;
+    }
+
+    @Override
     public void analyze(Analyzer analyzer) throws UserException {
         switch (featureName.toUpperCase()) {
             case "BATCH_DELETE":
                 this.needSchemaChange = true;
                 this.feature = Features.BATCH_DELETE;
+                break;
+            case  "SEQUENCE_LOAD":
+                this.needSchemaChange = true;
+                this.feature = Features.SEQUENCE_LOAD;
+                if (properties == null || properties.isEmpty()) {
+                    throw new AnalysisException("Properties is not set");
+                }
                 break;
             default:
                 throw new AnalysisException("unknown feature name: " + featureName);
@@ -66,6 +88,11 @@ public class EnableFeatureClause extends AlterTableClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ENABLE FEATURE \"").append(featureName).append("\"");
+        if (properties != null && !properties.isEmpty()) {
+            sb.append(" WITH PROPERTIES (");
+            sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+            sb.append(")");
+        }
         return sb.toString();
     }
 }
