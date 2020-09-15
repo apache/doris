@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -125,6 +126,9 @@ public class BrokerMgr {
     }
 
     public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
+        if (brokerName.equalsIgnoreCase(BrokerDesc.MULTI_LOAD_BROKER)) {
+            return new FsBroker("127.0.0.1", 0);
+        }
         lock.lock();
         try {
             ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(brokerName);

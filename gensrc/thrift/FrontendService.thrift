@@ -415,6 +415,7 @@ struct TMiniLoadRequest {
     11: optional i64 timestamp
     12: optional string user_ip
     13: optional bool is_retry
+    14: optional list<i64> file_size
 }
 
 struct TUpdateMiniEtlTaskStatusRequest {

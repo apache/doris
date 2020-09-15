@@ -15,33 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.http.rest;
+package org.apache.doris.planner;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.thrift.TScanRangeLocations;
 
-// Base restful result
-public class RestBaseResult {
-    private static final RestBaseResult OK = new RestBaseResult();
-    public ActionStatus status;
-    public String msg;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-    public RestBaseResult() {
-        status = ActionStatus.OK;
-        msg = "Success";
+import java.util.List;
+
+public class MultiLoadScanNode extends LoadScanNode {
+    private static final Logger LOG = LogManager.getLogger(MultiLoadScanNode.class);
+
+    public MultiLoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
+        super(id, desc, planNodeName);
     }
 
-    public RestBaseResult(String msg) {
-        status = ActionStatus.FAILED;
-        this.msg = msg;
-    }
-
-    public static RestBaseResult getOk() {
-        return OK;
-    }
-
-    public String toJson() {
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(this);
+    @Override
+    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
+        return null;
     }
 }

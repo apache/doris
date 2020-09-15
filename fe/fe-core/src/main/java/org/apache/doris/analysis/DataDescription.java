@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -45,6 +46,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -98,6 +100,9 @@ public class DataDescription {
     private final String fileFormat;
     private final boolean isNegative;
 
+    // this only used in multi load, all filePaths is file not dir
+    private List<Long> fileSize;
+
     // column names of source files
     private List<String> fileFieldNames;
     // column names in the path
@@ -111,6 +116,11 @@ public class DataDescription {
     // Used for mini load
     private TNetworkAddress beAddr;
     private String lineDelimiter;
+    private String columnDef;
+    private long backendId;
+    private boolean stripOuterArray = false;
+    private String jsonPaths = "";
+    private String jsonRoot = "";
 
     private String sequenceCol;
 
@@ -267,8 +277,52 @@ public class DataDescription {
         return sequenceCol;
     }
 
+    public void setColumnDef(String columnDef) {
+        this.columnDef = columnDef;
+    }
+
     public boolean hasSequenceCol() {
         return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    public List<Long> getFileSize() {
+        return fileSize;
+    }
+
+    public void setFileSize(List<Long> fileSize) {
+        this.fileSize = fileSize;
+    }
+
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public void setStripOuterArray(boolean stripOuterArray) {
+        this.stripOuterArray = stripOuterArray;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
+    }
+
+    public void setJsonPaths(String jsonPaths) {
+        this.jsonPaths = jsonPaths;
+    }
+
+    public String getJsonRoot() {
+        return jsonRoot;
+    }
+
+    public void setJsonRoot(String jsonRoot) {
+        this.jsonRoot = jsonRoot;
     }
 
     @Deprecated
@@ -389,6 +443,36 @@ public class DataDescription {
             if (child1 instanceof FunctionCallExpr) {
                 analyzeColumnToHadoopFunction(column, child1);
             }
+        }
+    }
+    private void analyzeMultiLoadColumns() throws AnalysisException {
+        if (columnDef == null || columnDef.isEmpty()) {
+            return;
+        }
+        String columnsSQL = new String("COLUMNS (" + columnDef + ")");
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
+        ImportColumnsStmt columnsStmt;
+        try {
+            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
+        } catch (Error e) {
+            LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
+            throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
+        } catch (AnalysisException e) {
+            LOG.warn("analyze columns' statement failed, sql={}, error={}",
+                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
+            String errorMessage = parser.getErrorMsg(columnsSQL);
+            if (errorMessage == null) {
+                throw e;
+            } else {
+                throw new AnalysisException(errorMessage, e);
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to parse columns header, sql={}", columnsSQL, e);
+            throw new AnalysisException("parse columns header failed", e);
+        }
+
+        if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
+            parsedColumnExprList = columnsStmt.getColumns();
         }
     }
 
@@ -705,7 +789,18 @@ public class DataDescription {
         }
 
         analyzeColumns();
+        analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
+        if (mergeType == LoadTask.MergeType.MERGE) {
+            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+        } else if (mergeType == LoadTask.MergeType.DELETE) {
+            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+        }
+        // add columnExpr for sequence column
+        if (hasSequenceCol()) {
+            parsedColumnExprList.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                    new SlotRef(null, getSequenceCol())));
+        }
     }
 
     /*
