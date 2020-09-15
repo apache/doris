@@ -62,6 +62,7 @@ public class DateLiteral extends LiteralExpr {
     public static final DateLiteral UNIX_EPOCH_TIME = new DateLiteral(1970, 01, 01, 00, 00, 00);
 
     private static final int DATEKEY_LENGTH = 8;
+    private static final int MAX_MICROSECOND = 999999;
 
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
@@ -1035,7 +1036,26 @@ public class DateLiteral extends LiteralExpr {
                 this.type = Type.DATE;
             }
         }
+
+        if (checkRange() || checkDate()) {
+            throw new InvalidFormatException("Invalid format");
+        }
         return 0;
+    }
+
+    private boolean checkRange() {
+        return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
+                || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
+                || microsecond > MAX_MICROSECOND;
+    }
+    private boolean checkDate() {
+        if (month != 0 && day > DAYS_IN_MONTH.get((int)month)){
+            if (month == 2 && day == 29 && Year.isLeap(year)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     private long strToLong(String l) throws InvalidFormatException {
