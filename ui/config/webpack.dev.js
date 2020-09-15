@@ -47,13 +47,13 @@ module.exports = merge(baseConfig, {
         port: 8233,
         proxy: {
             '/api': {
-                target: 'http://127.0.0.1:8030",
+                target: 'http://127.0.0.1:8030',
                 changeOrigin: true,
                 secure: false
                 // pathRewrite: {'^/commonApi': '/commonApi'}
             },
             '/rest': {
-                target: 'http://127.0.0.1:8030",
+                target: 'http://127.0.0.1:8030',
                 changeOrigin: true,
                 secure: false
                 // pathRewrite: {'^/commonApi': '/commonApi'}

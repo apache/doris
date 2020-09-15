@@ -46,10 +46,13 @@ function Layouts(props: any) {
             history.push(`${e.key}?path=/`);
             return;
         }
-        if(location.pathname.includes(e.key)){
+        if (location.pathname === e.key) {
             location.reload();
         }
         history.push(e.key);
+        if(location.pathname.includes('Playground')){
+            location.reload();
+        }
     }
     function clearAllCookie() {
         var keys = document.cookie.match(/[^ =;]+(?=\=)/g);

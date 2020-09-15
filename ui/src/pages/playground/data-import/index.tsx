@@ -66,30 +66,52 @@ export default function DataImport(props: any) {
         labelAlign: 'left',
     };
     const uploadData = {
+        name: 'file',
         action: `/api/default_cluster/${db_name}/${tbl_name}/upload`,
         data:{
             column_separator,
             preview:'true',
         },
-        showUploadList:false,
+        headers: {
+            authorization: 'authorization-text',
+        },
         fileList,
-        onChange(info) {
-            if (info.file.status !== 'uploading') {
-                if (info.fileList.length === 2) {
-                    info.fileList = info.fileList.slice(-1);
-                    setFileList(info.fileList);
-                }
+        beforeUpload(file){
+            if (file.size/1024/1024 > 100) {
+                message.error(t('fileSizeWarning'));
+                return false;
             }
+            return true
+        },
+        onChange(info) {
+            // if (info.file.status !== 'uploading') {
+
+            // }
             if (info.file.status === 'done') {
                 message.success(`${info.file.name} file uploaded successfully`);
-                const data = info.fileList[0]?.response?.data;
                 getUploadList()
             } else if (info.file.status === 'error') {
                 message.error(`${info.file.name} file upload failed.`);
                 setHeaderUploadData([]);
                 setColsUploadData([])
             }
-            setFileList(info.fileList);
+            if (info.fileList.length === 2) {
+                info.fileList = info.fileList.slice(-1);
+                setFileList(info.fileList);
+            } else if(info.fileList.length === 1) {
+                setFileList(info.fileList);
+            } 
+            if(!info.file.status){
+                setFileList([]);
+            }
+        },
+        progress: {
+            strokeColor: {
+              '0%': '#108ee9',
+              '100%': '#87d068',
+            },
+            strokeWidth: 3,
+            format: percent => `${parseFloat(percent.toFixed(2))}%`,
         },
     };
     function next() {

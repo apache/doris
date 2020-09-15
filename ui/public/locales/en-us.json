@@ -43,5 +43,6 @@
     "cancelButton":"Cancel",
     "loadButton":"Import",
     "successfulOperation":"The operation was successful",
-    "tips":"Tips"
+    "tips":"Tips",
+    "fileSizeWarning": "File size cannot exceed 100M"
 }

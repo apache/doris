@@ -135,10 +135,10 @@ export function AdhocContentResult(props) {
                     </SyntaxHighlighter>
 
                     <Card>
-                        <Row justify="start">
+                        {/* <Row justify="start">
                             <Col span={3}>{t('queryForm')}:</Col>
                             <Col>{runningQueryInfo.tbl_name}</Col>
-                        </Row>
+                        </Row> */}
                         <Row justify="start">
                             <Col span={3}>{t('startingTime')}:</Col>
                             <Col>{runningQueryInfo.beginTime}</Col>

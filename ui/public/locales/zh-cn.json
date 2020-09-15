@@ -43,6 +43,6 @@
     "cancelButton": "取消",
     "loadButton": "导入",
     "successfulOperation": "操作成功",
-    "tips": "提示"
-
+    "tips": "提示",
+    "fileSizeWarning": "文件大小不能超过100m"
 }
