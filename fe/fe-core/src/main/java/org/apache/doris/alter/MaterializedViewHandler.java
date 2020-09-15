@@ -478,6 +478,9 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
             newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
         }
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
+            newMVColumns.add(new Column(olapTable.getSequenceCol()));
+        }
         return newMVColumns;
     }
 
@@ -551,19 +554,6 @@ public class MaterializedViewHandler extends AlterHandler {
                     } else {
                         throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
                     }
-                }
-            }
-            if (KeysType.UNIQUE_KEYS == keysType && olapTable.hasSequenceCol()) {
-                if (meetValue) {
-                    // check sequence column already exist in the rollup schema
-                    for (Column col : rollupSchema) {
-                        if (col.isSequenceColumn()) {
-                            throw new DdlException("sequence column already exist in the Rollup schema");
-                        }
-                    }
-                    // add the sequence column
-                    rollupSchema.add(new Column(Column.SEQUENCE_COL, olapTable.getSequenceType(),
-                            false, AggregateType.REPLACE, true, null, "", false));
                 }
             }
         } else if (KeysType.DUP_KEYS == keysType) {

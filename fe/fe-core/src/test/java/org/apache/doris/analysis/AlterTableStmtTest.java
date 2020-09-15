@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -31,6 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import mockit.Mocked;
 
@@ -105,5 +107,19 @@ public class AlterTableStmtTest {
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testEnableFeature() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("function_column.sequence_type", "int");
+        ops.add(new EnableFeatureClause("sequence_load", properties));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
+                stmt.toSql());
+        Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
     }
 }
