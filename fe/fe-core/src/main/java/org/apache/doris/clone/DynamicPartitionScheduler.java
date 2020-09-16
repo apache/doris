@@ -147,7 +147,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
             } catch (AnalysisException | IllegalArgumentException e) {
                 // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
-                // IllegalArgumentException: lb is greater than lb
+                // IllegalArgumentException: lb is greater than ub
                 LOG.warn("Error in gen addPartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
                         db.getFullName(), olapTable.getName());
                 continue;
@@ -223,7 +223,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             reservePartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
         } catch (AnalysisException | IllegalArgumentException e) {
             // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
-            // IllegalArgumentException: lb is greater than lb
+            // IllegalArgumentException: lb is greater than ub
             LOG.warn("Error in gen reservePartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
                     db.getFullName(), olapTable.getName());
             return dropPartitionClauses;
