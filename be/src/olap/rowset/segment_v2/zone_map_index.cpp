@@ -133,7 +133,6 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         DCHECK(num_to_read == num_read);
 
         Slice* value = reinterpret_cast<Slice*>(cvb->data());
-
         if (!_page_zone_maps[i].ParseFromArray(value->data, value->size)) {
             return Status::Corruption("Failed to parse zone map");
         }

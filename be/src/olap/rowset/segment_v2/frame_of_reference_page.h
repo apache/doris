@@ -152,7 +152,7 @@ public:
     }
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override {
-                return next_batch<true>(n, dst);
+        return next_batch<true>(n, dst);
     }
 
     template<bool forward_index>

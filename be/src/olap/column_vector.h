@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -78,7 +77,7 @@ template class DataBuffer<double>;
 template class DataBuffer<decimal12_t>;
 template class DataBuffer<uint24_t>;
 template class DataBuffer<Slice>;
-template class DataBuffer<CollectionValue>;
+template class DataBuffer<Collection>;
 
 // struct that contains column data(null bitmap), data array in sub class.
 class ColumnVectorBatch {
@@ -105,6 +104,7 @@ public:
     }
 
     void set_null_bits(size_t offset, size_t num_rows, bool val) {
+        // TODO llj: use memcpy
         for (size_t i = 0; i < num_rows; ++i) {
             set_is_null(offset + i, val);
         }
@@ -180,7 +180,7 @@ public:
 
     // Get the start of the data.
     uint8_t* data() const override {
-        return reinterpret_cast<uint8 *>(const_cast<CollectionValue *>(_data.data()));
+        return reinterpret_cast<uint8 *>(const_cast<Collection *>(_data.data()));
     }
 
     // Get the idx's cell_ptr
@@ -205,10 +205,10 @@ public:
     void put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx, size_t size);
 
     // Generate collection slots.
-    void transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx);
+    void prepare_for_read(size_t start_idx, size_t end_idx);
 
 private:
-    DataBuffer<CollectionValue> _data;
+    DataBuffer<Collection> _data;
 
     std::unique_ptr<ColumnVectorBatch> _elements;
 

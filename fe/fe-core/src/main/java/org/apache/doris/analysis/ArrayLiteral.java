@@ -81,7 +81,7 @@ public class ArrayLiteral extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARRAY_LITERAL;
-        msg.setChild_type(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
+        msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
     }
 
     @Override

@@ -88,10 +88,10 @@ public:
                          const std::string& file_name,
                          std::unique_ptr<ColumnReader>* reader);
 
-    virtual ~ColumnReader();
+    ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(ColumnIterator** iterator) = 0;
+    Status new_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
@@ -106,7 +106,6 @@ public:
     bool is_nullable() const { return _meta.is_nullable(); }
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
-    // const TypeInfo* type_info() const { return _type_info; }
 
     bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
     bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
@@ -130,24 +129,14 @@ public:
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
-    // Now, we call this method in ColumnReader::create.
-    Status init();
-
-    virtual TypeInfo* get_type_info_for_read() = 0;
-
+private:
     ColumnReader(const ColumnReaderOptions& opts,
                  const ColumnMetaPB& meta,
                  uint64_t num_rows,
                  const std::string& file_name);
+    Status init();
 
-protected:
-    ColumnMetaPB _meta;
-    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
-    const EncodingInfo* _encoding_info = nullptr; // initialized in init(), used for create PageDecoder
 
-    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
-
-private:
     // Read and load necessary column indexes into memory if it hasn't been loaded.
     // May be called multiple times, subsequent calls will no op.
     Status _ensure_index_loaded() {
@@ -183,9 +172,14 @@ private:
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
+    ColumnMetaPB _meta;
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
     std::string _file_name;
+
+    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
+    const EncodingInfo* _encoding_info = nullptr; // initialized in init(), used for create PageDecoder
+    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
 
     // meta for various column indexes (null if the index is absent)
     const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
@@ -198,38 +192,8 @@ private:
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
-};
 
-class ScalarColumnReader : public ColumnReader {
-public:
-    explicit ScalarColumnReader(const ColumnReaderOptions& opts,
-                               const ColumnMetaPB& meta,
-                               uint64_t num_rows,
-                               const std::string& file_name)
-            : ColumnReader(opts, meta, num_rows, file_name) {}
-    ~ScalarColumnReader() override = default;
-    Status new_iterator(ColumnIterator** iterator) override;
-protected:
-    TypeInfo* get_type_info_for_read() override;
-};
-
-class ArrayColumnReader : public ColumnReader {
-public:
-    explicit ArrayColumnReader(const ColumnReaderOptions& opts,
-                      const ColumnMetaPB& meta,
-                      uint64_t num_rows,
-                      const std::string& file_name, std::unique_ptr<ColumnReader> item_reader)
-                      : ColumnReader(opts, meta, num_rows, file_name), _item_reader(std::move(item_reader)) {}
-    ~ArrayColumnReader() override = default;
-
-    Status new_iterator(ColumnIterator** iterator) override;
-protected:
-    TypeInfo* get_type_info_for_read() override;
-
-private:
-    std::unique_ptr<ColumnReader> _item_reader;
-
-    friend class ColumnReader; // for create.
+    std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 };
 
 // Base iterator to read one column data
@@ -290,6 +254,7 @@ protected:
 };
 
 // This iterator is used to read column data from file
+// for scalar type
 class FileColumnIterator : public ColumnIterator {
 public:
     explicit FileColumnIterator(ColumnReader* reader);
@@ -312,12 +277,16 @@ public:
 
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
 
+    ParsedPage* get_current_page() { return _page.get(); }
+
+    bool is_nullable() { return _reader->is_nullable(); }
+
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page);
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
 
-protected:
+private:
     ColumnReader* _reader;
 
     // 1. The _page represents current page.
@@ -326,13 +295,6 @@ protected:
     // 3. When _page is null, it means that this reader can not be read.
     std::unique_ptr<ParsedPage> _page;
 
-    // page indexes those are DEL_PARTIAL_SATISFIED
-    std::unordered_set<uint32_t> _delete_partial_statisfied_pages;
-
-    // current value ordinal
-    ordinal_t _current_ordinal = 0;
-
-private:
     // keep dict page decoder
     std::unique_ptr<PageDecoder> _dict_decoder;
 
@@ -342,19 +304,17 @@ private:
     // page iterator used to get next page when current page is finished.
     // This value will be reset when a new seek is issued
     OrdinalPageIndexIterator _page_iter;
+
+    // current value ordinal
+    ordinal_t _current_ordinal = 0;
+
+    // page indexes those are DEL_PARTIAL_SATISFIED
+    std::unordered_set<uint32_t> _delete_partial_statisfied_pages;
 };
 
-//
-//class ScalarFileColumnIterator : public FileColumnIterator {
-//public:
-//    explicit ScalarFileColumnIterator(ColumnReader* reader);
-//
-//    ~ScalarFileColumnIterator() override = default;
-//
-//};
-class ArrayFileColumnIterator : public FileColumnIterator {
+class ArrayFileColumnIterator : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader);
+    explicit ArrayFileColumnIterator(FileColumnIterator* offset_iterator, ColumnIterator* item_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 
@@ -362,7 +322,14 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
+    Status seek_to_first() override { return _offset_iterator->seek_to_first(); };
+
+    Status seek_to_ordinal(ordinal_t ord) override { return _offset_iterator->seek_to_ordinal(ord); };
+
+    ordinal_t get_current_ordinal() const override { return _offset_iterator->get_current_ordinal(); }
+
 private:
+    std::unique_ptr<FileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
     std::unique_ptr<ColumnVectorBatch> _offset_batch;
 };

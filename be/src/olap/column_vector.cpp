@@ -125,8 +125,9 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
 }
 
 ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
-: ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(0) {
+: ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(1) {
     auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
+    _item_offsets[0] = 0;
     ColumnVectorBatch::create(init_capacity * 2, true, array_type_info->item_type_info(), &_elements);
 }
 
@@ -150,13 +151,14 @@ void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, s
     }
 }
 
-void ArrayColumnVectorBatch::transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx) {
+void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t end_idx) {
     for (size_t idx = start_idx; idx < end_idx; ++idx) {
         if (!is_null_at(idx)) {
-            _data[idx] =
-                    CollectionValue(_elements->mutable_cell_ptr(_item_offsets[idx]),
-                               _item_offsets[idx + 1] - _item_offsets[idx],
-                               const_cast<bool*>(&_elements->null_signs()[_item_offsets[idx]]));
+            _data[idx] = Collection(
+                    _elements->mutable_cell_ptr(_item_offsets[idx]),
+                    _item_offsets[idx + 1] - _item_offsets[idx],
+                    const_cast<bool *>(&_elements->null_signs()[_item_offsets[idx]])
+                    );
         }
     }
 }
@@ -167,13 +169,27 @@ DataBuffer<T>::DataBuffer(size_t new_size): buf(nullptr), current_size(0), curre
 }
 
 template <class T>
-DataBuffer<T>::~DataBuffer(){
-    SAFE_DELETE_ARRAY(buf);
+DataBuffer<T>::~DataBuffer() {
+    for(uint64_t i = current_size; i > 0; --i) {
+        (buf + i - 1) -> ~T();
+    }
+    if (buf) {
+        std::free(buf);
+    }
 }
 
 template <class T>
 void DataBuffer<T>::resize(size_t new_size) {
     reserve(new_size);
+    if (current_size  > new_size) {
+        for(uint64_t i=current_size; i > new_size; --i) {
+            (buf + i - 1)->~T();
+        }
+    } else if (new_size > current_size) {
+        for(uint64_t i=current_size; i < new_size; ++i) {
+            new (buf + i) T();
+        }
+    }
     current_size = new_size;
 }
 
@@ -182,11 +198,11 @@ void DataBuffer<T>::reserve(size_t new_capacity) {
     if (new_capacity > current_capacity || !buf) {
         if (buf) {
             T* buf_old = buf;
-            buf = new T[new_capacity];
-            memcpy(buf, buf_old, sizeof(T) * current_capacity);
-            SAFE_DELETE_ARRAY(buf_old);
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_capacity));
+            memcpy(buf, buf_old, sizeof(T) * current_size);
+            std::free(buf_old);
         } else {
-            buf = new T[new_capacity];
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_capacity));
         }
         current_capacity = new_capacity;
     }

@@ -31,6 +31,7 @@ namespace doris {
 class RowBlock;
 class RowCursor;
 class TabletSchema;
+class TabletColumn;
 class ShortKeyIndexBuilder;
 
 namespace fs {
@@ -77,6 +78,7 @@ private:
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
+    void _init_column_meta(ColumnMetaPB* meta, uint32_t* column_id, const TabletColumn& column);
 
 private:
     uint32_t _segment_id;

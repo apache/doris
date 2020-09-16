@@ -315,19 +315,19 @@ public class Column implements Writable {
 
         tColumn.setColumnType(tColumnType);
         if (null != this.aggregationType) {
-            tColumn.setAggregation_type(this.aggregationType.toThrift());
+            tColumn.setAggregationType(this.aggregationType.toThrift());
         }
-        tColumn.setIs_key(this.isKey);
-        tColumn.setIs_allow_null(this.isAllowNull);
-        tColumn.setDefault_value(this.defaultValue);
-        tColumn.setChildren_column(new ArrayList<>());
+        tColumn.setIsKey(this.isKey);
+        tColumn.setIsAllowNull(this.isAllowNull);
+        tColumn.setDefaultValue(this.defaultValue);
+        tColumn.setChildrenColumn(new ArrayList<>());
         toChildrenThrift(this, tColumn);
 
         // The define expr does not need to be serialized here for now.
         // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
         // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
         if (this.defineExpr != null) {
-            tColumn.setDefine_expr(this.defineExpr.treeToThrift());
+            tColumn.setDefineExpr(this.defineExpr.treeToThrift());
         }
         return tColumn;
     }
@@ -337,7 +337,7 @@ public class Column implements Writable {
             Column children = column.getChildren().get(0);
         
             TColumn childrenTColumn = new TColumn();
-            childrenTColumn.setColumn_name(children.name);
+            childrenTColumn.setColumnName(children.name);
 
             TColumnType childrenTColumnType = new TColumnType();
             childrenTColumnType.setType(children.getDataType().toThrift());
@@ -346,8 +346,8 @@ public class Column implements Writable {
             childrenTColumnType.setPrecision(children.getPrecision());
             childrenTColumnType.setScale(children.getScale());
 
-            childrenTColumnType.setIndex_len(children.getOlapColumnIndexSize());
-            childrenTColumn.setColumn_type(childrenTColumnType);
+            childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
+            childrenTColumn.setColumnType(childrenTColumnType);
 
             tColumn.children_column.add(childrenTColumn);
 
