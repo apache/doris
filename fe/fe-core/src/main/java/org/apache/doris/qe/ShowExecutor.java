@@ -1313,10 +1313,48 @@ public class ShowExecutor {
     // Handle show resources
     private void handleShowResources() {
         ShowResourcesStmt showStmt = (ShowResourcesStmt) stmt;
-        List<List<String>> rowSet = Catalog.getCurrentCatalog().getResourceMgr().getResourcesInfo();
+        List<List<Comparable>> resourcesInfos = Catalog.getCurrentCatalog().getResourceMgr()
+                .getResourcesInfo(showStmt.getNameValue(),
+                                showStmt.isAccurateMatch(),
+                                showStmt.getTypeSet());
+
+        // order the result of List<LoadInfo> by orderByPairs in show stmt
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        ListComparator<List<Comparable>> comparator = null;
+        if (orderByPairs != null) {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+        } else {
+            // sort by name asc
+            comparator = new ListComparator<List<Comparable>>(0);
+        }
+        Collections.sort(resourcesInfos, comparator);
+
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<Comparable> resourceInfo : resourcesInfos) {
+            List<String> oneResource = new ArrayList<String>(resourceInfo.size());
+
+            for (Comparable element : resourceInfo) {
+                oneResource.add(element.toString());
+            }
+            rows.add(oneResource);
+        }
+
+        // filter by limit
+        long limit = showStmt.getLimit();
+        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
+        if (offset >= rows.size()) {
+            rows = Lists.newArrayList();
+        } else if (limit != -1L) {
+            if ((limit + offset) < rows.size()) {
+                rows = rows.subList((int) offset, (int) (limit + offset));
+            } else {
+                rows = rows.subList((int) offset, rows.size());
+            }
+        }
 
         // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowExport() throws AnalysisException {

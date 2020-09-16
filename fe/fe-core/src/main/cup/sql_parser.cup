@@ -2383,9 +2383,9 @@ show_param ::=
     {:
         RESULT = new ShowBrokerStmt();
     :}
-    | KW_RESOURCES
+    | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowResourcesStmt();
+        RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
     :}
     | KW_BACKENDS
     {:
