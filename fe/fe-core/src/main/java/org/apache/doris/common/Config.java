@@ -1270,4 +1270,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static double default_max_filter_ratio = 0;
+
+    /**
+     * HTTP Server V2 is implemented by SpringBoot.
+     * It uses an architecture that separates front and back ends.
+     * Only enable httpv2 can user to use the new Frontend UI interface
+     */
+    @ConfField
+    public static boolean enable_http_server_v2 = false;
 }
