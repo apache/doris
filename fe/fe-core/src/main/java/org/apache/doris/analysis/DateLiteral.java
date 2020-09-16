@@ -1060,7 +1060,11 @@ public class DateLiteral extends LiteralExpr {
 
     private long strToLong(String l) throws InvalidFormatException {
         try {
-            return Long.valueOf(l);
+            long y = Long.valueOf(l);
+            if (y < 0) {
+                throw new InvalidFormatException("Invalid format: negative number.");
+            }
+            return y;
         } catch (NumberFormatException e) {
             throw new InvalidFormatException(e.getMessage());
         }

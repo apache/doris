@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.InvalidFormatException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -69,6 +71,45 @@ public class DateLiteralTest {
             Expr castToExpr2 = literal2.uncheckedCastTo(Type.DATETIME);
             Assert.assertTrue(castToExpr2 instanceof DateLiteral);
         } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertFalse(hasException);
+    }
+
+    @Test
+    public void testCheckDate() {
+        boolean hasException = false;
+        try {
+            DateLiteral dateLiteral = new DateLiteral();
+            dateLiteral.fromDateFormatStr("%Y%m%d","19971007", false);
+            Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
+
+            dateLiteral.fromDateFormatStr("%Y%m%d","19970007", false);
+            Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
+
+            dateLiteral.fromDateFormatStr("%Y%m%d","19971000", false);
+            Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
+
+            dateLiteral.fromDateFormatStr("%Y%m%d","20000229", false);
+            Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkDate"));
+
+        } catch (InvalidFormatException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertFalse(hasException);
+    }
+
+    @Test
+    public void testCheckRange() {
+        boolean hasException = false;
+        try {
+            DateLiteral dateLiteral = new DateLiteral();
+            dateLiteral.fromDateFormatStr("%Y%m%d%H%i%s%f","20201209123456123456", false);
+            Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkRange"));
+
+        } catch (InvalidFormatException e) {
             e.printStackTrace();
             hasException = true;
         }
