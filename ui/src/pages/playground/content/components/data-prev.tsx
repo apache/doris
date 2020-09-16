@@ -18,7 +18,7 @@
  */
  
 import React,{useState,useEffect} from 'react';
-import {AdHocAPI} from 'Utils/api';
+import {AdHocAPI} from 'Src/api/api';
 import {getDbName} from 'Utils/utils';
 import {Row, Empty} from 'antd';
 import {FlatBtn} from 'Components/flatbtn';

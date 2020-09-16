@@ -176,10 +176,10 @@ export function AdhocContentResult(props) {
                                     <tbody className="ant-table-tbody">
                                         {tableData.map((item,index) => (
                                             <tr className="ant-table-row" key={index}>
-                                                {item.map(tdData => (
+                                                {item.map((tdData, index) => (
                                                     <td
                                                         className="ant-table-cell"
-                                                        key={tdData}
+                                                        key={index+tdData}
                                                     >
                                                         {tdData == '\\N'?'-':tdData}
                                                     </td>

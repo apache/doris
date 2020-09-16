@@ -29,7 +29,7 @@ import {renderRoutes} from 'react-router-config';
 import {useHistory} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import routes from 'Src/router';
-import {logOut} from 'Utils/api';
+import {logOut} from 'Src/api/api';
 import './index.css';
 import styles from './index.less';
 const {Header, Content, Footer} = Layout;

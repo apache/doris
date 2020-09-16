@@ -29,7 +29,7 @@ import {PlayCircleFilled} from '@ant-design/icons';
 import {Switch, Route, Redirect} from 'react-router';
 import {AdhocContentResult} from './content-result';
 import {useRequest} from '@umijs/hooks';
-import {AdHocAPI} from 'Utils/api';
+import {AdHocAPI} from 'Src/api/api';
 import {Result} from '@src/interfaces/http.interface';
 import {isSuccess, getDbName, getTimeNow} from 'Utils/utils';
 import {CodeMirrorWithFullscreen} from 'Components/codemirror-with-fullscreen/codemirror-with-fullscreen';

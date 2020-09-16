@@ -21,7 +21,7 @@
 import React, {useState, useEffect} from 'react';
 import {Typography, Button, Row, Col} from 'antd';
 const {Text, Title, Paragraph} = Typography;
-import {getSystem} from 'Utils/api';
+import {getSystem} from 'Src/api/api';
 import Table from 'Src/components/table';
 import {useHistory} from 'react-router-dom';
 export default function System(params: any) {

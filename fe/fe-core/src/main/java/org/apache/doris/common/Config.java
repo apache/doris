@@ -1278,4 +1278,13 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_http_server_v2 = false;
+
+    /*    
+     * Base path is the URL prefix for all API paths.
+     * Some deployment environments need to configure additional base path to match resources.
+     * This Api will return the path configured in Config.http_api_extra_base_path.
+     * Default is empty, which means not set.
+     */
+    @ConfField
+    public static String http_api_extra_base_path = "";
 }

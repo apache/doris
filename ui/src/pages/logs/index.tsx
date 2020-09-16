@@ -20,7 +20,7 @@
 import React,{useState, useEffect, useRef} from 'react';
 import {Typography, Divider, Row, Col, Input, BackTop} from 'antd';
 const {Title, Paragraph, Text} = Typography;
-import {getLog} from 'Src/utils/api';
+import {getLog} from 'Src/api/api';
 const {Search} = Input;
 import {Result} from '@src/interfaces/http.interface';
 export default function Logs(params: any) {

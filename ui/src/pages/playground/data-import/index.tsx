@@ -18,11 +18,10 @@
  */
  
 import React,{useState, useEffect, useLayoutEffect} from 'react';
-import {AdHocAPI} from 'Utils/api';
 import {getDbName} from 'Utils/utils';
 import {Typography, Steps, Button, message, Form, Input, Select, Upload, Table, Empty} from 'antd';
 import {UploadOutlined} from '@ant-design/icons';
-import {AdHocAPI, doUp, getUploadData, deleteUploadData} from 'Utils/api';
+import {AdHocAPI, doUp, getUploadData, deleteUploadData} from 'Src/api/api';
 const {Step} = Steps;
 const {Option} = Select;
 import {getAllTableData} from './import-func';
@@ -324,10 +323,10 @@ export default function DataImport(props: any) {
                                             <tbody className="ant-table-tbody">
                                                 {prevData?.map((item,index) => (
                                                     <tr className="ant-table-row" key={index}>
-                                                        {item.map(tdData => (
+                                                        {item.map((tdData,i) => (
                                                             <td
                                                                 className="ant-table-cell"
-                                                                key={tdData}
+                                                                key={i+tdData}
                                                             >
                                                                 {tdData == '\\N'?'-':tdData}
                                                             </td>

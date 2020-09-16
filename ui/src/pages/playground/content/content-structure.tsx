@@ -24,7 +24,7 @@ import React from 'react';
 import {FlatBtn} from 'Components/flatbtn';
 import {TABLE_DELAY} from 'Constants';
 import {useRequest} from '@umijs/hooks';
-import {AdHocAPI} from 'Utils/api';
+import {AdHocAPI} from 'Src/api/api';
 import {getDbName} from 'Utils/utils';
 import {Result} from '@src/interfaces/http.interface';
 import {DataPrev} from './components/data-prev';

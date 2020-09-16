@@ -20,7 +20,7 @@
 import React, {useState, useEffect, useRef} from 'react';
 import {Typography, Button, Row, Col} from 'antd';
 const {Text, Title, Paragraph} = Typography;
-import {queryProfile} from 'Utils/api';
+import {queryProfile} from 'Src/api/api';
 import Table from 'Src/components/table';
 import {useHistory} from 'react-router-dom';
 export default function QueryProfile(params: any) {

@@ -26,7 +26,7 @@ import React from 'react';
 import {message, Modal} from 'antd';
 import {ExclamationCircleOutlined} from '@ant-design/icons';
 import {Trans} from 'react-i18next';
-
+let basePath;
 function checkStatus(response) {
     if (response.status >= 200 && response.status < 300) {
         return response;
@@ -65,6 +65,10 @@ function checkStatus(response) {
  * @return {Object}
  */
 export default async function request(url, options = {}, tipSuccess = false, tipError = true, fullResponse = false) {
+    if(!basePath){
+        const data = await fetch('/api/basepath')
+        basePath = await data.json();
+    }
     const newOptions = {credentials: 'include', ...options};
     if (newOptions.method === 'POST' || newOptions.method === 'PUT') {
         newOptions.headers = newOptions.isUpload
@@ -78,6 +82,9 @@ export default async function request(url, options = {}, tipSuccess = false, tip
     }
     if (typeof newOptions.body === 'object' && !newOptions.isUpload) {
         newOptions.body = JSON.stringify(newOptions.body);
+    }
+    if (basePath.data?.path && basePath.data?.enable) {
+        url = basePath.data.path + url
     }
     const response = await fetch(url, newOptions);
     if (
@@ -113,4 +120,3 @@ export default async function request(url, options = {}, tipSuccess = false, tip
     }
     return data;
 }
- 
