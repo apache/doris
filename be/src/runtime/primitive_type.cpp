@@ -341,7 +341,7 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name)
     return type_desc;
 }
 
-inline int get_slot_size(PrimitiveType type) {
+int get_slot_size(PrimitiveType type) {
     switch (type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
