@@ -20,6 +20,7 @@ package org.apache.doris.persist.gson;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.RandomDistributionInfo;
@@ -85,7 +86,8 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(org.apache.doris.catalog.Type.class, "clazz")
             // TODO: register other sub type after Doris support more types.
-            .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName());
+            .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName())
+            .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName());
 
     // runtime adapter for class "DistributionInfo"
     private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory = RuntimeTypeAdapterFactory

@@ -382,7 +382,6 @@ public:
         auto array_v = (ArrayValue*)cell_ptr;
         array_v->_null_signs = reinterpret_cast<bool*>(variable_ptr + sizeof(ArrayValue));
         array_v->_data = variable_ptr + sizeof(ArrayValue) + OLAP_ARRAY_MAX_LENGTH / sizeof(char*);
-        LOG(WARNING) << "aaaaaaaaaaaaafffffff  " << array_v->_data;
         return variable_ptr + _length;
     }
 

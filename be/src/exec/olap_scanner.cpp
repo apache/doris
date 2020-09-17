@@ -333,10 +333,7 @@ Status OlapScanner::get_batch(
                     }
                 }
 
-                LOG(WARNING) << "xxxxxxx xxxxx xxx xxx xxx ";
-
                 for (auto desc : _collection_slots) {
-                    LOG(WARNING) << "xxxxxxx xxxxx xxx xxx xxx 111 ";
                     ArrayValue* slot = tuple->get_collection_slot(desc->tuple_offset());
 
                     TypeDescriptor item_type = desc->type().children.at(0);

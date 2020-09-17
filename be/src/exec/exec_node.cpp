@@ -318,7 +318,6 @@ Status ExecNode::create_tree_helper(
         }
     }
 
-    LOG(WARNING) <<"ffffffff node type " << tnode.node_type;
     RETURN_IF_ERROR(node->init(tnode, state));
 
     // build up tree of profiles; add children >0 first, so that when we print

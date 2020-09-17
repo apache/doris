@@ -41,6 +41,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.apache.doris.persist.gson.GsonUtils;
+
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
  */
@@ -218,6 +220,7 @@ public class Table extends MetaObject implements Writable {
         int columnCount = fullSchema.size();
         out.writeInt(columnCount);
         for (Column column : fullSchema) {
+            String json = GsonUtils.GSON.toJson(column);
             column.write(out);
         }
 

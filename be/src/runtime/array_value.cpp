@@ -93,8 +93,6 @@ Status ArrayValue::init_array(ObjectPool* pool, const int& size,
     val->_null_signs = pool->add_array(new bool[size]{0});
     val->_data = pool->add_array(new uint8_t[size * sizeof_type(child_type)]);
 
-    LOG(WARNING) << "ArrayValue ArrayValue   val aaaaa " << val->_length << "  " << val->_data << "   "
-                 << val->_null_signs;
     return Status::OK();
 }
 
@@ -116,8 +114,6 @@ Status ArrayValue::init_array(MemPool* pool, const int& size, const PrimitiveTyp
 
     val->_data = pool->allocate(sizeof_type(child_type) * size);
 
-    LOG(WARNING) << "ArrayValue ArrayValue   val aaaaa " << val->_length << "  " << val->_data << "   "
-                 << val->_null_signs;
     return Status::OK();
 }
 
@@ -139,15 +135,11 @@ Status ArrayValue::init_array(FunctionContext* context, const int& size, const P
 
     val->_data = context->allocate(sizeof_type(child_type) * size);
 
-    LOG(WARNING) << "ArrayValue ArrayValue   val aaaaa " << val->_length << "  " << val->_data << "   "
-                 << val->_null_signs;
     return Status::OK();
 }
 
 
 ArrayValue ArrayValue::from_array_val(const ArrayVal& val) {
-    LOG(WARNING) << "ArrayValue ArrayValue   val aaaaa " << val.length << "  " << val.data << "   "
-                 << val.null_signs;
     return ArrayValue(val.length, val.null_signs, val.data);
 }
 
@@ -167,7 +159,6 @@ Status ArrayValue::set(const int& i, const PrimitiveType& type, const AnyVal* va
     switch (type) {
         case TYPE_INT:
             *reinterpret_cast<int32_t*>(iter.value()) = reinterpret_cast<const IntVal*>(value)->val;
-            LOG(WARNING) << "ArrayValue  aaaaaa   item " << reinterpret_cast<const IntVal*>(value)->val;
             break;
         case TYPE_CHAR:
         case TYPE_VARCHAR: {

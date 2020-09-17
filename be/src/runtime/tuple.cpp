@@ -82,27 +82,9 @@ Tuple* Tuple::deep_copy(const TupleDescriptor& desc, MemPool* pool, bool convert
     return result;
 }
 
-std::string HexDump(void *vbuf, int len) {
-
-    char* buf = (char*) vbuf;
-    std::stringstream save;
-    for (unsigned char i = 0;i< len;i++)
-    {
-        save << (int)(*(buf + 1)) << " ";  
-    }
-    LOG(WARNING)  << save.str() << std::endl;
-    return save.str();
-}
-
-
 void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool,
                      bool convert_ptrs) {
-    HexDump((char *)this, 32);
     memory_copy(dst, this, desc.byte_size());
-    HexDump((char *)dst , 32);
-
-    LOG(WARNING) << "aaaaaaaaaaaaaaaaa ArrayValue "  << sizeof(ArrayValue) << "  " << sizeof(int) ;
-    LOG(WARNING) << "aaaaaaaaaaaaaaaaa sdfsdfsdfsd " << desc.byte_size()<< "  " << this->to_string(desc);
 
     // allocate in the same pool and then copy all non-null string slots
     for (std::vector<SlotDescriptor*>::const_iterator i = desc.string_slots().begin();
@@ -126,8 +108,6 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool,
             continue;
         }
         
-        LOG(WARNING) << "Fffffffffffffff  slot_desc->tuple_offset()  slot_size()  " << slot_desc->tuple_offset() << "  " <<slot_desc->slot_size(); 
-
         ArrayValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
 
         const TypeDescriptor& item_type = slot_desc->type().children.at(0);
@@ -137,10 +117,8 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool,
 
         int offset = pool->total_allocated_bytes();
         char* coll_data = reinterpret_cast<char*>(pool->allocate(coll_byte_size + nulls_size));
-        LOG(WARNING) << "Fffffffffffffff " << cv->_data;
 
         memory_copy(coll_data, cv->_null_signs, nulls_size);
-        LOG(WARNING) << "Fffffffffffffff " << cv->_data;
         memory_copy(coll_data + nulls_size, cv->_data, coll_byte_size);
 
         cv->_null_signs = (convert_ptrs ? reinterpret_cast<bool*>(offset) : reinterpret_cast<bool*> (coll_data));
@@ -227,6 +205,52 @@ void Tuple::deep_copy(
         }
     }
 
+    for (auto slot_desc : desc.collection_slots()) {
+
+        DCHECK(slot_desc->type().is_collection_type());
+        if (dst->is_null(slot_desc->null_indicator_offset())) {
+            continue;
+        }
+
+        ArrayValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
+        const TypeDescriptor& item_type = slot_desc->type().children.at(0);
+
+        int coll_byte_size = cv->_length * item_type.get_slot_size();
+        int nulls_size = cv->_length * sizeof(bool);
+
+        memory_copy(*data, cv->_null_signs, nulls_size);
+        memory_copy(*data + nulls_size, cv->_data, coll_byte_size);
+
+        if (!item_type.is_string_type()) {
+            cv->_null_signs = (convert_ptrs ? reinterpret_cast<bool*>(*offset) : reinterpret_cast<bool*> (*data));
+            cv->_data = (convert_ptrs ? reinterpret_cast<char*>(*offset + nulls_size) : *data + nulls_size);
+            continue;
+        }
+        char* base_data = *data;
+        int base_offset = *offset;
+
+        *data += coll_byte_size + nulls_size;
+        *offset += coll_byte_size + nulls_size;
+
+        for (int i = 0; i < cv->_length; ++i) {
+            int item_offset = nulls_size + i * item_type.get_slot_size();
+            if (cv->_null_signs[i]) {
+                continue;
+            }
+            StringValue* dst_item_v = reinterpret_cast<StringValue*>(base_data + item_offset);
+            if (dst_item_v->len != 0) {
+                memory_copy(*data, dst_item_v->ptr, dst_item_v->len);
+                dst_item_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
+                *data += dst_item_v->len;
+                *offset += dst_item_v->len;
+
+                LOG(WARNING) << "xxxxxxxxxx  data offset " << (void*)*data << "   " << (void *) dst_item_v->ptr;
+            }
+        }
+        cv->_null_signs = (convert_ptrs ? reinterpret_cast<bool*>(base_offset) : reinterpret_cast<bool*> (base_data));
+        cv->_data = (convert_ptrs ? reinterpret_cast<char*>(base_offset + nulls_size) : base_data + nulls_size);
+    }
+
 }
 
 template <bool collect_string_vals>
@@ -307,7 +331,6 @@ std::string Tuple::to_string(const TupleDescriptor& d) const {
             out << "null";
         } else {
             std::string value_str;
-            LOG(WARNING) << "Fffffffffffffff  666666666 " << slot->tuple_offset();
 
             RawValue::print_value(
                     get_slot(slot->tuple_offset()),

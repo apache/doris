@@ -219,12 +219,9 @@ public:
         auto dest_value = reinterpret_cast<Collection*>(dest);
         auto src_value = reinterpret_cast<const Collection*>(src);
 
-        LOG(WARNING) << "aaaa deep_copy " << src_value->length;
         dest_value->length = src_value->length;
 
         size_t item_size = src_value->length * _item_size;
-
-        LOG(WARNING) << "aaaa deep_copy " << _item_size << "    " << src_value->data << "    " << src_value->null_signs;
         
         size_t nulls_size = dest_value->length;
         dest_value->data = mem_pool->allocate(item_size + nulls_size);
@@ -251,18 +248,39 @@ public:
         auto src_value = reinterpret_cast<const Collection*>(src);
 
         dest_value->length = src_value->length;
-
         // direct copy null_signs
         memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
 
+        size_t offset_size = 0;
         // direct opy item
         for (size_t i = 0; i < src_value->length; ++i) {
-            LOG(WARNING) << "xxxxxxxxxx fffffff " << *(int *)((uint8_t*)(src_value->data) + i * _item_size);
 
-            if (dest_value->null_signs[i]) continue;
-            LOG(WARNING) << "xxxxxxxxxx " << *(int *)((uint8_t*)(src_value->data) + i * _item_size);
-            _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size,
-                                         (uint8_t*)(src_value->data) + i * _item_size);
+            if (dest_value->null_signs[i]) {
+                continue;
+            }
+
+            if (_item_type_info->type() == OLAP_FIELD_TYPE_CHAR || 
+                _item_type_info->type() == OLAP_FIELD_TYPE_VARCHAR) {
+
+                size_t item_size = sizeof(Slice);
+                uint8_t* item_base_ptr = (uint8_t*)(dest_value->data) + src_value->length * item_size;
+
+                uint8_t* dest_offset = (uint8_t*)(dest_value->data) + i * item_size;
+                uint8_t* src_offset = (uint8_t*)(src_value->data) + i * item_size;
+
+                auto dest_slice = reinterpret_cast<Slice*>(dest_offset);
+                auto src_slice = reinterpret_cast<const Slice*>(src_offset);
+
+                dest_slice->data = (char*)item_base_ptr + offset_size;
+
+                offset_size += src_slice->size;
+                _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * item_size,
+                                             (uint8_t*)(src_value->data) + i * item_size);
+            }
+            else {
+                _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size,
+                                             (uint8_t*)(src_value->data) + i * _item_size);
+            }
         }
     }
 

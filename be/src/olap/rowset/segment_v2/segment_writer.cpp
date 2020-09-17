@@ -75,7 +75,6 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
 
         // now we create zone map for key columns
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() == KeysType::DUP_KEYS;
-        LOG(WARNING) << "xxxxxxx  asdfa asdf asdfas asdfas asdf " << column.type();
         if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             opts.need_zone_map = false;
         }

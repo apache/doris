@@ -176,7 +176,6 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
 
     case TYPE_ARRAY: {
         const ArrayValue* src = reinterpret_cast<const ArrayValue*>(value);
-        LOG(WARNING) <<"aaaaaaaaaa _null_signs "  << src->_null_signs << "  _data  "   << src->_data << "  _length   " << src ->_length;
          auto children_type = type.children.at(0);
         auto iter = src->iterator(children_type.type);
         *stream << "[";
@@ -348,7 +347,6 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         } else {
             val->shallow_copy(src);
         }
-        LOG(WARNING) << "aaa RawValue::write  aaaaaaaaaa  data: " << val->_data;
         break;
     }
     default:

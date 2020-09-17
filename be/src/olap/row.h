@@ -118,7 +118,6 @@ void init_row_with_others(DstRowType* dst, const SrcRowType& src, MemPool* mem_p
 // that destination has enough space for source conetent.
 template<typename DstRowType, typename SrcRowType>
 void direct_copy_row(DstRowType* dst, const SrcRowType& src) {
-    LOG(WARNING) << "asdfasdfasfdasfasdf   direct_copy_row ";
     for (auto cid : dst->schema()->column_ids()) {
         auto dst_cell = dst->cell(cid);
         dst->schema()->column(cid)->direct_copy(&dst_cell, src.cell(cid));

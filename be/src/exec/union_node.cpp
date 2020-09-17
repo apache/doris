@@ -255,8 +255,6 @@ Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
 
         RETURN_IF_ERROR(get_next_materialized(state, row_batch));
     } else if (has_more_const(state)) {
-                        LOG(WARNING) << " has_more_const " ;
-
         RETURN_IF_ERROR(get_next_const(state, row_batch));
     }
 

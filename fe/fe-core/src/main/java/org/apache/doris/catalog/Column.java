@@ -25,7 +25,6 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -551,13 +550,13 @@ public class Column implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-        if (Config.array_type_enable) {
-            out.writeInt(children.size());
+        // if (Config.array_type_enable) {
+        //     out.writeInt(children.size());
 
-            for (Column child : children) {
-                child.write(out);
-            }
-        }
+        //     for (Column child : children) {
+        //         child.write(out);
+        //     }
+        // }
     }
 
     @Deprecated
@@ -600,17 +599,17 @@ public class Column implements Writable {
         }
 
         //        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
-        if (Config.array_type_enable) {
-            int childrenSize = in.readInt();
+        // if (Config.array_type_enable) {
+        //     int childrenSize = in.readInt();
 
-            for (int i = 0; i < childrenSize; i++) {
-                children.add(Column.read(in));
-            }
+        //     for (int i = 0; i < childrenSize; i++) {
+        //         children.add(Column.read(in));
+        //     }
 
-            if (type.isArrayType()) {
-                ((ArrayType)type).setItemType(children.get(0).type);
-            }
-        }
+        //     if (type.isArrayType()) {
+        //         ((ArrayType)type).setItemType(children.get(0).type);
+        //     }
+        // }
     }
 
     public static Column read(DataInput in) throws IOException {
@@ -620,6 +619,7 @@ public class Column implements Writable {
             return column;
         } else {
             String json = Text.readString(in);
+            LOG.info("table {} xxxxxxxxxxxxxxx ", json);
             return GsonUtils.GSON.fromJson(json, Column.class);
         }
     }

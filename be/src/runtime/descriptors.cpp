@@ -522,8 +522,6 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             return Status::InternalError("unknown tid in slot descriptor msg");
         }
         entry->second->add_slot(slot_d);
-        LOG(WARNING) << "aaaaaaaaa  " << entry->second->debug_string() ;
-        LOG(WARNING) << "bbbbbbbbb  " << entry->second->debug_string() ;
     }
 
     return Status::OK();

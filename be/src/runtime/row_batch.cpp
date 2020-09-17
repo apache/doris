@@ -140,7 +140,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
         TupleRow* row = get_row(i);
         vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
-            if ((*desc)->string_slots().empty()) {
+            if ((*desc)->string_slots().empty() && (*desc)->collection_slots().empty()) {
                 continue;
             }
             Tuple* tuple = row->get_tuple(j);
@@ -161,18 +161,43 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
                 string_val->len &= 0x7FFFFFFFL;
             }
 
-            // for (auto slot : (*desc)->collection_slots()) {
-            //     DCHECK(slot->type().is_collection_type());
-            //     ArrayValue* array_val = tuple->get_collection_slot(slot->tuple_offset());
-            //     int offset = reinterpret_cast<intptr_t>(array_val->ptr);
-            //     string_val->ptr = reinterpret_cast<char*>(tuple_data + offset);
+            vector<SlotDescriptor*>::const_iterator slot_collection = (*desc)->collection_slots().begin();
+            for (; slot_collection != (*desc)->collection_slots().end(); ++slot_collection) {
+                DCHECK((*slot_collection)->type().is_collection_type());
 
-            //     // Why we do this mask? Field len of StringValue is changed from int to size_t in
-            //     // Doris 0.11. When upgrading, some bits of len sent from 0.10 is random value,
-            //     // this works fine in version 0.10, however in 0.11 this will lead to an invalid
-            //     // length. So we make the high bits zero here.
-            //     string_val->len &= 0x7FFFFFFFL;
-            // }
+                ArrayValue* array_val = tuple->get_collection_slot((*slot_collection)->tuple_offset());
+
+                int data_offset = reinterpret_cast<intptr_t>(array_val->_data);
+                array_val->_data = reinterpret_cast<char*>(tuple_data + data_offset);
+                int null_offset = reinterpret_cast<intptr_t>(array_val->_null_signs);
+                array_val->_null_signs = reinterpret_cast<bool*>(tuple_data + null_offset);
+
+
+                const TypeDescriptor& item_type = (*slot_collection)->type().children.at(0);
+                if (!item_type.is_string_type()) {
+                    continue;
+                }
+
+                for (int i = 0; i < array_val->_length; ++i) {
+                    if (array_val->_null_signs[i]) {
+                        continue;
+                    }
+
+                    LOG(WARNING) << "assssssssssssss  item_type  " << item_type.get_slot_size();
+
+                    StringValue* dst_item_v = reinterpret_cast<StringValue*>(
+                            (uint8_t*)array_val->_data + i * item_type.get_slot_size());
+
+                    LOG(WARNING) << "assssssssssssss  dst_item_v  "
+                                 << (void*)((uint8_t*)array_val->_data + i * item_type.get_slot_size());
+
+                    if (dst_item_v->len != 0) {
+                        int offset = reinterpret_cast<intptr_t>(dst_item_v->ptr);
+                        LOG(WARNING) << "assssssssssssss  dst_item_v->ptr  " << offset << "     " << (void *)tuple_data;
+                        dst_item_v->ptr = reinterpret_cast<char*>(tuple_data + offset);
+                    }
+                }
+            }
         }
     }
 }
@@ -254,7 +279,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
         TupleRow* row = get_row(i);
         vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
-            if ((*desc)->string_slots().empty()) {
+            if ((*desc)->string_slots().empty() && (*desc)->collection_slots().empty()) {
                 continue;
             }
 
@@ -276,6 +301,39 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
                 // this works fine in version 0.10, however in 0.11 this will lead to an invalid
                 // length. So we make the high bits zero here.
                 string_val->len &= 0x7FFFFFFFL;
+            }
+
+            LOG(WARNING) << "assssssssssssss " << tuple_data << "   " << (*desc)->collection_slots().size();
+
+            vector<SlotDescriptor*>::const_iterator slot_collection = (*desc)->collection_slots().begin();
+            for (; slot_collection != (*desc)->collection_slots().end(); ++slot_collection) {
+                DCHECK((*slot_collection)->type().is_collection_type());
+                ArrayValue* array_val = tuple->get_collection_slot((*slot_collection)->tuple_offset());
+                LOG(WARNING) << "assssssssssssss " << tuple_data;
+
+                int offset = reinterpret_cast<intptr_t>(array_val->_data);
+                array_val->_data = reinterpret_cast<char*>(tuple_data + offset);
+                int null_offset = reinterpret_cast<intptr_t>(array_val->_null_signs);
+                array_val->_null_signs = reinterpret_cast<bool*>(tuple_data + null_offset);
+
+                const TypeDescriptor& item_type = (*slot_collection)->type().children.at(0);
+                if (!item_type.is_string_type()) {
+                    continue;
+                }
+
+                for (int i = 0; i < array_val->_length; ++i) {
+                    if (array_val->_null_signs[i]) {
+                        continue;
+                    }
+
+                    StringValue* dst_item_v = reinterpret_cast<StringValue*>(
+                            (uint8_t*)array_val->_data + i * item_type.get_slot_size());
+
+                    if (dst_item_v->len != 0) {
+                        int offset = reinterpret_cast<intptr_t>(dst_item_v->ptr);
+                        dst_item_v->ptr = reinterpret_cast<char*>(tuple_data + offset);
+                    }
+                }
             }
         }
     }
@@ -645,6 +703,32 @@ int RowBatch::total_byte_size() {
                 }
                 StringValue* string_val = tuple->get_string_slot((*slot)->tuple_offset());
                 result += string_val->len;
+            }
+
+            vector<SlotDescriptor*>::const_iterator slot_collection = (*desc)->collection_slots().begin();
+            for (; slot_collection != (*desc)->collection_slots().end(); ++slot_collection) {
+                DCHECK((*slot_collection)->type().is_collection_type());
+                if (tuple->is_null((*slot_collection)->null_indicator_offset())) {
+                    continue;
+                }
+                ArrayValue* array_val = tuple->get_collection_slot((*slot_collection)->tuple_offset());
+                result += array_val->_length * sizeof(bool);
+                
+                const TypeDescriptor& item_type = (*slot_collection)->type().children.at(0);
+                result += array_val->_length * item_type.get_slot_size();
+
+                if (!item_type.is_string_type()) {
+                    continue;
+                }
+                
+                for (int i = 0; i < array_val->_length; ++i) {
+                    if (array_val->_null_signs[i]) {
+                        continue;
+                    }
+                    StringValue* dst_item_v = reinterpret_cast<StringValue*>(
+                            (uint8_t*)array_val->_data + i * item_type.get_slot_size());
+                    result += dst_item_v->len;
+                }
             }
         }
     }

@@ -415,7 +415,7 @@ public class Text implements Writable {
         in.readFully(bytes, 0, length);
         String res = decode(bytes);
         return res;
-    }
+    } 
 
     /**
      * Write a UTF8 encoded string to out

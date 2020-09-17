@@ -23,11 +23,14 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Describes an ARRAY type.
  */
 public class ArrayType extends ScalarType {
+
+    @SerializedName(value = "itemType")
     private Type itemType;
 
     public ArrayType() {
