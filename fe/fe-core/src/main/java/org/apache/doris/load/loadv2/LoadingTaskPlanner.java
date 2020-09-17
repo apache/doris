@@ -127,7 +127,12 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
+        OlapTableSink olapTableSink;
+        try {
+            olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
+        } catch (IllegalStateException e) {
+            throw new UserException(e.getMessage());
+        }
         olapTableSink.init(loadId, txnId, dbId, timeoutS);
         olapTableSink.complete();
 
