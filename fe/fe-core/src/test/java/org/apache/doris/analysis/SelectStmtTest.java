@@ -520,4 +520,11 @@ public class SelectStmtTest {
         planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
         Assert.assertEquals(8589934592L, planner.getPlannerContext().getQueryOptions().mem_limit);
     }
+
+    @Test
+    public void testWithWithoutDatabase() throws Exception {
+        String sql = "with tmp as (select count(*) from db1.table1) select * from tmp;";
+        dorisAssert.withoutUseDatabase();
+        dorisAssert.query(sql).explainQuery();
+    }
 }
