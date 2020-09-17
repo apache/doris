@@ -89,8 +89,7 @@ TEST_F(TestRowBlock, init) {
         RowBlockInfo block_info;
         block_info.row_num = 1024;
         block_info.null_supported = true;
-        auto res = block.init(block_info);
-        ASSERT_EQ(OLAP_SUCCESS, res);
+        block.init(block_info);
         ASSERT_EQ(9 + 17 + 17, block._mem_row_bytes);
     }
     {
@@ -99,8 +98,7 @@ TEST_F(TestRowBlock, init) {
         RowBlockInfo block_info;
         block_info.row_num = 1024;
         block_info.null_supported = false;
-        auto res = block.init(block_info);
-        ASSERT_EQ(OLAP_SUCCESS, res);
+        block.init(block_info);
         ASSERT_EQ(9 + 17 + 17, block._mem_row_bytes);
     }
     {
@@ -109,8 +107,7 @@ TEST_F(TestRowBlock, init) {
         block_info.row_num = 1024;
         block_info.null_supported = true;
         block_info.column_ids.push_back(1);
-        auto res = block.init(block_info);
-        ASSERT_EQ(OLAP_SUCCESS, res);
+        block.init(block_info);
         // null + sizeof(Slice)
         ASSERT_EQ(17, block._mem_row_bytes);
         ASSERT_EQ(std::numeric_limits<size_t>::max(), block._field_offset_in_memory[0]);
@@ -126,8 +123,7 @@ TEST_F(TestRowBlock, write_and_read) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
-    auto res = block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    block.init(block_info);
 
     RowCursor row;
     row.init(tablet_schema);
@@ -168,8 +164,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = false;
-    auto res = block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    block.init(block_info);
 
     RowCursor row;
     row.init(tablet_schema);
@@ -210,8 +205,7 @@ TEST_F(TestRowBlock, compress_failed) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
-    auto res = block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    block.init(block_info);
 
     RowCursor row;
     row.init(tablet_schema);
@@ -249,8 +243,7 @@ TEST_F(TestRowBlock, decompress_failed) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
-    auto res = block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    block.init(block_info);
 
     RowCursor row;
     row.init(tablet_schema);
@@ -288,8 +281,7 @@ TEST_F(TestRowBlock, clear) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
-    auto res = block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    block.init(block_info);
 
     block.finalize(5);
     ASSERT_EQ(5, block.row_num());
@@ -305,8 +297,7 @@ TEST_F(TestRowBlock, pos_limit) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
-    auto res = block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    block.init(block_info);
 
     // assert init value
     ASSERT_EQ(0, block.pos());
