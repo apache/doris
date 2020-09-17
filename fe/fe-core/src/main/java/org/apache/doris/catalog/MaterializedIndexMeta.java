@@ -40,6 +40,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "indexId")
@@ -93,7 +94,15 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     }
 
     public List<Column> getSchema() {
-        return schema;
+        return getSchema(true);
+    }
+
+    public List<Column> getSchema(boolean full) {
+        if (full) {
+            return schema;
+        } else {
+            return schema.stream().filter(column -> column.isVisible()).collect(Collectors.toList());
+        }
     }
 
     public int getSchemaHash() {

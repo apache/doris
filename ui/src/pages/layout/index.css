@@ -1,0 +1,34 @@
+
+/* .ant-layout-header .logo {
+    width: 120px;
+    height: 31px;
+    margin: 16px 24px 16px 0;
+    float: left;
+} */
+.ant-layout-header .logo img {
+    width: 120px;
+    height: 31px;
+}
+.site-layout .site-layout-background {
+    background: #fff;
+}
+.ant-menu-dark.ant-menu-horizontal {
+    height: 64px;
+}
+.userSet {
+    height: 56px;
+    float: right;
+}
+
+.userSet > span {
+    display: inline-block;
+    height: 100%;
+    padding: 0 12px;
+    /* color: rgba(255, 255, 255, 0.65); */
+}
+
+.userSet .avatar {
+    width: 24px;
+    height: 24px;
+    margin-right: 7px;
+}

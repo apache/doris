@@ -1250,4 +1250,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_batch_delete_by_default = false;
+
+    /**
+     * Used to set default db data quota bytes.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_data_quota_bytes = 1024 * 1024 * 1024 * 1024L; // 1TB
+
+    /*
+     * Maximum percentage of data that can be filtered (due to reasons such as data is irregulary)
+     * The default value is 0.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double default_max_filter_ratio = 0;
 }

@@ -60,7 +60,10 @@ public class DateLiteral extends LiteralExpr {
     private static final DateLiteral MIN_DATETIME = new DateLiteral(0000, 1, 1, 0, 0, 0);
     private static final DateLiteral MAX_DATETIME = new DateLiteral(9999, 12, 31, 23, 59, 59);
     public static final DateLiteral UNIX_EPOCH_TIME = new DateLiteral(1970, 01, 01, 00, 00, 00);
-    
+
+    private static final int DATEKEY_LENGTH = 8;
+    private static final int MAX_MICROSECOND = 999999;
+
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
     /* 
@@ -71,6 +74,12 @@ public class DateLiteral extends LiteralExpr {
      * */
     private static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
     private static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
+    /*
+     *  The datekey type is widely used in data warehouses
+     *  For example, 20121229 means '2012-12-29'
+     *  and data in the form of 'yyyymmdd' is generally called the datekey type.
+     */
+    private static DateTimeFormatter DATEKEY_FORMATTER = null;
 
     private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
@@ -82,6 +91,7 @@ public class DateLiteral extends LiteralExpr {
         try {
             DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
             DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
+            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
             DATE_TIME_FORMATTER_TWO_DIGIT = formatBuilder("%y-%m-%d %H:%i:%s").toFormatter();
             DATE_FORMATTER_TWO_DIGIT = formatBuilder("%y-%m-%d").toFormatter();
         } catch (AnalysisException e) {
@@ -249,6 +259,8 @@ public class DateLiteral extends LiteralExpr {
             if (type.equals(Type.DATE)) {
                 if (s.split("-")[0].length() == 2) {
                     dateTime = DATE_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
+                } else if(s.length() == DATEKEY_LENGTH) {
+                    dateTime = DATEKEY_FORMATTER.parseLocalDateTime(s);
                 } else {
                     dateTime = DATE_FORMATTER.parseLocalDateTime(s);
                 }
@@ -1024,12 +1036,35 @@ public class DateLiteral extends LiteralExpr {
                 this.type = Type.DATE;
             }
         }
+
+        if (checkRange() || checkDate()) {
+            throw new InvalidFormatException("Invalid format");
+        }
         return 0;
+    }
+
+    private boolean checkRange() {
+        return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
+                || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
+                || microsecond > MAX_MICROSECOND;
+    }
+    private boolean checkDate() {
+        if (month != 0 && day > DAYS_IN_MONTH.get((int)month)){
+            if (month == 2 && day == 29 && Year.isLeap(year)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     private long strToLong(String l) throws InvalidFormatException {
         try {
-            return Long.valueOf(l);
+            long y = Long.valueOf(l);
+            if (y < 0) {
+                throw new InvalidFormatException("Invalid format: negative number.");
+            }
+            return y;
         } catch (NumberFormatException e) {
             throw new InvalidFormatException(e.getMessage());
         }

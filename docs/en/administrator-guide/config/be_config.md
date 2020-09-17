@@ -483,6 +483,15 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `storage_root_path`
 
+### `storage_strict_check_incompatible_old_format`
+* Type: bool
+* Description: Used to check incompatible old format strictly
+* Default value: true
+* Dynamically modify: false
+
+This config is used to check incompatible old format hdr_ format whether doris uses strict way. When config is true, 
+process will log fatal and exit. When config is false, process will only log warning.
+
 ### `streaming_load_max_mb`
 
 * Type: int64

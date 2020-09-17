@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -248,15 +249,6 @@ public class OlapTable extends Table {
                 nameToPartition.put(newName, partition);
                 break;
             }
-        }
-    }
-
-    @Override
-    public List<Column> getBaseSchema(boolean full) {
-        if (full) {
-            return getSchemaByIndexId(baseIndexId);
-        } else {
-            return getSchemaByIndexId(baseIndexId).stream().filter(column -> column.isVisible()).collect(Collectors.toList());
         }
     }
 
@@ -524,13 +516,13 @@ public class OlapTable extends Table {
     public Map<Long, List<Column>> getIndexIdToSchema() {
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().getSchema());
+            result.put(entry.getKey(), entry.getValue().getSchema(Util.showHiddenColumns()));
         }
         return result;
     }
 
     public List<Column> getSchemaByIndexId(Long indexId) {
-        return indexIdToMeta.get(indexId).getSchema();
+        return getSchemaByIndexId(indexId, Util.showHiddenColumns());
     }
 
     public List<Column> getSchemaByIndexId(Long indexId, boolean full) {
@@ -559,7 +551,7 @@ public class OlapTable extends Table {
     }
 
     public Column getDeleteSignColumn() {
-        for (Column column : getBaseSchema()) {
+        for (Column column : getBaseSchema(true)) {
             if (column.isDeleteSignColumn()) {
                 return column;
             }
@@ -810,7 +802,7 @@ public class OlapTable extends Table {
         this.sequenceType = type;
 
         // sequence column is value column with REPLACE aggregate type
-        Column sequenceCol = new Column(Column.SEQUENCE_COL, type, false, AggregateType.REPLACE, true, null, "", false);
+        Column sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
         // add sequence column at last
         fullSchema.add(sequenceCol);
         nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
@@ -821,7 +813,7 @@ public class OlapTable extends Table {
     }
 
     public Column getSequenceCol() {
-        for (Column column : getBaseSchema()) {
+        for (Column column : getBaseSchema(true)) {
             if (column.isSequenceColumn()) {
                 return column;
             }
@@ -831,6 +823,10 @@ public class OlapTable extends Table {
 
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
+    }
+
+    public boolean hasHiddenColumn() {
+        return getBaseSchema().stream().anyMatch(column -> !column.isVisible());
     }
 
     public Type getSequenceType() {
@@ -1406,6 +1402,11 @@ public class OlapTable extends Table {
     @Override
     public List<Column> getBaseSchema() {
         return getSchemaByIndexId(baseIndexId);
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        return getSchemaByIndexId(baseIndexId, full);
     }
 
     public Column getBaseColumn(String columnName) {

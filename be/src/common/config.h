@@ -223,6 +223,12 @@ namespace config {
     CONF_mInt32(disk_stat_monitor_interval, "5");
     CONF_mInt32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
+
+    // Config is used to check incompatible old format hdr_ format
+    // whether doris uses strict way. When config is true, process will log fatal
+    // and exit. When config is false, process will only log warning.
+    CONF_Bool(storage_strict_check_incompatible_old_format, "true");
+
     // BE process will exit if the percentage of error disk reach this value.
     CONF_mInt32(max_percentage_of_error_disk, "0");
     // CONF_Int32(default_num_rows_per_data_block, "1024");
@@ -273,7 +279,7 @@ namespace config {
     // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
     // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring 
     // lower write amplification, trading off read amplification and space amplification.
-    CONF_String(cumulative_compaction_policy, "num_based");
+    CONF_String(cumulative_compaction_policy, "size_based");
 
     // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size, 
     // this rowset will be given to base compaction, unit is m byte.

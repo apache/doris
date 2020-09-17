@@ -88,7 +88,7 @@ public class PaloFe {
                 throw new IllegalArgumentException("Java version doesn't match");
             }
 
-            Log4jConfig.initLogging();
+            Log4jConfig.initLogging(dorisHomeDir + "/conf/");
 
             // set dns cache ttl
             java.security.Security.setProperty("networkaddress.cache.ttl" , "60");

@@ -264,12 +264,12 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
         if (t1.isDateType()) {
-            if (t2.isDateType() || t2.isStringType()) {
+            if (t2.isDateType() || t2.isStringType() || t2.isIntegerType()) {
                 return true;
             }
             return false;
         } else if (t2.isDateType()) {
-            if (t1.isStringType()) {
+            if (t1.isStringType() || t1.isIntegerType()) {
                 return true;
             }
             return false;

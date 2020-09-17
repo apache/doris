@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.commons.collections.map.HashedMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Catalog;
@@ -89,6 +88,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -916,7 +916,9 @@ public class Coordinator {
                 continue;
             }
 
-            PlanNode leftMostNode = findLeftmostNode(fragment.getPlanRoot());
+            Pair<PlanNode, PlanNode> pairNodes = findLeftmostNode(fragment.getPlanRoot());
+            PlanNode fatherNode = pairNodes.first;
+            PlanNode leftMostNode = pairNodes.second;
 
             /*
              * Case A:
@@ -933,7 +935,11 @@ public class Coordinator {
 
                 int inputFragmentIndex = 0;
                 int maxParallelism = 0;
-                for (int j = 0; j < fragment.getChildren().size(); j++) {
+                // If the fragment has three children, then the first child and the second child are the child(both exchange node) of shuffle HashJoinNode,
+                // and the third child is the right child(ExchangeNode) of broadcast HashJoinNode.
+                // We only need to pay attention to the maximum parallelism among the two ExchangeNodes of shuffle HashJoinNode.
+                int childrenCount = (fatherNode != null) ? fatherNode.getChildren().size() : 1;
+                for (int j = 0; j < childrenCount; j++) {
                     int currentChildFragmentParallelism = fragmentExecParamsMap.get(fragment.getChild(j).getFragmentId()).instanceExecParams.size();
                     if (currentChildFragmentParallelism > maxParallelism) {
                         maxParallelism = currentChildFragmentParallelism;
@@ -977,24 +983,14 @@ public class Coordinator {
                 continue;
             }
 
+            int parallelExecInstanceNum = fragment.getParallelExecNum();
             //for ColocateJoin fragment
             if (isColocateJoin(fragment.getPlanRoot()) && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
                     && fragmentIdToSeqToAddressMap.get(fragment.getFragmentId()).size() > 0) {
-                Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(fragment.getFragmentId());
-                for (Map.Entry<Integer, Map<Integer, List<TScanRangeParams>>> scanRanges : bucketSeqToScanRange.entrySet()) {
-                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, bucketSeqToAddress.get(scanRanges.getKey()), 0, params);
-
-                    Map<Integer, List<TScanRangeParams>> nodeScanRanges = scanRanges.getValue();
-                    for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRanges.entrySet()) {
-                        instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), nodeScanRange.getValue());
-                    }
-
-                    params.instanceExecParams.add(instanceParam);
-                }
+                computeColocateJoinInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params);
             } else {
                 // case A
                 Iterator iter = fragmentExecParamsMap.get(fragment.getFragmentId()).scanRangeAssignment.entrySet().iterator();
-                int parallelExecInstanceNum = fragment.getParallelExecNum();
                 while (iter.hasNext()) {
                     Map.Entry entry = (Map.Entry) iter.next();
                     TNetworkAddress key = (TNetworkAddress) entry.getKey();
@@ -1071,12 +1067,14 @@ public class Coordinator {
     
     // Returns the id of the leftmost node of any of the gives types in 'plan_root',
     // or INVALID_PLAN_NODE_ID if no such node present.
-    private PlanNode findLeftmostNode(PlanNode plan) {
+    private Pair<PlanNode, PlanNode> findLeftmostNode(PlanNode plan) {
         PlanNode newPlan = plan;
+        PlanNode fatherPlan = null;
         while (newPlan.getChildren().size() != 0 && !(newPlan instanceof ExchangeNode)) {
+            fatherPlan = newPlan;
             newPlan = newPlan.getChild(0);
         }
-        return newPlan;
+        return new Pair<PlanNode, PlanNode>(fatherPlan, newPlan);
     }
 
     private <K, V> V findOrInsert(HashMap<K, V> m, final K key, final V defaultVal) {
@@ -1101,6 +1099,51 @@ public class Coordinator {
 
     private long getScanRangeLength(final TScanRange scanRange) {
         return 1;
+    }
+
+    private void computeColocateJoinInstanceParam(PlanFragmentId fragmentId, int parallelExecInstanceNum, FragmentExecParams params) {
+        Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(fragmentId);
+
+        // 1. count each node in one fragment should scan how many tablet, gather them in one list
+        Map<TNetworkAddress, List<Map<Integer, List<TScanRangeParams>>>> addressToScanRanges = Maps.newHashMap();
+        for (Map.Entry<Integer, Map<Integer, List<TScanRangeParams>>> scanRanges : bucketSeqToScanRange.entrySet()) {
+            TNetworkAddress address = bucketSeqToAddress.get(scanRanges.getKey());
+            Map<Integer, List<TScanRangeParams>> nodeScanRanges = scanRanges.getValue();
+
+            if (!addressToScanRanges.containsKey(address)) {
+                addressToScanRanges.put(address, Lists.newArrayList());
+            }
+            addressToScanRanges.get(address).add(nodeScanRanges);
+        }
+
+        for (Map.Entry<TNetworkAddress, List<Map<Integer, List<TScanRangeParams>>>> addressScanRange : addressToScanRanges.entrySet()) {
+            List<Map<Integer, List<TScanRangeParams>>> scanRange = addressScanRange.getValue();
+            int expectedInstanceNum = 1;
+            if (parallelExecInstanceNum > 1) {
+                //the scan instance num should not larger than the tablets num
+                expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
+            }
+
+            // 2. split how many scanRange one instance should scan
+            List<List<Map<Integer, List<TScanRangeParams>>>> perInstanceScanRanges = ListUtil.splitBySize(scanRange,
+                    expectedInstanceNum);
+
+            // 3.constuct instanceExecParam add the scanRange should be scan by instance
+            for (List<Map<Integer, List<TScanRangeParams>>> perInstanceScanRange : perInstanceScanRanges) {
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, addressScanRange.getKey(), 0, params);
+
+                for (Map<Integer, List<TScanRangeParams>> nodeScanRangeMap : perInstanceScanRange) {
+                    for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRangeMap.entrySet()) {
+                        if (!instanceParam.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
+                            instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), nodeScanRange.getValue());
+                        } else {
+                            instanceParam.perNodeScanRanges.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
+                        }
+                    }
+                }
+                params.instanceExecParams.add(instanceParam);
+            }
+        }
     }
 
     // Populates scan_range_assignment_.
@@ -1701,3 +1744,4 @@ public class Coordinator {
         }
     }
 }
+

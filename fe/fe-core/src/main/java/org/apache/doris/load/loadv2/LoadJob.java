@@ -99,7 +99,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // timeout second need to be reset in constructor of subclass
     protected long timeoutSecond = Config.broker_load_default_timeout_second;
     protected long execMemLimit = 2147483648L; // 2GB;
-    protected double maxFilterRatio = 0;
+    protected double maxFilterRatio = Config.default_max_filter_ratio;
     protected boolean strictMode = false; // default is false
     protected String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     @Deprecated

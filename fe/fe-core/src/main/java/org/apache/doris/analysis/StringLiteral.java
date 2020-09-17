@@ -173,7 +173,7 @@ public class StringLiteral extends LiteralExpr {
      * @return new converted literal (not null)
      * @throws AnalysisException when entire given string cannot be transformed into a date
      */
-    private LiteralExpr convertToDate(Type targetType) throws AnalysisException {
+    public LiteralExpr convertToDate(Type targetType) throws AnalysisException {
         LiteralExpr newLiteral = null;
         try {
             newLiteral = new DateLiteral(value, targetType);
