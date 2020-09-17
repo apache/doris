@@ -390,7 +390,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         }
 
         _result.array_val = ArrayValue::from_array_val(v);
-
         return &_result.array_val;
     }
 #if 0

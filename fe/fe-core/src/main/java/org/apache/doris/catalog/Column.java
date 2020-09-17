@@ -550,13 +550,6 @@ public class Column implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-        // if (Config.array_type_enable) {
-        //     out.writeInt(children.size());
-
-        //     for (Column child : children) {
-        //         child.write(out);
-        //     }
-        // }
     }
 
     @Deprecated
@@ -597,19 +590,6 @@ public class Column implements Writable {
         } else {
             comment = "";
         }
-
-        //        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
-        // if (Config.array_type_enable) {
-        //     int childrenSize = in.readInt();
-
-        //     for (int i = 0; i < childrenSize; i++) {
-        //         children.add(Column.read(in));
-        //     }
-
-        //     if (type.isArrayType()) {
-        //         ((ArrayType)type).setItemType(children.get(0).type);
-        //     }
-        // }
     }
 
     public static Column read(DataInput in) throws IOException {

@@ -168,12 +168,11 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_NULL:
         out.type = FunctionContext::TYPE_NULL;
         break;
-    case TYPE_ARRAY: {
+    case TYPE_ARRAY:
         out.type = FunctionContext::TYPE_ARRAY;
         for (const auto& t : type.children) {
             out.children.push_back(column_type_to_type_desc(t));
         }
-    }
         break;
     default:
         DCHECK(false) << "Unknown type: " << type;

@@ -52,13 +52,15 @@ static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
 // the max length supported for varchar type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
-
+// the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
 using StringLengthType = uint16_t;
 static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
+// the max bytes for stored array length
+static const uint16_t OLAP_ARRAY_MAX_BYTES = sizeof(StringLengthType);
 
 enum OLAPDataVersion {
     OLAP_V1 = 0,

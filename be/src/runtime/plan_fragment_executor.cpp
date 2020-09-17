@@ -280,9 +280,6 @@ Status PlanFragmentExecutor::open_internal() {
             break;
         }
 
-        LOG(WARNING) << "open_internal: #rows=" << batch->num_rows()
-                << " desc=" << batch->row_desc().debug_string();
-
         if (VLOG_ROW_IS_ON) {
             VLOG_ROW << "open_internal: #rows=" << batch->num_rows()
                 << " desc=" << row_desc().debug_string();

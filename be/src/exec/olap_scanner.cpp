@@ -333,29 +333,31 @@ Status OlapScanner::get_batch(
                     }
                 }
 
+                // Copy collection slot
                 for (auto desc : _collection_slots) {
-                    ArrayValue* slot = tuple->get_collection_slot(desc->tuple_offset());
+                    Collection* slot = tuple->get_collection_slot(desc->tuple_offset());
 
                     TypeDescriptor item_type = desc->type().children.at(0);
-                    size_t item_size = item_type.get_slot_size() * slot->_length;
+                    size_t item_size = item_type.get_slot_size() * slot->length;
                     
-                    size_t nulls_size = slot->_length;
+                    size_t nulls_size = slot->length;
                     uint8_t* data = batch->tuple_data_pool()->allocate(item_size + nulls_size);
 
                     // copy null_signs
-                    memory_copy(data, slot->_null_signs, nulls_size);
-                    memory_copy(data + nulls_size, slot->_data, item_size);
+                    memory_copy(data, slot->null_signs, nulls_size);
+                    memory_copy(data + nulls_size, slot->data, item_size);
 
-                    slot->_null_signs = reinterpret_cast<bool*>(data);
-                    slot->_data = reinterpret_cast<char*>(data + nulls_size);
+                    slot->null_signs = reinterpret_cast<bool*>(data);
+                    slot->data = reinterpret_cast<char*>(data + nulls_size);
 
                     if (!item_type.is_string_type()) {
                         continue;
                     }
 
-                    for (int i = 0; i < slot->_length; ++i) {
+                    // when string type, copy every item
+                    for (int i = 0; i < slot->length; ++i) {
                         int item_offset = nulls_size + i * item_type.get_slot_size();
-                        if (slot->_null_signs[i]) {
+                        if (slot->null_signs[i]) {
                             continue;
                         }
                         StringValue* dst_item_v = reinterpret_cast<StringValue*>(data + item_offset);
@@ -475,11 +477,11 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         case TYPE_ARRAY: {
-            ArrayValue* array_v = reinterpret_cast<ArrayValue*>(ptr);
-            ArrayValue* slot = tuple->get_collection_slot(slot_desc->tuple_offset());
-            slot->_length = array_v->_length;
-            slot->_data = array_v->_data;
-            slot->_null_signs = array_v->_null_signs;
+            Collection* array_v = reinterpret_cast<Collection*>(ptr);
+            Collection* slot = tuple->get_collection_slot(slot_desc->tuple_offset());
+            slot->length = array_v->length;
+            slot->data = array_v->data;
+            slot->null_signs = array_v->null_signs;
             break;
         }
         default: {

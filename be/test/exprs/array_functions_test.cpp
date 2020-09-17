@@ -46,9 +46,6 @@ public:
 };
 
 TEST_F(ArrayFunctionsTest, array) {
-
-    void* a = new uint8_t[0];
-    LOG(WARNING) << "a: " << a;
     // Int array
     {
         FunctionContext::TypeDesc childTypeDesc;
@@ -76,35 +73,6 @@ TEST_F(ArrayFunctionsTest, array) {
             EXPECT_EQ(i, a.val);
         }
     }
-
-    {
-        FunctionContext::TypeDesc childTypeDesc;
-        childTypeDesc.type = FunctionContext::TYPE_VARCHAR;
-
-        _context->impl()->_return_type.type = FunctionContext::TYPE_ARRAY;
-        _context->impl()->_return_type.children.clear();
-        _context->impl()->_return_type.children.push_back(childTypeDesc);
-
-        StringVal v[10];
-
-        for (int i = 0; i < 10; ++i) {
-            v[i] = StringVal(std::to_string(i).c_str());
-        }
-
-        ArrayVal cv = ArrayFunctions::array(_context, 10, v);
-
-        ArrayValue value = ArrayValue::from_array_val(cv);
-
-        int i = 0;
-        for (auto&& iter = value.iterator(TYPE_VARCHAR); iter.has_next() ; iter.next()) {
-            StringVal a;
-            iter.value(&a);
-            EXPECT_EQ(0, strcmp(std::to_string(i).c_str(), (char*) a.ptr));
-            i++;
-        }
-    }
-
-
 }
 
 }
@@ -112,3 +80,4 @@ TEST_F(ArrayFunctionsTest, array) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}

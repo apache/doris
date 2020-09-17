@@ -89,37 +89,6 @@ TEST(ArrayValueTest, set) {
         ASSERT_FALSE(cv.set(10, TYPE_INT, &intv).ok());
     }
 }
-
-
-TEST(ArrayValueTest, iter) {
-    ArrayValue cv;
-    ObjectPool pool;
-    EXPECT_TRUE(ArrayValue::init_array(&pool, 10, TYPE_VARCHAR, &cv).ok());
-
-    // normal
-    {
-        StringVal v0 = StringVal::null();
-        cv.set(0, TYPE_VARCHAR, &v0);
-        for (int j = 1; j < cv.size(); ++j) {
-            StringVal i(std::to_string(j).c_str());
-            ASSERT_TRUE(cv.set(j, TYPE_VARCHAR, &i).ok());
-        }
-    }
-    {
-        auto iter = cv.iterator(TYPE_VARCHAR);
-        EXPECT_TRUE(nullptr == iter.value());
-
-        iter.next();
-        for (int i = 0; iter.has_next(); iter.next(), i++) {
-            EXPECT_TRUE(nullptr != iter.value());
-
-            StringVal s;
-            iter.value(&s);
-            EXPECT_EQ(0, strncmp((char *)s.ptr, std::to_string(i).c_str(), s.len));
-        }
-    }
-}
-
 }
 
 int main(int argc, char** argv) {

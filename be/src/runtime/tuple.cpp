@@ -58,21 +58,6 @@ int64_t Tuple::varlen_byte_size(const TupleDescriptor& desc) const {
         result += string_val->len;
     }
 
-    // slot = desc.collection_slots().begin();
-    // for (; slot != desc.collection_slots().end(); ++slot) {
-    //     DCHECK((*slot)->type().is_collection_type());
-    //     if (is_null((*slot)->null_indicator_offset())) {
-    //         continue;
-    //     }
-    //     const CollectionValue* coll_value = get_collection_slot((*slot)->tuple_offset());
-    //     uint8_t* coll_data = coll_value->ptr;
-    //     const TupleDescriptor& item_desc = *(*slot)->collection_item_descriptor();
-    //     for (int i = 0; i < coll_value->num_tuples; ++i) {
-    //         result += reinterpret_cast<Tuple*>(coll_data)->total_byte_size(item_desc);
-    //         coll_data += item_desc.byte_size();
-    //     }
-    // }
-
     return result;
 }
 
@@ -102,35 +87,39 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool,
         }
     }
 
+    // copy collection slot
     for (auto slot_desc : desc.collection_slots()) {
         DCHECK(slot_desc->type().is_collection_type());
         if (dst->is_null(slot_desc->null_indicator_offset())) {
             continue;
         }
         
-        ArrayValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
+        // copy collection item
+        Collection* cv = dst->get_collection_slot(slot_desc->tuple_offset());
 
         const TypeDescriptor& item_type = slot_desc->type().children.at(0);
     
-        int coll_byte_size = cv->_length * item_type.get_slot_size();
-        int nulls_size = cv->_length * sizeof(bool);
+        int coll_byte_size = cv->length * item_type.get_slot_size();
+        int nulls_size = cv->length * sizeof(bool);
 
         int offset = pool->total_allocated_bytes();
         char* coll_data = reinterpret_cast<char*>(pool->allocate(coll_byte_size + nulls_size));
 
-        memory_copy(coll_data, cv->_null_signs, nulls_size);
-        memory_copy(coll_data + nulls_size, cv->_data, coll_byte_size);
+        // copy data and null_signs
+        memory_copy(coll_data, cv->null_signs, nulls_size);
+        memory_copy(coll_data + nulls_size, cv->data, coll_byte_size);
 
-        cv->_null_signs = (convert_ptrs ? reinterpret_cast<bool*>(offset) : reinterpret_cast<bool*> (coll_data));
-        cv->_data = (convert_ptrs ? reinterpret_cast<char*>(offset + nulls_size) : coll_data + nulls_size);
+        // assgin new null_sign and data location
+        cv->null_signs = (convert_ptrs ? reinterpret_cast<bool*>(offset) : reinterpret_cast<bool*> (coll_data));
+        cv->data = (convert_ptrs ? reinterpret_cast<char*>(offset + nulls_size) : coll_data + nulls_size);
 
         if (!item_type.is_string_type()) {
             continue;
         }
-
-        for (int i = 0; i < cv->_length; ++i) {
+        // when itemtype is string, copy every string item
+        for (int i = 0; i < cv->length; ++i) {
             int item_offset = nulls_size + i * item_type.get_slot_size();
-            if (cv->_null_signs[i]) {
+            if (cv->null_signs[i]) {
                 continue;
             }
             StringValue* dst_item_v = reinterpret_cast<StringValue*>(coll_data + item_offset);
@@ -205,36 +194,41 @@ void Tuple::deep_copy(
         }
     }
 
+    // copy collection slots
     for (auto slot_desc : desc.collection_slots()) {
 
         DCHECK(slot_desc->type().is_collection_type());
         if (dst->is_null(slot_desc->null_indicator_offset())) {
             continue;
         }
-
-        ArrayValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
+        // get cv to copy elements
+        Collection* cv = dst->get_collection_slot(slot_desc->tuple_offset());
         const TypeDescriptor& item_type = slot_desc->type().children.at(0);
 
-        int coll_byte_size = cv->_length * item_type.get_slot_size();
-        int nulls_size = cv->_length * sizeof(bool);
+        int coll_byte_size = cv->length * item_type.get_slot_size();
+        int nulls_size = cv->length * sizeof(bool);
 
-        memory_copy(*data, cv->_null_signs, nulls_size);
-        memory_copy(*data + nulls_size, cv->_data, coll_byte_size);
+        // copy null_sign 
+        memory_copy(*data, cv->null_signs, nulls_size);
+        // copy data
+        memory_copy(*data + nulls_size, cv->data, coll_byte_size);
 
         if (!item_type.is_string_type()) {
-            cv->_null_signs = (convert_ptrs ? reinterpret_cast<bool*>(*offset) : reinterpret_cast<bool*> (*data));
-            cv->_data = (convert_ptrs ? reinterpret_cast<char*>(*offset + nulls_size) : *data + nulls_size);
+            cv->null_signs = (convert_ptrs ? reinterpret_cast<bool*>(*offset) : reinterpret_cast<bool*> (*data));
+            cv->data = (convert_ptrs ? reinterpret_cast<char*>(*offset + nulls_size) : *data + nulls_size);
             continue;
         }
+
+        // when item is string type, copy every item
         char* base_data = *data;
         int base_offset = *offset;
 
         *data += coll_byte_size + nulls_size;
         *offset += coll_byte_size + nulls_size;
 
-        for (int i = 0; i < cv->_length; ++i) {
+        for (int i = 0; i < cv->length; ++i) {
             int item_offset = nulls_size + i * item_type.get_slot_size();
-            if (cv->_null_signs[i]) {
+            if (cv->null_signs[i]) {
                 continue;
             }
             StringValue* dst_item_v = reinterpret_cast<StringValue*>(base_data + item_offset);
@@ -243,12 +237,11 @@ void Tuple::deep_copy(
                 dst_item_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
                 *data += dst_item_v->len;
                 *offset += dst_item_v->len;
-
-                LOG(WARNING) << "xxxxxxxxxx  data offset " << (void*)*data << "   " << (void *) dst_item_v->ptr;
             }
         }
-        cv->_null_signs = (convert_ptrs ? reinterpret_cast<bool*>(base_offset) : reinterpret_cast<bool*> (base_data));
-        cv->_data = (convert_ptrs ? reinterpret_cast<char*>(base_offset + nulls_size) : base_data + nulls_size);
+        // assgin new null_sign and data location
+        cv->null_signs = (convert_ptrs ? reinterpret_cast<bool*>(base_offset) : reinterpret_cast<bool*> (base_data));
+        cv->data = (convert_ptrs ? reinterpret_cast<char*>(base_offset + nulls_size) : base_data + nulls_size);
     }
 
 }
