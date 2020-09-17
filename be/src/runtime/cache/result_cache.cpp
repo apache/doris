@@ -55,6 +55,11 @@ void ResultNodeList::move_tail(ResultNode* node) {
     _tail = node;
 }
 
+void ResultNodeList::delete_node(ResultNode** node) { 
+    (*node)->clear();
+    SAFE_DELETE(*node); 
+}
+
 void ResultNodeList::clear() {
     LOG(INFO) << "clear result node list.";
     while (_head) {

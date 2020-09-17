@@ -50,7 +50,7 @@ public:
 
     ResultNode* new_node(const UniqueId& sql_key) { return new ResultNode(sql_key); }
 
-    void delete_node(ResultNode** node) { SAFE_DELETE(*node); }
+    void delete_node(ResultNode** node);
 
     ResultNode* pop();
     void move_tail(ResultNode* node);

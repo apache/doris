@@ -67,12 +67,15 @@ void PartitionCacheTest::init(int max_size, int ela_size){
 }
 
 void PartitionCacheTest::clear(){
+    _clear_request->set_clear_type(PClearType::CLEAR_ALL);
     _cache->clear(_clear_request, _clear_response);    
     SAFE_DELETE(_cache);
     SAFE_DELETE(_update_request);
     SAFE_DELETE(_update_response);
     SAFE_DELETE(_fetch_request);
     SAFE_DELETE(_fetch_result);
+    SAFE_DELETE(_clear_request);
+    SAFE_DELETE(_clear_response);
 }
 
 void set_sql_key(PUniqueId* sql_key, int64 hi, int64 lo){
@@ -128,6 +131,7 @@ TEST_F(PartitionCacheTest, cache_clear) {
     init_batch_data(1, 1, 1);
     _cache->clear(_clear_request, _clear_response);
     ASSERT_EQ(_cache->get_cache_size(),0); 
+    clear();
 }
 
 TEST_F(PartitionCacheTest, fetch_simple_data) {
@@ -237,6 +241,7 @@ TEST_F(PartitionCacheTest, prune_data) {
     init(1,1);
     init_batch_data(129, 1, 1024);                    // 16*1024*128=2M
     ASSERT_LE(_cache->get_cache_size(), 1*1024*1024);   //cache_size <= 1M
+    clear();
 }
 
 }

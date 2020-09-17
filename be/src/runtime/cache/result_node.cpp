@@ -233,6 +233,7 @@ size_t ResultNode::prune_first() {
     PartitionRowBatch* part_node = *_partition_list.begin();
     size_t prune_size = part_node->get_data_size();
     _partition_list.erase(_partition_list.begin());
+    part_node->clear();
     SAFE_DELETE(part_node);
     _data_size -= prune_size;
     return prune_size;
@@ -245,7 +246,7 @@ void ResultNode::clear() {
     _sql_key.lo = 0;
     for (auto it = _partition_list.begin(); it != _partition_list.end();) {
         (*it)->clear();
-        delete *it;
+        SAFE_DELETE(*it);
         it = _partition_list.erase(it);
     }
     _data_size = 0;
