@@ -236,11 +236,11 @@ TEST_F(DateTimeValueTest, check_date) {
     ASSERT_TRUE(value.from_date_int64(19880201));
 
     value._month = 0;
-    ASSERT_TRUE(value.check_date());
+    ASSERT_FALSE(value.check_date());
     value._month = 2;
 
     value._day = 0;
-    ASSERT_TRUE(value.check_date());
+    ASSERT_FALSE(value.check_date());
     value._year = 1987;
     value._day = 29;
     ASSERT_TRUE(value.check_date());
@@ -1185,6 +1185,7 @@ TEST_F(DateTimeValueTest, from_int_value) {
 // Construct from int value invalid
 TEST_F(DateTimeValueTest, from_int_value_invalid) {
     DateTimeValue value;
+    char str[MAX_DTVALUE_STR_LEN];
     // minus value
     ASSERT_FALSE(value.from_date_int64(-1231));
     // [0, 101)
@@ -1198,7 +1199,10 @@ TEST_F(DateTimeValueTest, from_int_value_invalid) {
     // 100-12-31
     ASSERT_FALSE(value.from_date_int64(1232));
     // 99 00:00:00
-    ASSERT_FALSE(value.from_date_int64(99000000));
+    ASSERT_TRUE(value.from_date_int64(99000000));
+    value.to_string(str);
+    ASSERT_STREQ("9900-00-00", str);
+
     // 9999-99-99 99:99:99 + 1
     ASSERT_FALSE(value.from_date_int64(99999999999999L + 1));
 }
