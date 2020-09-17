@@ -74,10 +74,7 @@ bool DateTimeValue::check_range() const {
 }
 
 bool DateTimeValue::check_date() const {
-    if (_month == 0 || _day == 0) {
-        return true;
-    }
-    if (_day > s_days_in_month[_month]) {
+    if (_month != 0 && _day > s_days_in_month[_month]) {
         // Feb 29 in leap year is valid.
         if (_month == 2 && _day == 29 && is_leap(_year)) {
             return false;
