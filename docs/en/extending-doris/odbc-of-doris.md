@@ -185,3 +185,7 @@ This is the compatibility problem between MySQL database ODBC driver and existin
 * Method 1: replace the old MySQL External Table by ODBC External Table, recompile BE close options **WITH_MySQL**
 
 * Method 2: Do not use the latest 8. X MySQL ODBC driver replace with the 5. X MySQL ODBC driver
+
+9. Push down the filtering condition
+
+The current ODBC appearance supports push down under filtering conditions。MySQL external table can support push down under all conditions. The functions of other databases are different from Doris, which will cause the push down query to fail. At present, except for the MySQL, other databases do not support push down of function calls. Whether Doris pushes down the required filter conditions can be confirmed by the 'explain' query statement.

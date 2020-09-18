@@ -225,8 +225,11 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             j++;
         }
 
-        // ODBC scanner has filter all rows, no need check.
-        {
+        ExprContext* const* ctxs = &_conjunct_ctxs[0];
+        int num_ctxs = _conjunct_ctxs.size();
+
+        // ODBC scanner can not filter conjunct with function, need check conjunct again.
+        if (ExecNode::eval_conjuncts(ctxs, num_ctxs, row)) {
             row_batch->commit_last_row();
             ++_num_rows_returned;
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
