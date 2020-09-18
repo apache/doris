@@ -599,7 +599,6 @@ public class Column implements Writable {
             return column;
         } else {
             String json = Text.readString(in);
-            LOG.info("table {} xxxxxxxxxxxxxxx ", json);
             return GsonUtils.GSON.fromJson(json, Column.class);
         }
     }
