@@ -335,7 +335,7 @@ public class QueryPlanTest {
                 ");");
 
         Config.enable_odbc_table = true;
-        createTable("create external table test.odbc_mysql\n" +
+        createTable("create external table test.odbc_oracle\n" +
                 "(k1 int, k2 int)\n" +
                 "ENGINE=ODBC\n" +
                 "PROPERTIES (\n" +
@@ -347,6 +347,20 @@ public class QueryPlanTest {
                 "\"table\" = \"tbl1\",\n" +
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"type\" = \"oracle\"\n" +
+                ");");
+
+        createTable("create external table test.odbc_mysql\n" +
+                "(k1 int, k2 int)\n" +
+                "ENGINE=ODBC\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\",\n" +
+                "\"driver\" = \"Oracle Driver\",\n" +
+                "\"type\" = \"mysql\"\n" +
                 ");");
     }
 
@@ -1078,6 +1092,24 @@ public class QueryPlanTest {
                 }
             }
         }
+    }
+
+    @Test
+    public void testPushDownOfOdbcTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // MySQL ODBC table can push down all filter
+        String queryStr = "explain select * from odbc_mysql where k1 > 10 and abs(k1) > 10";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`k1` > 10"));
+        Assert.assertTrue(explainString.contains("abs(`k1`) > 10"));
+
+        // now we do not support odbc scan node push down function call, except MySQL ODBC table
+        // this table is Oracle ODBC table, so abs(k1) should not be pushed down
+        queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("k1 > 10"));
+        Assert.assertTrue(!explainString.contains("abs(k1) > 10"));
     }
 
     @Test
