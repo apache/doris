@@ -1421,6 +1421,11 @@ public class SingleNodePlanner {
                                 SlotRef leftSlot = eqJoinPredicate.getChild(0).unwrapSlotRef();
                                 SlotRef rightSlot = eqJoinPredicate.getChild(1).unwrapSlotRef();
 
+                                // ensure the type is match
+                                if (!leftSlot.getDesc().getType().matchesType(rightSlot.getDesc().getType())) {
+                                    continue;
+                                }
+
                                 // example: t1.id = t2.id and t1.id = 1  => t2.id =1
                                 if (otherSlot.isBound(leftSlot.getSlotId()) && rightSlot.isBound(tupleId)) {
                                     pushDownConjuncts.add(rewritePredicate(analyzer, conjunct, rightSlot));
