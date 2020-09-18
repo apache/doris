@@ -43,6 +43,7 @@
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 #include "olap/tablet_manager.h"
+#include "olap/compaction_permit_limiter.h"
 #include "olap/tablet_sync_service.h"
 #include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
@@ -212,11 +213,11 @@ private:
     void _unused_rowset_monitor_thread_callback();
 
     // base compaction thread process function
-    void _base_compaction_thread_callback(DataDir* data_dir);
+    void _base_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permit);
     // check cumulative compaction config
     void _check_cumulative_compaction_config();
     // cumulative process function
-    void _cumulative_compaction_thread_callback(DataDir* data_dir);
+    void _cumulative_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits);
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();
@@ -238,8 +239,8 @@ private:
     void _parse_default_rowset_type();
 
     void _start_clean_fd_cache();
-    void _perform_cumulative_compaction(DataDir* data_dir);
-    void _perform_base_compaction(DataDir* data_dir);
+    void _perform_cumulative_compaction(TabletSharedPtr best_tablet);
+    void _perform_base_compaction(TabletSharedPtr best_tablet);
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
     OLAPStatus _start_trash_sweep(double *usage);
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
@@ -247,6 +248,9 @@ private:
     // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
     // 重新加载数据。
     void _start_disk_stat_monitor();
+
+    Status _compaction_tasks_producer_callback();
+    vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type, std::vector<DataDir*> data_dirs);
 
 private:
     struct CompactionCandidate {
@@ -313,6 +317,7 @@ private:
     std::vector<scoped_refptr<Thread>> _base_compaction_threads;
     // threads to check cumulative
     std::vector<scoped_refptr<Thread>> _cumulative_compaction_threads;
+    scoped_refptr<Thread> _compaction_tasks_producer_thread;
     scoped_refptr<Thread> _fd_cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
@@ -343,6 +348,8 @@ private:
     HeartbeatFlags* _heartbeat_flags;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
+
+    std::map<DataDir*, int> _map_disk_compaction_num;
 };
 
 }  // namespace doris

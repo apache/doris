@@ -86,6 +86,7 @@ public:
 #define CONF_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
 #define CONF_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
 #define CONF_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
+#define CONF_uInt32(name, defaultstr) DEFINE_FIELD(uint32_t, name, defaultstr, false)
 #else
 #define CONF_Bool(name, defaultstr) DECLARE_FIELD(bool, name)
 #define CONF_Int16(name, defaultstr) DECLARE_FIELD(int16_t, name)
@@ -104,6 +105,7 @@ public:
 #define CONF_mInt32(name, defaultstr) DECLARE_FIELD(int32_t, name)
 #define CONF_mInt64(name, defaultstr) DECLARE_FIELD(int64_t, name)
 #define CONF_mDouble(name, defaultstr) DECLARE_FIELD(double, name)
+#define CONF_uInt32(name, defaultstr) DECLARE_FIELD(uint32_t, name)
 #endif
 
 // configuration properties load from config file.

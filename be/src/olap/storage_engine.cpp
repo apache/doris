@@ -578,7 +578,7 @@ void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "end clean file descritpor cache";
 }
 
-void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_cumulative_compaction(TabletSharedPtr best_tablet) {
     scoped_refptr<Trace> trace(new Trace);
     MonotonicStopWatch watch;
     watch.start();
@@ -589,13 +589,14 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     });
     ADOPT_TRACE(trace.get());
     TRACE("start to perform cumulative compaction");
+    /*
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, data_dir);
     if (best_tablet == nullptr) {
         return;
     }
     TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
-
+    */
     DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
 
     std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
@@ -614,7 +615,7 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     best_tablet->set_last_cumu_compaction_failure_time(0);
 }
 
-void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_base_compaction(TabletSharedPtr best_tablet) {
     scoped_refptr<Trace> trace(new Trace);
     MonotonicStopWatch watch;
     watch.start();
@@ -625,13 +626,14 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     });
     ADOPT_TRACE(trace.get());
     TRACE("start to perform base compaction");
+    /*
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
             CompactionType::BASE_COMPACTION, data_dir);
     if (best_tablet == nullptr) {
         return;
     }
     TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
-
+    */
     DorisMetrics::instance()->base_compaction_request_total->increment(1);
 
     std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));

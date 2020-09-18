@@ -32,6 +32,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
+#include "olap/compaction_permit_limiter.h"
 #include "agent/cgroups_mgr.h"
 #include "util/time.h"
 
@@ -87,7 +88,7 @@ Status StorageEngine::start_bg_threads() {
         max_compaction_concurrency = base_compaction_num_threads + cumulative_compaction_num_threads + 1;
     }
     Compaction::init(max_compaction_concurrency);
-
+    /*
     _base_compaction_threads.reserve(base_compaction_num_threads);
     for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
         scoped_refptr<Thread> base_compaction_thread;
@@ -109,6 +110,16 @@ Status StorageEngine::start_bg_threads() {
         _cumulative_compaction_threads.emplace_back(cumulative_compaction_thread);
     }
     LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
+    */
+
+    // compaction tasks producer thread
+    int32_t total_permits = config::total_permits_memory_for_compaction;
+    CompactionPermitLimiter::init(total_permits, true);
+    RETURN_IF_ERROR(
+            Thread::create("StorageEngine", "compaction_tasks_producer_thread",
+                           [this]() { this->_compaction_tasks_producer_callback(); },
+                           &_compaction_tasks_producer_thread));
+    LOG(INFO) << "compaction tasks producer thread started";
 
     // tablet checkpoint thread
     for (auto data_dir : data_dirs) {
@@ -169,6 +180,7 @@ void StorageEngine::_fd_cache_clean_callback() {
     }
 }
 
+/*
 void StorageEngine::_base_compaction_thread_callback(DataDir* data_dir) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
@@ -192,8 +204,21 @@ void StorageEngine::_base_compaction_thread_callback(DataDir* data_dir) {
                             "force set to 1", interval);
             interval = 1;
         }
-        
+
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
+}
+*/
+
+void StorageEngine::_base_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+    LOG(INFO) << "try to start base compaction process!";
+
+    _perform_base_compaction(tablet);
+
+    CompactionPermitLimiter::release(permits);
+    _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
 
 void StorageEngine::_garbage_sweeper_thread_callback() {
@@ -286,6 +311,7 @@ void StorageEngine::_check_cumulative_compaction_config() {
     }
 }
 
+/*
 void StorageEngine::_cumulative_compaction_thread_callback(DataDir* data_dir) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
@@ -311,6 +337,19 @@ void StorageEngine::_cumulative_compaction_thread_callback(DataDir* data_dir) {
             interval = 1;
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
+}
+*/
+
+void StorageEngine::_cumulative_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+    LOG(INFO) << "try to start cumulative compaction process!";
+
+    _perform_cumulative_compaction(tablet);
+
+    CompactionPermitLimiter::release(permits);
+    _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
 
 void StorageEngine::_unused_rowset_monitor_thread_callback() {
@@ -391,4 +430,70 @@ void StorageEngine::_tablet_checkpoint_callback(DataDir* data_dir) {
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
 }
 
+Status StorageEngine::_compaction_tasks_producer_callback() {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+    LOG(INFO) << "try to start compaction producer process!";
+
+    // convert store map to vector
+    std::vector<DataDir*> data_dirs;
+    for (auto& tmp_store : _store_map) {
+        data_dirs.push_back(tmp_store.second);
+        _map_disk_compaction_num[tmp_store.second] = 0;
+    }
+
+    int round = 0;
+    CompactionType compaction_type;
+    do {
+        if(round < 9) {
+            compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+            round++;
+        } else {
+            compaction_type = CompactionType::BASE_COMPACTION;
+            round = 0;
+        }
+        vector<TabletSharedPtr> tablets_compaction = _compaction_tasks_generator(compaction_type, data_dirs);
+
+        for (int i = 0; i < tablets_compaction.size(); i++) {
+            uint32_t permits;
+            //estimate memory usage of compaction for tablets_compaction[i]
+            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                permits = tablets_compaction[i]->calc_cumulative_compaction_score();
+            } else {
+                permits = tablets_compaction[i]->calc_base_compaction_score();
+            }
+            if (CompactionPermitLimiter::request(permits)) {
+                // add task to thread pool
+                if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                    scoped_refptr<Thread> cumulative_compaction_thread;
+                    RETURN_IF_ERROR(Thread::create("StorageEngine", "cumulative_compaction_thread",
+                                       [this, i, tablets_compaction, permits]() { this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits); },
+                                       &cumulative_compaction_thread));
+                } else {
+                    scoped_refptr<Thread> base_compaction_thread;
+                    RETURN_IF_ERROR(Thread::create("StorageEngine", "base_compaction_thread",
+                                       [this, i, tablets_compaction, permits]() { this->_base_compaction_thread_callback(tablets_compaction[i], permits); },
+                                       &base_compaction_thread));
+                }
+                _map_disk_compaction_num[tablets_compaction[i]->data_dir()] = _map_disk_compaction_num[tablets_compaction[i]->data_dir()] + 1;
+            } else {
+                continue;
+            }
+        }
+
+    } while (true);
+}
+
+vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(CompactionType compaction_type, std::vector<DataDir*> data_dirs) {
+    vector<TabletSharedPtr> tablets_compaction;
+    std::random_shuffle(data_dirs.begin(), data_dirs.end());
+    for (auto data_dir : data_dirs) {
+        if (!data_dir->reach_capacity_limit(0)) {
+            TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(compaction_type, data_dir);
+            tablets_compaction.emplace_back(tablet);
+        }
+    }
+    return tablets_compaction;
+}
 }  // namespace doris

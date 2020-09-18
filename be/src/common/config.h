@@ -318,6 +318,8 @@ namespace config {
     // This config can be set to 0, which means to forbid any compaction, for some special cases.
     CONF_Int32(max_compaction_concurrency, "-1");
 
+    CONF_uInt32(total_permits_memory_for_compaction, "1000")
+
     // Threshold to logging compaction trace, in seconds.
     CONF_mInt32(base_compaction_trace_threshold, "10");
     CONF_mInt32(cumulative_compaction_trace_threshold, "2");
