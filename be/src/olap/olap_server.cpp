@@ -88,29 +88,6 @@ Status StorageEngine::start_bg_threads() {
         max_compaction_concurrency = base_compaction_num_threads + cumulative_compaction_num_threads + 1;
     }
     Compaction::init(max_compaction_concurrency);
-    /*
-    _base_compaction_threads.reserve(base_compaction_num_threads);
-    for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
-        scoped_refptr<Thread> base_compaction_thread;
-        RETURN_IF_ERROR(
-            Thread::create("StorageEngine", "base_compaction_thread",
-                           [this, i, data_dir_num, data_dirs]() { this->_base_compaction_thread_callback(data_dirs[i % data_dir_num]); },
-                           &base_compaction_thread));
-        _base_compaction_threads.emplace_back(base_compaction_thread);
-    }
-    LOG(INFO) << "base compaction threads started. number: " << base_compaction_num_threads;
-
-    _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
-    for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
-        scoped_refptr<Thread> cumulative_compaction_thread;
-        RETURN_IF_ERROR(
-                Thread::create("StorageEngine", "cumulative_compaction_thread",
-                               [this, i, data_dir_num, data_dirs]() { this->_cumulative_compaction_thread_callback(data_dirs[i % data_dir_num]); },
-                               &cumulative_compaction_thread));
-        _cumulative_compaction_threads.emplace_back(cumulative_compaction_thread);
-    }
-    LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
-    */
 
     // compaction tasks producer thread
     int32_t total_permits = config::total_permits_memory_for_compaction;
@@ -179,35 +156,6 @@ void StorageEngine::_fd_cache_clean_callback() {
         _start_clean_fd_cache();
     }
 }
-
-/*
-void StorageEngine::_base_compaction_thread_callback(DataDir* data_dir) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    int32_t interval = config::base_compaction_check_interval_seconds;
-    do {
-        if (!config::disable_auto_compaction) {
-            // must be here, because this thread is start on start and
-            // cgroup is not initialized at this time
-            // add tid to cgroup
-            CgroupsMgr::apply_system_cgroup();
-            if (!data_dir->reach_capacity_limit(0)) {
-                _perform_base_compaction(data_dir);
-            }
-        }
-
-        interval = config::base_compaction_check_interval_seconds;
-        if (interval <= 0) {
-            OLAP_LOG_WARNING("base compaction check interval config is illegal: [%d], "
-                            "force set to 1", interval);
-            interval = 1;
-        }
-
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
-}
-*/
 
 void StorageEngine::_base_compaction_thread_callback() {
 #ifdef GOOGLE_PROFILER
@@ -312,35 +260,6 @@ void StorageEngine::_check_cumulative_compaction_config() {
         }
     }
 }
-
-/*
-void StorageEngine::_cumulative_compaction_thread_callback(DataDir* data_dir) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-    LOG(INFO) << "try to start cumulative compaction process!";
-
-    int32_t interval = config::cumulative_compaction_check_interval_seconds;
-    do {
-        if (!config::disable_auto_compaction) {
-            // must be here, because this thread is start on start and
-            // cgroup is not initialized at this time
-            // add tid to cgroup
-            CgroupsMgr::apply_system_cgroup();
-            if (!data_dir->reach_capacity_limit(0)) {
-                _perform_cumulative_compaction(data_dir);
-            }
-        }
-
-        interval = config::cumulative_compaction_check_interval_seconds;
-        if (interval <= 0) {
-            LOG(WARNING) << "cumulative compaction check interval config is illegal:" << interval
-                        << "will be forced set to one";
-            interval = 1;
-        }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
-}
-*/
 
 void StorageEngine::_cumulative_compaction_thread_callback() {
 #ifdef GOOGLE_PROFILER
@@ -477,26 +396,15 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
                 // add task to thread pool
                 if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                     _thread_pool->submit_func(std::bind<void>(&StorageEngine::_cumulative_compaction_thread_callback, this));
-                    /*
-                    scoped_refptr<Thread> cumulative_compaction_thread;
-                    RETURN_IF_ERROR(Thread::create("StorageEngine", "cumulative_compaction_thread",
-                                       [this, i, tablets_compaction, permits]() { this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits); },
-                                       &cumulative_compaction_thread));
-                    */
                 } else {
-                    _thread_pool->submit_func(std::bind<void>(&StorageEngine::_base_compaction_thread_callback, this));                    /*
-                    scoped_refptr<Thread> base_compaction_thread;
-                    RETURN_IF_ERROR(Thread::create("StorageEngine", "base_compaction_thread",
-                                       [this, i, tablets_compaction, permits]() { this->_base_compaction_thread_callback(tablets_compaction[i], permits); },
-                                       &base_compaction_thread));
-                    */
+                    _thread_pool->submit_func(std::bind<void>(&StorageEngine::_base_compaction_thread_callback, this));
                 }
                 _map_disk_compaction_num[tablets_compaction[i]->data_dir()] = _map_disk_compaction_num[tablets_compaction[i]->data_dir()] + 1;
             } else {
                 continue;
             }
         }
-
+        sleep(5);
     } while (true);
 }
 
