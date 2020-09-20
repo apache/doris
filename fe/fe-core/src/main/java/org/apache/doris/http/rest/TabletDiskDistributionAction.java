@@ -81,7 +81,7 @@ public class TabletDiskDistributionAction extends RestBaseAction {
         Map<Pair<Long, Integer>, Long> tabletToDataSize = new HashMap<Pair<Long, Integer>, Long>();
         Map<Pair<Long, Integer>, Long> tabletToPathHash = new HashMap<Pair<Long, Integer>, Long>();
         Map<Long, String> partitionToTable = new HashMap<Long, String>();
-        int tablet_total = 0;
+        int tabletTotal = 0;
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
         for (long dbId : dbIds) {
             Database db = Catalog.getCurrentCatalog().getDb(dbId);
@@ -121,7 +121,7 @@ public class TabletDiskDistributionAction extends RestBaseAction {
                                         tabletSchemaHash.add(pair);
                                         tabletToDataSize.put(pair, replica.getDataSize());
                                         tabletToPathHash.put(pair, replica.getPathHash());
-                                        tablet_total++;
+                                        tabletTotal++;
                                     }
                                 }
                             }
@@ -136,54 +136,54 @@ public class TabletDiskDistributionAction extends RestBaseAction {
             }
         }
 
-        JSONObject jsonObject_backend = new JSONObject();
-        List<JSONObject> jsonArray_partition = new ArrayList<JSONObject>();
+        JSONObject jsonObjectBackend = new JSONObject();
+        List<JSONObject> jsonArrayPartition = new ArrayList<JSONObject>();
         for (long partitionId : partitionToTablet.keySet()) {
-            JSONObject jsonObject_partition = new JSONObject();
-            jsonObject_partition.put("partition_id", partitionId);
-            jsonObject_partition.put("table_name", partitionToTable.get(partitionId));
-            List<JSONObject> jsonArray_disk = new ArrayList<JSONObject>();
+            JSONObject jsonObjectPartition = new JSONObject();
+            jsonObjectPartition.put("partition_id", partitionId);
+            jsonObjectPartition.put("table_name", partitionToTable.get(partitionId));
+            List<JSONObject> jsonArrayDisk = new ArrayList<JSONObject>();
             for (DiskInfo disk : disks.values()) {
-                long disk_path_hash = disk.getPathHash();
-                JSONObject jsonObject_disk = new JSONObject();
-                jsonObject_disk.put("disk_path_hash", disk_path_hash);
-                List<JSONObject> jsonArray_tablet = new ArrayList<JSONObject>();
-                int tablet_count = 0;
+                long diskPathHash = disk.getPathHash();
+                JSONObject jsonObjectDisk = new JSONObject();
+                jsonObjectDisk.put("diskPathHash", diskPathHash);
+                List<JSONObject> jsonArrayTablet = new ArrayList<JSONObject>();
+                int tabletCount = 0;
                 List<Pair<Long, Integer>> tabletSchemaHash = partitionToTablet.get(partitionId);
                 for (Pair<Long, Integer> tablet_info : tabletSchemaHash) {
                     long path_hash = tabletToPathHash.get(tablet_info);
-                    if (path_hash == disk_path_hash) {
-                        long tablet_id = tablet_info.first;
-                        int schema_hash = tablet_info.second;
-                        long data_size = tabletToDataSize.get(tablet_info);
-                        JSONObject jsonObject_tablet = new JSONObject();
-                        jsonObject_tablet.put("tablet_id", tablet_id);
-                        jsonObject_tablet.put("schema_hash", schema_hash);
-                        jsonObject_tablet.put("tablet_size", data_size);
-                        jsonArray_tablet.add(jsonObject_tablet);
-                        tablet_count++;
+                    if (path_hash == diskPathHash) {
+                        long tabletId = tablet_info.first;
+                        int schemaHash = tablet_info.second;
+                        long dataSize = tabletToDataSize.get(tablet_info);
+                        JSONObject jsonObjectTablet = new JSONObject();
+                        jsonObjectTablet.put("tablet_id", tabletId);
+                        jsonObjectTablet.put("schema_hash", schemaHash);
+                        jsonObjectTablet.put("tablet_size", dataSize);
+                        jsonArrayTablet.add(jsonObjectTablet);
+                        tabletCount++;
                     }
                 }
-                jsonObject_disk.put("tablets", jsonArray_tablet);
-                jsonObject_disk.put("tablets_num", tablet_count);
-                jsonObject_disk.put("total_capacity", disk.getTotalCapacityB());
-                jsonObject_disk.put("used_percentage", disk.getUsedPct());
-                jsonObject_disk.put("aviliable_capacity", disk.getAvailableCapacityB());
-                jsonArray_disk.add(jsonObject_disk);
+                jsonObjectDisk.put("tablets", jsonArrayTablet);
+                jsonObjectDisk.put("tablets_num", tabletCount);
+                jsonObjectDisk.put("total_capacity", disk.getTotalCapacityB());
+                jsonObjectDisk.put("used_percentage", disk.getUsedPct());
+                jsonObjectDisk.put("aviliable_capacity", disk.getAvailableCapacityB());
+                jsonArrayDisk.add(jsonObjectDisk);
             }
-            jsonObject_partition.put("disks", jsonArray_disk);
-            jsonArray_partition.add(jsonObject_partition);
+            jsonObjectPartition.put("disks", jsonArrayDisk);
+            jsonArrayPartition.add(jsonObjectPartition);
         }
-        jsonObject_backend.put("tablets_distribution", jsonArray_partition);
-        jsonObject_backend.put("backend", backend.getHost());
-        jsonObject_backend.put("http_port", backend.getHttpPort());
+        jsonObjectBackend.put("tablets_distribution", jsonArrayPartition);
+        jsonObjectBackend.put("backend", backend.getHost());
+        jsonObjectBackend.put("http_port", backend.getHttpPort());
 
-        JSONObject jsonObject_result = new JSONObject();
-        jsonObject_result.put("msg", "OK");
-        jsonObject_result.put("code", 0);
-        jsonObject_result.put("data", jsonObject_backend);
-        jsonObject_result.put("count", tablet_total);
-        String result =jsonObject_result.toString();
+        JSONObject jsonObjectResult = new JSONObject();
+        jsonObjectResult.put("msg", "OK");
+        jsonObjectResult.put("code", 0);
+        jsonObjectResult.put("data", jsonObjectBackend);
+        jsonObjectResult.put("count", tabletTotal);
+        String result =jsonObjectResult.toString();
 
         response.setContentType("application/json");
         response.getContent().append(result);
