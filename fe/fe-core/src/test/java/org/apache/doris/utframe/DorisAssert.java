@@ -73,6 +73,11 @@ public class DorisAssert {
         return this;
     }
 
+    public DorisAssert withoutUseDatabase() {
+        ctx.setDatabase("");
+        return this;
+    }
+
     public DorisAssert withTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
@@ -289,6 +290,9 @@ public class SelectStmt extends QueryStmt {
                 } else {
                     dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
                 }
+                if(withClause_ != null && isViewTableRef(tblRef)){
+                    continue;
+                }
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
                 }
@@ -311,6 +315,16 @@ public class SelectStmt extends QueryStmt {
                 dbs.put(dbName, db);
             }
         }
+    }
+
+    private boolean isViewTableRef(TableRef tblRef) {
+        List<View> views = withClause_.getViews();
+        for(View view : views){
+            if(view.getName().equals(tblRef.getName().toString())){
+                return true;
+            }
+        }
+        return false;
     }
 
     // Column alias generator used during query rewriting.
