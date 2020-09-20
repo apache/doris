@@ -19,7 +19,6 @@
 
 #include <sys/types.h>
 #include <unistd.h>
-
 #include "env/env.h"
 #include "util/debug_util.h"
 #include "util/file_utils.h"
@@ -126,6 +125,10 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(disk_sync_total, MetricUnit::OPERATIONS);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(blocks_open_reading, MetricUnit::BLOCKS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(blocks_open_writing, MetricUnit::BLOCKS);
+    
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(query_cache_memory_total_byte, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(query_cache_sql_total_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(query_cache_partition_total_count, MetricUnit::NOUNIT);
 
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
@@ -230,6 +233,10 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_bytes);
 
     _server_metric_entity->register_hook(_s_hook_name, std::bind(&DorisMetrics::_update, this));
+
+    INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_memory_total_byte);
+    INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_sql_total_count);
+    INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_partition_total_count);
 }
 
 void DorisMetrics::initialize(

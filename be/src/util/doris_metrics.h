@@ -170,6 +170,11 @@ public:
     UIntGauge* tablet_writer_count;
 
     UIntGauge* compaction_mem_current_consumption;
+    
+    // Cache metrics
+    UIntGauge* query_cache_memory_total_byte;
+    UIntGauge* query_cache_sql_total_count;
+    UIntGauge* query_cache_partition_total_count;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

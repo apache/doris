@@ -62,6 +62,7 @@ struct UniqueId {
     int64_t lo = 0;
 
     UniqueId(int64_t hi_, int64_t lo_) : hi(hi_), lo(lo_) { }
+    UniqueId(const UniqueId& uid) : hi(uid.hi), lo(uid.lo) { }
     UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) { }
     UniqueId(const PUniqueId& puid) : hi(puid.hi()), lo(puid.lo()) { }
     UniqueId(const std::string& hi_str, const std::string& lo_str) {
@@ -86,6 +87,32 @@ struct UniqueId {
         buf[16] = '-';
         to_hex(lo, buf + 17);
         return {buf, 33};
+    }
+    
+    UniqueId& operator=(const UniqueId uid) {
+        hi = uid.hi;
+        lo = uid.lo;
+        return *this; 
+    }
+
+    UniqueId& operator=(const PUniqueId puid) {
+        hi = puid.hi();
+        lo = puid.lo();    
+        return *this;
+    }
+    
+    UniqueId& operator=(const TUniqueId tuid) {
+        hi = tuid.hi;
+        lo = tuid.lo;
+        return *this;
+    }
+    //compare PUniqueId and UniqueId  
+    bool operator==(const PUniqueId& rhs) const {
+        return hi == rhs.hi() && lo == rhs.lo();
+    }
+    
+    bool operator!=(const PUniqueId& rhs) const {
+        return hi != rhs.hi() || lo != rhs.lo();
     }
 
     // std::map std::set needs this operator
