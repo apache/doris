@@ -769,18 +769,14 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
 
     RowBlockInfo row_block_info(0U, num_rows);
     row_block_info.null_supported = null_supported;
-    OLAPStatus res = OLAP_SUCCESS;
-
-    if ((res = (*row_block)->init(row_block_info)) != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to init row block.";
-        SAFE_DELETE(*row_block);
-        return res;
-    }
+    (*row_block)->init(row_block_info);
 
     _memory_allocated += row_block_size;
-    VLOG(3) << "RowBlockAllocator::allocate() this=" << this << ", num_rows=" << num_rows
-            << ", m_memory_allocated=" << _memory_allocated << ", row_block_addr=" << *row_block;
-    return res;
+    VLOG(3) << "RowBlockAllocator::allocate() this=" << this
+            << ", num_rows=" << num_rows
+            << ", m_memory_allocated=" << _memory_allocated
+            << ", row_block_addr=" << *row_block;
+    return OLAP_SUCCESS;
 }
 
 void RowBlockAllocator::release(RowBlock* row_block) {
@@ -1766,9 +1762,8 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     vector<Version> span_versions;
     RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
                                                            &span_versions));
-    for (uint32_t i = 0; i < span_versions.size(); i++) {
-        versions_to_be_changed->push_back(span_versions[i]);
-    }
+    versions_to_be_changed->insert(versions_to_be_changed->end(),
+                                   span_versions.begin(), span_versions.end());
 
     return OLAP_SUCCESS;
 }
