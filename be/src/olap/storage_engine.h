@@ -52,6 +52,8 @@
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
+#include "util/threadpool.h"
+
 
 namespace doris {
 
@@ -213,11 +215,11 @@ private:
     void _unused_rowset_monitor_thread_callback();
 
     // base compaction thread process function
-    void _base_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permit);
+    void _base_compaction_thread_callback();
     // check cumulative compaction config
     void _check_cumulative_compaction_config();
     // cumulative process function
-    void _cumulative_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits);
+    void _cumulative_compaction_thread_callback();
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();
@@ -350,6 +352,9 @@ private:
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 
     std::map<DataDir*, int> _map_disk_compaction_num;
+    std::unique_ptr<ThreadPool> _thread_pool;
+    TabletSharedPtr _tablet;
+    uint32_t _permits;
 };
 
 }  // namespace doris

@@ -23,14 +23,13 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
-#include "util/countdown_latch.h"
 
 namespace doris {
 
 // This class is a base class for compaction management.
 class CompactionPermitLimiter {
 public:
-    CompactionPermitLimiter();
+    CompactionPermitLimiter() {};
     virtual ~CompactionPermitLimiter() { };
 
     static OLAPStatus init(uint32_t total_permits, bool _over_sold);
@@ -51,8 +50,6 @@ private:
     static uint32_t _total_permits;
     static uint32_t _used_permits;
     static bool _over_sold;
-
-    static CountDownLatch _threads_latch;
 };
 
 inline uint32_t CompactionPermitLimiter::total_permits() const {
