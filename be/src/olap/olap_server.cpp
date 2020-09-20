@@ -33,7 +33,6 @@
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/compaction_permit_limiter.h"
-//#include "agent/cgroups_mgr.h"
 #include "util/time.h"
 
 using std::string;
