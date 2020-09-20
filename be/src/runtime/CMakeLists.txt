@@ -106,6 +106,8 @@ set(RUNTIME_FILES
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
+    cache/result_node.cpp
+    cache/result_cache.cpp
 )
 
 if (WITH_MYSQL)
