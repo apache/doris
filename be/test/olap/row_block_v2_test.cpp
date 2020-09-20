@@ -90,8 +90,7 @@ TEST_F(TestRowBlockV2, test_convert) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
-    auto res = output_block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    output_block.init(block_info);
     auto tracker = std::make_shared<MemTracker>();
     MemPool pool(tracker.get());
     for (int i = 0; i < input_block.capacity(); ++i) {
