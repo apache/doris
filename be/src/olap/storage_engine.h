@@ -352,7 +352,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 
     std::map<DataDir*, int> _map_disk_compaction_num;
-    std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<ThreadPool> _thread_pool_compaction;
 };
 
 }  // namespace doris

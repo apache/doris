@@ -353,7 +353,7 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
     LOG(INFO) << "try to start compaction producer process!";
 
     int thread_num = config::max_compaction_concurrency;
-    ThreadPoolBuilder("CompactionTaskThreadPool").set_min_threads(thread_num).set_max_threads(thread_num).build(&_thread_pool);
+    ThreadPoolBuilder("CompactionTaskThreadPool").set_min_threads(thread_num).set_max_threads(thread_num).build(&_thread_pool_compaction);
 
     // convert store map to vector
     std::vector<DataDir*> data_dirs;
@@ -384,9 +384,9 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
                 }
                 if (CompactionPermitLimiter::request(permits)) {
                     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                        _thread_pool->submit_func([this, i, tablets_compaction, permits]() {this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits);});
+                        _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits);});
                     } else {
-                        _thread_pool->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_thread_callback(tablets_compaction[i], permits);});
+                        _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_thread_callback(tablets_compaction[i], permits);});
                     }
                     _map_disk_compaction_num[tablets_compaction[i]->data_dir()] = _map_disk_compaction_num[tablets_compaction[i]->data_dir()] + 1;
                 } else {
