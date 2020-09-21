@@ -317,12 +317,12 @@ public class TabletChecker extends MasterDaemon {
     // 1. timeout
     // 2. meta not found
     private void removePriosIfNecessary() {
-        com.google.common.collect.Table<Long, Long, Set<PrioPart>> copiedPrio = null;
+        com.google.common.collect.Table<Long, Long, Set<PrioPart>> copiedPrios = null;
         synchronized (prios) {
-            copiedPrio = HashBasedTable.create(prios);
+            copiedPrios = HashBasedTable.create(prios);
         }
-
-        Iterator<Map.Entry<Long, Map<Long, Set<PrioPart>>>> iter = copiedPrio.rowMap().entrySet().iterator();
+        List<Pair<Long, Long>> deletedPrios = Lists.newArrayList();
+        Iterator<Map.Entry<Long, Map<Long, Set<PrioPart>>>> iter = copiedPrios.rowMap().entrySet().iterator();
         while (iter.hasNext()) {
             Map.Entry<Long, Map<Long, Set<PrioPart>>> dbEntry = iter.next();
             long dbId = dbEntry.getKey();
@@ -340,7 +340,7 @@ public class TabletChecker extends MasterDaemon {
                     long tblId = tblEntry.getKey();
                     OlapTable tbl = (OlapTable) db.getTable(tblId);
                     if (tbl == null) {
-                        jter.remove();
+                        deletedPrios.add(Pair.create(dbId, tblId));
                         continue;
                     }
 
@@ -348,7 +348,7 @@ public class TabletChecker extends MasterDaemon {
                     parts = parts.stream().filter(p -> (tbl.getPartition(p.partId) != null && !p.isTimeout())).collect(
                             Collectors.toSet());
                     if (parts.isEmpty()) {
-                        jter.remove();
+                        deletedPrios.add(Pair.create(dbId, tblId));
                     }
                 }
 
@@ -359,8 +359,10 @@ public class TabletChecker extends MasterDaemon {
                 db.readUnlock();
             }
         }
-
-        prios = copiedPrio;
+        for (Pair<Long, Long> prio : deletedPrios) {
+            copiedPrios.remove(prio.first, prio.second);
+        }
+        prios = copiedPrios;
     }
 
     /*

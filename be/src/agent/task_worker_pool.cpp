@@ -79,7 +79,8 @@ FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info)
-        : _master_info(master_info),
+        : _name(strings::Substitute("TaskWorkerPool.$0", TYPE_STRING(_task_worker_type))),
+          _master_info(master_info),
           _agent_utils(new AgentUtils()),
           _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
           _env(env),
@@ -186,8 +187,7 @@ void TaskWorkerPool::start() {
     }
 
 #ifndef BE_TEST
-    // TODO(yingchun): need a better name
-    ThreadPoolBuilder(strings::Substitute("TaskWorkerPool.$0", _task_worker_type))
+    ThreadPoolBuilder(_name)
             .set_min_threads(_worker_count)
             .set_max_threads(_worker_count)
             .build(&_thread_pool);
@@ -231,6 +231,11 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     } else {
         LOG(INFO) << "fail to register task. type=" << type_str << ", signature=" << signature;
     }
+}
+
+void TaskWorkerPool::notify_thread() {
+    _worker_thread_condition_variable.notify_one();
+    LOG(INFO) << "notify task worker pool: " << _name;
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -970,7 +975,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
                          << ", signature: " << agent_task_req.signature;
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
-            LOG(INFO) << "check consistency success. status:" << res
+            LOG(INFO) << "check consistency success. status: " << res
                       << ", signature:" << agent_task_req.signature << ", checksum:" << checksum;
         }
 
@@ -1007,13 +1012,18 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
 
         if (status != DORIS_SUCCESS) {
             DorisMetrics::instance()->report_task_requests_failed->increment(1);
-            LOG(WARNING) << "finish report task failed. status:" << status << ", master host:"
+            LOG(WARNING) << "report task failed. status: " << status << ", master host: "
                          << _master_info.network_address.hostname
-                         << "port:" << _master_info.network_address.port;
+                         << "port: " << _master_info.network_address.port;
+        } else {
+            LOG(INFO) << "finish report task. master host: "
+                << _master_info.network_address.hostname
+                << "port: " << _master_info.network_address.port;
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(config::report_task_interval_seconds)));
 }
 
+/// disk state report thread will report disk state at a configurable fix interval.
 void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
 
@@ -1029,15 +1039,11 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             continue;
         }
 
-        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
-        while (_is_work && _tasks.empty()) {
-            _worker_thread_condition_variable.wait();
-        }
+        // wait at most report_disk_state_interval_seconds, or being notified
+        _worker_thread_condition_variable.wait_for(MonoDelta::FromSeconds(config::report_disk_state_interval_seconds));
         if (!_is_work) {
-            return;
+            break;
         }
-        TAgentTaskRequest agent_task_req = _tasks.front();
-        _tasks.pop_front();
 
         vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
@@ -1062,11 +1068,14 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 
         if (status != DORIS_SUCCESS) {
             DorisMetrics::instance()->report_disk_requests_failed->increment(1);
-            LOG(WARNING) << "finish report disk state failed. status:" << status << ", master host:"
+            LOG(WARNING) << "report disk state failed. status: " << status << ", master host: "
                          << _master_info.network_address.hostname
-                         << ", port:" << _master_info.network_address.port;
+                         << ", port: " << _master_info.network_address.port;
+        } else {
+            LOG(INFO) << "finish report disk state. master host: "
+                << _master_info.network_address.hostname
+                << ", port: " << _master_info.network_address.port;
         }
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
     StorageEngine::instance()->deregister_report_listener(this);
 }
@@ -1088,16 +1097,11 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             continue;
         }
 
-        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
-        while (_is_work && _tasks.empty()) {
-            _worker_thread_condition_variable.wait();
-        }
+        // wait at most report_tablet_interval_seconds, or being notified
+        _worker_thread_condition_variable.wait_for(MonoDelta::FromSeconds(config::report_tablet_interval_seconds));
         if (!_is_work) {
-            return;
+            break;
         }
-
-        TAgentTaskRequest agent_task_req = _tasks.front();
-        _tasks.pop_front();
 
         request.tablets.clear();
         OLAPStatus report_all_tablets_info_status =
@@ -1117,12 +1121,14 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         AgentStatus status = _master_client->report(request, &result);
         if (status != DORIS_SUCCESS) {
             DorisMetrics::instance()->report_all_tablets_requests_failed->increment(1);
-            LOG(WARNING) << "finish report olap table state failed. status:" << status
-                         << ", master host:"
-                         << _master_info.network_address.hostname
+            LOG(WARNING) << "report tablets failed. status: " << status
+                         << ", master host: " << _master_info.network_address.hostname
                          << ", port:" << _master_info.network_address.port;
+        } else {
+            LOG(INFO) << "finish report tablets. master host: "
+                << _master_info.network_address.hostname
+                << ", port: " << _master_info.network_address.port;
         }
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
     StorageEngine::instance()->deregister_report_listener(this);
 }

@@ -49,7 +49,7 @@ struct RowBlockInfo {
 // RowBlock的内部buf中；
 // 2. 给定row_index，读取内部各field的值
 // 3. 给定查询的key，在RowBlock内做二分查找，返回起点的行偏移；
-// 4. 向量化的条件过滤下推到RowBlock级别进行，因此增加完成过滤的数据读取借口
+// 4. 向量化的条件过滤下推到RowBlock级别进行，因此增加完成过滤的数据读取接口
 class RowBlock {
     // Please keep these classes as 'friend'.  They have to use lots of private fields for
     // faster operation.
@@ -65,7 +65,7 @@ public:
     // row_num是RowBlock的最大行数，fields为了初始化各个field的起始位置。
     // 在field都为定长的情况下根据这两个值可以确定RowBlock内部buffer的大小，
     // 目前只考虑定长，因此在函数可以分配内存资源。
-    OLAPStatus init(const RowBlockInfo& block_info);
+    void init(const RowBlockInfo& block_info);
 
     inline void get_row(uint32_t row_index, RowCursor* cursor) const {
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);

@@ -335,7 +335,7 @@ public class QueryPlanTest {
                 ");");
 
         Config.enable_odbc_table = true;
-        createTable("create external table test.odbc_mysql\n" +
+        createTable("create external table test.odbc_oracle\n" +
                 "(k1 int, k2 int)\n" +
                 "ENGINE=ODBC\n" +
                 "PROPERTIES (\n" +
@@ -347,6 +347,20 @@ public class QueryPlanTest {
                 "\"table\" = \"tbl1\",\n" +
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"type\" = \"oracle\"\n" +
+                ");");
+
+        createTable("create external table test.odbc_mysql\n" +
+                "(k1 int, k2 int)\n" +
+                "ENGINE=ODBC\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\",\n" +
+                "\"driver\" = \"Oracle Driver\",\n" +
+                "\"type\" = \"mysql\"\n" +
                 ");");
     }
 
@@ -659,7 +673,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -669,7 +682,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id in (2);";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` IN (2)"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` IN (2)"));
 
@@ -679,7 +691,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id BETWEEN 1 AND 2;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` >= 1, `join1`.`id` <= 2"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` >= 1, `join2`.`id` <= 2"));
 
@@ -688,7 +699,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -699,7 +709,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("other join predicates: `join2`.`id` > 1"));
 
@@ -708,7 +717,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -717,7 +725,6 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -726,7 +733,6 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -735,7 +741,6 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "where join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -744,16 +749,21 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "and 1 < join2.id;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+
+        sql = "select *\n from join1\n" +
+                "join join2 on join1.id = join2.value\n" +
+                "and join2.value in ('abc');";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertFalse(explainString.contains("'abc' is not a number"));
+        Assert.assertFalse(explainString.contains("`join1`.`value` IN ('abc')"));
 
         // test anti join, right table join predicate, only push to right table
         sql = "select *\n from join1\n" +
                 "left anti join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -762,7 +772,6 @@ public class QueryPlanTest {
                 "left semi join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -771,7 +780,6 @@ public class QueryPlanTest {
                 "left anti join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -780,7 +788,6 @@ public class QueryPlanTest {
                 "left semi join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test anti join, left table where predicate, only push to left table
@@ -789,7 +796,6 @@ public class QueryPlanTest {
                 "left anti join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -799,7 +805,6 @@ public class QueryPlanTest {
                 "left semi join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
     }
@@ -1078,6 +1083,24 @@ public class QueryPlanTest {
                 }
             }
         }
+    }
+
+    @Test
+    public void testPushDownOfOdbcTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // MySQL ODBC table can push down all filter
+        String queryStr = "explain select * from odbc_mysql where k1 > 10 and abs(k1) > 10";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`k1` > 10"));
+        Assert.assertTrue(explainString.contains("abs(`k1`) > 10"));
+
+        // now we do not support odbc scan node push down function call, except MySQL ODBC table
+        // this table is Oracle ODBC table, so abs(k1) should not be pushed down
+        queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("k1 > 10"));
+        Assert.assertTrue(!explainString.contains("abs(k1) > 10"));
     }
 
     @Test

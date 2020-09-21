@@ -978,8 +978,7 @@ void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
 void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        TAgentTaskRequest task;
-        listener->submit_task(task);
+        listener->notify_thread();
     }
 }
 

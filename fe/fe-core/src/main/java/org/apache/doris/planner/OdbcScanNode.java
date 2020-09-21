@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -58,8 +59,20 @@ public class OdbcScanNode extends ScanNode {
             case MYSQL:
                 return mysqlProperName(name);
         }
-
         return name;
+    }
+
+    // Now some database have different function call like doris, now doris do not
+    // push down the function call except MYSQL
+    private static boolean needPushDown(TOdbcTableType tableType, Expr expr) {
+        if (!tableType.equals(TOdbcTableType.MYSQL)) {
+            List<FunctionCallExpr> fnExprList = Lists.newArrayList();
+            expr.collect(FunctionCallExpr.class, fnExprList);
+            if (!fnExprList.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private final List<String> columns = new ArrayList<String>();
@@ -144,8 +157,11 @@ public class OdbcScanNode extends ScanNode {
         }
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
-            String filter = p.toMySql();
-            filters.add(filter);
+            if (needPushDown(odbcType, p)) {
+                String filter = p.toMySql();
+                filters.add(filter);
+                conjuncts.remove(p);
+            }
         }
     }
 
