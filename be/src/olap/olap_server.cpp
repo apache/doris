@@ -164,8 +164,9 @@ void StorageEngine::_base_compaction_thread_callback() {
 
     TabletSharedPtr tablet = _tablet;
     uint32_t permits = _permits;
+    tablet->set_compaction_now(true);
     _perform_base_compaction(tablet);
-
+    tablet->set_compaction_now(false);
     CompactionPermitLimiter::release(permits);
     _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
@@ -268,9 +269,9 @@ void StorageEngine::_cumulative_compaction_thread_callback() {
 
     TabletSharedPtr tablet = _tablet;
     uint32_t permits = _permits;
-
+    tablet->set_compaction_now(true);
     _perform_cumulative_compaction(tablet);
-
+    tablet->set_compaction_now(false);
     CompactionPermitLimiter::release(permits);
     _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
