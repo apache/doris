@@ -248,6 +248,7 @@ module.exports = [
               "now",
               "second",
               "str_to_date",
+              "time_round",
               "timediff",
               "timestampadd",
               "timestampdiff",
