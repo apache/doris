@@ -99,10 +99,14 @@ under the License.
             </repositories>
 
             <pluginRepositories>
-                <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>spring-plugins</id>
                     <url>https://repo.spring.io/plugins-release/</url>
+                </pluginRepository>
+                <!-- for cup-maven-plugin -->
+                <pluginRepository>
+                    <id>cloudera-plugins</id>
+                    <url>https://repository.cloudera.com/content/groups/public/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
