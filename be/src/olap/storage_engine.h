@@ -37,13 +37,13 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
+#include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 #include "olap/tablet_manager.h"
-#include "olap/compaction_permit_limiter.h"
 #include "olap/tablet_sync_service.h"
 #include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
@@ -353,6 +353,8 @@ private:
 
     std::map<DataDir*, int> _map_disk_compaction_num;
     std::unique_ptr<ThreadPool> _thread_pool_compaction;
+
+    CompactionPermitLimiter _permit_limiter;
 };
 
 }  // namespace doris

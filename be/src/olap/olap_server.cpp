@@ -69,28 +69,17 @@ Status StorageEngine::start_bg_threads() {
     for (auto& tmp_store : _store_map) {
         data_dirs.push_back(tmp_store.second);
     }
-    int32_t data_dir_num = data_dirs.size();
 
     // check cumulative compaction config
     _check_cumulative_compaction_config();
 
-    // base and cumulative compaction threads
-    int32_t base_compaction_num_threads_per_disk = std::max<int32_t>(1, config::base_compaction_num_threads_per_disk);
-    int32_t cumulative_compaction_num_threads_per_disk = std::max<int32_t>(1, config::cumulative_compaction_num_threads_per_disk);
-    int32_t base_compaction_num_threads = base_compaction_num_threads_per_disk * data_dir_num;
-    int32_t cumulative_compaction_num_threads = cumulative_compaction_num_threads_per_disk * data_dir_num;
-    // calc the max concurrency of compaction tasks
-    int32_t max_compaction_concurrency = config::max_compaction_concurrency;
-    if (max_compaction_concurrency < 0
-        || max_compaction_concurrency > base_compaction_num_threads + cumulative_compaction_num_threads + 1) {
-        // reserve 1 thread for manual execution
-        max_compaction_concurrency = base_compaction_num_threads + cumulative_compaction_num_threads + 1;
-    }
-    Compaction::init(max_compaction_concurrency);
+    int32_t max_thread_num = config::max_compaction_threads;
+    int32_t min_thread_num = config::min_compaction_threads;
+    ThreadPoolBuilder("CompactionTaskThreadPool").set_min_threads(min_thread_num).set_max_threads(max_thread_num).build(&_thread_pool_compaction);
 
     // compaction tasks producer thread
     uint32_t total_permits = config::total_permits_memory_for_compaction;
-    CompactionPermitLimiter::init(total_permits, true);
+    _permit_limiter.init(total_permits, true);
     RETURN_IF_ERROR(
             Thread::create("StorageEngine", "compaction_tasks_producer_thread",
                            [this]() { this->_compaction_tasks_producer_callback(); },
@@ -163,7 +152,7 @@ void StorageEngine::_base_compaction_thread_callback(TabletSharedPtr tablet, uin
     LOG(INFO) << "try to start base compaction process!";
 
     _perform_base_compaction(tablet);
-    CompactionPermitLimiter::release(permits);
+    _permit_limiter.release(permits);
     _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
 
@@ -264,7 +253,7 @@ void StorageEngine::_cumulative_compaction_thread_callback(TabletSharedPtr table
     LOG(INFO) << "try to start cumulative compaction process!";
 
     _perform_cumulative_compaction(tablet);
-    CompactionPermitLimiter::release(permits);
+    _permit_limiter.release(permits);
     _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
 
@@ -352,10 +341,6 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
 #endif
     LOG(INFO) << "try to start compaction producer process!";
 
-    int thread_num = config::max_compaction_concurrency;
-    ThreadPoolBuilder("CompactionTaskThreadPool").set_min_threads(thread_num).set_max_threads(thread_num).build(&_thread_pool_compaction);
-
-    // convert store map to vector
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
         data_dirs.push_back(tmp_store.second);
@@ -382,7 +367,7 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
                 } else {
                     permits = tablets_compaction[i]->calc_base_compaction_score();
                 }
-                if (CompactionPermitLimiter::request(permits)) {
+                if (_permit_limiter.request(permits)) {
                     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                         _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits);});
                     } else {

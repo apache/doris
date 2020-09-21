@@ -32,11 +32,11 @@ public:
     CompactionPermitLimiter() {};
     virtual ~CompactionPermitLimiter() { };
 
-    static OLAPStatus init(uint32_t total_permits, bool _over_sold);
+    OLAPStatus init(uint32_t total_permits, bool _over_sold);
 
-    static bool request(uint32_t permits);
+    bool request(uint32_t permits);
 
-    static OLAPStatus release(uint32_t permits);
+    OLAPStatus release(uint32_t permits);
 
     inline uint32_t total_permits() const;
     inline void set_total_permits(uint32_t total_permits);
@@ -47,9 +47,9 @@ public:
     inline void set_over_sold(bool over_sold);
 
 private:
-    static uint32_t _total_permits;
-    static uint32_t _used_permits;
-    static bool _over_sold;
+    uint32_t _total_permits;
+    uint32_t _used_permits;
+    bool _over_sold;
 };
 
 inline uint32_t CompactionPermitLimiter::total_permits() const {

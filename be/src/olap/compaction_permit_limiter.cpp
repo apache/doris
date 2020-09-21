@@ -19,10 +19,6 @@
 
 namespace doris {
 
-uint32_t CompactionPermitLimiter::_total_permits;
-uint32_t CompactionPermitLimiter::_used_permits;
-bool CompactionPermitLimiter::_over_sold;
-
 OLAPStatus CompactionPermitLimiter::init(uint32_t total_permits, bool over_sold) {
     _total_permits = total_permits;
     _over_sold = over_sold;
@@ -33,7 +29,6 @@ OLAPStatus CompactionPermitLimiter::init(uint32_t total_permits, bool over_sold)
 bool CompactionPermitLimiter::request(uint32_t permits) {
     if (permits > _total_permits) {
         if (_over_sold) {
-            // wait_until used_permits==0
             while(_used_permits != 0) {
                 sleep(5);
             }
