@@ -32,7 +32,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "olap/compaction_permit_limiter.h"
 #include "util/time.h"
 
 using std::string;
@@ -145,7 +144,7 @@ void StorageEngine::_fd_cache_clean_callback() {
     }
 }
 
-void StorageEngine::_base_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits) {
+void StorageEngine::_base_compaction_task(TabletSharedPtr tablet, uint32_t permits) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -246,7 +245,7 @@ void StorageEngine::_check_cumulative_compaction_config() {
     }
 }
 
-void StorageEngine::_cumulative_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits) {
+void StorageEngine::_cumulative_compaction_task(TabletSharedPtr tablet, uint32_t permits) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -369,9 +368,9 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
                 }
                 if (_permit_limiter.request(permits)) {
                     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                        _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits);});
+                        _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_cumulative_compaction_task(tablets_compaction[i], permits);});
                     } else {
-                        _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_thread_callback(tablets_compaction[i], permits);});
+                        _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_task(tablets_compaction[i], permits);});
                     }
                     _map_disk_compaction_num[tablets_compaction[i]->data_dir()] = _map_disk_compaction_num[tablets_compaction[i]->data_dir()] + 1;
                 } else {

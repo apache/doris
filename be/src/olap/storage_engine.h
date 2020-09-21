@@ -215,11 +215,11 @@ private:
     void _unused_rowset_monitor_thread_callback();
 
     // base compaction thread process function
-    void _base_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits);
+    void _base_compaction_task(TabletSharedPtr tablet, uint32_t permits);
     // check cumulative compaction config
     void _check_cumulative_compaction_config();
     // cumulative process function
-    void _cumulative_compaction_thread_callback(TabletSharedPtr tablet, uint32_t permits);
+    void _cumulative_compaction_task(TabletSharedPtr tablet, uint32_t permits);
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();
