@@ -27,13 +27,13 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Map;
 
 /**
- * External Catalog resource for external table query.
+ * External ODBC Catalog resource for external table query.
  *
- * External Catalog resource example:
+ * External ODBC Catalog resource example:
  * CREATE EXTERNAL RESOURCE "odbc_mysql"
  * PROPERTIES
  * (
- *     "type" = "external_catalog", [required]
+ *     "type" = "external_odbc", [required]
  *     "user" = "root", [required]
  *     "password" = "root", [required]
  *     "host" = "192.168.1.1", [required]
@@ -44,7 +44,7 @@ import java.util.Map;
  *
  * DROP RESOURCE "odbc_mysql";
  */
-public class ExternalCatalogResource extends Resource {
+public class OdbcCatalogResource extends Resource {
     // required
     private static final String HOST = "host";
     private static final String PORT = "port";
@@ -58,17 +58,17 @@ public class ExternalCatalogResource extends Resource {
     @SerializedName(value = "configs")
     private Map<String, String> configs;
 
-    public ExternalCatalogResource(String name) {
+    public OdbcCatalogResource(String name) {
         this(name, Maps.newHashMap());
     }
 
-    private ExternalCatalogResource(String name, Map<String, String> configs) {
-        super(name, ResourceType.EXTERNAL_CATALOG);
+    private OdbcCatalogResource(String name, Map<String, String> configs) {
+        super(name, ResourceType.ODBC_CATALOG);
         this.configs = configs;
     }
 
-    public ExternalCatalogResource getCopiedResource() {
-        return new ExternalCatalogResource(name, Maps.newHashMap(configs));
+    public OdbcCatalogResource getCopiedResource() {
+        return new OdbcCatalogResource(name, Maps.newHashMap(configs));
     }
 
     private void checkProperties(String propertieKey) throws DdlException {
@@ -106,3 +106,4 @@ public class ExternalCatalogResource extends Resource {
         }
     }
 }
+

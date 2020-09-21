@@ -67,12 +67,12 @@ public class CreateResourceStmtTest {
         Assert.assertEquals("CREATE EXTERNAL RESOURCE 'spark0' PROPERTIES(\"type\"  =  \"spark\")", stmt.toSql());
 
         properties = Maps.newHashMap();
-        properties.put("type", "external_catalog");
+        properties.put("type", "odbc_catalog");
         stmt = new CreateResourceStmt(true, resourceName2, properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName2, stmt.getResourceName());
-        Assert.assertEquals(Resource.ResourceType.EXTERNAL_CATALOG, stmt.getResourceType());
-        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'odbc' PROPERTIES(\"type\"  =  \"external_catalog\")", stmt.toSql());
+        Assert.assertEquals(Resource.ResourceType.ODBC_CATALOG, stmt.getResourceType());
+        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'odbc' PROPERTIES(\"type\"  =  \"odbc_catalog\")", stmt.toSql());
 
     }
 

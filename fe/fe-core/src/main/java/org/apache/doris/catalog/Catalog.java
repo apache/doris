@@ -4059,13 +4059,13 @@ public class Catalog {
             }
             // properties
             sb.append("\nPROPERTIES (\n");
-            if (mysqlTable.getExternalCatalogResourceName() == null) {
+            if (mysqlTable.getOdbcCatalogResourceName() == null) {
                 sb.append("\"host\" = \"").append(mysqlTable.getHost()).append("\",\n");
                 sb.append("\"port\" = \"").append(mysqlTable.getPort()).append("\",\n");
                 sb.append("\"user\" = \"").append(mysqlTable.getUserName()).append("\",\n");
                 sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
             } else {
-                sb.append("\"external_catalog_resource\" = \"").append(mysqlTable.getExternalCatalogResourceName()).append("\",\n");
+                sb.append("\"odbc_catalog_resource\" = \"").append(mysqlTable.getOdbcCatalogResourceName()).append("\",\n");
             }
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
@@ -4077,15 +4077,15 @@ public class Catalog {
             }
             // properties
             sb.append("\nPROPERTIES (\n");
-            if (odbcTable.getExternalCatalogResourceName() == null) {
+            if (odbcTable.getOdbcCatalogResourceName() == null) {
                 sb.append("\"host\" = \"").append(odbcTable.getHost()).append("\",\n");
                 sb.append("\"port\" = \"").append(odbcTable.getPort()).append("\",\n");
                 sb.append("\"user\" = \"").append(odbcTable.getUserName()).append("\",\n");
                 sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
                 sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
-                sb.append("\"type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
+                sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
             } else {
-                sb.append("\"external_catalog_resource\" = \"").append(odbcTable.getExternalCatalogResourceName()).append("\",\n");
+                sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName()).append("\",\n");
             }
             sb.append("\"database\" = \"").append(odbcTable.getOdbcDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(odbcTable.getOdbcTableName()).append("\"\n");

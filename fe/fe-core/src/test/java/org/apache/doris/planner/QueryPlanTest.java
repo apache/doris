@@ -360,7 +360,7 @@ public class QueryPlanTest {
                 "\"database\" = \"db1\",\n" +
                 "\"table\" = \"tbl1\",\n" +
                 "\"driver\" = \"Oracle Driver\",\n" +
-                "\"type\" = \"mysql\"\n" +
+                "\"odbc_type\" = \"mysql\"\n" +
                 ");");
     }
 

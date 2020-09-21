@@ -45,7 +45,7 @@ import java.util.zip.Adler32;
 public class OdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
-    private static final String EXTERNAL_CATALOG_RESOURCE = "external_catalog_resource";
+    private static final String ODBC_CATALOG_RESOURCE = "odbc_catalog_resource";
     private static final String ODBC_HOST = "host";
     private static final String ODBC_PORT = "port";
     private static final String ODBC_USER = "user";
@@ -65,7 +65,7 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
-    private String externalCatalogResourceName;
+    private String odbcCatalogResourceName;
     private String host;
     private String port;
     private String userName;
@@ -88,26 +88,26 @@ public class OdbcTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of odbc table, "
-                    + "they are: external_catalog_resource or [host, port, user, password, driver, odbc_type]" +
+                    + "they are: odbc_catalog_resource or [host, port, user, password, driver, odbc_type]" +
                     " and database and table");
         }
 
-        if (properties.containsKey(EXTERNAL_CATALOG_RESOURCE)) {
-            externalCatalogResourceName = properties.get(EXTERNAL_CATALOG_RESOURCE);
+        if (properties.containsKey(ODBC_CATALOG_RESOURCE)) {
+            odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
 
             // 1. check whether resource exist
-            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(externalCatalogResourceName);
+            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName);
             if (oriResource == null) {
-                throw new DdlException("Resource does not exist. name: " + externalCatalogResourceName);
+                throw new DdlException("Resource does not exist. name: " + odbcCatalogResourceName);
             }
 
             // 2. check resource usage privilege
             if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
-                    externalCatalogResourceName,
+                    odbcCatalogResourceName,
                     PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                         + "'@'" + ConnectContext.get().getRemoteIP()
-                        + "' for resource '" + externalCatalogResourceName + "'");
+                        + "' for resource '" + odbcCatalogResourceName + "'");
             }
         } else {
             // Set up
@@ -121,13 +121,13 @@ public class OdbcTable extends Table {
             if (Strings.isNullOrEmpty(port)) {
                 // Maybe null pointer or number convert
                 throw new DdlException("Port of Odbc table is null. "
-                        + "Please set external_catalog_resource or add properties('port'='3306') when create table");
+                        + "Please set odbc_catalog_resource or add properties('port'='3306') when create table");
             } else {
                 try {
                     Integer.valueOf(port);
                 } catch (Exception e) {
                     throw new DdlException("Port of Odbc table must be a number."
-                            + "Please set external_catalog_resource or add properties('port'='3306') when create table");
+                            + "Please set odbc_catalog_resource or add properties('port'='3306') when create table");
 
                 }
             }
@@ -135,25 +135,25 @@ public class OdbcTable extends Table {
             userName = properties.get(ODBC_USER);
             if (Strings.isNullOrEmpty(userName)) {
                 throw new DdlException("User of Odbc table is null. "
-                        + "Please set external_catalog_resource or add properties('user'='root') when create table");
+                        + "Please set odbc_catalog_resource or add properties('user'='root') when create table");
             }
 
             passwd = properties.get(ODBC_PASSWORD);
             if (passwd == null) {
                 throw new DdlException("Password of Odbc table is null. "
-                        + "Please set external_catalog_resource or add properties('password'='xxxx') when create table");
+                        + "Please set odbc_catalog_resource or add properties('password'='xxxx') when create table");
             }
 
             driver = properties.get(ODBC_DRIVER);
             if (Strings.isNullOrEmpty(driver)) {
                 throw new DdlException("Driver of Odbc table is null. "
-                        + "Please set external_catalog_resource or add properties('diver'='xxxx') when create table");
+                        + "Please set odbc_catalog_resource or add properties('diver'='xxxx') when create table");
             }
 
             String tableType = properties.get(ODBC_TYPE);
             if (Strings.isNullOrEmpty(tableType)) {
                 throw new DdlException("Type of Odbc table is null. "
-                        + "Please set external_catalog_resource or add properties('odbc_type'='xxxx') when create table");
+                        + "Please set odbc_catalog_resource or add properties('odbc_type'='xxxx') when create table");
             } else {
                 odbcTableTypeName = tableType.toLowerCase();
                 if (!TABLE_TYPE_MAP.containsKey(odbcTableTypeName)) {
@@ -177,21 +177,21 @@ public class OdbcTable extends Table {
     }
 
     private String getPropertyFromResource(String propertyName) {
-        ExternalCatalogResource externalCatalogResource = (ExternalCatalogResource)
-                (Catalog.getCurrentCatalog().getResourceMgr().getResource(externalCatalogResourceName));
-        if (externalCatalogResource == null) {
-            throw new RuntimeException("Resource does not exist. name: " + externalCatalogResourceName);
+        OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
+                (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
+        if (odbcCatalogResource == null) {
+            throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
 
-        String property = externalCatalogResource.getProperties(propertyName);
+        String property = odbcCatalogResource.getProperties(propertyName);
         if (property == null) {
-            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + externalCatalogResourceName);
+            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
         }
         return property;
     }
 
-    public String getExternalCatalogResourceName() {
-        return externalCatalogResourceName;
+    public String getOdbcCatalogResourceName() {
+        return odbcCatalogResourceName;
     }
 
     public String getHost() {
@@ -274,7 +274,7 @@ public class OdbcTable extends Table {
 
         try {
             // resource name
-            adler32.update(externalCatalogResourceName.getBytes(charsetName));
+            adler32.update(odbcCatalogResourceName.getBytes(charsetName));
             // name
             adler32.update(name.getBytes(charsetName));
             // type
@@ -309,7 +309,7 @@ public class OdbcTable extends Table {
 
         Map<String, String> serializeMap = Maps.newHashMap();
 
-        serializeMap.put(EXTERNAL_CATALOG_RESOURCE, externalCatalogResourceName);
+        serializeMap.put(ODBC_CATALOG_RESOURCE, odbcCatalogResourceName);
         serializeMap.put(ODBC_HOST, host);
         serializeMap.put(ODBC_PORT, port);
         serializeMap.put(ODBC_USER, userName);
@@ -344,7 +344,7 @@ public class OdbcTable extends Table {
             serializeMap.put(key, value);
         }
 
-        externalCatalogResourceName = serializeMap.get(EXTERNAL_CATALOG_RESOURCE);
+        odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
         host = serializeMap.get(ODBC_HOST);
         port = serializeMap.get(ODBC_PORT);
         userName = serializeMap.get(ODBC_USER);

@@ -406,16 +406,16 @@ Syntax:
     )
 ```
 
-   4.2 Create MySQL table with external catalog resource
+   4.2 Create MySQL table with external ODBC catalog resource
 ```
    CREATE EXTERNAL RESOURCE "mysql_resource" 
    PROPERTIES
    (
-     "type" = "external_catalog",
+     "type" = "odbc_catalog",
      "user" = "mysql_user",
      "password" = "mysql_passwd",
      "host" = "127.0.0.1",
-      "port" = "8239"			
+     "port" = "8239"			
    );
 ```
 ```
@@ -430,7 +430,7 @@ Syntax:
     ENGINE=mysql
     PROPERTIES
     (
-    "external_catalog_resource" = "mysql_resource",
+    "odbc_catalog_resource" = "mysql_resource",
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
     )

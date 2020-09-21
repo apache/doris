@@ -446,7 +446,7 @@ under the License.
    CREATE EXTERNAL RESOURCE "mysql_resource" 
    PROPERTIES
    (
-     "type" = "external_catalog",
+     "type" = "odbc_catalog",
      "user" = "mysql_user",
      "password" = "mysql_passwd",
      "host" = "127.0.0.1",
@@ -465,7 +465,7 @@ under the License.
     ENGINE=mysql
     PROPERTIES
     (
-    "external_catalog_resource" = "mysql_resource",
+    "odbc_catalog_resource" = "mysql_resource",
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
     )

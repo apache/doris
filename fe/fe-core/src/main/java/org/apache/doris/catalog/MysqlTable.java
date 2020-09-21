@@ -43,7 +43,7 @@ import java.util.zip.Adler32;
 public class MysqlTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
-    private static final String EXTERNAL_CATALOG_RESOURCE = "external_catalog_resource";
+    private static final String ODBC_CATALOG_RESOURCE = "odbc_catalog_resource";
     private static final String MYSQL_HOST = "host";
     private static final String MYSQL_PORT = "port";
     private static final String MYSQL_USER = "user";
@@ -51,7 +51,7 @@ public class MysqlTable extends Table {
     private static final String MYSQL_DATABASE = "database";
     private static final String MYSQL_TABLE = "table";
 
-    private String externalCatalogResourceName;
+    private String odbcCatalogResourceName;
     private String host;
     private String port;
     private String userName;
@@ -72,25 +72,25 @@ public class MysqlTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of mysql table, "
-                    + "they are: external_catalog_resource or [host, port, user, password] and database and table");
+                    + "they are: odbc_catalog_resource or [host, port, user, password] and database and table");
         }
 
-        if (properties.containsKey(EXTERNAL_CATALOG_RESOURCE)) {
-            externalCatalogResourceName = properties.get(EXTERNAL_CATALOG_RESOURCE);
+        if (properties.containsKey(ODBC_CATALOG_RESOURCE)) {
+            odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
 
             // 1. check whether resource exist
-            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(externalCatalogResourceName);
+            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName);
             if (oriResource == null) {
-                throw new DdlException("Resource does not exist. name: " + externalCatalogResourceName);
+                throw new DdlException("Resource does not exist. name: " + odbcCatalogResourceName);
             }
 
             // 2. check resource usage privilege
             if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
-                    externalCatalogResourceName,
+                    odbcCatalogResourceName,
                     PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                         + "'@'" + ConnectContext.get().getRemoteIP()
-                        + "' for resource '" + externalCatalogResourceName + "'");
+                        + "' for resource '" + odbcCatalogResourceName + "'");
             }
         } else {
             // Set up
@@ -142,21 +142,21 @@ public class MysqlTable extends Table {
     }
     
     private String getPropertyFromResource(String propertyName) {
-        ExternalCatalogResource externalCatalogResource = (ExternalCatalogResource)
-                (Catalog.getCurrentCatalog().getResourceMgr().getResource(externalCatalogResourceName));
-        if (externalCatalogResource == null) {
-            throw new RuntimeException("Resource does not exist. name: " + externalCatalogResourceName);
+        OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
+                (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
+        if (odbcCatalogResource == null) {
+            throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
         
-        String property = externalCatalogResource.getProperties(propertyName);
+        String property = odbcCatalogResource.getProperties(propertyName);
         if (property == null) {
-            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + externalCatalogResourceName);
+            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
         }
         return property;
     }
 
-    public String getExternalCatalogResourceName() {
-        return externalCatalogResourceName;
+    public String getOdbcCatalogResourceName() {
+        return odbcCatalogResourceName;
     }
 
     public String getHost() {
@@ -211,20 +211,18 @@ public class MysqlTable extends Table {
         String charsetName = "UTF-8";
 
         try {
-            // resource name
-            adler32.update(externalCatalogResourceName.getBytes(charsetName));
             // name
             adler32.update(name.getBytes(charsetName));
             // type
             adler32.update(type.name().getBytes(charsetName));
             // host
-            adler32.update(host.getBytes(charsetName));
+            adler32.update(getHost().getBytes(charsetName));
             // port
-            adler32.update(port.getBytes(charsetName));
+            adler32.update(getPort().getBytes(charsetName));
             // username
-            adler32.update(userName.getBytes(charsetName));
+            adler32.update(getUserName().getBytes(charsetName));
             // passwd
-            adler32.update(passwd.getBytes(charsetName));
+            adler32.update(getPasswd().getBytes(charsetName));
             // mysql db
             adler32.update(mysqlDatabaseName.getBytes(charsetName));
             // mysql table
@@ -243,7 +241,7 @@ public class MysqlTable extends Table {
         super.write(out);
 
         Map<String, String> serializeMap = Maps.newHashMap();
-        serializeMap.put(EXTERNAL_CATALOG_RESOURCE, externalCatalogResourceName);
+        serializeMap.put(ODBC_CATALOG_RESOURCE, odbcCatalogResourceName);
         serializeMap.put(MYSQL_HOST, host);
         serializeMap.put(MYSQL_PORT, port);
         serializeMap.put(MYSQL_USER, userName);
@@ -276,7 +274,7 @@ public class MysqlTable extends Table {
                 serializeMap.put(key, value);
             }
 
-            externalCatalogResourceName = serializeMap.get(EXTERNAL_CATALOG_RESOURCE);
+            odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
             host = serializeMap.get(MYSQL_HOST);
             port = serializeMap.get(MYSQL_PORT);
             userName = serializeMap.get(MYSQL_USER);

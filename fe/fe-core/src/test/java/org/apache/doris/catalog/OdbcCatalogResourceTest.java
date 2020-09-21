@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -36,7 +37,7 @@ import org.junit.Test;
 
 import java.util.Map;
 
-public class ExternalCatalogResourceTest {
+public class OdbcCatalogResourceTest {
     private String name;
     private String type;
 
@@ -50,7 +51,7 @@ public class ExternalCatalogResourceTest {
     @Before
     public void setUp() {
         name = "odbc";
-        type = "external_catalog";
+        type = "odbc_catalog";
         host = "127.0.0.1";
         port = "7777";
         user = "doris";
@@ -79,7 +80,7 @@ public class ExternalCatalogResourceTest {
         // host: 127.0.0.1, port: 7777, without driver and odbc_type
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
         stmt.analyze(analyzer);
-        ExternalCatalogResource resource = (ExternalCatalogResource) Resource.fromStmt(stmt);
+        OdbcCatalogResource resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());
         Assert.assertEquals(type, resource.getType().name().toLowerCase());
         Assert.assertEquals(host, resource.getProperties("host"));
@@ -92,7 +93,7 @@ public class ExternalCatalogResourceTest {
         properties.put("odbc_type", "mysql");
         stmt = new CreateResourceStmt(true, name, properties);
         stmt.analyze(analyzer);
-        resource = (ExternalCatalogResource) Resource.fromStmt(stmt);
+        resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
         Assert.assertEquals("mysql", resource.getProperties("driver"));
         Assert.assertEquals("mysql", resource.getProperties("odbc_type"));
 
