@@ -233,9 +233,6 @@ public:
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
-    inline void set_compaction_now(bool compaction_now) { _compaction_now = compaction_now; }
-    inline bool compaction_now() { return _compaction_now; }
-
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -304,8 +301,6 @@ private:
     std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
     DISALLOW_COPY_AND_ASSIGN(Tablet);
-
-    bool _compaction_now;
 
 public:
     IntCounter* flush_bytes;

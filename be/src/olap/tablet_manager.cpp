@@ -710,8 +710,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
                 if (tablet_ptr->data_dir()->path_hash() != data_dir->path_hash()
                     || !tablet_ptr->is_used()
                     || !tablet_ptr->init_succeeded()
-                    || !tablet_ptr->can_do_compaction()
-                    || tablet_ptr->compaction_now()) {
+                    || !tablet_ptr->can_do_compaction()) {
                     continue;
                 }
 

@@ -162,9 +162,7 @@ void StorageEngine::_base_compaction_thread_callback(TabletSharedPtr tablet, uin
 #endif
     LOG(INFO) << "try to start base compaction process!";
 
-    tablet->set_compaction_now(true);
     _perform_base_compaction(tablet);
-    tablet->set_compaction_now(false);
     CompactionPermitLimiter::release(permits);
     _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
@@ -265,9 +263,7 @@ void StorageEngine::_cumulative_compaction_thread_callback(TabletSharedPtr table
 #endif
     LOG(INFO) << "try to start cumulative compaction process!";
 
-    tablet->set_compaction_now(true);
     _perform_cumulative_compaction(tablet);
-    tablet->set_compaction_now(false);
     CompactionPermitLimiter::release(permits);
     _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
 }
@@ -379,25 +375,23 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
         vector<TabletSharedPtr> tablets_compaction = _compaction_tasks_generator(compaction_type, data_dirs);
 
         for (int i = 0; i < tablets_compaction.size(); i++) {
-            uint32_t permits;
-            //estimate memory usage of compaction for tablets_compaction[i]
-            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                permits = tablets_compaction[i]->calc_cumulative_compaction_score();
-            } else {
-                permits = tablets_compaction[i]->calc_base_compaction_score();
-            }
-            if (CompactionPermitLimiter::request(permits)) {
-                // add task to thread pool
+            if(_map_disk_compaction_num[tablets_compaction[i]->data_dir()] == 0) {
+                uint32_t permits;
                 if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                    //_thread_pool->submit_func(std::bind(&StorageEngine::_cumulative_compaction_thread_callback, tablets_compaction[i], permits));
-                    _thread_pool->submit_func([this, i, tablets_compaction, permits]() {this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits);});
+                    permits = tablets_compaction[i]->calc_cumulative_compaction_score();
                 } else {
-                    //_thread_pool->submit_func(std::bind(&StorageEngine::_base_compaction_thread_callback, tablets_compaction[i], permits));
-                    _thread_pool->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_thread_callback(tablets_compaction[i], permits);});
+                    permits = tablets_compaction[i]->calc_base_compaction_score();
                 }
-                _map_disk_compaction_num[tablets_compaction[i]->data_dir()] = _map_disk_compaction_num[tablets_compaction[i]->data_dir()] + 1;
-            } else {
-                continue;
+                if (CompactionPermitLimiter::request(permits)) {
+                    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                        _thread_pool->submit_func([this, i, tablets_compaction, permits]() {this->_cumulative_compaction_thread_callback(tablets_compaction[i], permits);});
+                    } else {
+                        _thread_pool->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_thread_callback(tablets_compaction[i], permits);});
+                    }
+                    _map_disk_compaction_num[tablets_compaction[i]->data_dir()] = _map_disk_compaction_num[tablets_compaction[i]->data_dir()] + 1;
+                } else {
+                    continue;
+                }
             }
         }
         sleep(5);
