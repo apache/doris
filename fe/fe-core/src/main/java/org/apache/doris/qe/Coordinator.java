@@ -1472,7 +1472,7 @@ public class Coordinator {
             } catch (RpcException e) {
                 // DO NOT throw exception here, return a complete future with error code,
                 // so that the following logic will cancel the fragment.
-                Future<PExecPlanFragmentResult> future = new Future<PExecPlanFragmentResult>() {
+                return new Future<PExecPlanFragmentResult>() {
                     @Override
                     public boolean cancel(boolean mayInterruptIfRunning) {
                         return false;
@@ -1489,9 +1489,10 @@ public class Coordinator {
                     }
 
                     @Override
-                    public PExecPlanFragmentResult get() throws InterruptedException, ExecutionException {
+                    public PExecPlanFragmentResult get() {
                         PExecPlanFragmentResult result = new PExecPlanFragmentResult();
                         PStatus pStatus = new PStatus();
+                        pStatus.error_msgs = Lists.newArrayList();
                         pStatus.error_msgs.add(e.getMessage());
                         // use THRIFT_RPC_ERROR so that this BE will be added to the blacklist later.
                         pStatus.status_code = TStatusCode.THRIFT_RPC_ERROR.getValue();
@@ -1500,12 +1501,10 @@ public class Coordinator {
                     }
 
                     @Override
-                    public PExecPlanFragmentResult get(long timeout, TimeUnit unit)
-                            throws InterruptedException, ExecutionException, TimeoutException {
+                    public PExecPlanFragmentResult get(long timeout, TimeUnit unit) {
                         return get();
                     }
                 };
-                return future;
             }
         }
 
