@@ -131,6 +131,17 @@ public class TabletDiskDistributionAction extends RestBaseAction {
                 }
             } catch (Exception e) {
                 LOG.info(e);
+                JSONObject jsonObjectResult = new JSONObject();
+                jsonObjectResult.put("msg", "An exception occurs");
+                jsonObjectResult.put("code", -1);
+                jsonObjectResult.put("data", "");
+                jsonObjectResult.put("count", 0);
+                String result =jsonObjectResult.toString();
+
+                response.setContentType("application/json");
+                response.getContent().append(result);
+                sendResult(request, response);
+                return;
             } finally {
                 db.readUnlock();
             }
