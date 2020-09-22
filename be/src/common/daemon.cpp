@@ -43,6 +43,7 @@
 #include "exprs/cast_functions.h"
 #include "exprs/math_functions.h"
 #include "exprs/encryption_functions.h"
+#include "exprs/array_functions.h"
 #include "exprs/es_functions.h"
 #include "exprs/hash_functions.h"
 #include "exprs/timestamp_functions.h"
@@ -241,6 +242,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     LikePredicate::init();
     StringFunctions::init();
     CastFunctions::init();
+    ArrayFunctions::init();
     InPredicate::init();
     MathFunctions::init();
     EncryptionFunctions::init();

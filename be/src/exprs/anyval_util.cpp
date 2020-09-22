@@ -95,6 +95,9 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_DATE:
         return pool->add(new DateTimeVal);
 
+    case TYPE_ARRAY:
+        return pool->add(new ArrayVal); 
+
     case TYPE_DATETIME:
         return pool->add(new DateTimeVal);
     default:
@@ -163,6 +166,12 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         break;
     case TYPE_NULL:
         out.type = FunctionContext::TYPE_NULL;
+        break;
+    case TYPE_ARRAY:
+        out.type = FunctionContext::TYPE_ARRAY;
+        for (const auto& t : type.children) {
+            out.children.push_back(column_type_to_type_desc(t));
+        }
         break;
     default:
         DCHECK(false) << "Unknown type: " << type;

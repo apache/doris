@@ -43,6 +43,7 @@ enum TExprNodeType {
   TUPLE_IS_NULL_PRED,
   INFO_FUNC,
   FUNCTION_CALL,
+  ARRAY_LITERAL,
   
   // TODO: old style compute functions. this will be deprecated
   COMPUTE_FUNCTION_CALL,

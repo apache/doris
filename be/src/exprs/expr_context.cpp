@@ -383,6 +383,15 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
         return &_result.decimalv2_val;
     }
+    case TYPE_ARRAY: {
+        doris_udf::ArrayVal v = e->get_array_val(this, row);
+        if (v.is_null) {
+            return NULL;
+        }
+
+        _result.array_val = ArrayValue::from_array_val(v);
+        return &_result.array_val;
+    }
 #if 0
     case TYPE_ARRAY:
     case TYPE_MAP: {

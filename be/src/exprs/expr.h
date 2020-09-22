@@ -116,6 +116,7 @@ public:
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
+    virtual ArrayVal get_array_val(ExprContext* context, TupleRow*);
 
     // Get the number of digits after the decimal that should be displayed for this
     // value. Returns -1 if no scale has been specified (currently the scale is only set for
@@ -472,6 +473,7 @@ private:
     static StringVal get_string_val(Expr* expr, ExprContext* context, TupleRow* row);
     static DateTimeVal get_datetime_val(Expr* expr, ExprContext* context, TupleRow* row);
     static DecimalVal get_decimal_val(Expr* expr, ExprContext* context, TupleRow* row);
+    static ArrayVal get_array_val(Expr* expr, ExprContext* context, TupleRow* row);
     static DecimalV2Val get_decimalv2_val(Expr* expr, ExprContext* context, TupleRow* row);
 
     /// Creates an expression tree rooted at 'root' via depth-first traversal.

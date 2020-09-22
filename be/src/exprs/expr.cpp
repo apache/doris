@@ -323,6 +323,9 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
     case TExprNodeType::STRING_LITERAL:
         *expr = pool->add(new Literal(texpr_node));
         return Status::OK();
+    case TExprNodeType::ARRAY_LITERAL:
+        *expr = pool->add(new Literal(texpr_node));
+        return Status::OK();
     case TExprNodeType::COMPOUND_PRED:
         switch (texpr_node.opcode) {
         case TExprOpcode::COMPOUND_AND:
@@ -755,6 +758,10 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new AnyVal(true));
         break;
     }
+    case TYPE_ARRAY: {
+        _constant_val.reset(new ArrayVal(get_array_val(context, NULL)));
+        break;
+    }
     default:
         DCHECK(false) << "Type not implemented: " << type();
     }
@@ -836,6 +843,11 @@ DecimalVal Expr::get_decimal_val(ExprContext* context, TupleRow* row) {
 
 DecimalV2Val Expr::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     DecimalV2Val val;
+    return val;
+}
+
+ArrayVal Expr::get_array_val(ExprContext *context, TupleRow * row) {
+    ArrayVal val;
     return val;
 }
 

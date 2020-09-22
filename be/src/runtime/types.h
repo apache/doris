@@ -24,6 +24,7 @@
 #include "gen_cpp/Types_types.h"  // for TPrimitiveType
 #include "gen_cpp/types.pb.h" // for PTypeDesc
 #include "runtime/primitive_type.h"
+#include "runtime/array_value.h"
 #include "thrift/protocol/TDebugProtocol.h"
 #include "common/config.h"
 #include "olap/hll.h"
@@ -274,6 +275,9 @@ struct TypeDescriptor {
         case TYPE_DECIMALV2:
             return 16;
 
+        case TYPE_ARRAY:
+            return sizeof(ArrayValue);
+            
         case INVALID_TYPE:
         default:
             DCHECK(false);
