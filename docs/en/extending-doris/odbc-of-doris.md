@@ -46,6 +46,8 @@ This document mainly introduces the implementation principle and usage of this O
 
 ### Create ODBC External Table 
 
+#### 1. Creating ODBC external table without resource
+
 ```
 CREATE EXTERNAL TABLE `baseall_oracle` (
   `k1` decimal(9, 3) NOT NULL COMMENT "",
@@ -64,6 +66,35 @@ PROPERTIES (
 "table" = "baseall",
 "driver" = "Oracle 19 ODBC driver",
 "type" = "oracle"
+);
+```
+
+#### 2. Creating ODBC external table by resource (recommended)
+```
+create external resource "oracle_odbc"
+    properties 
+    (
+"type" = "odbc_catalog",
+"host" = "192.168.0.1",
+"port" = "8086",
+"user" = "test",
+"password" = "test",
+"database" = "test",
+ "odbc_type" = "oracle",
+ "driver" = "Oracle 19 ODBC driver");
+     
+CREATE EXTERNAL TABLE `baseall_oracle` (
+  `k1` decimal(9, 3) NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=ODBC
+COMMENT "ODBC"
+PROPERTIES (
+"odbc_catalog_resource" = "oracle_odbc",
+"database" = "test",
+"table" = "baseall",
 );
 ```
 
@@ -188,4 +219,11 @@ This is the compatibility problem between MySQL database ODBC driver and existin
 
 9. Push down the filtering condition
 
-The current ODBC appearance supports push down under filtering conditions。MySQL external table can support push down under all conditions. The functions of other databases are different from Doris, which will cause the push down query to fail. At present, except for the MySQL, other databases do not support push down of function calls. Whether Doris pushes down the required filter conditions can be confirmed by the 'explain' query statement.
+   The current ODBC appearance supports push down under filtering conditions。MySQL external table can support push down under all conditions. The functions of other databases are different from Doris, which will cause the push down query to fail. At present, except for the MySQL, other databases do not support push down of function calls. Whether Doris pushes down the required filter conditions can be confirmed by the 'explain' query statement.
+
+10. Report Errors: `driver connect Err: xxx`
+
+    Connection to the database fails. The` Err: part` represents the error of different database connection failures. This is usually a configuration problem. You should check whether the IP address, port or account password are mismatched.
+
+    
+

@@ -43,6 +43,8 @@ ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 
 ### Doris中创建ODBC的外表
 
+#### 1. 不使用Resource创建ODBC的外表
+
 ```
 CREATE EXTERNAL TABLE `baseall_oracle` (
   `k1` decimal(9, 3) NOT NULL COMMENT "",
@@ -60,22 +62,52 @@ PROPERTIES (
 "database" = "test",
 "table" = "baseall",
 "driver" = "Oracle 19 ODBC driver",
-"type" = "oracle"
+"odbc_type" = "oracle"
 );
 ```
 
+#### 2. 通过ODBC_Resource来创建ODBC外表 (推荐使用的方式)
+```
+create external resource "oracle_odbc"
+    properties 
+    (
+"type" = "odbc_catalog",
+"host" = "192.168.0.1",
+"port" = "8086",
+"user" = "test",
+"password" = "test",
+"database" = "test",
+ "odbc_type" = "oracle",
+ "driver" = "Oracle 19 ODBC driver");
+     
+CREATE EXTERNAL TABLE `baseall_oracle` (
+  `k1` decimal(9, 3) NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=ODBC
+COMMENT "ODBC"
+PROPERTIES (
+"odbc_catalog_resource" = "oracle_odbc",
+"database" = "test",
+"table" = "baseall",
+);
+```
 参数说明：
 
 参数 | 说明
 ---|---
 **hosts** | 外表数据库的IP地址
 **driver** | ODBC外表的Driver名，该名字需要和be/conf/odbcinst.ini中的Driver名一致。
-**type** | 外表数据库的类型，当前支持oracle与mysql
+**odbc_type** | 外表数据库的类型，当前支持oracle与mysql
 **user** | 外表数据库的用户名
 **password** | 对应用户的密码信息
 
 
+
 ##### ODBC Driver的安装和配置
+
 各大主流数据库都会提供ODBC的访问Driver，用户可以执行参照参照各数据库官方推荐的方式安装对应的ODBC Driver LiB库。
 
 
@@ -179,3 +211,7 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
     
 9. 过滤条件下推
     当前ODBC外表支持过滤条件下推，目前MySQL的外表是能够支持所有条件下推的。其他的数据库的函数与Doris不同会导致下推查询失败。目前除MySQL外表之外，其他的数据库不支持函数调用的条件下推。Doris是否将所需过滤条件下推，可以通过`explain` 查询语句进行确认。
+    
+10. 报错`driver connect Err: xxx`
+
+    通常是连接数据库失败，Err部分代表了不同的数据库连接失败的报错。这种情况通常是配置存在问题。可以检查是否错配了ip地址，端口或账号密码。
