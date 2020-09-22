@@ -351,10 +351,10 @@ under the License.
         ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
     
     14. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
-        ALTER TABLE example_db.my_table set ("dynamic_partition_enable" = "false");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
         
         如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
-        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
     15. 修改表的 in_memory 属性
 
         ALTER TABLE example_db.my_table set ("in_memory" = "true");
