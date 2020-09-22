@@ -93,6 +93,41 @@ Status SchemaColumnsScanner::start(RuntimeState *state) {
     return Status::OK();
 }
 
+std::string SchemaColumnsScanner::data_type_to_string(TColumnDesc &desc) {
+    switch (desc.columnType) {
+        case TPrimitiveType::BOOLEAN:
+            return "tinyint";
+        case TPrimitiveType::TINYINT:
+            return "tinyint";
+        case TPrimitiveType::SMALLINT:
+            return "smallint";
+        case TPrimitiveType::INT:
+            return "int";
+        case TPrimitiveType::BIGINT:
+            return "bigint";
+        case TPrimitiveType::LARGEINT:
+            return "bigint unsinged";
+        case TPrimitiveType::FLOAT:
+            return "float";
+        case TPrimitiveType::DOUBLE:
+            return "double";
+        case TPrimitiveType::VARCHAR:
+            return "varchar";
+        case TPrimitiveType::CHAR:
+            return "char";
+        case TPrimitiveType::DATE:
+            return "date";
+        case TPrimitiveType::DATETIME:
+            return "datetime";
+        case TPrimitiveType::DECIMALV2:
+        case TPrimitiveType::DECIMAL: {
+            return "decimal";
+        }
+        default:
+            return "unknown";
+    }
+}
+
 std::string SchemaColumnsScanner::type_to_string(TColumnDesc &desc) {
     switch (desc.columnType) {
         case TPrimitiveType::BOOLEAN:
@@ -208,7 +243,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string buffer = type_to_string(_desc_result.columns[_column_index].columnDesc);
+        std::string buffer = data_type_to_string(_desc_result.columns[_column_index].columnDesc);
         str_slot->len = buffer.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
