@@ -906,6 +906,18 @@ public class QueryPlanTest {
         // 4.2.1 test null in when expr
         String sql421 = "select case 'a' when null then 'a' else 'other' end as col421";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql421), "constant exprs: \n         'other'"));
+
+        String sql51 = "select case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql51),
+                "OUTPUT EXPRS: CASE WHEN 132 THEN `k7` ELSE 'all' END"));
+
+        String sql52 = "select case when 2 < 1 then 'all' else k7 end as col52 from test.baseall group by col52";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql52),
+                "OUTPUT EXPRS: `k7`"));
+
+        String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql53),
+                "OUTPUT EXPRS:<slot 0> `k1`"));
     }
 
     @Test
