@@ -71,6 +71,7 @@ INSERT INTO test VALUES (1, 2);
 INSERT INTO test (c1, c2) VALUES (1, 2);
 INSERT INTO test (c1, c2) VALUES (1, DEFAULT);
 INSERT INTO test (c1) VALUES (1);
+INSERT INTO test VALUES (1, 2, ARRAY(1, 2));
 ```
 
 The first and second sentences have the same effect. When the target column is not specified, the column order in the table is used as the default target column.

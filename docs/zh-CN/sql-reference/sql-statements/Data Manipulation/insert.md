@@ -71,6 +71,7 @@ INSERT INTO test VALUES (1, 2);
 INSERT INTO test (c1, c2) VALUES (1, 2);
 INSERT INTO test (c1, c2) VALUES (1, DEFAULT);
 INSERT INTO test (c1) VALUES (1);
+INSERT INTO test VALUES (1, 2, ARRAY(1, 2));
 ```
 
 其中第一条、第二条语句是一样的效果。在不指定目标列时，使用表中的列顺序来作为默认的目标列。

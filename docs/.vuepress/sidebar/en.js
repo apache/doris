@@ -304,6 +304,13 @@ module.exports = [
             ],
           },
           {
+            title: "array functions",
+            directoryPath: "array-functions/",
+            children: [
+              "array",
+            ],
+          },
+          {
             title: "Aggregate Functions",
             directoryPath: "aggregate-functions/",
             children: [
@@ -495,6 +502,7 @@ module.exports = [
               "SMALLINT",
               "TINYINT",
               "VARCHAR",
+              "ARRAY"
             ],
           },
           {
