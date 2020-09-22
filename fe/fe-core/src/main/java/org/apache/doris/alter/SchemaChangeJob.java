@@ -1104,7 +1104,7 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
-        // TODO
+        //TODO
     }
 
     @Override

@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -620,18 +621,29 @@ public class SparkLoadJob extends BulkLoadJob {
                          .add("txn_id", transactionId)
                          .add("msg", "Load job try to commit txn")
                          .build());
+        List<Table> tableList = Lists.newArrayList();
         Database db = getDb();
-        db.writeLock();
+        // The database will not be locked in here.
+        // The getTable is a thread-safe method called without read lock of database
+        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
+            Table table = db.getTable(tableId);
+            if (table == null) {
+                throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
+            } else {
+                tableList.add(table);
+            }
+        }
         try {
-//            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
-//                    dbId, transactionId, commitInfos,
-//                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-//                                              finishTimestamp, state, failMsg));
-            throw new TabletQuorumFailedException(1, 1, 1, 1, null);
+            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
+                    dbId, tableList, transactionId, commitInfos,
+                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
+                                              finishTimestamp, state, failMsg));
         } catch (TabletQuorumFailedException e) {
             // retry in next loop
         } finally {
-            db.writeUnlock();
+            for (int i = tableList.size() - 1; i >= 0; i--) {
+                tableList.get(i).writeUnlock();
+            }
         }
     }
 
