@@ -17,10 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import com.google.common.base.Preconditions;
 
@@ -69,6 +71,18 @@ public class TypeDef implements ParseNode {
     }
     if (type.isScalarType()) {
       analyzeScalarType((ScalarType) type);
+    }
+
+    if (type.isArrayType()) {
+      if (!Config.array_type_enable) {
+        throw new AnalysisException("Unsupported data type: " + type.toSql());
+      }
+
+      Type itemType = ((ArrayType) type).getItemType();
+      if (itemType.isNull()) {
+        throw new AnalysisException("Unsupported data type: "+ type.toSql());
+      }
+      analyze(itemType);
     }
   }
 

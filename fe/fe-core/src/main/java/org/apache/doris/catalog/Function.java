@@ -156,6 +156,10 @@ public class Function implements Writable {
         return retType;
     }
 
+    public void setReturnType(Type type) {
+        this.retType = type;
+    }
+
     public Type[] getArgs() {
         return argTypes;
     }

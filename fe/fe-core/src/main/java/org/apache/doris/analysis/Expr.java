@@ -1504,7 +1504,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         DATE_LITERAL(9),
         MAX_LITERAL(10),
         BINARY_PREDICATE(11),
-        FUNCTION_CALL(12);
+        FUNCTION_CALL(12),
+        ARRAY_LITERAL(13);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1552,6 +1553,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.BINARY_PREDICATE.getCode());
         } else if (expr instanceof FunctionCallExpr) {
             output.writeInt(ExprSerCode.FUNCTION_CALL.getCode());
+        } else if (expr instanceof ArrayLiteral) {
+            output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else {
             throw new IOException("Unknown class " + expr.getClass().getName());
         }
@@ -1593,6 +1596,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return BinaryPredicate.read(in);
             case FUNCTION_CALL:
                 return FunctionCallExpr.read(in);
+            case ARRAY_LITERAL:
+                return ArrayLiteral.read(in);
             default:
                 throw new IOException("Unknown code: " + code);
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
@@ -345,10 +346,22 @@ public class CreateTableStmt extends DdlStmt {
         int rowLengthBytes = 0;
         boolean hasHll = false;
         boolean hasBitmap = false;
+        boolean hasNested = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
 
+            if (columnDef.getType().isArrayType()) {
+                ArrayType tp = (ArrayType) columnDef.getType();
+                if (tp.getItemType().getPrimitiveType() != PrimitiveType.INT &&
+                        tp.getItemType().getPrimitiveType() != PrimitiveType.VARCHAR) {
+                    throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
+                }
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                    throw new AnalysisException("Array column can't support aggregation " + columnDef.getAggregateType());
+                }
+            }
+            
             if (columnDef.getType().isHllType()) {
                 hasHll = true;
             }

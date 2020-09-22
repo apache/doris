@@ -23,7 +23,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
@@ -102,8 +102,8 @@ public class Subquery extends Expr {
             type = createStructTypeFromExprList();
         }
 
-        // If the subquery returns many rows, set its type to ArrayType.
-        if (!((SelectStmt)stmt).returnsSingleRow()) type = new ArrayType(type);
+        // If the subquery returns many rows, set its type to MultiRowType.
+        if (!((SelectStmt)stmt).returnsSingleRow()) type = new MultiRowType(type);
 
         // Preconditions.checkNotNull(type);
         // type.analyze();

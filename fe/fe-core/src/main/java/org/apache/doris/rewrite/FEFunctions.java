@@ -17,6 +17,10 @@
 
 package org.apache.doris.rewrite;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -423,39 +427,25 @@ public class FEFunctions {
         return new StringLiteral(resultBuilder.toString());
     }
 
-    @FEFunction(name = "ifnull", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
-    public static LiteralExpr ifNullString(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+    @FEFunctionList({
+        @FEFunction(name = "ifnull", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR"),
+        @FEFunction(name = "ifnull", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT"),
+        @FEFunction(name = "ifnull", argTypes = {"INT", "INT"}, returnType = "INT"),
+        @FEFunction(name = "ifnull", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT"),
+        @FEFunction(name = "ifnull", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME"),
+        @FEFunction(name = "ifnull", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME"),
+        @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
+    })
+    public static LiteralExpr ifNull(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         return first instanceof NullLiteral ? second : first;
     }
 
-    @FEFunction(name = "ifnull", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT")
-    public static LiteralExpr ifNullTinyInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunction(name = "ifnull", argTypes = {"INT", "INT"}, returnType = "INT")
-    public static LiteralExpr ifNullInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunction(name = "ifnull", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT")
-    public static LiteralExpr ifNullBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATETIME" }, returnType = "DATETIME")
-    public static LiteralExpr ifNullDateTime(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunction(name = "ifnull", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME")
-    public static LiteralExpr ifNullDateDatetime(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
-    public static LiteralExpr ifNullDatetimeDate(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
+    @FEFunctionList({
+        @FEFunction(name = "array", argTypes = {"INT"}, returnType = "ARRAY"),
+        @FEFunction(name = "array", argTypes = {"VARCHAR"}, returnType = "ARRAY")
+    })
+    public static ArrayLiteral array(LiteralExpr... exprs) throws AnalysisException {
+        return new ArrayLiteral(exprs);
     }
 
 }

@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.google.common.base.Preconditions;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
@@ -49,6 +52,8 @@ public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
+    private static final String COLUMN_ARRAY_CHILDREN = "item";
+
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
@@ -74,6 +79,8 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    @SerializedName(value = "children")
+    private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
     // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
     // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being relayed.
@@ -88,6 +95,7 @@ public class Column implements Writable {
         this.isKey = false;
         this.stats = new ColumnStats();
         this.visible = true;
+        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -129,9 +137,10 @@ public class Column implements Writable {
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
         this.comment = comment;
-
         this.stats = new ColumnStats();
         this.visible = visible;
+        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        createChildrenColumn(this.type, this);
     }
 
     public Column(Column column) {
@@ -145,6 +154,22 @@ public class Column implements Writable {
         this.comment = column.getComment();
         this.stats = column.getStats();
         this.visible = column.visible;
+        this.children = column.getChildren();
+    }
+
+    public void createChildrenColumn(Type type, Column column) {
+        if (type.isArrayType()) {
+            Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            column.addChildrenColumn(c);
+        }
+    }
+
+    public List<Column> getChildren() {
+        return children;
+    }
+
+    private void addChildrenColumn(Column column) {
+        this.children.add(column);
     }
 
     public void setName(String newName) {
@@ -200,7 +225,12 @@ public class Column implements Writable {
 
     public PrimitiveType getDataType() { return type.getPrimitiveType(); }
 
-    public Type getType() { return ScalarType.createType(type.getPrimitiveType()); }
+    public Type getType() { 
+        if (type.isArrayType()) {
+            return type;
+        }
+	return ScalarType.createType(type.getPrimitiveType()); 
+    }
 
     public void setType(Type type) {
         this.type = type;
@@ -289,12 +319,40 @@ public class Column implements Writable {
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
         tColumn.setDefaultValue(this.defaultValue);
-        tColumn.setVisible(visible);
+        tColumn.setChildrenColumn(new ArrayList<>());
+        toChildrenThrift(this, tColumn);
+
         // The define expr does not need to be serialized here for now.
         // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
         // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
+        if (this.defineExpr != null) {
+            tColumn.setDefineExpr(this.defineExpr.treeToThrift());
+        }
         return tColumn;
     }
+
+    private void toChildrenThrift(Column column, TColumn tColumn) {
+        if (column.type.isArrayType()) {
+            Column children = column.getChildren().get(0);
+        
+            TColumn childrenTColumn = new TColumn();
+            childrenTColumn.setColumnName(children.name);
+
+            TColumnType childrenTColumnType = new TColumnType();
+            childrenTColumnType.setType(children.getDataType().toThrift());
+            childrenTColumnType.setType(children.getDataType().toThrift());
+            childrenTColumnType.setLen(children.getStrLen());
+            childrenTColumnType.setPrecision(children.getPrecision());
+            childrenTColumnType.setScale(children.getScale());
+
+            childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
+            childrenTColumn.setColumnType(childrenTColumnType);
+
+            tColumn.children_column.add(childrenTColumn);
+
+            toChildrenThrift(children, childrenTColumn);
+        }
+    }    
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {
@@ -473,6 +531,16 @@ public class Column implements Writable {
         }
         if (!visible == other.visible) {
             return false;
+        }
+
+        if (children.size() != other.children.size()) {
+            return false;
+        }
+
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(other.getChildren().get(i))) {
+                return false;
+            }
         }
 
         return true;

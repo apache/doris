@@ -1147,6 +1147,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
+    /*
+     * If set to true, Doris will support array type
+     */
+    @ConfField
+    public static boolean array_type_enable = false;
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
      * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.

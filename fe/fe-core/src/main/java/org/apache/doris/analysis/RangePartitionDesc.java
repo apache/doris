@@ -81,6 +81,10 @@ public class RangePartitionDesc extends PartitionDesc {
                     found = true;
                     break;
                 }
+
+                if (columnDef.getType().isArrayType()) {
+                    throw new AnalysisException("Array type column can't be partition column");
+                }
             }
 
             if (!found) {
