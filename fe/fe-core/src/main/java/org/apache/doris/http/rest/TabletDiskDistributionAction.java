@@ -137,7 +137,6 @@ public class TabletDiskDistributionAction extends RestBaseAction {
                 jsonObjectResult.put("data", "");
                 jsonObjectResult.put("count", 0);
                 String result =jsonObjectResult.toString();
-
                 response.setContentType("application/json");
                 response.getContent().append(result);
                 sendResult(request, response);
