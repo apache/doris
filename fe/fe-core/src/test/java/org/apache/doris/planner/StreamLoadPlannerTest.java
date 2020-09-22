@@ -26,7 +26,11 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.task.StreamLoadTask;
@@ -41,52 +45,42 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.StringReader;
+import java.util.LinkedList;
 import java.util.List;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.apache.doris.thrift.TStorageType;
 
 public class StreamLoadPlannerTest {
     @Injectable
     Database db;
 
-    @Injectable
-    OlapTable destTable;
-
-    @Mocked
-    StreamLoadScanNode scanNode;
-
-    @Mocked
-    OlapTableSink sink;
-
     @Test
     public void testNormalPlan() throws UserException {
-        List<Column> columns = Lists.newArrayList();
-        Column c1 = new Column("c1", PrimitiveType.BIGINT, false);
-        columns.add(c1);
-        Column c2 = new Column("c2", PrimitiveType.BIGINT, true);
-        columns.add(c2);
-        new Expectations() {
-            {
-                destTable.getBaseSchema();
-                minTimes = 0;
-                result = columns;
-                scanNode.init((Analyzer) any);
-                minTimes = 0;
-                scanNode.getChildren();
-                minTimes = 0;
-                result = Lists.newArrayList();
-                scanNode.getId();
-                minTimes = 0;
-                result = new PlanNodeId(5);
-            }
-        };
+        MaterializedIndex baseIndex = new MaterializedIndex(30001, MaterializedIndex.IndexState.NORMAL);
+        RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
+        Partition partition = new Partition(20000L, "testTbl", baseIndex, distributionInfo);
+        List<Column> baseSchema = new LinkedList<Column>();
+        Column column = new Column();
+        baseSchema.add(column);
+        SinglePartitionInfo info = new SinglePartitionInfo();
+        info.setReplicationNum(partition.getId(), (short) 3);
+        OlapTable destTable = new OlapTable(30000, "testTbl", baseSchema,
+                KeysType.AGG_KEYS, info, distributionInfo);
+        destTable.setIndexMeta(baseIndex.getId(), "testTbl", baseSchema, 0, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+        destTable.addPartition(partition);
+        destTable.setBaseIndexId(baseIndex.getId());
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setTxnId(1);
+        request.unsetIsTempPartition();
         request.setLoadId(new TUniqueId(2, 3));
         request.setFileType(TFileType.FILE_STREAM);
         request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
+        request.setPartitions("testTbl");
+
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, db);
         StreamLoadPlanner planner = new StreamLoadPlanner(db, destTable, streamLoadTask);
         planner.plan(streamLoadTask.getId());

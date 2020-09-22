@@ -135,6 +135,9 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
+        if (partitionIds.size() <= 0) {
+            throw new UserException("no partition found in file groups.");
+        }
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout());
         olapTableSink.complete();

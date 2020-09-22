@@ -740,6 +740,9 @@ public class InsertStmt extends DdlStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
+            if (targetPartitionIds.size() <= 0) {
+                throw new AnalysisException("no target partition found.");
+            }
             dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {

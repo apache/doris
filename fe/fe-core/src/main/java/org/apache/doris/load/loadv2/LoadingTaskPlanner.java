@@ -127,12 +127,10 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink;
-        try {
-            olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
-        } catch (IllegalStateException e) {
-            throw new UserException(e.getMessage());
+        if (partitionIds.size() <= 0) {
+            throw new UserException("no partition found in file groups.");
         }
+        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
         olapTableSink.init(loadId, txnId, dbId, timeoutS);
         olapTableSink.complete();
 
