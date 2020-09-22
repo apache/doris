@@ -110,6 +110,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(process_fd_num_limit_hard, MetricUnit::NOUNIT
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_cumulative_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_base_max_compaction_score, MetricUnit::NOUNIT);
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(total_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(total_compaction_num, MetricUnit::NOUNIT);
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(push_request_write_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(query_scan_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(max_disk_io_util_percent, MetricUnit::PERCENT);
@@ -209,6 +212,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
+
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, total_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, total_compaction_num);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes_per_second);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);

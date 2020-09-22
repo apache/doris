@@ -374,9 +374,10 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
             compaction_type = CompactionType::BASE_COMPACTION;
             round = 0;
         }
+        LOG(INFO) << "try to generate a batch of compaction tasks!";
         vector<TabletSharedPtr> tablets_compaction = _compaction_tasks_generator(compaction_type, data_dirs);
         for (int i = 0; i < tablets_compaction.size(); i++) {
-            if(tablets_compaction[i]->data_dir()->get_disks_compaction_num() == 0) {
+            if(tablets_compaction[i]->data_dir()->get_disks_compaction_num() < 5) {
                 uint32_t permits;
                 if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                     permits = tablets_compaction[i]->calc_cumulative_compaction_score();
