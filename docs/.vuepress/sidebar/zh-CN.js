@@ -489,6 +489,7 @@ module.exports = [
             directoryPath: "Data Types/",
             children: [
               "BIGINT",
+              "BITMAP",
               "BOOLEAN",
               "CHAR",
               "DATE",

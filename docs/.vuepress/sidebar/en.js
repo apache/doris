@@ -483,6 +483,7 @@ module.exports = [
             directoryPath: "Data Types/",
             children: [
               "BIGINT",
+              "BITMAP",
               "BOOLEAN",
               "CHAR",
               "DATE",
@@ -490,7 +491,7 @@ module.exports = [
               "DECIMAL",
               "DOUBLE",
               "FLOAT",
-              "HLL(HyperLogLog)",
+              "HLL",
               "INT",
               "SMALLINT",
               "TINYINT",
