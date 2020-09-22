@@ -355,6 +355,7 @@ private:
     std::unique_ptr<ThreadPool> _thread_pool_compaction;
 
     CompactionPermitLimiter _permit_limiter;
+    std::mutex _mutex_compaction_metrics;
 };
 
 }  // namespace doris
