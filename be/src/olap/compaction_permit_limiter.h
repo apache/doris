@@ -26,7 +26,12 @@
 
 namespace doris {
 
-// This class is a base class for compaction management.
+/*
+    This class is used to manage compaction permission. To some extent, it can be used to control the memory consumption.
+    "permits" should be applied before a compaction task can execute. When the sum of "permites" held by executing
+    compaction tasks reaches a set threshold, subsequent compaction task will be no longer allowed, until some "permits"
+    are released by some finished compaction tasks. "compaction score" for tablet is used as "permits" here.
+*/
 class CompactionPermitLimiter {
 public:
     CompactionPermitLimiter() {};

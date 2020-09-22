@@ -59,6 +59,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_total_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_avail_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_data_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_state, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
@@ -83,6 +85,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_data_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
 }
 
 DataDir::~DataDir() {
@@ -986,7 +990,7 @@ void DataDir::update_user_data_size(int64_t size) {
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
     double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                       (double)_disk_capacity_bytes;
-    int64_t left_bytes = _disk_capacity_bytes - _available_bytes - incoming_data_size;
+    int64_t left_bytes = _available_bytes - incoming_data_size;
 
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
         left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
@@ -995,5 +999,21 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
         return true;
     }
     return false;
+}
+
+void DataDir::update_disks_compaction_score(int64_t compaction_score) {
+    disks_compaction_score->set_value(compaction_score);
+}
+
+int64_t DataDir::get_disks_compaction_score() {
+    return disks_compaction_score->value();
+}
+
+void DataDir::update_disks_compaction_num(int64_t compaction_num) {
+    disks_compaction_num->set_value(compaction_num);
+}
+
+int64_t DataDir::get_disks_compaction_num() {
+    return disks_compaction_num->value();
 }
 } // namespace doris

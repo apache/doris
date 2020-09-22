@@ -32,6 +32,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
+#include "util/doris_metrics.h"
 #include "util/time.h"
 
 using std::string;
@@ -67,7 +68,11 @@ Status StorageEngine::start_bg_threads() {
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
         data_dirs.push_back(tmp_store.second);
+        tmp_store.second->update_disks_compaction_score(0);
+        tmp_store.second->update_disks_compaction_num(0);
     }
+    DorisMetrics::instance()->total_compaction_score->set_value(0);
+    DorisMetrics::instance()->total_compaction_num->set_value(0);
 
     // check cumulative compaction config
     _check_cumulative_compaction_config();
@@ -77,7 +82,7 @@ Status StorageEngine::start_bg_threads() {
     ThreadPoolBuilder("CompactionTaskThreadPool").set_min_threads(min_thread_num).set_max_threads(max_thread_num).build(&_thread_pool_compaction);
 
     // compaction tasks producer thread
-    uint32_t total_permits = config::total_permits_memory_for_compaction;
+    uint32_t total_permits = config::total_permits_for_compaction_score;
     _permit_limiter.init(total_permits, true);
     RETURN_IF_ERROR(
             Thread::create("StorageEngine", "compaction_tasks_producer_thread",
@@ -150,9 +155,16 @@ void StorageEngine::_base_compaction_task(TabletSharedPtr tablet, uint32_t permi
 #endif
     LOG(INFO) << "try to start base compaction process!";
 
+    tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() + permits);
+    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() + 1);
+    DorisMetrics::instance()->total_compaction_score->increment(permits);
+    DorisMetrics::instance()->total_compaction_num->increment(1);
     _perform_base_compaction(tablet);
     _permit_limiter.release(permits);
-    _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
+    tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() - permits);
+    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() - 1);
+    DorisMetrics::instance()->total_compaction_score->increment(-permits);
+    DorisMetrics::instance()->total_compaction_num->increment(-1);
 }
 
 void StorageEngine::_garbage_sweeper_thread_callback() {
@@ -251,9 +263,16 @@ void StorageEngine::_cumulative_compaction_task(TabletSharedPtr tablet, uint32_t
 #endif
     LOG(INFO) << "try to start cumulative compaction process!";
 
+    tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() + permits);
+    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() + 1);
+    DorisMetrics::instance()->total_compaction_score->increment(permits);
+    DorisMetrics::instance()->total_compaction_num->increment(1);
     _perform_cumulative_compaction(tablet);
     _permit_limiter.release(permits);
-    _map_disk_compaction_num[tablet->data_dir()] = _map_disk_compaction_num[tablet->data_dir()] - 1;
+    tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() - permits);
+    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() - 1);
+    DorisMetrics::instance()->total_compaction_score->increment(-permits);
+    DorisMetrics::instance()->total_compaction_num->increment(-1);
 }
 
 void StorageEngine::_unused_rowset_monitor_thread_callback() {
@@ -343,7 +362,6 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
         data_dirs.push_back(tmp_store.second);
-        _map_disk_compaction_num[tmp_store.second] = 0;
     }
 
     int round = 0;
@@ -357,9 +375,8 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
             round = 0;
         }
         vector<TabletSharedPtr> tablets_compaction = _compaction_tasks_generator(compaction_type, data_dirs);
-
         for (int i = 0; i < tablets_compaction.size(); i++) {
-            if(_map_disk_compaction_num[tablets_compaction[i]->data_dir()] == 0) {
+            if(tablets_compaction[i]->data_dir()->get_disks_compaction_num() == 0) {
                 uint32_t permits;
                 if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                     permits = tablets_compaction[i]->calc_cumulative_compaction_score();
@@ -372,7 +389,6 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
                     } else {
                         _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_task(tablets_compaction[i], permits);});
                     }
-                    _map_disk_compaction_num[tablets_compaction[i]->data_dir()] = _map_disk_compaction_num[tablets_compaction[i]->data_dir()] + 1;
                 } else {
                     continue;
                 }

@@ -314,7 +314,7 @@ namespace config {
     CONF_mInt32(max_compaction_threads, "10");
 
     // This config can be set to limit memory for compaction.
-    CONF_mInt64(total_permits_memory_for_compaction, "10000")
+    CONF_mInt64(total_permits_for_compaction_score, "15000")
 
     // Threshold to logging compaction trace, in seconds.
     CONF_mInt32(base_compaction_trace_threshold, "10");

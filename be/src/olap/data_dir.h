@@ -128,6 +128,12 @@ public:
 
     std::set<TabletInfo> tablet_set() { return _tablet_set; }
 
+    void update_disks_compaction_score(int64_t compaction_score);
+    int64_t get_disks_compaction_score();
+
+    void update_disks_compaction_num(int64_t compaction_num);
+    int64_t get_disks_compaction_num();
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -201,6 +207,8 @@ private:
     IntGauge* disks_avail_capacity;
     IntGauge* disks_data_used_capacity;
     IntGauge* disks_state;
+    IntGauge* disks_compaction_score;
+    IntGauge* disks_compaction_num;
 };
 
 } // namespace doris
