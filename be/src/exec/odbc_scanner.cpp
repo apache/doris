@@ -39,8 +39,7 @@ static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
 // Now we only treat HLL, CHAR, VARCHAR as big column
 static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
 
-static std::u16string utf8_to_wstring (const std::string& str)
-{
+static std::u16string utf8_to_wstring(const std::string& str) {
     std::wstring_convert<std::codecvt_utf8<char16_t>, char16_t> utf8_ucs2_cvt;
     return utf8_ucs2_cvt.from_bytes(str);
 }
@@ -197,11 +196,17 @@ Status ODBCScanner::get_next_row(bool* eos) {
 
 Status ODBCScanner::error_status(const std::string& prefix, const std::string& error_msg) {
     std::stringstream msg;
-    msg << prefix << " Err: " << error_msg;
+    msg << prefix << " Error: " << error_msg;
     LOG(WARNING) << msg.str();
     return Status::InternalError(msg.str());
 }
 
+// handle_diagnostic_record : use SQLGetDiagRec to get the display error/warning information
+//
+// Parameters:
+//      hHandle     ODBC handle
+//      hType       Type of handle (HANDLE_STMT, HANDLE_ENV, HANDLE_DBC)
+//      RetCode     Return code of failing command
 std::string ODBCScanner::handle_diagnostic_record(SQLHANDLE      hHandle,
                                            SQLSMALLINT    hType,
                                            RETCODE        RetCode) {

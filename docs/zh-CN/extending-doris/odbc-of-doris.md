@@ -68,17 +68,17 @@ PROPERTIES (
 
 #### 2. 通过ODBC_Resource来创建ODBC外表 (推荐使用的方式)
 ```
-create external resource "oracle_odbc"
-    properties 
-    (
+CREATE EXTERNAL RESOURCE `oracle_odbc`
+PROPERTIES (
 "type" = "odbc_catalog",
 "host" = "192.168.0.1",
 "port" = "8086",
 "user" = "test",
 "password" = "test",
 "database" = "test",
- "odbc_type" = "oracle",
- "driver" = "Oracle 19 ODBC driver");
+"odbc_type" = "oracle",
+"driver" = "Oracle 19 ODBC driver"
+);
      
 CREATE EXTERNAL TABLE `baseall_oracle` (
   `k1` decimal(9, 3) NOT NULL COMMENT "",
@@ -91,7 +91,7 @@ COMMENT "ODBC"
 PROPERTIES (
 "odbc_catalog_resource" = "oracle_odbc",
 "database" = "test",
-"table" = "baseall",
+"table" = "baseall"
 );
 ```
 参数说明：

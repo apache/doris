@@ -38,17 +38,17 @@ public:
     OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~OdbcScanNode();
 
-    // initialize _mysql_scanner, and create _text_converter.
+    // initialize _odbc_scanner, and create _text_converter.
     virtual Status prepare(RuntimeState* state);
 
-    // Start MySQL scan using _mysql_scanner.
+    // Start ODBC scan using _odbc_scanner.
     virtual Status open(RuntimeState* state);
 
-    // Fill the next row batch by calling next() on the _mysql_scanner,
-    // converting text data in MySQL cells to binary data.
+    // Fill the next row batch by calling next() on the _odbc_scanner,
+    // converting text data in ODBC cells to binary data.
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
 
-    // Close the _mysql_scanner, and report errors.
+    // Close the _odbc_scanner, and report errors.
     virtual Status close(RuntimeState* state);
 
     // No use
