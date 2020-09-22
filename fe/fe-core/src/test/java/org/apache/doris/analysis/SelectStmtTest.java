@@ -479,9 +479,9 @@ public class SelectStmtTest {
         Assert.assertTrue(dorisAssert.query(sql1).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         Assert.assertTrue(dorisAssert.query(sql2).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        String sql3 = "SELECT * FROM table1";
+        String sql3 = "SELECT * FROM db1.table1";
         Assert.assertTrue(dorisAssert.query(sql3).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        String sql4 = " SELECT * FROM table1 table2";
+        String sql4 = " SELECT * FROM db1.table1 db1.table2";
         Assert.assertTrue(dorisAssert.query(sql4).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
         new MockUp<Util>() {
             @Mock
@@ -493,9 +493,9 @@ public class SelectStmtTest {
         Assert.assertFalse(dorisAssert.query(sql5).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql6 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         Assert.assertFalse(dorisAssert.query(sql6).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        String sql7 = "SELECT * FROM table1";
+        String sql7 = "SELECT * FROM db1.table1";
         Assert.assertFalse(dorisAssert.query(sql7).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        String sql8 = " SELECT * FROM table1 table2";
+        String sql8 = " SELECT * FROM db1.table1 db1.table2";
         Assert.assertFalse(dorisAssert.query(sql8).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
     }
 

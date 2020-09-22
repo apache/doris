@@ -105,8 +105,8 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         auto tablet_id = params.tablet_ids(i);
         auto it = _tablet_writers.find(tablet_id);
         if (it == std::end(_tablet_writers)) {
-            return Status::InternalError(strings::Substitute(
-                    "unknown tablet to append data, tablet=$0", tablet_id));
+            return Status::InternalError(
+                    strings::Substitute("unknown tablet to append data, tablet=$0", tablet_id));
         }
         auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
         if (st != OLAP_SUCCESS) {

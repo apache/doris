@@ -215,7 +215,11 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
         if (slot->type().is_string_type()) {
             _string_slots.push_back(slot);
             _has_varlen_slots = true;
-        } else {
+        } else if (slot->type().is_collection_type()) {
+            _collection_slots.push_back(slot);
+            _has_varlen_slots = true;
+        }
+        else {
             _no_string_slots.push_back(slot);
         }
     }

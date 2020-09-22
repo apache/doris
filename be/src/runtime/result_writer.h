@@ -25,6 +25,7 @@ namespace doris {
 class Status;
 class RowBatch;
 class RuntimeState;
+class TypeDescriptor;
 
 // abstract class of the result writer
 class ResultWriter {

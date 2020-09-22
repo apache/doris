@@ -28,6 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/collection.h"
 #include "util/mem_util.hpp"
 #include "util/network_util.h"
 #include "util/doris_metrics.h"
@@ -51,6 +52,7 @@ OlapScanner::OlapScanner(
             _tuple_desc(parent->_tuple_desc),
             _profile(parent->runtime_profile()),
             _string_slots(parent->_string_slots),
+            _collection_slots(parent->_collection_slots),
             _is_open(false),
             _aggregation(aggregation),
             _need_agg_finalize(need_agg_finalize),
@@ -332,6 +334,41 @@ Status OlapScanner::get_batch(
                     }
                 }
 
+                // Copy collection slot
+                for (auto desc : _collection_slots) {
+                    Collection* slot = tuple->get_collection_slot(desc->tuple_offset());
+
+                    TypeDescriptor item_type = desc->type().children.at(0);
+                    size_t item_size = item_type.get_slot_size() * slot->length;
+
+                    size_t nulls_size = slot->length;
+                    uint8_t* data = batch->tuple_data_pool()->allocate(item_size + nulls_size);
+
+                    // copy null_signs
+                    memory_copy(data, slot->null_signs, nulls_size);
+                    memory_copy(data + nulls_size, slot->data, item_size);
+
+                    slot->null_signs = reinterpret_cast<bool*>(data);
+                    slot->data = reinterpret_cast<char*>(data + nulls_size);
+
+                    if (!item_type.is_string_type()) {
+                        continue;
+                    }
+
+                    // when string type, copy every item
+                    for (int i = 0; i < slot->length; ++i) {
+                        int item_offset = nulls_size + i * item_type.get_slot_size();
+                        if (slot->null_signs[i]) {
+                            continue;
+                        }
+                        StringValue* dst_item_v = reinterpret_cast<StringValue*>(data + item_offset);
+                        if (dst_item_v->len != 0) {
+                            char* string_copy = reinterpret_cast<char*>(batch->tuple_data_pool()->allocate(dst_item_v->len));
+                            memory_copy(string_copy, dst_item_v->ptr, dst_item_v->len);
+                            dst_item_v->ptr = string_copy;
+                        }
+                    }
+                }
                 // the memory allocate by mem pool has been copied,
                 // so we should release these memory immediately
                 mem_pool->clear();
@@ -438,6 +475,14 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             if (!slot->from_olap_date(value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }
+            break;
+        }
+        case TYPE_ARRAY: {
+            Collection* array_v = reinterpret_cast<Collection*>(ptr);
+            Collection* slot = tuple->get_collection_slot(slot_desc->tuple_offset());
+            slot->length = array_v->length;
+            slot->data = array_v->data;
+            slot->null_signs = array_v->null_signs;
             break;
         }
         default: {

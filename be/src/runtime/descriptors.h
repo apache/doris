@@ -70,6 +70,8 @@ struct NullIndicatorOffset {
 
 std::ostream& operator<<(std::ostream& os, const NullIndicatorOffset& null_indicator);
 
+class TupleDescriptor;
+
 class SlotDescriptor {
 public:
     // virtual ~SlotDescriptor() {};
@@ -125,6 +127,7 @@ private:
     friend class TupleDescriptor;
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
+    friend class TupleDescriptor;
 
     const SlotId _id;
     const TypeDescriptor _type;
@@ -272,6 +275,9 @@ public:
     const std::vector<SlotDescriptor*>& no_string_slots() const {
         return _no_string_slots;
     }
+    const std::vector<SlotDescriptor*>& collection_slots() const {
+        return _collection_slots;
+    }
     bool has_varlen_slots() const { {
         return _has_varlen_slots; }
     }
@@ -282,6 +288,9 @@ public:
     static bool is_var_length(const std::vector<TupleDescriptor*>& descs) {
         for (auto desc : descs) {
             if (desc->string_slots().size() > 0) {
+                return true;
+            }
+            if (desc->collection_slots().size() > 0) {
                 return true;
             }
         }
@@ -315,6 +324,8 @@ private:
     std::vector<SlotDescriptor*> _string_slots;  // contains only materialized string slots
     // contains only materialized slots except string slots
     std::vector<SlotDescriptor*> _no_string_slots;
+    // collection_slots 
+    std::vector<SlotDescriptor*> _collection_slots;
 
     // Provide quick way to check if there are variable length slots.
     // True if _string_slots or _collection_slots have entries.

@@ -67,8 +67,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_HLL;
     } else if (0 == upper_type_str.compare("STRUCT")) {
         type = OLAP_FIELD_TYPE_STRUCT;
-    } else if (0 == upper_type_str.compare("LIST")) {
-        type = OLAP_FIELD_TYPE_LIST;
+    } else if (0 == upper_type_str.compare("ARRAY")) {
+        type = OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("MAP")) {
         type = OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
@@ -172,8 +172,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
         case OLAP_FIELD_TYPE_STRUCT:
             return "STRUCT";
 
-        case OLAP_FIELD_TYPE_LIST:
-            return "LIST";
+        case OLAP_FIELD_TYPE_ARRAY:
+            return "ARRAY";
 
         case OLAP_FIELD_TYPE_MAP:
             return "MAP";

@@ -67,21 +67,14 @@ void MysqlResultWriter::_init_profile() {
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
 }
 
-Status MysqlResultWriter::_add_one_row(TupleRow* row) {
-    SCOPED_TIMER(_convert_tuple_timer);
-    _row_buffer->reset();
-    int num_columns = _output_expr_ctxs.size();
+int MysqlResultWriter::add_row_value(int index, const TypeDescriptor& type, void* item) {
+
     int buf_ret = 0;
+    if (item == nullptr) {
+        return _row_buffer->push_null();
+    }
 
-    for (int i = 0; 0 == buf_ret && i < num_columns; ++i) {
-        void* item = _output_expr_ctxs[i]->get_value(row);
-
-        if (NULL == item) {
-            buf_ret = _row_buffer->push_null();
-            continue;
-        }
-
-        switch (_output_expr_ctxs[i]->root()->type().type) {
+    switch (type.type) {
         case TYPE_BOOLEAN:
         case TYPE_TINYINT:
             buf_ret = _row_buffer->push_tinyint(*static_cast<int8_t*>(item));
@@ -161,7 +154,7 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
         case TYPE_DECIMAL: {
             const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
             std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+            int output_scale = _output_expr_ctxs[index]->root()->output_scale();
 
             if (output_scale > 0 && output_scale <= 30) {
                 decimal_str = decimal_val->to_string(output_scale);
@@ -176,7 +169,7 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
         case TYPE_DECIMALV2: {
             DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
             std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+            int output_scale = _output_expr_ctxs[index]->root()->output_scale();
 
             if (output_scale > 0 && output_scale <= 30) {
                 decimal_str = decimal_val.to_string(output_scale);
@@ -188,12 +181,64 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
             break;
         }
 
-        default:
-            LOG(WARNING) << "can't convert this type to mysql type. type = " <<
-                         _output_expr_ctxs[i]->root()->type();
-            buf_ret = -1;
+        case TYPE_ARRAY: {
+            auto children_type = type.children[0].type;
+            auto array_value = (const ArrayValue*) (item);
+
+            ArrayIterator iter = array_value->iterator(children_type);
+
+            _row_buffer->open_dynamic_mode();
+
+            buf_ret = _row_buffer->push_string("[", 1);
+
+            int begin = 0;
+            while(iter.has_next() && !buf_ret) {
+                if (begin != 0) {
+                    buf_ret = _row_buffer->push_string(", ", 2);    
+                }
+
+                if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
+                    buf_ret = _row_buffer->push_string("'", 1);
+                    buf_ret = add_row_value(index, children_type, iter.value());
+                    buf_ret = _row_buffer->push_string("'", 1);
+                } else {
+                    buf_ret = add_row_value(index, children_type, iter.value());
+                }
+
+                iter.next();
+                begin++;
+            }
+
+
+            if (!buf_ret) {
+                buf_ret = _row_buffer->push_string("]", 1);
+            }
+
+            _row_buffer->close_dynamic_mode();
             break;
         }
+
+        default:
+            LOG(WARNING) << "can't convert this type to mysql type. type = " <<
+                            _output_expr_ctxs[index]->root()->type();
+            buf_ret = -1;
+            break;
+    }
+
+    return buf_ret;
+}
+
+
+Status MysqlResultWriter::_add_one_row(TupleRow* row) {
+    SCOPED_TIMER(_convert_tuple_timer);
+    _row_buffer->reset();
+    int num_columns = _output_expr_ctxs.size();
+    int buf_ret = 0;
+
+    for (int i = 0; 0 == buf_ret && i < num_columns; ++i) {
+        void* item = _output_expr_ctxs[i]->get_value(row);
+
+        buf_ret = add_row_value(i, _output_expr_ctxs[i]->root()->type(), item);
     }
 
     if (0 != buf_ret) {
@@ -252,4 +297,3 @@ Status MysqlResultWriter::close() {
 }
 
 }
-
