@@ -28,7 +28,8 @@ import org.springframework.http.ResponseEntity;
 public class ResponseEntityBuilder {
 
     public static ResponseEntity badRequest(Object data) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.BAD_REQUEST).msg().data(data);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
     public static ResponseEntity okWithCommonError(String msg) {
@@ -47,14 +48,17 @@ public class ResponseEntityBuilder {
     }
 
     public static ResponseEntity unauthorized(Object data) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.UNAUTHORIZED).data(data);
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
     }
 
     public static ResponseEntity internalError(Object data) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.INTERNAL_ERROR).data(data);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
     }
 
     public static ResponseEntity notFound(Object data) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.NOT_FOUND).data(data);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 }

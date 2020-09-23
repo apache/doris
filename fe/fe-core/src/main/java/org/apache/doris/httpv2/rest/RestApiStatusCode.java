@@ -19,7 +19,11 @@ package org.apache.doris.httpv2.rest;
 
 public enum RestApiStatusCode {
     OK(0),
-    COMMON_ERROR(1);
+    COMMON_ERROR(1),
+    UNAUTHORIZED(2),
+    INTERNAL_ERROR(3),
+    NOT_FOUND(4),
+    BAD_REQUEST(5);
 
     public int code;
 
