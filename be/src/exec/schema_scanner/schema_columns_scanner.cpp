@@ -93,7 +93,8 @@ Status SchemaColumnsScanner::start(RuntimeState *state) {
     return Status::OK();
 }
 
-std::string SchemaColumnsScanner::data_type_to_string(TColumnDesc &desc) {
+//For compatibility with mysql the result of DATA_TYPE in information_schema.columns
+std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc &desc) {
     switch (desc.columnType) {
         case TPrimitiveType::BOOLEAN:
             return "tinyint";
@@ -243,7 +244,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string buffer = data_type_to_string(_desc_result.columns[_column_index].columnDesc);
+        std::string buffer = to_mysql_data_type_string(_desc_result.columns[_column_index].columnDesc);
         str_slot->len = buffer.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
