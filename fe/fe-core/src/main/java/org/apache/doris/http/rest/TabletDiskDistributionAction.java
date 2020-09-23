@@ -141,8 +141,9 @@ public class TabletDiskDistributionAction extends RestBaseAction {
                 response.getContent().append(result);
                 sendResult(request, response);
                 return;
+            } finally {
+                db.readUnlock();
             }
-            db.readUnlock();
         }
 
         JSONObject jsonObjectBackend = new JSONObject();
