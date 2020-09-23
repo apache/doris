@@ -374,14 +374,13 @@ public:
         if (src_null) {
             return;
         }
-        LOG(WARNING) << "aaaa consume " << _type_info->type();
         _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
     }
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto array_v = (ArrayValue*)cell_ptr;
-        array_v->_null_signs = reinterpret_cast<bool*>(variable_ptr + sizeof(ArrayValue));
-        array_v->_data = variable_ptr + sizeof(ArrayValue) + OLAP_ARRAY_MAX_BYTES / sizeof(char*);
+        auto array_v = (Collection*)cell_ptr;
+        array_v->null_signs = reinterpret_cast<bool*>(variable_ptr + sizeof(Collection));
+        array_v->data = variable_ptr + sizeof(Collection) + OLAP_ARRAY_MAX_BYTES / sizeof(char*);
         return variable_ptr + _length;
     }
 

@@ -254,7 +254,6 @@ public:
         size_t offset_size = 0;
         // direct opy item
         for (size_t i = 0; i < src_value->length; ++i) {
-
             if (dest_value->null_signs[i]) {
                 continue;
             }

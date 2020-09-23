@@ -23,7 +23,7 @@ namespace doris {
 
 // cpp type for ARRAY
 struct Collection {
-    size_t length;
+    int32_t length;
         // null bitmap
     bool* null_signs;
     // child column data

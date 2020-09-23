@@ -60,7 +60,7 @@ using StringOffsetType = uint32_t;
 using StringLengthType = uint16_t;
 static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
 // the max bytes for stored array length
-static const uint16_t OLAP_ARRAY_MAX_BYTES = sizeof(StringLengthType);
+static const uint16_t OLAP_ARRAY_MAX_BYTES = OLAP_ARRAY_MAX_LENGTH;
 
 enum OLAPDataVersion {
     OLAP_V1 = 0,
