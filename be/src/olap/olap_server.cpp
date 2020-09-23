@@ -158,16 +158,19 @@ void StorageEngine::_base_compaction_task(TabletSharedPtr tablet, uint32_t permi
         std::unique_lock<std::mutex> lock(_mutex_compaction_metrics);
         tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() + permits);
         tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() + 1);
-        DorisMetrics::instance()->total_compaction_score->increment(permits);
+        //DorisMetrics::instance()->total_compaction_score->increment(permits);
+        DorisMetrics::instance()->total_compaction_score->set_value(DorisMetrics::instance()->total_compaction_score->value() + permits);
         DorisMetrics::instance()->total_compaction_num->increment(1);
     }
     _perform_base_compaction(tablet);
+    sleep(25);
     _permit_limiter.release(permits);
     {
         std::unique_lock<std::mutex> lock(_mutex_compaction_metrics);
         tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() - permits);
         tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() - 1);
-        DorisMetrics::instance()->total_compaction_score->increment(-permits);
+        //DorisMetrics::instance()->total_compaction_score->increment(-permits);
+        DorisMetrics::instance()->total_compaction_score->set_value(DorisMetrics::instance()->total_compaction_score->value() + permits);
         DorisMetrics::instance()->total_compaction_num->increment(-1);
     }
 }
@@ -271,16 +274,19 @@ void StorageEngine::_cumulative_compaction_task(TabletSharedPtr tablet, uint32_t
         std::unique_lock<std::mutex> lock(_mutex_compaction_metrics);
         tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() + permits);
         tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() + 1);
-        DorisMetrics::instance()->total_compaction_score->increment(permits);
+        //DorisMetrics::instance()->total_compaction_score->increment(permits);
+        DorisMetrics::instance()->total_compaction_score->set_value(DorisMetrics::instance()->total_compaction_score->value() + permits);
         DorisMetrics::instance()->total_compaction_num->increment(1);
     }
     _perform_cumulative_compaction(tablet);
+    sleep(25);
     _permit_limiter.release(permits);
     {
         std::unique_lock<std::mutex> lock(_mutex_compaction_metrics);
         tablet->data_dir()->update_disks_compaction_score(tablet->data_dir()->get_disks_compaction_score() - permits);
         tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() - 1);
-        DorisMetrics::instance()->total_compaction_score->increment(-permits);
+        //DorisMetrics::instance()->total_compaction_score->increment(-permits);
+        DorisMetrics::instance()->total_compaction_score->set_value(DorisMetrics::instance()->total_compaction_score->value() - permits);
         DorisMetrics::instance()->total_compaction_num->increment(-1);
     }
 }
@@ -400,8 +406,6 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
                     } else {
                         _thread_pool_compaction->submit_func([this, i, tablets_compaction, permits]() {this->_base_compaction_task(tablets_compaction[i], permits);});
                     }
-                } else {
-                    continue;
                 }
             }
         }
