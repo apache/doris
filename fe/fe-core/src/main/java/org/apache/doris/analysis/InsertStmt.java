@@ -336,6 +336,10 @@ public class InsertStmt extends DdlStmt {
                 for (Partition partition : olapTable.getPartitions()) {
                     targetPartitionIds.add(partition.getId());
                 }
+                if (targetPartitionIds.isEmpty()) {
+                    ErrorReport.reportAnalysisException(
+                            ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, targetTable.getName());
+                }
             }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
