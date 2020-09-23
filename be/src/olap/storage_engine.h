@@ -18,18 +18,18 @@
 #ifndef DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 #define DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 
+#include <condition_variable>
 #include <ctime>
 #include <list>
 #include <map>
 #include <mutex>
-#include <condition_variable>
 #include <set>
 #include <string>
-#include <vector>
 #include <thread>
+#include <vector>
 
-#include <rapidjson/document.h>
 #include <pthread.h>
+#include <rapidjson/document.h>
 
 #include "agent/status.h"
 #include "common/status.h"
@@ -38,22 +38,21 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
+#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_sync_service.h"
-#include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
-#include "olap/rowset/rowset_id_generator.h"
-#include "olap/fs/fs_util.h"
+#include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
-
 
 namespace doris {
 
@@ -251,7 +250,7 @@ private:
     // 重新加载数据。
     void _start_disk_stat_monitor();
 
-    Status _compaction_tasks_producer_callback();
+    void _compaction_tasks_producer_callback();
     vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type, std::vector<DataDir*> data_dirs);
 
 private:
@@ -349,13 +348,11 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    DISALLOW_COPY_AND_ASSIGN(StorageEngine);
-
-    std::map<DataDir*, int> _map_disk_compaction_num;
-    std::unique_ptr<ThreadPool> _thread_pool_compaction;
+    std::unique_ptr<ThreadPool> _compaction_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
-    std::mutex _mutex_compaction_metrics;
+
+    DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
 }  // namespace doris

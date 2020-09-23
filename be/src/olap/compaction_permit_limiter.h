@@ -17,61 +17,33 @@
 
 #pragma once
 
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
+#include <condition_variable>
+#include <mutex>
+
+#include "common/config.h"
 #include "olap/utils.h"
 
 namespace doris {
 
 /*
-    This class is used to manage compaction permission. To some extent, it can be used to control the memory consumption.
+    This class is used to control compaction permission. To some extent, it can be used to control memory consumption.
     "permits" should be applied before a compaction task can execute. When the sum of "permites" held by executing
-    compaction tasks reaches a set threshold, subsequent compaction task will be no longer allowed, until some "permits"
+    compaction tasks reaches a threshold, subsequent compaction task will be no longer allowed, until some "permits"
     are released by some finished compaction tasks. "compaction score" for tablet is used as "permits" here.
 */
 class CompactionPermitLimiter {
 public:
-    CompactionPermitLimiter() {}
+    CompactionPermitLimiter();
     virtual ~CompactionPermitLimiter() {}
-
-    void init(uint32_t total_permits, bool _over_sold);
 
     bool request(uint32_t permits);
 
     void release(uint32_t permits);
 
-    inline uint32_t total_permits() const;
-    inline void set_total_permits(uint32_t total_permits);
-
-    inline uint32_t used_permits() const;
-
-    inline bool is_over_sold() const;
-    inline void set_over_sold(bool over_sold);
-
 private:
-    uint32_t _total_permits;
-    uint32_t _used_permits;
-    bool _over_sold;
+    // sum of "permites" held by executing compaction tasks currently
+    AtomicInt64 _used_permits;
+    std::mutex _over_sold_mutex;
+    std::condition_variable _cv;
 };
-
-inline uint32_t CompactionPermitLimiter::total_permits() const {
-    return _total_permits;
-}
-
-inline void CompactionPermitLimiter::set_total_permits(uint32_t total_permits) {
-    _total_permits = total_permits;
-}
-
-inline uint32_t CompactionPermitLimiter::used_permits() const {
-    return _used_permits;
-}
-
-inline bool CompactionPermitLimiter::is_over_sold() const {
-    return _over_sold;
-}
-
-inline void CompactionPermitLimiter::set_over_sold(bool over_sold) {
-    _over_sold = over_sold;
-}
-}  // namespace doris
-
+} // namespace doris

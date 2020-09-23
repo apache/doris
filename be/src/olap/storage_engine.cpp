@@ -140,7 +140,7 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
-    _thread_pool_compaction->shutdown();
+    _compaction_thread_pool->shutdown();
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {

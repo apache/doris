@@ -19,25 +19,23 @@
 
 namespace doris {
 
-void CompactionPermitLimiter::init(uint32_t total_permits, bool over_sold) {
-    _total_permits = total_permits;
-    _over_sold = over_sold;
-    _used_permits = 0;
-}
+CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
 bool CompactionPermitLimiter::request(uint32_t permits) {
-    if (permits > _total_permits) {
-        if (_over_sold) {
-            while(_used_permits != 0) {
-                sleep(5);
-            }
-            _used_permits = _total_permits;
+    if (permits > config::total_permits_for_compaction_score) {
+        if (config::enable_over_sold) {
+            std::unique_lock<std::mutex> lock(_over_sold_mutex);
+            _cv.wait(lock, [=] {
+                return _used_permits == 0 ||
+                       _used_permits + permits < config::total_permits_for_compaction_score;
+            });
+            _used_permits += permits;
             return true;
         } else {
             return false;
         }
     } else {
-        if ((_total_permits - _used_permits) < permits) {
+        if (_used_permits + permits > config::total_permits_for_compaction_score) {
             return false;
         }
         _used_permits += permits;
@@ -46,10 +44,6 @@ bool CompactionPermitLimiter::request(uint32_t permits) {
 }
 
 void CompactionPermitLimiter::release(uint32_t permits) {
-    if (permits > _total_permits) {
-        _used_permits = 0;
-    } else {
-        _used_permits = _used_permits - permits;
-    }
+    _used_permits -= permits;
 }
-}  // namespace doris
+} // namespace doris
