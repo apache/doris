@@ -261,13 +261,8 @@ namespace config {
     // whether to disable page cache feature in storage
     CONF_Bool(disable_storage_page_cache, "false");
 
-    // be policy
-    // whether disable automatic compaction task
-    CONF_mBool(disable_auto_compaction, "false");
-
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");
-    CONF_mInt32(base_compaction_check_interval_seconds, "60");
     CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
     CONF_mDouble(base_cumulative_delta_ratio, "0.3");
     CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
@@ -295,7 +290,6 @@ namespace config {
     CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 
     // cumulative compaction policy: max delta file's size unit:B
-    CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
     CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
     CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
@@ -315,6 +309,12 @@ namespace config {
 
     // This config can be set to limit memory for compaction.
     CONF_mInt64(total_permits_for_compaction_score, "15000")
+
+    // sleep time of compaction tasks producer thread after each tasks generation, in seconds.
+    CONF_mInt32(generate_compaction_tasks_interval_seconds, "5")
+
+    // compaction task number for per disk
+    CONF_mInt32(compaction_task_num_per_disk, "5");
 
     // Threshold to logging compaction trace, in seconds.
     CONF_mInt32(base_compaction_trace_threshold, "10");

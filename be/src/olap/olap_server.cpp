@@ -375,6 +375,8 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
 #endif
     LOG(INFO) << "try to start compaction producer process!";
 
+    //int32_t interval_tasks_generator = config::generate_compaction_tasks_interval_seconds;
+    //int32_t disk_task_num = config::compaction_task_num_per_disk;
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
         data_dirs.push_back(tmp_store.second);
@@ -393,7 +395,7 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
         LOG(INFO) << "try to generate a batch of compaction tasks!";
         vector<TabletSharedPtr> tablets_compaction = _compaction_tasks_generator(compaction_type, data_dirs);
         for (int i = 0; i < tablets_compaction.size(); i++) {
-            if(tablets_compaction[i]->data_dir()->get_disks_compaction_num() < 5) {
+            if(tablets_compaction[i]->data_dir()->get_disks_compaction_num() < config::compaction_task_num_per_disk) {
                 uint32_t permits;
                 if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                     permits = tablets_compaction[i]->calc_cumulative_compaction_score();
@@ -409,7 +411,7 @@ Status StorageEngine::_compaction_tasks_producer_callback() {
                 }
             }
         }
-        sleep(5);
+        sleep(config::generate_compaction_tasks_interval_seconds);
     } while (true);
 }
 

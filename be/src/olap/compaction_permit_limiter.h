@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COMPACTION_PERMIT_LIMITER_H
-#define DORIS_BE_SRC_OLAP_COMPACTION_PERMIT_LIMITER_H
-
-#include <vector>
+#pragma once
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -34,14 +31,14 @@ namespace doris {
 */
 class CompactionPermitLimiter {
 public:
-    CompactionPermitLimiter() {};
-    virtual ~CompactionPermitLimiter() { };
+    CompactionPermitLimiter() {}
+    virtual ~CompactionPermitLimiter() {}
 
-    OLAPStatus init(uint32_t total_permits, bool _over_sold);
+    void init(uint32_t total_permits, bool _over_sold);
 
     bool request(uint32_t permits);
 
-    OLAPStatus release(uint32_t permits);
+    void release(uint32_t permits);
 
     inline uint32_t total_permits() const;
     inline void set_total_permits(uint32_t total_permits);
@@ -78,4 +75,3 @@ inline void CompactionPermitLimiter::set_over_sold(bool over_sold) {
 }
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COMPACTION_PERMIT_LIMITER_H
