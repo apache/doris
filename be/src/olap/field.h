@@ -30,6 +30,7 @@
 #include "olap/utils.h"
 #include "olap/row_cursor_cell.h"
 #include "runtime/mem_pool.h"
+#include "runtime/collection.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
 #include "util/slice.h"
@@ -257,9 +258,10 @@ public:
     Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
         return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
     }
+protected:
+    const TypeInfo* _type_info;
 private:
     // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
-    const TypeInfo* _type_info;
     const KeyCoder* _key_coder;
     std::string _name;
     uint16_t _index_size;
@@ -361,6 +363,32 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
     }
     return _type_info->hash_code(cell.cell_ptr(), seed);
 }
+
+class ArrayField: public Field {
+public:
+    explicit ArrayField(const TabletColumn& column) : Field(column) {
+    }
+
+    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) const override {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            return;
+        }
+        _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+    }
+
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto array_v = (Collection*)cell_ptr;
+        array_v->null_signs = reinterpret_cast<bool*>(variable_ptr + sizeof(Collection));
+        array_v->data = variable_ptr + sizeof(Collection) + OLAP_ARRAY_MAX_BYTES / sizeof(char*);
+        return variable_ptr + _length;
+    }
+
+    size_t get_variable_len() const override {
+        return  _length;
+    }
+
+};
 
 class CharField: public Field {
 public:
