@@ -133,8 +133,8 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score;
     IntGauge* tablet_base_max_compaction_score;
 
-    IntGauge* total_compaction_score;
-    IntGauge* total_compaction_num;
+    UIntGauge* total_compaction_score;
+    UIntGauge* total_compaction_num;
 
     // The following metrics will be calculated
     // by metric calculator

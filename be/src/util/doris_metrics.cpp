@@ -213,8 +213,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
 
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, total_compaction_score);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, total_compaction_num);
+    INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, total_compaction_score);
+    INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, total_compaction_num);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes_per_second);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);
