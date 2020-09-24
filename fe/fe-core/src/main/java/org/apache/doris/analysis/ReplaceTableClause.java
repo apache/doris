@@ -39,7 +39,7 @@ public class ReplaceTableClause extends AlterTableClause {
     private boolean swapTable;
 
     public ReplaceTableClause(String tblName, Map<String, String> properties) {
-        super(AlterOpType.REPLACE_PARTITION);
+        super(AlterOpType.REPLACE_TABLE);
         this.tblName = tblName;
         this.properties = properties;
     }

@@ -18,7 +18,6 @@
 package org.apache.doris.alter;
 
 public enum AlterOpType {
-    INVALID_OP,
     // rollup
     ADD_ROLLUP,
     DROP_ROLLUP,
@@ -37,8 +36,8 @@ public enum AlterOpType {
     // others operation, such as add/drop backend. currently we do not care about them
     ALTER_OTHER,
     ENABLE_FEATURE,
-    REPLACE_TABLE;
-
+    REPLACE_TABLE,
+    INVALID_OP; // INVALID_OP must be the last one
 
     // true means 2 operations have no conflict.
     public static Boolean[][] COMPATIBITLITY_MATRIX;
