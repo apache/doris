@@ -42,7 +42,6 @@ OLAPStatus Compaction::do_compaction(int64_t permits) {
     DorisMetrics::instance()->total_compaction_score->increment(permits);
     DorisMetrics::instance()->total_compaction_num->increment(1);
     OLAPStatus st = do_compaction_impl();
-    sleep(60);
     _tablet->data_dir()->disks_compaction_score_increment(-permits);
     _tablet->data_dir()->disks_compaction_num_increment(-1);
     DorisMetrics::instance()->total_compaction_score->increment(-permits);

@@ -27,6 +27,7 @@
 #include <gperftools/profiler.h>
 #include <boost/algorithm/string.hpp>
 
+#include "agent/cgroups_mgr.h"
 #include "common/status.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
@@ -327,31 +328,34 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int round = 0;
     CompactionType compaction_type;
     do {
-        if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
-            compaction_type = CompactionType::CUMULATIVE_COMPACTION;
-            round++;
-        } else {
-            compaction_type = CompactionType::BASE_COMPACTION;
-            round = 0;
-        }
-        LOG(INFO) << "try to generate a batch of compaction tasks!";
-        vector<TabletSharedPtr> tablets_compaction =
-                _compaction_tasks_generator(compaction_type, data_dirs);
-        for (const auto& tablet : tablets_compaction) {
-            if (tablet->data_dir()->get_disks_compaction_num() <
-                config::compaction_task_num_per_disk) {
-                int64_t permits = tablet->calc_compaction_score(compaction_type);
-                if (_permit_limiter.request(permits)) {
-                    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                        _compaction_thread_pool->submit_func([this, tablet, permits]() {
-                            this->_perform_cumulative_compaction(tablet);
-                            this->_permit_limiter.release(permits);
-                        });
-                    } else {
-                        _compaction_thread_pool->submit_func([this, tablet, permits]() {
-                            this->_perform_base_compaction(tablet);
-                            this->_permit_limiter.release(permits);
-                        });
+        if (!config::disable_auto_compaction) {
+            CgroupsMgr::apply_system_cgroup();
+            if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
+                compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+                round++;
+            } else {
+                compaction_type = CompactionType::BASE_COMPACTION;
+                round = 0;
+            }
+            LOG(INFO) << "try to generate a batch of compaction tasks!";
+            vector <TabletSharedPtr> tablets_compaction =
+                    _compaction_tasks_generator(compaction_type, data_dirs);
+            for (const auto &tablet : tablets_compaction) {
+                if (tablet->data_dir()->get_disks_compaction_num() <
+                    config::compaction_task_num_per_disk) {
+                    int64_t permits = tablet->calc_compaction_score(compaction_type);
+                    if (_permit_limiter.request(permits)) {
+                        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                            _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                                this->_perform_cumulative_compaction(tablet);
+                                this->_permit_limiter.release(permits);
+                            });
+                        } else {
+                            _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                                this->_perform_base_compaction(tablet);
+                                this->_permit_limiter.release(permits);
+                            });
+                        }
                     }
                 }
             }

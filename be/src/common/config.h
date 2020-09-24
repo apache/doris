@@ -261,6 +261,10 @@ namespace config {
     // whether to disable page cache feature in storage
     CONF_Bool(disable_storage_page_cache, "false");
 
+    // be policy
+    // whether disable automatic compaction task
+    CONF_mBool(disable_auto_compaction, "false");
+
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");
     CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
@@ -291,7 +295,7 @@ namespace config {
 
     // cumulative compaction policy: max delta file's size unit:B
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
-    CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "5"); //1000
+    CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
     CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
     // CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
     // cumulative compaction skips recently published deltas in order to prevent
@@ -308,16 +312,16 @@ namespace config {
     CONF_mInt32(max_compaction_threads, "10");
 
     // The upper limit of "permites" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
-    CONF_mInt64(total_permits_for_compaction_score, "15000")
+    CONF_mInt64(total_permits_for_compaction_score, "10000")
 
     // Whether compaction task is allowed to start when compaction score of current tablet is out of upper limit.
     CONF_mBool(enable_over_sold, "true");
 
     // Sleep time of compaction tasks producer thread after each tasks generation, in seconds.
-    CONF_mInt32(generate_compaction_tasks_interval_seconds, "1")
+    CONF_mInt32(generate_compaction_tasks_interval_seconds, "2")
 
     // Compaction task number per disk.
-    CONF_mInt32(compaction_task_num_per_disk, "10");
+    CONF_mInt32(compaction_task_num_per_disk, "2");
 
     // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
     CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
