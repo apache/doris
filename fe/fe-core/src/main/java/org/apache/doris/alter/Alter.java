@@ -56,15 +56,16 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TTabletType;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
@@ -282,25 +283,7 @@ public class Alter {
         }
     }
 
-    /**
-     * The replace table operation works as follow:
-     * For example, REPLACE TABLE A WITH TABLE B.
-     *
-     * 1. If "swapTable" is true, A will be renamed to B, and B will be renamed to A
-     *    1.1 check if A can be renamed to B (checking name conflict, etc...)
-     *    1.2 check if B can be renamed to A (checking name conflict, etc...)
-     *    1.3 rename B to A, drop old A, and add new A to database.
-     *    1.4 rename A to B, drop old B, and add new B to database.
-     *
-     * 2. If "swapTable" is false, A will be dropped, and B will be renamed to A
-     *    1.1 check if B can be renamed to A (checking name conflict, etc...)
-     *    1.2 rename B to A, drop old A, and add new A to database.
-     *
-     * @param db
-     * @param origTable
-     * @param alterClauses
-     * @throws UserException
-     */
+    // entry of processing replace table
     private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses) throws UserException {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
@@ -321,22 +304,63 @@ public class Alter {
             origTable.checkAndSetName(newTblName, true);
         }
 
-        // "rename B to A"
-        olapNewTbl.checkAndSetName(oldTblName, false);
-        // "drop old A, and add new A to database."
+        replaceTableInternal(db, origTable, olapNewTbl, swapTable);
+
+        // write edit log
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), origTable.getId(), olapNewTbl.getId(), swapTable);
+        Catalog.getCurrentCatalog().getEditLog().logReplaceTable(log);
+
+        LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
+    }
+
+    public void replayReplaceTable(ReplaceTableOperationLog log) {
+        long dbId = log.getDbId();
+        long origTblId = log.getOrigTblId();
+        long newTblId = log.getNewTblId();
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        OlapTable origTable = (OlapTable) db.getTable(origTblId);
+        OlapTable newTbl = (OlapTable) db.getTable(newTblId);
+
+        try {
+            replaceTableInternal(db, origTable, newTbl, log.isSwapTable());
+        } catch (DdlException e) {
+            LOG.warn("should not happen", e);
+        }
+        LOG.info("finish replay replacing table {} with table {}, is swap: {}", origTblId, newTblId, log.isSwapTable());
+    }
+
+    /**
+     * The replace table operation works as follow:
+     * For example, REPLACE TABLE A WITH TABLE B.
+     * <p>
+     * 1. If "swapTable" is true, A will be renamed to B, and B will be renamed to A
+     * 1.1 check if A can be renamed to B (checking name conflict, etc...)
+     * 1.2 check if B can be renamed to A (checking name conflict, etc...)
+     * 1.3 rename B to A, drop old A, and add new A to database.
+     * 1.4 rename A to B, drop old B, and add new B to database.
+     * <p>
+     * 2. If "swapTable" is false, A will be dropped, and B will be renamed to A
+     * 1.1 check if B can be renamed to A (checking name conflict, etc...)
+     * 1.2 rename B to A, drop old A, and add new A to database.
+     */
+    private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable)
+            throws DdlException {
+        String oldTblName = origTable.getName();
+        String newTblName = newTbl.getName();
+
+        // drop origin table and new table
         db.dropTable(oldTblName);
         db.dropTable(newTblName);
-        db.createTable(olapNewTbl);
+
+        // rename new table name to origin table name and add it to database
+        newTbl.checkAndSetName(oldTblName, false);
+        db.createTable(newTbl);
 
         if (swapTable) {
-            // "rename A to B, drop old B, and add new B to database."
+            // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.createTable(origTable);
         }
-
-        // TODO(cmy): add edit log
-
-        LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
     }
 
     public void processAlterView(AlterViewStmt stmt, ConnectContext ctx) throws UserException {
