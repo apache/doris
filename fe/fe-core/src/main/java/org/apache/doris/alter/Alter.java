@@ -233,11 +233,13 @@ public class Alter {
         List<AlterClause> alterClauses = Lists.newArrayList();
         // some operations will take long time to process, need to be done outside the table lock
         boolean needProcessOutsideTableLock = false;
+
         // check conflict alter ops first
-        alterClauses = stmt.getOps();
         AlterOperations currentAlterOps = new AlterOperations();
         currentAlterOps.checkConflict(alterClauses);
         // check cluster capacity and db quota, only need to check once.
+        currentAlterOps.checkConflict(stmt.getOps());
+        // check cluster capacity and db quota outside table lock to escape dead lock, only need to check once.
         if (currentAlterOps.needCheckCapacity()) {
             Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
             db.checkQuota();
@@ -261,6 +263,9 @@ public class Alter {
 
             OlapTable olapTable = (OlapTable) table;
             stmt.rewriteAlterClause(olapTable);
+            alterClauses = stmt.getOps();
+            currentAlterOps = new AlterOperations();
+            currentAlterOps.checkConflict(alterClauses);
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException(
                         "Table[" + olapTable.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
@@ -536,7 +541,7 @@ public class Alter {
 
     /**
      * Batch update partitions' properties
-     * caller should hold the db lock
+     * caller should hold the table lock
      */
     public void modifyPartitionsProperty(Database db,
                                          OlapTable olapTable,
@@ -616,7 +621,7 @@ public class Alter {
                                                        String partitionName,
                                                        Map<String, String> properties)
             throws DdlException {
-        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         if (olapTable.getState() != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
         }
