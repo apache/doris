@@ -311,7 +311,7 @@ namespace config {
     CONF_mInt32(min_compaction_threads, "10");
     CONF_mInt32(max_compaction_threads, "10");
 
-    // The upper limit of "permites" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
+    // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
     CONF_mInt64(total_permits_for_compaction_score, "10000")
 
     // Whether compaction task is allowed to start when compaction score of current tablet is out of upper limit.

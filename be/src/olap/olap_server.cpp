@@ -338,9 +338,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 round = 0;
             }
             LOG(INFO) << "try to generate a batch of compaction tasks!";
-            vector <TabletSharedPtr> tablets_compaction =
+            vector<TabletSharedPtr> tablets_compaction =
                     _compaction_tasks_generator(compaction_type, data_dirs);
-            for (const auto &tablet : tablets_compaction) {
+            for (const auto& tablet : tablets_compaction) {
                 if (tablet->data_dir()->get_disks_compaction_num() <
                     config::compaction_task_num_per_disk) {
                     int64_t permits = tablet->calc_compaction_score(compaction_type);
