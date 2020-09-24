@@ -171,7 +171,6 @@ RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
 BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz"
-BOOST_DOWNLOAD="https://sourceforge.mirrorservice.org/b/bo/boost/boost/1.64.0/boost_1_64_0.tar.gz"
 BOOST_NAME=boost_1_64_0.tar.gz
 BOOST_SOURCE=boost_1_64_0
 BOOST_MD5SUM="319c6ffbbeccc366f14bb68767a6db79"
@@ -284,10 +283,10 @@ CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
 # datatables, bootstrap 3 and jQuery 3
-DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.21"
+DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.22"
 DATATABLES_NAME="DataTables.zip"
-DATATABLES_SOURCE="DataTables-1.10.21"
-DATATABLES_MD5SUM="85b71d690bf7f4ed3f77f184212d5ac0"
+DATATABLES_SOURCE="DataTables-1.10.22"
+DATATABLES_MD5SUM="62558846fc6a6db1428e7816a2a351f7"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
