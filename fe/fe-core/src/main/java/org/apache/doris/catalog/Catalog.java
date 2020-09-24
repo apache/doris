@@ -5012,6 +5012,7 @@ public class Catalog {
         getBackupHandler().cancel(stmt);
     }
 
+    // entry of rename table operation
     public void renameTable(Database db, OlapTable table, TableRenameClause tableRenameClause) throws DdlException {
         if (table.getState() != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
@@ -5028,16 +5029,9 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
-        // check if rollup has same name
-        for (String idxName : table.getIndexNameToId().keySet()) {
-            if (idxName.equals(newTableName)) {
-                throw new DdlException("New name conflicts with rollup index name: " + idxName);
-            }
-        }
+        table.checkAndSetName(newTableName, false);
 
-        table.setName(newTableName);
-
-        db.dropTable(tableName);
+        db.dropTable(table.getName());
         db.createTable(table);
 
         TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);

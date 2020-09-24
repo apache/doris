@@ -953,6 +953,10 @@ alter_table_clause ::=
     {:
         RESULT = new ReplacePartitionClause(partitions, tempPartitions, properties);
     :}
+    | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties
+    {:
+        RESULT = new ReplaceTableClause(tblName, properties);
+    :}
     | KW_RENAME ident:newTableName
     {:
         RESULT = new TableRenameClause(newTableName);

@@ -231,6 +231,18 @@ public class OlapTable extends Table {
         return indexMap;
     }
 
+    public void checkAndSetName(String newName, boolean onlyCheck) throws DdlException {
+        // check if rollup has same name
+        for (String idxName : getIndexNameToId().keySet()) {
+            if (idxName.equals(newName)) {
+                throw new DdlException("New name conflicts with rollup index name: " + idxName);
+            }
+        }
+        if (!onlyCheck) {
+            setName(newName);
+        }
+    }
+
     public void setName(String newName) {
         // change name in indexNameToId
         long baseIndexId = indexNameToId.remove(this.name);
