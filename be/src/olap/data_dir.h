@@ -128,11 +128,10 @@ public:
 
     std::set<TabletInfo> tablet_set() { return _tablet_set; }
 
-    void update_disks_compaction_score(int64_t compaction_score);
-    int64_t get_disks_compaction_score();
+    void disks_compaction_score_increment(int64_t delta);
 
-    void update_disks_compaction_num(int64_t compaction_num);
     int64_t get_disks_compaction_num();
+    void disks_compaction_num_increment(int64_t delta);
 
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }

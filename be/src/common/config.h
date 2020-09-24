@@ -291,7 +291,7 @@ namespace config {
 
     // cumulative compaction policy: max delta file's size unit:B
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
-    CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
+    CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "5"); //1000
     CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
     // CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
     // cumulative compaction skips recently published deltas in order to prevent
@@ -314,10 +314,10 @@ namespace config {
     CONF_mBool(enable_over_sold, "true");
 
     // Sleep time of compaction tasks producer thread after each tasks generation, in seconds.
-    CONF_mInt32(generate_compaction_tasks_interval_seconds, "5")
+    CONF_mInt32(generate_compaction_tasks_interval_seconds, "1")
 
-    // Compaction task number for per disk.
-    CONF_mInt32(compaction_task_num_per_disk, "5");
+    // Compaction task number per disk.
+    CONF_mInt32(compaction_task_num_per_disk, "10");
 
     // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
     CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");

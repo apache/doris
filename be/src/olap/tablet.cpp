@@ -742,13 +742,12 @@ bool Tablet::can_do_compaction() {
 }
 
 const uint32_t Tablet::calc_compaction_score(CompactionType compaction_type) const {
-    uint32_t permits;
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        permits = calc_cumulative_compaction_score();
+        return calc_cumulative_compaction_score();
     } else {
-        permits = calc_base_compaction_score();
+        DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
+        return calc_base_compaction_score();
     }
-    return permits;
 }
 
 const uint32_t Tablet::calc_cumulative_compaction_score() const {

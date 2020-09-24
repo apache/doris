@@ -36,12 +36,12 @@ public:
     CompactionPermitLimiter();
     virtual ~CompactionPermitLimiter() {}
 
-    bool request(uint32_t permits);
+    bool request(int64_t permits);
 
-    void release(uint32_t permits);
+    void release(int64_t permits);
 
 private:
-    // sum of "permites" held by executing compaction tasks currently
+    // sum of "permits" held by executing compaction tasks currently
     AtomicInt64 _used_permits;
     std::mutex _over_sold_mutex;
     std::condition_variable _cv;

@@ -75,13 +75,15 @@ Status StorageEngine::start_bg_threads() {
 
     int32_t max_thread_num = config::max_compaction_threads;
     int32_t min_thread_num = config::min_compaction_threads;
-    ThreadPoolBuilder("CompactionTaskThreadPool").set_min_threads(min_thread_num).set_max_threads(max_thread_num).build(&_compaction_thread_pool);
+    ThreadPoolBuilder("CompactionTaskThreadPool")
+            .set_min_threads(min_thread_num)
+            .set_max_threads(max_thread_num)
+            .build(&_compaction_thread_pool);
 
     // compaction tasks producer thread
-    RETURN_IF_ERROR(
-            Thread::create("StorageEngine", "compaction_tasks_producer_thread",
-                           [this]() { this->_compaction_tasks_producer_callback(); },
-                           &_compaction_tasks_producer_thread));
+    RETURN_IF_ERROR(Thread::create("StorageEngine", "compaction_tasks_producer_thread",
+                                   [this]() { this->_compaction_tasks_producer_callback(); },
+                                   &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
 
     // tablet checkpoint thread
@@ -141,26 +143,6 @@ void StorageEngine::_fd_cache_clean_callback() {
 
         _start_clean_fd_cache();
     }
-}
-
-void StorageEngine::_base_compaction_task(TabletSharedPtr tablet, uint32_t permits) {
-    tablet->data_dir()->update_disks_compaction_score(
-            tablet->data_dir()->get_disks_compaction_score() + permits);
-    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() +
-                                                    1);
-    DorisMetrics::instance()->total_compaction_score->set_value(
-            DorisMetrics::instance()->total_compaction_score->value() + permits);
-    DorisMetrics::instance()->total_compaction_num->increment(1);
-    _perform_base_compaction(tablet);
-    sleep(25);
-    _permit_limiter.release(permits);
-    tablet->data_dir()->update_disks_compaction_score(
-            tablet->data_dir()->get_disks_compaction_score() - permits);
-    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() -
-                                                    1);
-    DorisMetrics::instance()->total_compaction_score->set_value(
-            DorisMetrics::instance()->total_compaction_score->value() + permits);
-    DorisMetrics::instance()->total_compaction_num->increment(-1);
 }
 
 void StorageEngine::_garbage_sweeper_thread_callback() {
@@ -251,26 +233,6 @@ void StorageEngine::_check_cumulative_compaction_config() {
                          << ", because size_based_promotion_size is small";
         }
     }
-}
-
-void StorageEngine::_cumulative_compaction_task(TabletSharedPtr tablet, uint32_t permits) {
-    tablet->data_dir()->update_disks_compaction_score(
-            tablet->data_dir()->get_disks_compaction_score() + permits);
-    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() +
-                                                    1);
-    DorisMetrics::instance()->total_compaction_score->set_value(
-            DorisMetrics::instance()->total_compaction_score->value() + permits);
-    DorisMetrics::instance()->total_compaction_num->increment(1);
-    _perform_cumulative_compaction(tablet);
-    sleep(25);
-    _permit_limiter.release(permits);
-    tablet->data_dir()->update_disks_compaction_score(
-            tablet->data_dir()->get_disks_compaction_score() - permits);
-    tablet->data_dir()->update_disks_compaction_num(tablet->data_dir()->get_disks_compaction_num() -
-                                                    1);
-    DorisMetrics::instance()->total_compaction_score->set_value(
-            DorisMetrics::instance()->total_compaction_score->value() - permits);
-    DorisMetrics::instance()->total_compaction_num->increment(-1);
 }
 
 void StorageEngine::_unused_rowset_monitor_thread_callback() {
@@ -378,15 +340,17 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         for (const auto& tablet : tablets_compaction) {
             if (tablet->data_dir()->get_disks_compaction_num() <
                 config::compaction_task_num_per_disk) {
-                uint32_t permits = tablet->calc_compaction_score(compaction_type);
+                int64_t permits = tablet->calc_compaction_score(compaction_type);
                 if (_permit_limiter.request(permits)) {
                     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                         _compaction_thread_pool->submit_func([this, tablet, permits]() {
-                            this->_cumulative_compaction_task(tablet, permits);
+                            this->_perform_cumulative_compaction(tablet);
+                            this->_permit_limiter.release(permits);
                         });
                     } else {
                         _compaction_thread_pool->submit_func([this, tablet, permits]() {
-                            this->_base_compaction_task(tablet, permits);
+                            this->_perform_base_compaction(tablet);
+                            this->_permit_limiter.release(permits);
                         });
                     }
                 }
@@ -404,9 +368,11 @@ vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
         if (!data_dir->reach_capacity_limit(0)) {
             TabletSharedPtr tablet =
                     _tablet_manager->find_best_tablet_to_compaction(compaction_type, data_dir);
-            tablets_compaction.emplace_back(tablet);
+            if (tablet != nullptr) {
+                tablets_compaction.emplace_back(tablet);
+            }
         }
     }
     return tablets_compaction;
 }
-}  // namespace doris
+} // namespace doris

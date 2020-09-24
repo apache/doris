@@ -1001,19 +1001,15 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
     return false;
 }
 
-void DataDir::update_disks_compaction_score(int64_t compaction_score) {
-    disks_compaction_score->set_value(compaction_score);
-}
-
-int64_t DataDir::get_disks_compaction_score() {
-    return disks_compaction_score->value();
-}
-
-void DataDir::update_disks_compaction_num(int64_t compaction_num) {
-    disks_compaction_num->set_value(compaction_num);
+void DataDir::disks_compaction_score_increment(int64_t delta) {
+    disks_compaction_score->increment(delta);
 }
 
 int64_t DataDir::get_disks_compaction_num() {
     return disks_compaction_num->value();
+}
+
+void DataDir::disks_compaction_num_increment(int64_t delta) {
+    disks_compaction_num->increment(delta);
 }
 } // namespace doris

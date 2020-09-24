@@ -21,7 +21,7 @@ namespace doris {
 
 CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
-bool CompactionPermitLimiter::request(uint32_t permits) {
+bool CompactionPermitLimiter::request(int64_t permits) {
     if (permits > config::total_permits_for_compaction_score) {
         if (config::enable_over_sold) {
             std::unique_lock<std::mutex> lock(_over_sold_mutex);
@@ -43,7 +43,8 @@ bool CompactionPermitLimiter::request(uint32_t permits) {
     }
 }
 
-void CompactionPermitLimiter::release(uint32_t permits) {
+void CompactionPermitLimiter::release(int64_t permits) {
     _used_permits -= permits;
+    _cv.notify_one();
 }
 } // namespace doris
