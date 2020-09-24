@@ -29,12 +29,12 @@ import org.springframework.http.ResponseEntity;
 public class ResponseEntityBuilder {
 
     public static ResponseEntity badRequest(Object data) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.BAD_REQUEST).data(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.BAD_REQUEST).msg("Bad Request").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
     public static ResponseEntity okWithCommonError(String msg) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.COMMON_ERROR).commonError(msg);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.COMMON_ERROR).msg("Error").data(msg);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
@@ -49,17 +49,17 @@ public class ResponseEntityBuilder {
     }
 
     public static ResponseEntity unauthorized(Object data) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.UNAUTHORIZED).data(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.UNAUTHORIZED).msg("Unauthorized").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
     public static ResponseEntity internalError(Object data) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.INTERNAL_SERVER_ERROR).data(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.INTERNAL_SERVER_ERROR).msg("Internal Error").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
     public static ResponseEntity notFound(Object data) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.NOT_FOUND).data(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.NOT_FOUND).msg("Not Found").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 }
