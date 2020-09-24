@@ -910,7 +910,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private String getClientAddrAsString() {
         TNetworkAddress addr = getClientAddr();
-        return addr == null ? "unknown" : addr.hostname + ":" + addr.port;
+        return addr == null ? "unknown" : addr.hostname;
     }
 }
 
