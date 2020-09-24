@@ -17,3 +17,5 @@ test_data/*
 test.zip
 test.zip.md5
 webroot/*
+net_snmp_normal
+spark_laucher_monitor.log
