@@ -21,10 +21,13 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -35,6 +38,12 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.HashMap;
 import java.util.Map;
 
 public class OdbcCatalogResourceTest {
@@ -101,5 +110,50 @@ public class OdbcCatalogResourceTest {
         BaseProcResult result = new BaseProcResult();
         resource.getProcNodeData(result);
         Assert.assertEquals(7, result.getRows().size());
+    }
+
+    @Test
+    public void testSerialization() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_92);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File("./odbcCatalogResource");
+        file.createNewFile();
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+
+        OdbcCatalogResource odbcCatalogResource1 = new OdbcCatalogResource("odbc1");
+        odbcCatalogResource1.write(dos);
+
+        Map<String, String> configs = new HashMap<>();
+        configs.put("host", "host");
+        configs.put("port", "port");
+        configs.put("user", "user");
+        configs.put("password", "password");
+        OdbcCatalogResource odbcCatalogResource2 = new OdbcCatalogResource("odbc2");
+        odbcCatalogResource2.setProperties(configs);
+        odbcCatalogResource2.write(dos);
+
+        dos.flush();
+        dos.close();
+
+        // 2. Read objects from file
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+
+        OdbcCatalogResource rOdbcCatalogResource1 = (OdbcCatalogResource) OdbcCatalogResource.read(dis);
+        OdbcCatalogResource rOdbcCatalogResource2 = (OdbcCatalogResource) OdbcCatalogResource.read(dis);
+
+        Assert.assertEquals("odbc1", rOdbcCatalogResource1.getName());
+        Assert.assertEquals("odbc2", rOdbcCatalogResource2.getName());
+
+        Assert.assertEquals(rOdbcCatalogResource2.getProperties("host"), "host");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperties("port"), "port");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperties("user"), "user");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperties("password"), "password");
+
+        // 3. delete files
+        dis.close();
+        file.delete();
     }
 }
