@@ -194,6 +194,8 @@ public final class FeMetaVersion {
     public static final int VERSION_90 = 90;
     // sparkLoadAppHandle
     public static final int VERSION_91 = 91;
+    // for mysql external table support resource
+    public static final int VERSION_92 = 92;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_91;
+    public static final int VERSION_CURRENT = VERSION_92;
 }
