@@ -33,7 +33,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "util/doris_metrics.h"
 #include "util/time.h"
 
 using std::string;
@@ -329,7 +328,6 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     CompactionType compaction_type;
     do {
         if (!config::disable_auto_compaction) {
-            CgroupsMgr::apply_system_cgroup();
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
                 compaction_type = CompactionType::CUMULATIVE_COMPACTION;
                 round++;
@@ -347,11 +345,13 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     if (_permit_limiter.request(permits)) {
                         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                             _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                                CgroupsMgr::apply_system_cgroup();
                                 this->_perform_cumulative_compaction(tablet);
                                 this->_permit_limiter.release(permits);
                             });
                         } else {
                             _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                                CgroupsMgr::apply_system_cgroup();
                                 this->_perform_base_compaction(tablet);
                                 this->_permit_limiter.release(permits);
                             });
