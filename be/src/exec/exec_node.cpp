@@ -41,6 +41,7 @@
 #include "exec/mysql_scan_node.h"
 #include "exec/olap_rewrite_node.h"
 #include "exec/olap_scan_node.h"
+#include "exec/odbc_scan_node.h"
 #include "exec/partitioned_aggregation_node.h"
 #include "exec/repeat_node.h"
 #include "exec/schema_scan_node.h"
@@ -58,6 +59,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "odbc_scan_node.h"
 
 namespace doris {
 
@@ -350,6 +352,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 #else
         return Status::InternalError("Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
 #endif
+    case TPlanNodeType::ODBC_SCAN_NODE:
+        *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+        return Status::OK();
 
     case TPlanNodeType::ES_SCAN_NODE:
         *node = pool->add(new EsScanNode(pool, tnode, descs));
