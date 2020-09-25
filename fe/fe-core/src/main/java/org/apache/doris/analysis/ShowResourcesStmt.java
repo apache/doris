@@ -215,7 +215,7 @@ public class ShowResourcesStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: NAME = \"your_resource_name\","
-                    + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"SPARK\", "
+                    + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"resource_type\", "
                     + " or compound predicate with operator AND");
         }
     }
