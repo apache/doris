@@ -36,6 +36,7 @@ private:
     Status fill_one_row(Tuple *tuple, MemPool *pool);
     Status get_new_desc();
     Status get_create_table(std::string *result);
+    std::string to_mysql_data_type_string(TColumnDesc &desc);
     std::string type_to_string(TColumnDesc &desc);
 
     int _db_index;
