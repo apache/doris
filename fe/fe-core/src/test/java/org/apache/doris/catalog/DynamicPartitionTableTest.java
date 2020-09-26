@@ -466,7 +466,8 @@ public class DynamicPartitionTableTest {
         String insertStmt = "insert into test.`empty_dynamic_partition` values ('2020-09-10', 1000, 100, 'test', '2020-09-10 23:59:59');";
         createTable(createOlapTblStmt);
         expectedException.expect(AnalysisException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = data cannot be inserted into table with emtpy partition. [empty_dynamic_partition]");
+        expectedException.expectMessage("errCode = 2, detailMessage = data cannot be inserted into table with empty partition. " +
+                "Use `SHOW PARTITIONS FROM empty_dynamic_partition` to see the currently partitions of this table. ");
         UtFrameUtils.parseAndAnalyzeStmt("explain " + insertStmt, connectContext);
     }
 }
