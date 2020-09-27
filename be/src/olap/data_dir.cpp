@@ -1005,10 +1005,6 @@ void DataDir::disks_compaction_score_increment(int64_t delta) {
     disks_compaction_score->increment(delta);
 }
 
-int64_t DataDir::get_disks_compaction_num() {
-    return disks_compaction_num->value();
-}
-
 void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
 }

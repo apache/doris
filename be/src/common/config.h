@@ -264,6 +264,8 @@ namespace config {
     // be policy
     // whether disable automatic compaction task
     CONF_mBool(disable_auto_compaction, "false");
+    // check the configuration of auto compaction in seconds when auto compaction disabled
+    CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");
@@ -312,13 +314,10 @@ namespace config {
     CONF_mInt32(max_compaction_threads, "10");
 
     // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
-    CONF_mInt64(total_permits_for_compaction_score, "10000")
+    CONF_mInt64(total_permits_for_compaction_score, "10000");
 
     // Whether compaction task is allowed to start when compaction score of current tablet is out of upper limit.
-    CONF_mBool(enable_over_sold, "true");
-
-    // Sleep time of compaction tasks producer thread after each tasks generation, in seconds.
-    CONF_mInt32(generate_compaction_tasks_interval_seconds, "2")
+    CONF_mBool(enable_compaction_permit_over_sold, "true");
 
     // Compaction task number per disk.
     CONF_mInt32(compaction_task_num_per_disk, "2");

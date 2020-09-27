@@ -23,7 +23,7 @@ CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
 bool CompactionPermitLimiter::request(int64_t permits) {
     if (permits > config::total_permits_for_compaction_score) {
-        if (config::enable_over_sold) {
+        if (config::enable_compaction_permit_over_sold) {
             std::unique_lock<std::mutex> lock(_over_sold_mutex);
             _cv.wait(lock, [=] {
                 return _used_permits == 0 ||

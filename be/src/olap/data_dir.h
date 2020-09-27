@@ -130,7 +130,6 @@ public:
 
     void disks_compaction_score_increment(int64_t delta);
 
-    int64_t get_disks_compaction_num();
     void disks_compaction_num_increment(int64_t delta);
 
 private:
