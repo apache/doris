@@ -525,7 +525,7 @@ public class DistributedPlanner {
         if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
         }
-        // If user have a join hint to use proper way of join, can not be colocate join
+        // If user have a join hint to use proper way of join, can not be bucket shuffle join
         if (node.getInnerRef().hasJoinHints()) {
             return false;
         }

@@ -508,12 +508,8 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 
             for (auto ctx : _partition_expr_ctxs) {
                 void* partition_val = ctx->get_value(row);
-                // We can't use the crc hash function here because it does not result
-                // in uncorrelated hashes with different seeds.  Instead we must use
-                // fvn hash.
-                // TODO: fix crc hash/GetHashValue()
-                //hash_val = RawValue::get_hash_value_fvn(
-                //    partition_val, ctx->root()->type(), hash_val);
+                // We must use the crc hash function to make sure the hash val equal
+                // to left table data distribute hash val
                 hash_val = RawValue::zlib_crc32(
                         partition_val, ctx->root()->type(), hash_val);
             }
