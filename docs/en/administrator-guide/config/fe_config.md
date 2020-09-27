@@ -334,6 +334,14 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### `http_backlog_num`
 
+The backlog_num for netty http server, When you enlarge this backlog_num,
+you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
+
+### `mysql_nio_backlog_num`
+
+The backlog_num for mysql nio server, When you enlarge this backlog_num,
+you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
+
 ### `http_port`
 
 HTTP bind port. Defaults to 8030.
