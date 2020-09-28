@@ -34,10 +34,47 @@ under the License.
 （TODO）
 
 ## 设置配置项
-（TODO）
+
+BE 的配置项有两种方式进行配置：
+
+1. 静态配置
+
+	在 `conf/be.conf` 文件中添加和设置配置项。`be.conf` 中的配置项会在 BE 进行启动时被读取。没有在 `be.conf` 中的配置项将使用默认值。
+
+2. 动态配置
+
+	BE 启动后，可以通过一下命令动态设置配置项。
+
+	```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+
+	**通过该方式修改的配置项将在 BE 进程重启后失效。**
 
 ## 应用举例
-（TODO）
+
+1. 静态方式修改 `max_compaction_concurrency`
+
+	通过在 `be.conf` 文件中添加：
+
+	```max_compaction_concurrency=5```
+
+	之后重启 BE 进程以生效该配置。
+
+2. 动态方式修改 `streaming_load_max_mb`
+
+	BE 启动后，通过下面命令动态设置配置项 `streaming_load_max_mb`:
+
+	```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+
+	返回值如下，则说明设置成功。
+
+	```
+	{
+	    "status": "OK",
+	    "msg": ""
+	}
+	```
+
+	**BE 重启后该配置将失效。**
 
 ## 配置项列表
 
@@ -383,6 +420,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `min_buffer_size`
 
 ### `min_compaction_failure_interval_sec`
+
+* 类型：int32
+* 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
+* 默认值：600
+* 单位：秒
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
