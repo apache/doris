@@ -410,6 +410,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `max_tablet_num_per_shard`
 
+### `max_tablet_version_num`
+
+* Type: int
+* Description: Limit the number of versions of a single tablet. It is used to prevent a large number of version accumulation problems caused by too frequent import or untimely compaction. When the limit is exceeded, the import task will be rejected.
+* Default value: 500
+
 ### `mem_limit`
 
 ### `memory_limitation_per_thread_for_schema_change`
