@@ -34,10 +34,47 @@ This document mainly introduces the relevant configuration items of BE.
 (TODO)
 
 ## Set configuration items
-(TODO)
+
+There are two ways to configure BE configuration items:
+
+1. Static configuration
+
+         Add and set configuration items in the `conf/be.conf` file. The configuration items in `be.conf` will be read when BE starts. Configuration items not in `be.conf` will use default values.
+
+2. Dynamic configuration
+
+         After BE starts, the configuration items can be dynamically set with the following commands.
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+
+         **Configuration items modified in this way will become invalid after the BE process restarts. **
 
 ## Examples
-(TODO)
+
+1. Modify `max_compaction_concurrency` statically
+
+         By adding in the `be.conf` file:
+
+         ```max_compaction_concurrency=5```
+
+         Then restart the BE process to take effect the configuration.
+
+2. Modify `streaming_load_max_mb` dynamically
+
+         After BE starts, the configuration item `streaming_load_max_mb` is dynamically set by the following command:
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+
+         The return value is as follows, indicating that the setting is successful.
+
+         ```
+         {
+             "status": "OK",
+             "msg": ""
+         }
+         ```
+
+         **The configuration will be invalid after BE restarted. **
 
 ## Configurations
 
@@ -384,6 +421,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `min_buffer_size`
 
 ### `min_compaction_failure_interval_sec`
+
+* Type: int32
+* Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
+* Default value: 600
+* Unit: seconds
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
