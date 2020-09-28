@@ -95,7 +95,7 @@ ENV MAVEN_HOME /usr/share/maven
 WORKDIR ${DEFAULT_DIR}
 
 # there is a repo which is included all of thirdparty
-ENV REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
+ENV REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 
 # clone lastest source code, download and build third party
 COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
