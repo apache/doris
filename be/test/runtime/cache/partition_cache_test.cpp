@@ -192,6 +192,42 @@ TEST_F(PartitionCacheTest, fetch_range_data) {
     clear();
 }
 
+TEST_F(PartitionCacheTest, fetch_invalid_right_range) {
+    init_default();
+    init_batch_data(1, 1, 3);
+
+    set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
+    PCacheParam* p1 = _fetch_request->add_params();
+    p1->set_partition_key(4);
+    p1->set_last_version(4);
+    p1->set_last_version_time(4);
+    PCacheParam* p2 = _fetch_request->add_params();
+    p2->set_partition_key(5);
+    p2->set_last_version(5);
+    p2->set_last_version_time(5);
+    _cache->fetch(_fetch_request, _fetch_result);
+
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
+    ASSERT_EQ(_fetch_result->values_size(), 0);
+    clear();
+}
+
+TEST_F(PartitionCacheTest, fetch_invalid_left_range) {
+    init_default();
+    init_batch_data(1, 1, 3);
+
+    set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
+    PCacheParam* p1 = _fetch_request->add_params();
+    p1->set_partition_key(0);
+    p1->set_last_version(0);
+    p1->set_last_version_time(0);
+    _cache->fetch(_fetch_request, _fetch_result);
+
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
+    ASSERT_EQ(_fetch_result->values_size(), 0);
+    clear();
+}
+
 TEST_F(PartitionCacheTest, fetch_invalid_key_range) {
     init_default();
     init_batch_data(1, 2, 1);
