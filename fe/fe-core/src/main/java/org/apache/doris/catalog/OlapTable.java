@@ -521,7 +521,7 @@ public class OlapTable extends Table {
     public Map<Long, List<Column>> getIndexIdToSchema(boolean full) {
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().getSchema(true));
+            result.put(entry.getKey(), entry.getValue().getSchema(full));
         }
         return result;
     }
