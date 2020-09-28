@@ -167,14 +167,19 @@ PCacheStatus ResultNode::fetch_partition(const PFetchCacheRequest* request,
                    request->params(param_idx).partition_key() > (*part_it)->get_partition_key()) {
                 part_it++;
             }
-            while (param_idx < request->params_size() &&
-                   request->params(param_idx).partition_key() < (*part_it)->get_partition_key()) {
-                param_idx++;
-            }
-            if (request->params(param_idx).partition_key() == (*part_it)->get_partition_key()) {
-                find = true;
+            if (part_it != _partition_list.end()) {
+                while (param_idx < request->params_size() &&
+                        request->params(param_idx).partition_key() < (*part_it)->get_partition_key()) {
+                    param_idx++;
+                }
+                if (param_idx < request->params_size()) {
+                    if (request->params(param_idx).partition_key() == (*part_it)->get_partition_key()) {
+                        find = true;
+                    }
+                } 
             }
         }
+
         if (find) {
 #ifdef PARTITION_CACHE_DEV
             LOG(INFO) << "Find! Param index : " << param_idx
