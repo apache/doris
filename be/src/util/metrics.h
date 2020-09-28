@@ -277,6 +277,9 @@ public:
 #define INT_GAUGE_METRIC_REGISTER(entity, metric)                                 \
     metric = (IntGauge*)(entity->register_metric<IntGauge>(&METRIC_##metric))
 
+#define INT_DOUBLE_METRIC_REGISTER(entity, metric)                                \
+    metric = (DoubleGauge*)(entity->register_metric<DoubleGauge>(&METRIC_##metric))
+
 #define INT_UGAUGE_METRIC_REGISTER(entity, metric)                                \
     metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric))
 

@@ -17,11 +17,19 @@
 #include "olap/olap_index.h"
 #include "olap/row_block.h"
 #include "olap/utils.h"
+#include "util/doris_metrics.h"
 
 using std::string;
 using std::stringstream;
 
 namespace doris {
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(usage, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(usage_ratio, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lookup_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(hit_count, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(hit_ratio, MetricUnit::NOUNIT);
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
@@ -82,9 +90,7 @@ LRUHandle* HandleTable::insert(LRUHandle* h) {
         if (_elems > _length) {
             // Since each cache entry is fairly large, we aim for a small
             // average linked list length (<= 1).
-            if (!_resize()) {
-                return NULL;
-            }
+            _resize();
         }
     }
 
@@ -114,7 +120,7 @@ LRUHandle** HandleTable::_find_pointer(const CacheKey& key, uint32_t hash) {
     return ptr;
 }
 
-bool HandleTable::_resize() {
+void HandleTable::_resize() {
     uint32_t new_length = 4;
 
     while (new_length < _elems) {
@@ -122,21 +128,13 @@ bool HandleTable::_resize() {
     }
 
     LRUHandle** new_list = new(std::nothrow) LRUHandle*[new_length];
-
-    if (NULL == new_list) {
-        LOG(FATAL) << "failed to malloc new hash list. new_length=" << new_length;
-        return false;
-    }
-
     memset(new_list, 0, sizeof(new_list[0]) * new_length);
     uint32_t count = 0;
 
     for (uint32_t i = 0; i < _length; i++) {
         LRUHandle* h = _list[i];
-
         while (h != NULL) {
             LRUHandle* next = h->next_hash;
-            CacheKey key = h->key();
             uint32_t hash = h->hash;
             LRUHandle** ptr = &new_list[hash & (new_length - 1)];
             h->next_hash = *ptr;
@@ -146,20 +144,13 @@ bool HandleTable::_resize() {
         }
     }
 
-    if (_elems != count) {
-        delete [] new_list;
-        LOG(FATAL) << "_elems not match new count. elems=" << _elems
-                   << ", count=" << count;
-        return false;
-    }
-
+    DCHECK_EQ(_elems, count);
     delete [] _list;
     _list = new_list;
     _length = new_length;
-    return true;
 }
 
-LRUCache::LRUCache() : _usage(0), _last_id(0), _lookup_count(0),
+LRUCache::LRUCache() : _usage(0), _lookup_count(0),
     _hit_count(0) {
         // Make empty circular linked list
         _lru.next = &_lru;
@@ -376,14 +367,28 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
     return hash >> (32 - kNumShardBits);
 }
 
-ShardedLRUCache::ShardedLRUCache(size_t capacity)
-    : _last_id(0) {
-        const size_t per_shard = (capacity + (kNumShards - 1)) / kNumShards;
-
-        for (int s = 0; s < kNumShards; s++) {
-            _shards[s].set_capacity(per_shard);
-        }
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity)
+    : _name(name), _last_id(1) {
+    const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
+    for (int s = 0; s < kNumShards; s++) {
+        _shards[s].set_capacity(per_shard);
     }
+
+    _entity = DorisMetrics::instance()->metric_registry()
+        ->register_entity(std::string("lru_cache:") + name, {{"name", name}});
+    _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
+    INT_GAUGE_METRIC_REGISTER(_entity, capacity);
+    INT_GAUGE_METRIC_REGISTER(_entity, usage);
+    INT_DOUBLE_METRIC_REGISTER(_entity, usage_ratio);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, lookup_count);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, hit_count);
+    INT_DOUBLE_METRIC_REGISTER(_entity, hit_ratio);
+}
+
+ShardedLRUCache::~ShardedLRUCache() {
+    _entity->deregister_hook(_name);
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+}
 
 Cache::Handle* ShardedLRUCache::insert(
         const CacheKey& key,
@@ -420,8 +425,7 @@ Slice ShardedLRUCache::value_slice(Handle* handle) {
 }
 
 uint64_t ShardedLRUCache::new_id() {
-    MutexLock l(&_id_mutex);
-    return ++(_last_id);
+    return _last_id.fetch_add(1, std::memory_order_relaxed);;
 }
 
 void ShardedLRUCache::prune() {
@@ -432,51 +436,28 @@ void ShardedLRUCache::prune() {
     VLOG(7) << "Successfully prune cache, clean " << num_prune << " entries.";
 }
 
-size_t ShardedLRUCache::get_memory_usage() {
+void ShardedLRUCache::update_cache_metrics() const {
+    size_t total_capacity = 0;
     size_t total_usage = 0;
-    for (int s = 0; s < kNumShards; s++) {
-        total_usage += _shards[s].get_usage();
-    }
-    return total_usage;
-}
-
-void ShardedLRUCache::get_cache_status(rapidjson::Document* document) {
-    size_t shard_count = sizeof(_shards) / sizeof(LRUCache);
-
-    for (uint32_t i = 0; i < shard_count; ++i) {
-        size_t capacity = _shards[i].get_capacity();
-        size_t usage = _shards[i].get_usage();
-        rapidjson::Value shard_info(rapidjson::kObjectType);
-        shard_info.AddMember("capacity", static_cast<double>(capacity), document->GetAllocator());
-        shard_info.AddMember("usage", static_cast<double>(usage), document->GetAllocator());
-
-        float usage_ratio = 0.0f;
-
-        if (0 != capacity) {
-            usage_ratio = static_cast<float>(usage) / static_cast<float>(capacity);
-        }
-
-        shard_info.AddMember("usage_ratio", usage_ratio, document->GetAllocator());
-
-        size_t lookup_count = _shards[i].get_lookup_count();
-        size_t hit_count = _shards[i].get_hit_count();
-        shard_info.AddMember("lookup_count", static_cast<double>(lookup_count), document->GetAllocator());
-        shard_info.AddMember("hit_count", static_cast<double>(hit_count), document->GetAllocator());
-
-        float hit_ratio = 0.0f;
-
-        if (0 != lookup_count) {
-            hit_ratio = static_cast<float>(hit_count) / static_cast<float>(lookup_count);
-        }
-
-        shard_info.AddMember("hit_ratio", hit_ratio, document->GetAllocator());
-        document->PushBack(shard_info, document->GetAllocator());
+    size_t total_lookup_count = 0;
+    size_t total_hit_count = 0;
+    for (int i = 0; i < kNumShards; i++) {
+        total_capacity += _shards[i].get_capacity();
+        total_usage += _shards[i].get_usage();
+        total_lookup_count += _shards[i].get_lookup_count();
+        total_hit_count += _shards[i].get_hit_count();
     }
 
+    capacity->set_value(total_capacity);
+    usage->set_value(total_usage);
+    lookup_count->set_value(total_lookup_count);
+    hit_count->set_value(total_hit_count);
+    usage_ratio->set_value(total_capacity == 0 ? 0 : (total_usage / total_capacity));
+    hit_ratio->set_value(total_lookup_count == 0 ? 0 : (total_hit_count / total_lookup_count));
 }
 
-Cache* new_lru_cache(size_t capacity) {
-    return new ShardedLRUCache(capacity);
+Cache* new_lru_cache(const std::string& name, size_t capacity) {
+    return new ShardedLRUCache(name, capacity);
 }
 
 }  // namespace doris
