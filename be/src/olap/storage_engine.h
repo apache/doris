@@ -350,9 +350,6 @@ private:
     std::map<DataDir*, vector<TabletSharedPtr>> _tablet_submitted_compaction;
     std::mutex _tablet_submitted_compaction_mutex;
 
-    std::mutex _wait_permits_mutex;
-    std::condition_variable _wait_permits_cv;
-
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 

@@ -44,6 +44,8 @@ private:
     // sum of "permits" held by executing compaction tasks currently
     AtomicInt64 _used_permits;
     std::mutex _over_sold_mutex;
-    std::condition_variable _cv;
+    std::condition_variable _over_sold_cv;
+    std::mutex _wait_permits_mutex;
+    std::condition_variable _wait_permits_cv;
 };
 } // namespace doris

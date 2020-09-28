@@ -25,9 +25,9 @@ bool CompactionPermitLimiter::request(int64_t permits) {
     if (permits > config::total_permits_for_compaction_score) {
         if (config::enable_compaction_permit_over_sold) {
             std::unique_lock<std::mutex> lock(_over_sold_mutex);
-            _cv.wait(lock, [=] {
+            _over_sold_cv.wait(lock, [=] {
                 return _used_permits == 0 ||
-                       _used_permits + permits < config::total_permits_for_compaction_score;
+                       _used_permits + permits <= config::total_permits_for_compaction_score;
             });
             _used_permits += permits;
             return true;
@@ -36,7 +36,10 @@ bool CompactionPermitLimiter::request(int64_t permits) {
         }
     } else {
         if (_used_permits + permits > config::total_permits_for_compaction_score) {
-            return false;
+            std::unique_lock<std::mutex> lock(_wait_permits_mutex);
+            _wait_permits_cv.wait(lock, [=] {
+                return _used_permits + permits <= config::total_permits_for_compaction_score;
+            });
         }
         _used_permits += permits;
         return true;
@@ -45,6 +48,7 @@ bool CompactionPermitLimiter::request(int64_t permits) {
 
 void CompactionPermitLimiter::release(int64_t permits) {
     _used_permits -= permits;
-    _cv.notify_one();
+    _over_sold_cv.notify_one();
+    _wait_permits_cv.notify_one();
 }
 } // namespace doris

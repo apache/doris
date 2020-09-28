@@ -341,42 +341,39 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     _compaction_tasks_generator(compaction_type, data_dirs);
             for (const auto& tablet : tablets_compaction) {
                 int64_t permits = tablet->calc_compaction_score(compaction_type);
-                if (!_permit_limiter.request(permits)) {
-                    std::unique_lock<std::mutex> lock(_wait_permits_mutex);
-                    _wait_permits_cv.wait(lock,
-                                          [=] { return _permit_limiter.request(permits); });
+                if (_permit_limiter.request(permits)) {
+                    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                        _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                            CgroupsMgr::apply_system_cgroup();
+                            _perform_cumulative_compaction(tablet);
+                            _permit_limiter.release(permits);
+                            std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+                            vector<TabletSharedPtr>::iterator it_tablet = find(
+                                    _tablet_submitted_compaction[tablet->data_dir()].begin(),
+                                    _tablet_submitted_compaction[tablet->data_dir()].end(), tablet);
+                            if (it_tablet !=
+                                _tablet_submitted_compaction[tablet->data_dir()].end()) {
+                                _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
+                            }
+                        });
+                    } else {
+                        _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                            CgroupsMgr::apply_system_cgroup();
+                            _perform_base_compaction(tablet);
+                            _permit_limiter.release(permits);
+                            std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+                            vector<TabletSharedPtr>::iterator it_tablet = find(
+                                    _tablet_submitted_compaction[tablet->data_dir()].begin(),
+                                    _tablet_submitted_compaction[tablet->data_dir()].end(), tablet);
+                            if (it_tablet !=
+                                _tablet_submitted_compaction[tablet->data_dir()].end()) {
+                                _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
+                            }
+                        });
+                    }
+                    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+                    _tablet_submitted_compaction[tablet->data_dir()].emplace_back(tablet);
                 }
-                if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                    _compaction_thread_pool->submit_func([this, tablet, permits]() {
-                        CgroupsMgr::apply_system_cgroup();
-                        this->_perform_cumulative_compaction(tablet);
-                        this->_permit_limiter.release(permits);
-                        _wait_permits_cv.notify_one();
-                        std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                        vector<TabletSharedPtr>::iterator it_tablet = find(
-                                _tablet_submitted_compaction[tablet->data_dir()].begin(),
-                                _tablet_submitted_compaction[tablet->data_dir()].end(), tablet);
-                        if (it_tablet != _tablet_submitted_compaction[tablet->data_dir()].end()) {
-                            _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
-                        }
-                    });
-                } else {
-                    _compaction_thread_pool->submit_func([this, tablet, permits]() {
-                        CgroupsMgr::apply_system_cgroup();
-                        this->_perform_base_compaction(tablet);
-                        this->_permit_limiter.release(permits);
-                        _wait_permits_cv.notify_one();
-                        std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                        vector<TabletSharedPtr>::iterator it_tablet = find(
-                                _tablet_submitted_compaction[tablet->data_dir()].begin(),
-                                _tablet_submitted_compaction[tablet->data_dir()].end(), tablet);
-                        if (it_tablet != _tablet_submitted_compaction[tablet->data_dir()].end()) {
-                            _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
-                        }
-                    });
-                }
-                std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                _tablet_submitted_compaction[tablet->data_dir()].emplace_back(tablet);
             }
         } else {
             sleep(config::check_auto_compaction_interval_seconds);
@@ -389,16 +386,13 @@ vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
     vector<TabletSharedPtr> tablets_compaction;
     std::random_shuffle(data_dirs.begin(), data_dirs.end());
     for (auto data_dir : data_dirs) {
+        std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
         if (_tablet_submitted_compaction[data_dir].size() >= config::compaction_task_num_per_disk) {
             continue;
         }
         if (!data_dir->reach_capacity_limit(0)) {
-            TabletSharedPtr tablet;
-            {
-                std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                tablet = _tablet_manager->find_best_tablet_to_compaction(
-                        compaction_type, data_dir, _tablet_submitted_compaction[data_dir]);
-            }
+            TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
+                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir]);
             if (tablet != nullptr) {
                 tablets_compaction.emplace_back(tablet);
             }
