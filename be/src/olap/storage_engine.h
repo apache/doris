@@ -347,8 +347,14 @@ private:
     std::unique_ptr<ThreadPool> _compaction_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
-    std::map<DataDir*, vector<TabletSharedPtr>> _tablet_submitted_compaction;
+
     std::mutex _tablet_submitted_compaction_mutex;
+    std::map<DataDir*, vector<TTabletId>> _tablet_submitted_compaction;
+
+    AtomicInt32 _wakeup_producer_flag;
+
+    std::mutex _compaction_producer_sleep_mutex;
+    std::condition_variable _compaction_producer_sleep_cv;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

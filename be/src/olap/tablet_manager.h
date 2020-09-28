@@ -71,7 +71,7 @@ public:
 
     TabletSharedPtr find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
-            vector<TabletSharedPtr>& tablet_submitted_compaction);
+            vector<TTabletId> &tablet_submitted_compaction);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);

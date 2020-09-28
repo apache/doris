@@ -681,7 +681,7 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        vector<TabletSharedPtr>& tablet_submitted_compaction) {
+        vector<TTabletId> &tablet_submitted_compaction) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str = compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     uint32_t highest_score = 0;
@@ -691,9 +691,9 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         tablet_map_t& tablet_map = _tablet_map_array[i];
         for (tablet_map_t::value_type& table_ins : tablet_map){
             for (TabletSharedPtr& tablet_ptr : table_ins.second.table_arr) {
-                vector<TabletSharedPtr>::iterator it_tablet =
+                vector<TTabletId>::iterator it_tablet =
                         find(tablet_submitted_compaction.begin(), tablet_submitted_compaction.end(),
-                             tablet_ptr);
+                             tablet_ptr->tablet_id());
                 if (it_tablet != tablet_submitted_compaction.end()) {
                     continue;
                 }
