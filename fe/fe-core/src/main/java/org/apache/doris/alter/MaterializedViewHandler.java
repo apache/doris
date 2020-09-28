@@ -517,7 +517,7 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean meetReplaceValue = false;
         KeysType keysType = olapTable.getKeysType();
         Map<String, Column> baseColumnNameToColumn = Maps.newHashMap();
-        for (Column column : olapTable.getSchemaByIndexId(baseIndexId, false)) {
+        for (Column column : olapTable.getSchemaByIndexId(baseIndexId, true)) {
             baseColumnNameToColumn.put(column.getName(), column);
         }
         if (keysType.isAggregationFamily()) {
