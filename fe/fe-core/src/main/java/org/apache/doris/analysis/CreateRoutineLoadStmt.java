@@ -17,6 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -170,7 +175,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
     private LoadTask.MergeType mergeType;
-    private Expr deleteCondition;
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
@@ -275,6 +279,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return customKafkaProperties;
     }
 
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -288,6 +296,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         checkJobProperties();
         // check data source properties
         checkDataSourceProperties();
+        // analyze merge type
+        if (routineLoadDesc != null) {
+            routineLoadDesc.analyze(analyzer);
+        } else if (mergeType == LoadTask.MergeType.MERGE) {
+            throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
+        }
     }
 
     public void checkDBTable(Analyzer analyzer) throws AnalysisException {
@@ -297,11 +311,25 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        if (db == null) {
+            throw new AnalysisException("database: " + dbName + " not  found.");
+        }
+        Table table = db.getTable(tableName);
+        if (mergeType != LoadTask.MergeType.APPEND
+                && (table.getType() != Table.TableType.OLAP
+                || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
+            throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+        }
+        if (mergeType != LoadTask.MergeType.APPEND
+                && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign()) ) {
+            throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+        }
     }
 
     public void checkLoadProperties() throws UserException {
         if (loadPropertyList == null) {
-            return;
+            routineLoadDesc = new RoutineLoadDesc(null, null, null, null, null, mergeType, null);
         }
         ColumnSeparator columnSeparator = null;
         ImportColumnsStmt importColumnsStmt = null;

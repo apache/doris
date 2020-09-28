@@ -337,7 +337,7 @@ public class BrokerFileGroup implements Writable {
         return sb.toString();
     }
 
-
+    @Deprecated
     @Override
     public void write(DataOutput out) throws IOException {
         // tableId
@@ -385,8 +385,16 @@ public class BrokerFileGroup implements Writable {
         // src table
         out.writeLong(srcTableId);
         out.writeBoolean(isLoadFromTable);
+        Text.writeString(out, mergeType.name());
+        if (deleteCondition != null) {
+            out.writeBoolean(true);
+            deleteCondition.write(out);
+        } else {
+            out.writeBoolean(false);
+        }
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         valueSeparator = Text.readString(in);
@@ -440,6 +448,12 @@ public class BrokerFileGroup implements Writable {
             srcTableId = in.readLong();
             isLoadFromTable = in.readBoolean();
         }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
+            mergeType = LoadTask.MergeType.valueOf(Text.readString(in));
+            if (in.readBoolean()) {
+                deleteCondition = Expr.readIn(in);
+            }
+        }
 
         // There are no columnExprList in the previous load job which is created before function is supported.
         // The columnExprList could not be analyzed without origin stmt in the previous load job.
@@ -460,6 +474,7 @@ public class BrokerFileGroup implements Writable {
         }
     }
 
+    @Deprecated
     public static BrokerFileGroup read(DataInput in) throws IOException {
         BrokerFileGroup fileGroup = new BrokerFileGroup();
         fileGroup.readFields(in);

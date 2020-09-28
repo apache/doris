@@ -18,11 +18,15 @@
 package org.apache.doris.load;
 
 import com.google.common.base.Strings;
+
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 
 public class RoutineLoadDesc {
@@ -79,5 +83,14 @@ public class RoutineLoadDesc {
 
     public boolean hasSequenceCol() {
         return !Strings.isNullOrEmpty(sequenceColName);
+    }
+
+    public void analyze(Analyzer analyzer) throws UserException {
+        if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
+            throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
+        }
+        if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
+            throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
+        }
     }
 }
