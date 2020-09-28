@@ -316,9 +316,6 @@ namespace config {
     // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
     CONF_mInt64(total_permits_for_compaction_score, "10000");
 
-    // Whether compaction task is allowed to start when compaction score of current tablet is out of upper limit.
-    CONF_mBool(enable_compaction_permit_over_sold, "true");
-
     // Compaction task number per disk.
     CONF_mInt32(compaction_task_num_per_disk, "2");
 

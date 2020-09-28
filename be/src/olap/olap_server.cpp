@@ -343,7 +343,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 int64_t permits = tablet->calc_compaction_score(compaction_type);
                 if (_permit_limiter.request(permits)) {
                     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                        _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                        _compaction_thread_pool->submit_func([=]() {
                             CgroupsMgr::apply_system_cgroup();
                             _perform_cumulative_compaction(tablet);
                             _permit_limiter.release(permits);
@@ -357,7 +357,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                             }
                         });
                     } else {
-                        _compaction_thread_pool->submit_func([this, tablet, permits]() {
+                        _compaction_thread_pool->submit_func([=]() {
                             CgroupsMgr::apply_system_cgroup();
                             _perform_base_compaction(tablet);
                             _permit_limiter.release(permits);

@@ -23,32 +23,28 @@ CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
 bool CompactionPermitLimiter::request(int64_t permits) {
     if (permits > config::total_permits_for_compaction_score) {
-        if (config::enable_compaction_permit_over_sold) {
-            std::unique_lock<std::mutex> lock(_over_sold_mutex);
-            _over_sold_cv.wait(lock, [=] {
-                return _used_permits == 0 ||
-                       _used_permits + permits <= config::total_permits_for_compaction_score;
-            });
-            _used_permits += permits;
-            return true;
-        } else {
-            return false;
-        }
+        // when tablet's compaction score is larger than "config::total_permits_for_compaction_score",
+        // it's necessary to do compaction for this tablet because this tablet will not get "permits"
+        // anyway. otherwise, compaction task for this tablet will not be executed forever.
+        std::unique_lock<std::mutex> lock(_permits_mutex);
+        _permits_cv.wait(lock, [=] {
+            return _used_permits == 0 ||
+                   _used_permits + permits <= config::total_permits_for_compaction_score;
+        });
     } else {
         if (_used_permits + permits > config::total_permits_for_compaction_score) {
-            std::unique_lock<std::mutex> lock(_wait_permits_mutex);
-            _wait_permits_cv.wait(lock, [=] {
+            std::unique_lock<std::mutex> lock(_permits_mutex);
+            _permits_cv.wait(lock, [=] {
                 return _used_permits + permits <= config::total_permits_for_compaction_score;
             });
         }
-        _used_permits += permits;
-        return true;
     }
+    _used_permits += permits;
+    return true;
 }
 
 void CompactionPermitLimiter::release(int64_t permits) {
     _used_permits -= permits;
-    _over_sold_cv.notify_one();
-    _wait_permits_cv.notify_one();
+    _permits_cv.notify_one();
 }
 } // namespace doris
