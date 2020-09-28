@@ -41,6 +41,16 @@ private:
     FunctionContext* ctx;
 };
 
+TEST_F(StringFunctionsTest, do_money_format_bench) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    StringVal expected = AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
+    for (int i = 0; i < 10000000; i++) {
+        StringVal result = StringFunctions::do_money_format(context, "922337203685477580700");  // cent
+        ASSERT_EQ(expected, result);
+    }
+    delete context;
+}
+
 TEST_F(StringFunctionsTest, money_format_bigint) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
