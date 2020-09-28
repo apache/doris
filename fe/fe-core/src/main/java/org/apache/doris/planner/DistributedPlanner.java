@@ -390,7 +390,7 @@ public class DistributedPlanner {
             node.setColocate(false, reason.get(0));
         }
 
-        // bucket shuffle join is better than boradcast and shuffle join
+        // bucket shuffle join is better than broadcast and shuffle join
         // it can reduce the network cost of join, so doris chose it first
         List<Expr> rhsPartitionxprs = Lists.newArrayList();
         if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionxprs)) {
@@ -531,7 +531,7 @@ public class DistributedPlanner {
         }
 
         PlanNode leftRoot = leftChildFragment.getPlanRoot();
-        //leftRoot should be ScanNode or HashJoinNode, rightRoot should be ScanNode
+        // leftRoot should be OlapScanNode
         if (leftRoot instanceof OlapScanNode) {
             return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
         }
@@ -551,7 +551,7 @@ public class DistributedPlanner {
 
         DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
 
-        if (leftDistribution instanceof HashDistributionInfo ) {
+        if (leftDistribution instanceof HashDistributionInfo) {
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
 
             List<Column> leftJoinColumns = new ArrayList<>();
@@ -581,6 +581,8 @@ public class DistributedPlanner {
                 }
                 rhsJoinExprs.add(rightExprs.get(loc));
             }
+        } else {
+            return false;
         }
 
         return true;
