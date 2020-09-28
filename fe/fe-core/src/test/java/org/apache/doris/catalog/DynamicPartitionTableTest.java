@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -437,5 +438,36 @@ public class DynamicPartitionTableTest {
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         OlapTable table = (OlapTable) db.getTable(tableName);
         Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().getReplicationNum(), 2);
+    }
+
+    @Test
+    public void testEmptyDynamicPartition() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`empty_dynamic_partition` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        String insertStmt = "insert into test.`empty_dynamic_partition` values ('2020-09-10', 1000, 100, 'test', '2020-09-10 23:59:59');";
+        createTable(createOlapTblStmt);
+        expectedException.expect(AnalysisException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = data cannot be inserted into table with empty partition. " +
+                "Use `SHOW PARTITIONS FROM empty_dynamic_partition` to see the currently partitions of this table. ");
+        UtFrameUtils.parseAndAnalyzeStmt("explain " + insertStmt, connectContext);
     }
 }
