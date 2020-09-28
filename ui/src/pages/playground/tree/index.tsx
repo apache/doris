@@ -32,7 +32,6 @@ interface DataNode {
 }
 
 const initTreeDate: DataNode[] = [];
-
 function updateTreeData(list: DataNode[], key: React.Key, children: DataNode[]): DataNode[] {
     return list.map(node => {
         if (node.key === key) {

@@ -24,7 +24,7 @@ import {
     CODEMIRROR_OPTIONS,
     AdhocContentRouteKeyEnum,
 } from '../adhoc.data';
-import {Button, Row, Col, message} from 'antd';
+import {Button, Row, Col, notification} from 'antd';
 import {PlayCircleFilled} from '@ant-design/icons';
 import {Switch, Route, Redirect} from 'react-router';
 import {AdhocContentResult} from './content-result';
@@ -46,7 +46,6 @@ require('react-resizable/css/styles.css');
 let editorInstance: any;
 let isQueryTableClicked = false;
 let isFieldNameInserted = false;
-
 export function AdHocContent(props: any) {
     let { t } = useTranslation();
     const {match} = props;
@@ -80,7 +79,7 @@ export function AdHocContent(props: any) {
                 }
             },
             onError: () => {
-                message.error(t('errMsg'));
+                notification.error({message: t('errMsg')});
                 runSQLSuccessSubject.next(false);
             },
         },

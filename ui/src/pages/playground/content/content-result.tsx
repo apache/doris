@@ -60,9 +60,9 @@ export function AdhocContentResult(props) {
         if (runningQueryInfo.data?.type === 'exec_status') {
             setResStatus(runningQueryInfo.data.status)
         } else {
-            const tableData = runningQueryInfo.data?(runningQueryInfo.data?.data).slice(0,20):[];
+            const tableData = (runningQueryInfo.data && typeof(runningQueryInfo.data) === 'object')?(runningQueryInfo.data?.data).slice(0,20):[];
             setTableDate(tableData);
-            setTotal(runningQueryInfo.data?.data.length);
+            setTotal((runningQueryInfo.data && typeof(runningQueryInfo.data) === 'object')?runningQueryInfo.data.length:0);
         }
         setRunningQueryInfo(runningQueryInfo);
     },[location.state]);
@@ -123,7 +123,7 @@ export function AdhocContentResult(props) {
                     ) : (
                         <TextWithIcon
                             icon={<CloseCircleFilled/>}
-                            text={"执行失败: "+runningQueryInfo.msg}
+                            text={"执行失败: "+runningQueryInfo.msg +' '+ runningQueryInfo.data}
                             color="red"
                             style={{
                                 marginBottom: 10,

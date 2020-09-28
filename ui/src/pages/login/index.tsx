@@ -50,7 +50,7 @@ function Login(){
             if(res.code===200){
                 history.push('/home');
                 localStorage.setItem('username', username)
-            }
+            } 
         });
     };
 

@@ -32,7 +32,7 @@ export function DataPrev(props: any) {
             db_name,
             body:{stmt:`SELECT * FROM ${db_name}.${tbl_name} LIMIT 10`},
         }).then(res=>{
-            if (res && res.data) {
+            if (res && res.msg === 'success') {
                 setTableData(res.data);
             }
         })

@@ -29,7 +29,7 @@ export default function Logs(params: any) {
     const [LogContents, setLogContents] = useState({});
     function getLogData(data){
         getLog(data).then(res=>{
-            if(res.data){
+            if(res.data && res.msg === 'success'){
                 if(res.data.LogConfiguration){
                     setLogConfiguration(res.data.LogConfiguration);
                 }

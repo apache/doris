@@ -73,7 +73,7 @@ export function getSession<T>(data: any): Promise<Result<T>> {
 }
 //config
 export function getConfig<T>(data: any): Promise<Result<T>> {
-    return request('rest/v1/config/fe/');
+    return request('/rest/v1/config/fe/');
 }
 //query begin
 export function getDatabaseList<T>(data: any): Promise<Result<T>> {

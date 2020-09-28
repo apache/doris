@@ -45,7 +45,7 @@ module.exports = {
     entry: paths.entryApp,
     output: {
         path: paths.distSrc,
-        publicPath: '/',
+        // publicPath: '',
         filename: '[name].[hash].js',
         chunkFilename: '[name].[hash].js'
     },

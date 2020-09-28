@@ -2,7 +2,8 @@
     "username": "用户名",
     "password": "密码",
     "exitSuccessfully": "退出成功",
-    
+    "loginWarning":"账号或密码错误",
+
     "editor": "编辑器",
     "format": "格式化",
     "clear": "清空编辑器",
@@ -28,7 +29,7 @@
     "endTime":"结束时间",
     "currentDatabase": "当前数据库",
     "executionFailed": "上传失败",
-    "uploadWarning": "请上传文件",
+    "uploadWarning": "请选择文件",
     "upload": "上传",
     "delimiterWarning": "请选择分隔符",
     "uploadedFiles": "已上传文件列表",
@@ -44,5 +45,6 @@
     "loadButton": "导入",
     "successfulOperation": "操作成功",
     "tips": "提示",
-    "fileSizeWarning": "文件大小不能超过100m"
+    "fileSizeWarning": "文件大小不能超过100m",
+    "selectWarning": "请选择表"
 }

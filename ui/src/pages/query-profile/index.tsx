@@ -31,7 +31,7 @@ export default function QueryProfile(params: any) {
     const history = useHistory();
     const doQueryProfile = function(){
         const param = {
-            path:location.pathname.slice(14),
+            path: getLastPath(),
         };
         queryProfile(param).then(res=>{
             if (res && res.msg === 'success') {
@@ -59,6 +59,11 @@ export default function QueryProfile(params: any) {
     useEffect(() => {
         doQueryProfile();
     }, [location.pathname]);
+    function getLastPath(){
+        let arr = location.pathname.split('/');
+        let str = arr.pop();
+        return str === 'QueryProfile' ? '' : str;
+    }
     function goPrev(){
         if (location.pathname === '/QueryProfile/') {return;}
         history.push('/QueryProfile/');

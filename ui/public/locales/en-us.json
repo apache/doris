@@ -2,6 +2,7 @@
     "username": "Username",
     "password": "Password",
     "signOut": "Sign out",
+    "loginWarning":"Incorrect username or password",
 
     "exitSuccessfully":"Exit successfully",
     "editor": "Editor",
@@ -28,7 +29,7 @@
     "endTime":"End Time",
     "currentDatabase":"Current Database",
     "executionFailed":"Execution failed",
-    "uploadWarning":"Please upload files",
+    "uploadWarning":"Please select file",
     "upload": "Upload",
     "delimiterWarning":"Please select a separator",
     "uploadedFiles":"Uploaded Files",
@@ -44,5 +45,6 @@
     "loadButton":"Import",
     "successfulOperation":"The operation was successful",
     "tips":"Tips",
-    "fileSizeWarning": "File size cannot exceed 100M"
+    "fileSizeWarning": "File size cannot exceed 100M",
+    "selectWarning": "Please select a table"
 }

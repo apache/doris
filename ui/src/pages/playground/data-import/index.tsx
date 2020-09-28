@@ -19,7 +19,7 @@
  
 import React,{useState, useEffect, useLayoutEffect} from 'react';
 import {getDbName} from 'Utils/utils';
-import {Typography, Steps, Button, message, Form, Input, Select, Upload, Table, Empty} from 'antd';
+import {Typography, Steps, Button, notification, Form, Input, Select, Upload, Table, Empty} from 'antd';
 import {UploadOutlined} from '@ant-design/icons';
 import {AdHocAPI, doUp, getUploadData, deleteUploadData} from 'Src/api/api';
 const {Step} = Steps;
@@ -31,8 +31,11 @@ import {useTranslation} from 'react-i18next';
 import 'antd/lib/style/themes/default.less';
 import getColumns from '../content/getColumns';
 import './index.less';
+import 'antd/dist/antd.css';
+import {getBasePath} from 'Src/utils/utils';
 export default function DataImport(props: any) {
     let { t } = useTranslation();
+    let basePath = getBasePath();
     const history = useHistory();
     const [header, setHeader] = useState([])
     const [rowId, setRowId] = useState()
@@ -66,18 +69,15 @@ export default function DataImport(props: any) {
     };
     const uploadData = {
         name: 'file',
-        action: `/api/default_cluster/${db_name}/${tbl_name}/upload`,
+        action: `${basePath}/api/default_cluster/${db_name}/${tbl_name}/upload`,
         data:{
             column_separator,
             preview:'true',
         },
-        headers: {
-            authorization: 'authorization-text',
-        },
         fileList,
         beforeUpload(file){
             if (file.size/1024/1024 > 100) {
-                message.error(t('fileSizeWarning'));
+                notification.error({message: t('fileSizeWarning')});
                 return false;
             }
             return true
@@ -87,10 +87,10 @@ export default function DataImport(props: any) {
 
             // }
             if (info.file.status === 'done') {
-                message.success(`${info.file.name} file uploaded successfully`);
+                notification.success({message: `${info.file.name} file uploaded successfully`});
                 getUploadList()
             } else if (info.file.status === 'error') {
-                message.error(`${info.file.name} file upload failed.`);
+                notification.error({message: `${info.file.name} file upload failed.`});
                 setHeaderUploadData([]);
                 setColsUploadData([])
             }
@@ -116,7 +116,7 @@ export default function DataImport(props: any) {
     function next() {
         const num = current + 1;
         if (current === 1 && !prevBackData) {
-            message.error(t('uploadWarning'));
+            notification.error({message: t('uploadWarning')});
             return;
         }
         setCurrent( num );
@@ -136,7 +136,7 @@ export default function DataImport(props: any) {
             res => {
                 // const endTime = getTimeNow();
                 const {db_name, tbl_name} = getDbName();
-                if (res) {
+                if (res && res.msg === 'success') {
                     let cols = res.data[tbl_name]?.schema;
                     setCols(cols);
                     setHeader(getColumns(cols[0], false, false))
@@ -147,7 +147,7 @@ export default function DataImport(props: any) {
             }
         ).catch(
             () => {
-                message.error(t('errMsg'));
+                notification.error({message:t('errMsg')});
             }
         )
     }
@@ -165,9 +165,9 @@ export default function DataImport(props: any) {
                     column_separator: prevBackData.columnSeparator
                 };
                 doUp(params).then(res=>{
-                    if(res){
+                    if(res && res.msg === 'success'){
                         if(res.data){
-                            message.success(`${res.msg}`);
+                            notification.success({message: `${res.msg}`});
                             ImportResult(res.data,()=>{
                                 history.push(`/Playground/structure/${db_name}-${tbl_name}`);
                             });
@@ -176,7 +176,7 @@ export default function DataImport(props: any) {
                 });
             })
             .catch(errorInfo => {
-                message.error(`${errorInfo}`);
+                notification.error({message: `${errorInfo}`});
             });
     }
     useEffect(() => {
@@ -195,7 +195,7 @@ export default function DataImport(props: any) {
             file_uuid:data.uuid,
             preview:true
         }).then((res)=>{
-            if (res.data) {
+            if (res.data && res.msg === 'success') {
                 const data = res.data;
                 setPrevBackData(data);
                 setPrevData(getAllTableData(data.maxColNum , data.lines));
@@ -213,7 +213,7 @@ export default function DataImport(props: any) {
             db_name,
             tbl_name,
         }).then((res)=>{
-            if(res.data){
+            if(res.data && res.msg === 'success'){
                 let data = res.data;
                 setHeaderUploadData(getColumns(data[0], deleteUpload, true));
                 setColsUploadData(data)
