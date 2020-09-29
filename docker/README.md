@@ -28,17 +28,24 @@ under the License.
     $ git clone https://github.com/apache/incubator-doris.git
     ```
 
-1. Copy Dockerfile
+    You can remove the `.git` dir in `incubator-doris/` to make the dir size smaller.
+    So that the following generated docker image can be smaller.
+
+2. Copy Dockerfile
 
     ```console
     $ cd /to/your/workspace/
     $ cp incubator-doris/docker/Dockerfile ./
     ```
 
-1. Download Oracle JDK(1.8+) RPM
+3. Download Oracle JDK(1.8+) RPM
 
-    You need to download the Oracle JDK RPM, which can be found [here][1]. And
-    rename it to `jdk.rpm`.
+    You need to download the Oracle JDK RPM, which can be found [here][1].
+    And rename it to `jdk.rpm`.
+
+4. Download nodejs
+
+    Download node-v14.8.0-linux-x64.tar.xz, which can be found [here][2].
 
 After preparation, your workspace should like this:
 
@@ -57,6 +64,7 @@ After preparation, your workspace should like this:
 │   ├── fe
 │   ├── ...
 ├── jdk.rpm
+├── node-v14.8.0-linux-x64.tar.xz
 ```
 
 ### Build docker image
@@ -87,3 +95,4 @@ $ sh build.sh
 ```
 
 [1]: https://www.oracle.com/technetwork/java/javase/downloads/index.html
+[2]: https://nodejs.org/dist/v14.8.0/
