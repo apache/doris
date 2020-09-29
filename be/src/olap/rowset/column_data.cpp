@@ -345,7 +345,8 @@ const RowCursor* ColumnData::seek_and_get_current_row(const RowBlockPosition& po
     res = _get_block(true, 1);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "Fail to get block in seek_and_get_current_row, res=" << res
-            << ", segment:" << position.segment << ", block:" << position.data_offset;
+            << ", segment:" << position.segment << ", block:" << position.data_offset
+            << ", tablet: " << _segment_group->get_tablet_id();
         return nullptr;
     }
     return _current_row();
