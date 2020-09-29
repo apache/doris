@@ -313,9 +313,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
-            throw new AnalysisException("database: " + dbName + " not  found.");
+            throw new AnalysisException("database: " + dbName + " not found.");
         }
         Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new AnalysisException("table: " + dbName + " not found.");
+        }
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
                 || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
@@ -328,54 +331,53 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     public void checkLoadProperties() throws UserException {
-        if (loadPropertyList == null) {
-            routineLoadDesc = new RoutineLoadDesc(null, null, null, null, null, mergeType, null);
-        }
         ColumnSeparator columnSeparator = null;
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt importWhereStmt = null;
         ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
-        for (ParseNode parseNode : loadPropertyList) {
-            if (parseNode instanceof ColumnSeparator) {
-                // check column separator
-                if (columnSeparator != null) {
-                    throw new AnalysisException("repeat setting of column separator");
+        if (loadPropertyList != null) {
+            for (ParseNode parseNode : loadPropertyList) {
+                if (parseNode instanceof ColumnSeparator) {
+                    // check column separator
+                    if (columnSeparator != null) {
+                        throw new AnalysisException("repeat setting of column separator");
+                    }
+                    columnSeparator = (ColumnSeparator) parseNode;
+                    columnSeparator.analyze(null);
+                } else if (parseNode instanceof ImportColumnsStmt) {
+                    // check columns info
+                    if (importColumnsStmt != null) {
+                        throw new AnalysisException("repeat setting of columns info");
+                    }
+                    importColumnsStmt = (ImportColumnsStmt) parseNode;
+                } else if (parseNode instanceof ImportWhereStmt) {
+                    // check where expr
+                    if (importWhereStmt != null) {
+                        throw new AnalysisException("repeat setting of where predicate");
+                    }
+                    importWhereStmt = (ImportWhereStmt) parseNode;
+                } else if (parseNode instanceof PartitionNames) {
+                    // check partition names
+                    if (partitionNames != null) {
+                        throw new AnalysisException("repeat setting of partition names");
+                    }
+                    partitionNames = (PartitionNames) parseNode;
+                    partitionNames.analyze(null);
+                } else if (parseNode instanceof ImportDeleteOnStmt) {
+                    // check delete expr
+                    if (importDeleteOnStmt != null) {
+                        throw new AnalysisException("repeat setting of delete predicate");
+                    }
+                    importDeleteOnStmt = (ImportDeleteOnStmt) parseNode;
+                } else if (parseNode instanceof ImportSequenceStmt) {
+                    // check sequence column
+                    if (importSequenceStmt != null) {
+                        throw new AnalysisException("repeat setting of sequence column");
+                    }
+                    importSequenceStmt = (ImportSequenceStmt) parseNode;
                 }
-                columnSeparator = (ColumnSeparator) parseNode;
-                columnSeparator.analyze(null);
-            } else if (parseNode instanceof ImportColumnsStmt) {
-                // check columns info
-                if (importColumnsStmt != null) {
-                    throw new AnalysisException("repeat setting of columns info");
-                }
-                importColumnsStmt = (ImportColumnsStmt) parseNode;
-            } else if (parseNode instanceof ImportWhereStmt) {
-                // check where expr
-                if (importWhereStmt != null) {
-                    throw new AnalysisException("repeat setting of where predicate");
-                }
-                importWhereStmt = (ImportWhereStmt) parseNode;
-            } else if (parseNode instanceof PartitionNames) {
-                // check partition names
-                if (partitionNames != null) {
-                    throw new AnalysisException("repeat setting of partition names");
-                }
-                partitionNames = (PartitionNames) parseNode;
-                partitionNames.analyze(null);
-            } else if (parseNode instanceof ImportDeleteOnStmt) {
-                // check delete expr
-                if (importDeleteOnStmt != null) {
-                    throw new AnalysisException("repeat setting of delete predicate");
-                }
-                importDeleteOnStmt = (ImportDeleteOnStmt) parseNode;
-            } else if (parseNode instanceof ImportSequenceStmt) {
-                // check sequence column
-                if (importSequenceStmt != null) {
-                    throw new AnalysisException("repeat setting of sequence column");
-                }
-                importSequenceStmt = (ImportSequenceStmt) parseNode;
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
