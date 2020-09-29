@@ -33,6 +33,7 @@ Syntax:
 
 ```
 CREATE ROUTINE LOAD [db.]job_name ON tbl_name
+[merge_type]
 [load_properties]
 [job_properties]
 FROM data_source
@@ -47,12 +48,15 @@ FROM data_source
 
     Specifies the name of the table that needs to be loaded.
 
-3. load_properties
+3. merge_type
+
+    The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete on condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
+
+4. load_properties
 
     Used to describe the load data. grammar:
 
     ```
-    [merge_type],
     [column_separator],
     [columns_mapping],
     [where_predicates],
@@ -67,7 +71,7 @@ FROM data_source
         `COLUMNS TERMINATED BY ","`
 
         The default is: `\t`
-        
+
     2. columns_mapping:
 
         Specifies the mapping of columns in the source data and defines how the derived columns are generated.
@@ -99,7 +103,7 @@ FROM data_source
         For example, if we only want to load a column with k1 greater than 100 and k2 equal to 1000, we would write as follows:
 
         `WHERE k1 > 100 and k2 = 1000`
-        
+
     4. partitions
 
         Specifies which partitions of the load destination table. If not specified, it will be automatically loaded into the corresponding partition.
@@ -108,15 +112,11 @@ FROM data_source
 
         `PARTITION(p1, p2, p3)`
 
-    5. merge_type:
-
-        The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete on condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
-
-    6. delete_on_predicates:
+    5. delete_on_predicates:
 
         Only used when merge type is MERGE
 
-4. job_properties
+5. job_properties
 
     A generic parameter that specifies a routine load job.
 
@@ -172,7 +172,7 @@ FROM data_source
     4. `strict_mode`
 
         Whether to enable strict mode, the default is disabled. If turned on, the column type transformation of non-null raw data is filtered if the result is NULL. Specified as "strict_mode" = "true"
-            
+
     5. `timezone`
 
         Specifies the time zone in which the job will be loaded. The default by using session variable's timezone. This parameter affects all function results related to the time zone involved in the load.
@@ -191,18 +191,18 @@ FROM data_source
     9. `json_root`
         json_root is a valid JSONPATH string that specifies the root node of the JSON Document. The default value is "".
 
-5. data_source
+6. data_source
 
     The type of data source. Current support:
 
     KAFKA
 
-6. `data_source_properties`
+7. `data_source_properties`
 
     Specify information about the data source.
 
     syntax:
-    
+
     ```
     (
         "key1" = "val1",
@@ -304,7 +304,7 @@ FROM data_source
 
             `"property.kafka_default_offsets" = "OFFSET_BEGINNING"`
 
-7. load data format sample
+8. load data format sample
 
     Integer class (TINYINT/SMALLINT/INT/BIGINT/LARGEINT): 1, 1000, 1234
 
