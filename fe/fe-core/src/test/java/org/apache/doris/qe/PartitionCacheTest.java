@@ -252,15 +252,6 @@ public class PartitionCacheTest {
         newRangeList = Lists.newArrayList();
     }
 
-    private void test1() {
-        new Expectations(catalog) {
-            {
-                catalog.getAuth();
-                result = auth;
-            }
-        };
-    } 
-
     private OlapTable createOrderTable() {
         Column column1 = new Column("date", ScalarType.INT);
         Column column2 = new Column("id", ScalarType.INT);
