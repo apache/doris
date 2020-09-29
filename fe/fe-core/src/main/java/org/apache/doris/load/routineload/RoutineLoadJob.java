@@ -1412,13 +1412,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(totalTaskExcutionTimeMs);
         out.writeLong(committedTaskNum);
         out.writeLong(abortedTaskNum);
-        Text.writeString(out, mergeType.name());
-        if (deleteCondition != null) {
-            out.writeBoolean(true);
-            deleteCondition.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
         origStmt.write(out);
         out.writeInt(jobProperties.size());
         for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
@@ -1474,12 +1467,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         totalTaskExcutionTimeMs = in.readLong();
         committedTaskNum = in.readLong();
         abortedTaskNum = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
-            mergeType = LoadTask.MergeType.valueOf(Text.readString(in));
-            if (in.readBoolean()) {
-                deleteCondition = Expr.readIn(in);
-            }
-        }
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
             String stmt = Text.readString(in);
             origStmt = new OriginStatement(stmt, 0);

@@ -385,13 +385,6 @@ public class BrokerFileGroup implements Writable {
         // src table
         out.writeLong(srcTableId);
         out.writeBoolean(isLoadFromTable);
-        Text.writeString(out, mergeType.name());
-        if (deleteCondition != null) {
-            out.writeBoolean(true);
-            deleteCondition.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
     }
 
     @Deprecated
@@ -447,12 +440,6 @@ public class BrokerFileGroup implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
             srcTableId = in.readLong();
             isLoadFromTable = in.readBoolean();
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
-            mergeType = LoadTask.MergeType.valueOf(Text.readString(in));
-            if (in.readBoolean()) {
-                deleteCondition = Expr.readIn(in);
-            }
         }
 
         // There are no columnExprList in the previous load job which is created before function is supported.

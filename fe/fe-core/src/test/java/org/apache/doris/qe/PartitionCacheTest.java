@@ -156,12 +156,6 @@ public class PartitionCacheTest {
                 return true;
             }
         };
-        new MockUp<Catalog>() {
-            @Mock
-            SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-        };
         db = new Database(1L, fullDbName);
             
         OlapTable tbl1 = createOrderTable();
@@ -176,6 +170,10 @@ public class PartitionCacheTest {
                 catalog.getAuth();
                 minTimes = 0;
                 result = auth;
+
+                Deencapsulation.invoke(Catalog.class, "getCurrentSystemInfo");
+                minTimes = 0;
+                result = service;
    
                 catalog.getDb(fullDbName);
                 minTimes = 0;
