@@ -282,6 +282,7 @@ public class CaseExpr extends Expr {
         int startIndex = 0;
         int endIndex = expr.getChildren().size();
 
+        // CastExpr with SlotRef child should be reset to re-analyze in selectListItem
         for (Expr child : expr.getChildren()) {
             if (child instanceof CastExpr && (child.getChild(0) instanceof SlotRef)) {
                 child.resetAnalysisState();
