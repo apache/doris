@@ -1619,27 +1619,15 @@ public class Load {
             }
 
             // check state here
-            if (isAccurateMatch) {
-                // only the last one should be running
-                LoadJob job = matchLoadJobs.get(matchLoadJobs.size() - 1);
+            List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(job -> {
                 JobState state = job.getState();
-                if (state == JobState.CANCELLED) {
-                    throw new DdlException("Load job has been cancelled");
-                } else if (state == JobState.QUORUM_FINISHED || state == JobState.FINISHED) {
-                    throw new DdlException("Load job has been finished");
-                }
-                loadJobs.add(job);
-            } else {
-                List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(job -> {
-                    JobState state = job.getState();
-                    return state != JobState.CANCELLED && state != JobState.QUORUM_FINISHED && state != JobState.FINISHED;
-                }).collect(Collectors.toList());
-                if (uncompletedLoadJob.isEmpty()) {
-                    throw new DdlException("Load jobs which label like " + stmt.getLabel() +
-                            " have all been cancelled or finished");
-                }
-                loadJobs.addAll(uncompletedLoadJob);
+                return state != JobState.CANCELLED && state != JobState.QUORUM_FINISHED && state != JobState.FINISHED;
+            }).collect(Collectors.toList());
+            if (uncompletedLoadJob.isEmpty()) {
+                throw new DdlException("There is no uncompleted job which label " +
+                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
             }
+            loadJobs.addAll(uncompletedLoadJob);
         } finally {
             readUnlock();
         }
