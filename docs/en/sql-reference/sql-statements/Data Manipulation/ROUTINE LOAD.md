@@ -510,7 +510,7 @@ FROM data_source
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
         WITH MERGE
         COLUMNS(k1, k2, k3, v1, v2, v3),
-        WHERE k1 > 100 and k2 like "%doris%"
+        WHERE k1 > 100 and k2 like "%doris%",
         DELETE ON v3 >100
         PROPERTIES
         (
