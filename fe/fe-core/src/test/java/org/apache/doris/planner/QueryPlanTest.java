@@ -917,10 +917,15 @@ public class QueryPlanTest {
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql52),
                 "OUTPUT EXPRS: `k7`"));
 
-        // 5.3 test different in then expr and else expr, and return CastExpr<SlotRef>
+        // 5.3 test different type in then expr and else expr, and return CastExpr<SlotRef>
         String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql53),
-                "OUTPUT EXPRS:<slot 0> `k1`"));
+                "OUTPUT EXPRS: `k1`"));
+
+        // 5.4 test return CastExpr<SlotRef> with other SlotRef in selectListItem
+        String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall group by k2, col54, k7";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql54),
+                "OUTPUT EXPRS:<slot 3> `k2` | <slot 4> `k1` | <slot 5> `k7`"));
     }
 
     @Test

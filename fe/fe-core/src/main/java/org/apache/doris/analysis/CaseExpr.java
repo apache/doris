@@ -281,6 +281,13 @@ public class CaseExpr extends Expr {
         LiteralExpr caseExpr;
         int startIndex = 0;
         int endIndex = expr.getChildren().size();
+
+        for (Expr child : expr.getChildren()) {
+            if (child instanceof CastExpr && (child.getChild(0) instanceof SlotRef)) {
+                child.resetAnalysisState();
+            }
+        }
+
         if (expr.hasCaseExpr()) {
             // just deal literal here
             // and avoid `float compute` in java,float should be dealt in be
