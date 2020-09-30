@@ -55,7 +55,7 @@ protected:
     virtual ReaderType compaction_type() const = 0;
 
     OLAPStatus do_compaction(int64_t permits);
-    OLAPStatus do_compaction_impl();
+    OLAPStatus do_compaction_impl(int64_t permits);
 
     void modify_rowsets();
     OLAPStatus gc_unused_rowsets();

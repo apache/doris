@@ -39,13 +39,13 @@ OLAPStatus Compaction::do_compaction(int64_t permits) {
     TRACE("start to do compaction");
     _tablet->data_dir()->disks_compaction_score_increment(permits);
     _tablet->data_dir()->disks_compaction_num_increment(1);
-    OLAPStatus st = do_compaction_impl();
+    OLAPStatus st = do_compaction_impl(permits);
     _tablet->data_dir()->disks_compaction_score_increment(-permits);
     _tablet->data_dir()->disks_compaction_num_increment(-1);
     return st;
 }
 
-OLAPStatus Compaction::do_compaction_impl() {
+OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     OlapStopWatch watch;
 
     // 1. prepare input and output parameters
@@ -63,7 +63,8 @@ OLAPStatus Compaction::do_compaction_impl() {
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
-            << ", output version is=" << _output_version.first << "-" << _output_version.second;
+            << ", output version is=" << _output_version.first << "-" << _output_version.second
+            << ", score: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
