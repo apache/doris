@@ -59,7 +59,7 @@ public interface Writable {
     /** 
      * Serialize the fields of this object to <code>out</code>.
      * 
-     * @param out <code>DataOuput</code> to serialize this object into.
+     * @param out <code>DataOutput</code> to serialize this object into.
      * @throws IOException
      */
     void write(DataOutput out) throws IOException;

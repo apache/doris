@@ -114,7 +114,7 @@ public class MultiAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
-        // Mutli start request must redirect to master, because all following sub requests will be handled
+        // Multi start request must redirect to master, because all following sub requests will be handled
         // on Master
 
         RedirectView redirectView = redirectToMaster(request, response);

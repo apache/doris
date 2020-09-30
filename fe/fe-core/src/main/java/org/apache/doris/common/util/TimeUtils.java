@@ -260,8 +260,8 @@ public class TimeUtils {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
             }
             if (match) {
-                boolean postive = value.charAt(0) != '-';
-                value = (postive ? "+" : "-") + String.format("%02d:%02d",
+                boolean positive = value.charAt(0) != '-';
+                value = (positive ? "+" : "-") + String.format("%02d:%02d",
                         Integer.parseInt(value.replaceAll("[+-]", "").split(":")[0]),
                         Integer.parseInt(value.replaceAll("[+-]", "").split(":")[1]));
 

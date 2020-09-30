@@ -80,7 +80,7 @@ public class Config extends ConfigBase {
      *       Slow query contains all queries which cost exceed *qe_slow_log_ms*
      *       
      * qe_slow_log_ms:
-     *      If the response time of a query exceed this threshold, it will be recored in audit log as slow_query.
+     *      If the response time of a query exceed this threshold, it will be recorded in audit log as slow_query.
      *      
      * audit_log_roll_interval:
      *      DAY:  log suffix is yyyyMMdd
@@ -348,7 +348,7 @@ public class Config extends ConfigBase {
     /**
      * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.
      * Cluster id is usually a random integer generated when master FE start at first time.
-     * You can also sepecify one.
+     * You can also specify one.
      */
     @ConfField public static int cluster_id = -1;
   
@@ -572,7 +572,7 @@ public class Config extends ConfigBase {
     public static int desired_max_waiting_jobs = 100;
   
     /**
-     * maximun concurrent running txn num including prepare, commit txns under a single db
+     * maximum concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -603,7 +603,7 @@ public class Config extends ConfigBase {
     public static int clone_job_timeout_second = 7200; // 2h
     /**
      * Concurrency of LOW priority clone jobs.
-     * Concurrency of High priority clone jobs is currently unlimit.
+     * Concurrency of High priority clone jobs is currently unlimited.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int clone_max_job_num = 100;
@@ -1086,7 +1086,7 @@ public class Config extends ConfigBase {
      * not work to avoid OOM.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long metadata_checkopoint_memory_threshold = 60;
+    public static long metadata_checkpoint_memory_threshold = 60;
 
     /**
      * If set to true, the checkpoint thread will make the checkpoint regardless of the jvm memory used percent.
@@ -1258,7 +1258,7 @@ public class Config extends ConfigBase {
     public static long default_db_data_quota_bytes = 1024 * 1024 * 1024 * 1024L; // 1TB
 
     /*
-     * Maximum percentage of data that can be filtered (due to reasons such as data is irregulary)
+     * Maximum percentage of data that can be filtered (due to reasons such as data is irregularly)
      * The default value is 0.
      */
     @ConfField(mutable = true, masterOnly = true)

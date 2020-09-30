@@ -63,7 +63,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
                     .toString());
         }
         if (backend.getBrpcPort() < 0) {
-            throw new AnalysisException("BRPC port is't exist.");
+            throw new AnalysisException("BRPC port isn't exist.");
         }
         return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
     }
@@ -72,7 +72,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
         final Collection<CurrentQueryInfoProvider.InstanceStatistics> instanceStatisticsCollection
                 = provider.getInstanceStatistics(item);
-        final List<List<String>> sortedRowDatas = Lists.newArrayList();
+        final List<List<String>> sortedRowData = Lists.newArrayList();
         for (CurrentQueryInfoProvider.InstanceStatistics instanceStatistics :
                 instanceStatisticsCollection) {
             final List<String> rowData = Lists.newArrayList();
@@ -83,11 +83,11 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
                     instanceStatistics.getScanBytes()));
             rowData.add(QueryStatisticsFormatter.getRowsReturned(
                     instanceStatistics.getRowsReturned()));
-            sortedRowDatas.add(rowData);
+            sortedRowData.add(rowData);
         }
 
         // sort according to explain's fragment index
-        sortedRowDatas.sort(new Comparator<List<String>>() {
+        sortedRowData.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> l1, List<String> l2) {
                 final Integer fragmentId1 = Integer.valueOf(l1.get(0));
@@ -97,7 +97,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
         });
         final BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES.asList());
-        result.setRows(sortedRowDatas);
+        result.setRows(sortedRowData);
         return result;
     }
 

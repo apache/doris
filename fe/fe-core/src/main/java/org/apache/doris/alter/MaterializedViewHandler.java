@@ -342,7 +342,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);
         } else {
-            // use base table's storage foramt as the mv's format
+            // use base table's storage format as the mv's format
             mvJob.setStorageFormat(olapTable.getStorageFormat());
         }
 

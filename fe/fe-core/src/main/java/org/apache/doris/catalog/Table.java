@@ -73,7 +73,7 @@ public class Table extends MetaObject implements Writable {
      *  NOTICE: the order of this fullSchema is meaningless to OlapTable
      */
     /**
-     * The fullSchema of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     * The fullSchema of OlapTable includes the base columns and the SHADOW_NAME_PREFIX columns.
      * The properties of base columns in fullSchema are same as properties in baseIndex.
      * For example:
      * Table (c1 int, c2 int, c3 int)
@@ -86,7 +86,7 @@ public class Table extends MetaObject implements Writable {
     protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
     /**
-     * The nameToColumn of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     * The nameToColumn of OlapTable includes the base columns and the SHADOW_NAME_PREFIX columns.
      */
     protected Map<String, Column> nameToColumn;
 
@@ -105,7 +105,7 @@ public class Table extends MetaObject implements Writable {
         this.id = id;
         this.name = tableName;
         this.type = type;
-        // must copy the list, it should not be the same object as in indexIdToSchmea
+        // must copy the list, it should not be the same object as in indexIdToSchema
         if (fullSchema != null) {
             this.fullSchema = Lists.newArrayList(fullSchema);
         }
@@ -324,7 +324,7 @@ public class Table extends MetaObject implements Writable {
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
      * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
-     *      schedule the tablet to repair it(only for VERSION_IMCOMPLETE case, this will be checked in
+     *      schedule the tablet to repair it(only for VERSION_INCOMPLETE case, this will be checked in
      *      TabletScheduler).
      * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
      */

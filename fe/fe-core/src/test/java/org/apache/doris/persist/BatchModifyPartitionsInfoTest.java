@@ -49,7 +49,7 @@ public class BatchModifyPartitionsInfoTest {
     }
 
     @Test
-    public void testSerialzeBatchModifyPartitionsInfo() throws IOException, AnalysisException {
+    public void testSerializeBatchModifyPartitionsInfo() throws IOException, AnalysisException {
         List<ModifyPartitionInfo> ModifyInfos = Lists.newArrayList();
         // 1. Write objects to file
         File file = new File(fileName);

@@ -162,7 +162,7 @@ public class Alter {
         }
         List<AlterClause> alterClauses;
 
-        // some operations will take long time to process, need to be done outside the databse lock
+        // some operations will take long time to process, need to be done outside the database lock
         boolean needProcessOutsideDatabaseLock = false;
         String tableName = dbTableName.getTbl();
         db.writeLock();

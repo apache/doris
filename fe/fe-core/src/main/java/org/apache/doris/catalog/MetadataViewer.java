@@ -53,7 +53,7 @@ public class MetadataViewer {
 
         Database db = catalog.getDb(dbName);
         if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exsit");
+            throw new DdlException("Database " + dbName + " does not exist");
         }
         
         db.readLock();
@@ -178,7 +178,7 @@ public class MetadataViewer {
 
         Database db = catalog.getDb(dbName);
         if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exsit");
+            throw new DdlException("Database " + dbName + " does not exist");
         }
 
         db.readLock();

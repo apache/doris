@@ -110,7 +110,7 @@ public class GrantStmt extends DdlStmt {
         } else {
             // TODO(wyb): spark-load
             if (!Config.enable_spark_load) {
-                throw new AnalysisException("GRANT ON RESOURCE is comming soon");
+                throw new AnalysisException("GRANT ON RESOURCE is coming soon");
             }
             resourcePattern.analyze();
         }
@@ -160,12 +160,12 @@ public class GrantStmt extends DdlStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE){
-                if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), tblPattern.getQuolifiedDb(), PrivPredicate.GRANT)) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             } else {
                 // table level
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblPattern.getQuolifiedDb(), tblPattern.getTbl(), PrivPredicate.GRANT)) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), tblPattern.getTbl(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             }

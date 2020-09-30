@@ -70,7 +70,7 @@ public class ResourceMgrTest {
             {
                 catalog.getBrokerMgr();
                 result = brokerMgr;
-                brokerMgr.contaisnBroker(broker);
+                brokerMgr.containsBroker(broker);
                 result = true;
                 catalog.getEditLog();
                 result = editLog;
@@ -106,7 +106,7 @@ public class ResourceMgrTest {
             {
                 catalog.getBrokerMgr();
                 result = brokerMgr;
-                brokerMgr.contaisnBroker(broker);
+                brokerMgr.containsBroker(broker);
                 result = true;
                 catalog.getAuth();
                 result = auth;

@@ -207,7 +207,7 @@ public class ColumnDef {
         }
 
         // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
-        // If defalut value is not set, we set it NULL
+        // If default value is not set, we set it NULL
         if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
             isAllowNull = true;
             if (!defaultValue.isSet) {

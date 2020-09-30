@@ -29,11 +29,11 @@ public class JournalObservableTest {
     @Test
     public void testUpperBound() {
         Multiset<JournalObserver> elements = TreeMultiset.create();
-        JournalObserver ovserver2 = new JournalObserver(2L);
-        JournalObserver ovserver4 = new JournalObserver(4L);
-        JournalObserver ovserver41 = new JournalObserver(4L);
-        JournalObserver ovserver42 = new JournalObserver(4L);
-        JournalObserver ovserver6 = new JournalObserver(6L);
+        JournalObserver observer2 = new JournalObserver(2L);
+        JournalObserver observer4 = new JournalObserver(4L);
+        JournalObserver observer41 = new JournalObserver(4L);
+        JournalObserver observer42 = new JournalObserver(4L);
+        JournalObserver observer6 = new JournalObserver(6L);
 
         // empty
         {
@@ -42,7 +42,7 @@ public class JournalObservableTest {
 
         // one element
         {
-            elements.add(ovserver2);
+            elements.add(observer2);
             int size = elements.size();
             Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 2L));
@@ -52,11 +52,11 @@ public class JournalObservableTest {
         // same element
         {
             elements.clear();
-            elements.add(ovserver2);
-            elements.add(ovserver6);
-            elements.add(ovserver4);
-            elements.add(ovserver41);
-            elements.add(ovserver42);
+            elements.add(observer2);
+            elements.add(observer6);
+            elements.add(observer4);
+            elements.add(observer41);
+            elements.add(observer42);
 
             for (JournalObserver journalObserver : elements) {
                 System.out.println(journalObserver);
@@ -67,37 +67,37 @@ public class JournalObservableTest {
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 2L));
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 3L));
             Assert.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 4L));
-            elements.remove(ovserver41);
+            elements.remove(observer41);
             Assert.assertEquals(3, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
-            elements.remove(ovserver4);
+            elements.remove(observer4);
             Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
-            elements.remove(ovserver42);
+            elements.remove(observer42);
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
         }
 
         // same element 2
         {
             elements.clear();
-            elements.add(ovserver4);
-            elements.add(ovserver41);
+            elements.add(observer4);
+            elements.add(observer41);
 
             int size = elements.size();
             Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 4L));
-            elements.remove(ovserver41);
+            elements.remove(observer41);
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
-            elements.remove(ovserver4);
+            elements.remove(observer4);
             Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
         }
 
         // odd elements
         {
             elements.clear();
-            elements.add(ovserver2);
-            elements.add(ovserver2);
-            elements.add(ovserver4);
-            elements.add(ovserver4);
-            elements.add(ovserver6);
-            elements.add(ovserver6);
+            elements.add(observer2);
+            elements.add(observer2);
+            elements.add(observer4);
+            elements.add(observer4);
+            elements.add(observer6);
+            elements.add(observer6);
             int size = elements.size();
 //            System.out.println("size=" + size);
 //            for(int i = 0; i < size; i ++) {
@@ -114,13 +114,13 @@ public class JournalObservableTest {
         // even elements
         {
             elements.clear();
-            elements.add(ovserver2);
-            elements.add(ovserver2);
-            elements.add(ovserver4);
-            elements.add(ovserver4);
-            elements.add(ovserver4);
-            elements.add(ovserver6);
-            elements.add(ovserver6);
+            elements.add(observer2);
+            elements.add(observer2);
+            elements.add(observer4);
+            elements.add(observer4);
+            elements.add(observer4);
+            elements.add(observer6);
+            elements.add(observer6);
             int size = elements.size();
             Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
             Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 2L));

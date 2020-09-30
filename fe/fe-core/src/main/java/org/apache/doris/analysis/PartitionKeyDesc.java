@@ -87,7 +87,7 @@ public class PartitionKeyDesc {
     public void analyze(int partColNum) throws AnalysisException {
         if (!isMax()) {
             if (upperValues.isEmpty() || upperValues.size() > partColNum) {
-                throw new AnalysisException("Partiton values number is more than partition column number: " + toSql());
+                throw new AnalysisException("Partition values number is more than partition column number: " + toSql());
             }
         }
 

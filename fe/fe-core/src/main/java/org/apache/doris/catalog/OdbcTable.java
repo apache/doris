@@ -59,7 +59,7 @@ public class OdbcTable extends Table {
     static {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
         tempMap.put("oracle", TOdbcTableType.ORACLE);
-        // we will support mysql driver in the future after we slove the core problem of
+        // we will support mysql driver in the future after we solve the core problem of
         // driver and static library
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
@@ -157,7 +157,7 @@ public class OdbcTable extends Table {
             } else {
                 odbcTableTypeName = tableType.toLowerCase();
                 if (!TABLE_TYPE_MAP.containsKey(odbcTableTypeName)) {
-                    throw new DdlException("Invaild Odbc table type:" + tableType
+                    throw new DdlException("Invalid Odbc table type:" + tableType
                             + " Now Odbc table type only support:" + supportTableType());
                 }
             }

@@ -48,7 +48,7 @@ public class AlterOperations {
     }
 
     // some operations take up disk space. so we need to check the disk capacity before processing.
-    // return true if we see these kind of opertions.
+    // return true if we see these kind of operations.
     public boolean needCheckCapacity() {
         for (AlterOpType currentOp : currentOps) {
             if (currentOp.needCheckCapacity()) {
@@ -88,7 +88,7 @@ public class AlterOperations {
         }
 
         for (AlterOpType currentOp : currentOps) {
-            if (!AlterOpType.COMPATIBITLITY_MATRIX[currentOp.ordinal()][opType.ordinal()]) {
+            if (!AlterOpType.COMPATIBILITY_MATRIX[currentOp.ordinal()][opType.ordinal()]) {
                 throw new DdlException("Alter operation " + opType + " conflicts with operation " + currentOp);
             }
         }

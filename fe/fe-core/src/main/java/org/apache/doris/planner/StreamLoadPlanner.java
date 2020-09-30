@@ -122,7 +122,7 @@ public class StreamLoadPlanner {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
-                throw new DdlException("Column is not SUM AggreateType. column:" + col.getName());
+                throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
 

@@ -63,7 +63,7 @@ public class DistributionDesc implements Writable {
             desc.readFields(in);
             return desc;
         } else {
-            throw new IOException("Unknow distribution type: " + type);
+            throw new IOException("Unknown distribution type: " + type);
         }
     }
 

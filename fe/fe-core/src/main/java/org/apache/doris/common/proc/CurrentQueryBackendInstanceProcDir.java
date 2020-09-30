@@ -44,7 +44,7 @@ public class CurrentQueryBackendInstanceProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String name) throws AnalysisException {
-        throw new AnalysisException(name + " does't exist.");
+        throw new AnalysisException(name + " doesn't exist.");
     }
 
     @Override
@@ -78,9 +78,9 @@ public class CurrentQueryBackendInstanceProcDir implements ProcDirInterface {
         }
 
         // sort according to InstanceNum
-        List<List<RowData>> sortedRowDatas = Lists.newArrayList();
-        sortedRowDatas.addAll(hostInstances.values());
-        sortedRowDatas.sort(new Comparator<List<RowData>>() {
+        List<List<RowData>> sortedRowData = Lists.newArrayList();
+        sortedRowData.addAll(hostInstances.values());
+        sortedRowData.sort(new Comparator<List<RowData>>() {
             @Override
             public int compare(List<RowData> l1, List<RowData> l2) {
                 return l1.size() <= l2.size() ? 1 : -1;
@@ -89,7 +89,7 @@ public class CurrentQueryBackendInstanceProcDir implements ProcDirInterface {
 
         final BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES.asList());
-        for (List<RowData> itemList : sortedRowDatas) {
+        for (List<RowData> itemList : sortedRowData) {
             for (RowData item : itemList) {
                 final List<String> rowData = Lists.newArrayList();
                 rowData.add(item.getHost());

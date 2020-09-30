@@ -128,7 +128,7 @@ public class ColumnTypeTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testDecimalScaleLargeFial() throws AnalysisException {
+    public void testDecimalScaleLargeFail() throws AnalysisException {
         TypeDef type = TypeDef.createDecimal(8, 9);
         type.analyze(null);
     }

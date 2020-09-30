@@ -83,7 +83,7 @@ public class HardwareInfoController {
         map.put("FileSystem", String.join("<br>", getFileSystem(os.getFileSystem())));
         map.put("NetworkInterface", String.join("<br>", getNetworkInterfaces(hal.getNetworkIFs())));
         map.put("NetworkParameter", String.join("<br>", getNetworkParameters(os.getNetworkParams())));
-        content.put("HarewareInfo", map);
+        content.put("HardwareInfo", map);
     }
 
     private List<String> getOperatingSystem(OperatingSystem os) {

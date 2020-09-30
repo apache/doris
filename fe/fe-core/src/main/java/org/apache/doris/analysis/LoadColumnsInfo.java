@@ -117,7 +117,7 @@ public class LoadColumnsInfo implements ParseNode {
 
             Expr child1 = predicate.getChild(1);
             if (!(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Mapping function's right child should be a funcation: " + child1.toSql());
+                throw new AnalysisException("Mapping function's right child should be a function: " + child1.toSql());
             }
 
             if (!child1.supportSerializable()) {

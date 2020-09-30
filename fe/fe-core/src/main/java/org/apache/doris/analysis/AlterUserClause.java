@@ -98,7 +98,7 @@ public class AlterUserClause extends AlterClause {
                 ips.add(host);
             }
         }
-        // NOTICE: if we del hostname from whiltList, the hostname must be totally equal with catalog's hostname;
+        // NOTICE: if we del hostname from whiteList, the hostname must be totally equal with catalog's hostname;
     }
     
     public List<String> getIps() {
