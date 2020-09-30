@@ -55,7 +55,7 @@ export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 # libevent
 # the last release version of libevent is 2.1.8, which was released on 26 Jan 2017, that is too old.
 # so we use the master version of libevent, which is downloaded on 22 Jun 2018, with commit 24236aed01798303745470e6c498bf606e88724a
-LIBEVENT_DOWNLOAD="https://doris-incubating-repo.bj.bcebos.com/thirdparty/libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip"
+LIBEVENT_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip"
 LIBEVENT_NAME=libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip
 LIBEVENT_SOURCE=libevent-master
 LIBEVENT_MD5SUM="e8b9ba50270ba3b520aec8ff1089f9d7"
