@@ -447,7 +447,11 @@ void Tablet::delete_expired_stale_rowset() {
 
     if (!missed_versions.empty()) {
         LOG(WARNING) << "tablet:" << full_name() << ", missed version for version:" 
+<<<<<<< HEAD
                     << lastest_delta->end_version();
+=======
+            << lastest_delta->end_version();
+>>>>>>> 647170c4391e922aa33a81c391a6508376788d0f
         _print_missed_versions(missed_versions);
         return;
     }

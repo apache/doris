@@ -1,0 +1,213 @@
+{
+  "nodes": {
+    "yoBi15gPSFe7BKDDOhI-0g": {
+      "name": "test239-9220-9320",
+      "ephemeral_id": "Th56FehQT36Zda2l0FQewg",
+      "transport_address": "192.168.0.1:9320",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    },
+    "PTrurLShRN6POIuNe8WnFg": {
+      "name": "test057-29210-29310",
+      "ephemeral_id": "KyIWi165QVa9sqHYvjeJxw",
+      "transport_address": "192.168.0.1:29310",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    },
+    "7mjpC74LQkGEgcGks3-dYQ": {
+      "name": "test239-9230-9330",
+      "ephemeral_id": "g821RcAARpy3hIOnboqnHA",
+      "transport_address": "192.168.0.1:9330",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    },
+    "_DigEpF0SPmV32lPTzZ_QA": {
+      "name": "test240-9210-9310",
+      "ephemeral_id": "sgKUhJ59QuyzUvKXxNnzww",
+      "transport_address": "192.168.0.1:9310",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    },
+    "zMH8NhsdTy63mnTeNgGILw": {
+      "name": "test240-9230-9330",
+      "ephemeral_id": "OEvljKbCSPaQpU3SPavBvQ",
+      "transport_address": "192.168.0.1:9330",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    },
+    "5D_18rKKRzOnAlnbZUdSRw": {
+      "name": "test239-9210-9310",
+      "ephemeral_id": "ECEwuqcvTY-qAlT5OcWz2Q",
+      "transport_address": "192.168.0.1:9310",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    },
+    "8F5Wip4-Qb6og3jhepn5sg": {
+      "name": "test058-29210-29310",
+      "ephemeral_id": "QU24dPM_T-S-OPGoDH9VGA",
+      "transport_address": "192.168.0.1:29310",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    },
+    "7k1HfDdMQ1G8Ob4vUDRl1Q": {
+      "name": "test240-9220-9320",
+      "ephemeral_id": "IzSWsgStRriKFdYvBz9hNw",
+      "transport_address": "192.168.0.1:9320",
+      "attributes": {
+        "disk": "hdd",
+        "ml.max_open_jobs": "10",
+        "ml.enabled": "true"
+      }
+    }
+  },
+  "indices": {
+    "indexa_2020.05.02": {
+      "aliases": [
+        "indexa"
+      ]
+    }
+  },
+  "shards": [
+    [
+      {
+        "state": "STARTED",
+        "primary": true,
+        "node": "7mjpC74LQkGEgcGks3-dYQ",
+        "relocating_node": null,
+        "shard": 0,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "Q77NsOEYR0SlzOSOQsyixQ"
+        }
+      },
+      {
+        "state": "STARTED",
+        "primary": false,
+        "node": "8F5Wip4-Qb6og3jhepn5sg",
+        "relocating_node": null,
+        "shard": 0,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "nKsg32sPSyinydeaRyUA8w"
+        }
+      }
+    ],
+    [
+      {
+        "state": "STARTED",
+        "primary": false,
+        "node": "_DigEpF0SPmV32lPTzZ_QA",
+        "relocating_node": null,
+        "shard": 1,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "2L5soNwQTDaNz7EdxNV9yQ"
+        }
+      },
+      {
+        "state": "STARTED",
+        "primary": true,
+        "node": "yoBi15gPSFe7BKDDOhI-0g",
+        "relocating_node": null,
+        "shard": 1,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "FJKsGnYyRniK0BexSdJCiQ"
+        }
+      }
+    ],
+    [
+      {
+        "state": "STARTED",
+        "primary": false,
+        "node": "zMH8NhsdTy63mnTeNgGILw",
+        "relocating_node": null,
+        "shard": 2,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "qyTTlZYCQ4y0hQPL5uLIaQ"
+        }
+      },
+      {
+        "state": "STARTED",
+        "primary": true,
+        "node": "5D_18rKKRzOnAlnbZUdSRw",
+        "relocating_node": null,
+        "shard": 2,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "SxFS7Vz_S-yxCCgsU4n52g"
+        }
+      }
+    ],
+    [
+      {
+        "state": "STARTED",
+        "primary": false,
+        "node": "8F5Wip4-Qb6og3jhepn5sg",
+        "relocating_node": null,
+        "shard": 3,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "TL2QDmCLQCO51MCLAVmBOA"
+        }
+      },
+      {
+        "state": "STARTED",
+        "primary": true,
+        "node": "PTrurLShRN6POIuNe8WnFg",
+        "relocating_node": null,
+        "shard": 3,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "9Mvuikm_RomoWi7020F48A"
+        }
+      }
+    ],
+    [
+      {
+        "state": "STARTED",
+        "primary": false,
+        "node": "7k1HfDdMQ1G8Ob4vUDRl1Q",
+        "relocating_node": null,
+        "shard": 4,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "aE4DvgpkQXut2FN-Skv-sw"
+        }
+      },
+      {
+        "state": "STARTED",
+        "primary": true,
+        "node": "5D_18rKKRzOnAlnbZUdSRw",
+        "relocating_node": null,
+        "shard": 4,
+        "index": "indexa_2020.05.02",
+        "allocation_id": {
+          "id": "u8zHP-RwS1SiJD9ZXJL1yw"
+        }
+      }
+    ]
+  ]
+}
