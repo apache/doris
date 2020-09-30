@@ -33,6 +33,7 @@ under the License.
 语法：
 
     CREATE ROUTINE LOAD [db.]job_name ON tbl_name
+    [merge_type]
     [load_properties]
     [job_properties]
     FROM data_source
@@ -45,11 +46,13 @@ under the License.
     2. tbl_name
 
         指定需要导入的表的名称。
+        
+    3. merge_type
+        数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete on条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理, 语法为[WITH MERGE|APPEND|DELETE]
 
-    3. load_properties
+    4. load_properties
 
         用于描述导入数据。语法：
-        [merge_type],
         [column_separator],
         [columns_mapping],
         [where_predicates],
@@ -100,17 +103,14 @@ under the License.
 
             PARTITION(p1, p2, p3)
 
-        5. merge_type
-            数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete on条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理, 语法为[WITH MERGE|APPEND|DELETE]
-
-        6. delete_on_predicates
+        5. delete_on_predicates
             表示删除条件，仅在 merge type 为MERGE 时有意义，语法与where 相同
 
-        7. source_sequence:
+        6. source_sequence:
         
             只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
 
-    4. job_properties
+    5. job_properties
 
         用于指定例行导入作业的通用参数。
         语法：
@@ -174,13 +174,13 @@ under the License.
 
         json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
 
-    5. data_source
+    6. data_source
 
         数据源的类型。当前支持：
 
             KAFKA
 
-    6. data_source_properties
+    7. data_source_properties
 
         指定数据源相关的信息。
         语法：
@@ -260,7 +260,7 @@ under the License.
                     示例：
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
 
-    7. 导入数据格式样例
+    8. 导入数据格式样例
 
         整型类（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）：1, 1000, 1234
         浮点类（FLOAT/DOUBLE/DECIMAL）：1.1, 0.23, .356
@@ -450,7 +450,7 @@ under the License.
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
         WITH MERGE
         COLUMNS(k1, k2, k3, v1, v2, v3),
-        WHERE k1 > 100 and k2 like "%doris%"
+        WHERE k1 > 100 and k2 like "%doris%",
         DELETE ON v3 >100
         PROPERTIES
         (
