@@ -87,6 +87,7 @@ public class TruncateTableInfo implements Writable {
         Text.writeString(out, json);
     }
 
+    @Deprecated
     private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tblId = in.readLong();

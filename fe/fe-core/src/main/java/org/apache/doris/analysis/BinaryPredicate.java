@@ -238,8 +238,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BINARY_PRED;
         msg.setOpcode(opcode);
-        msg.setVector_opcode(vectorOpcode);
-        msg.setChild_type(getChild(0).getType().getPrimitiveType().toThrift());
+        msg.setVectorOpcode(vectorOpcode);
+        msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
     }
 
     @Override
@@ -264,12 +264,12 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
         if (t1.isDateType()) {
-            if (t2.isDateType() || t2.isStringType()) {
+            if (t2.isDateType() || t2.isStringType() || t2.isIntegerType()) {
                 return true;
             }
             return false;
         } else if (t2.isDateType()) {
-            if (t1.isStringType()) {
+            if (t1.isStringType() || t1.isIntegerType()) {
                 return true;
             }
             return false;
@@ -305,6 +305,28 @@ public class BinaryPredicate extends Predicate implements Writable {
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
+        }
+
+        // Implicit conversion affects query performance.
+        // For a common example datekey='20200825' which datekey is int type.
+        // If we up conversion to double type directly.
+        // PartitionPruner will not take effect. Then it will scan all partitions.
+        // When int column compares with string, Mysql will convert string to int.
+        // So it is also compatible with Mysql.
+
+        if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.VARCHAR) {
+            Expr rightChild = getChild(1);
+            Long parsedLong = Type.tryParseToLong(rightChild);
+            if(parsedLong != null) {
+                return Type.BIGINT;
+            }
+        }
+        if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.BIGINT) {
+            Expr leftChild = getChild(0);
+            Long parsedLong = Type.tryParseToLong(leftChild);
+            if(parsedLong != null) {
+                return Type.BIGINT;
+            }
         }
 
         return Type.DOUBLE;

@@ -215,6 +215,7 @@ public class BrokerFileGroupAggInfo implements Writable {
         return sb.toString();
     }
 
+    @Deprecated
     @Override
     public void write(DataOutput out) throws IOException {
         // The pull load source info doesn't need to be persisted.
@@ -223,6 +224,7 @@ public class BrokerFileGroupAggInfo implements Writable {
         out.writeInt(0);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int mapSize = in.readInt();
         // just for compatibility, the following read objects are useless
@@ -235,6 +237,7 @@ public class BrokerFileGroupAggInfo implements Writable {
         }
     }
 
+    @Deprecated
     public static BrokerFileGroupAggInfo read(DataInput in) throws IOException {
         BrokerFileGroupAggInfo sourceInfo = new BrokerFileGroupAggInfo();
         sourceInfo.readFields(in);

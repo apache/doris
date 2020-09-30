@@ -33,6 +33,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import com.google.common.collect.Lists;
 
 import org.junit.AfterClass;
@@ -123,6 +124,21 @@ public class AlterTest {
                 "    'storage_medium' = 'SSD',\n" +
                 "    'storage_cooldown_time' = '9999-12-31 00:00:00'\n" +
                 ");");
+
+        createTable("CREATE TABLE test.tbl5\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    k2 int,\n" +
+                "    v1 int \n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY (k1,k2)\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "    PARTITION p1 values less than('2020-02-01'),\n" +
+                "    PARTITION p2 values less than('2020-03-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
+                "PROPERTIES('replication_num' = '1');");
     }
 
     @AfterClass
@@ -158,6 +174,15 @@ public class AlterTest {
         } catch (Exception e) {
             Assert.assertEquals(msg, e.getMessage());
         }
+    }
+
+    @Test
+    public void alterTableWithEnableFeature() throws Exception {
+        String stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"int\") ";
+        alterTable(stmt, false);
+
+        stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
+        alterTable(stmt, true);
     }
 
     @Test

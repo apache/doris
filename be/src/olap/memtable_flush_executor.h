@@ -35,7 +35,7 @@ class MemTable;
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     int64_t flush_time_ns = 0;
-    int64_t flush_count= 0;
+    int64_t flush_count = 0;
     int64_t flush_size_bytes = 0;
 };
 
@@ -83,14 +83,16 @@ private:
 // Usage Example:
 //      ...
 //      std::shared_ptr<FlushHandler> flush_handler;
-//      memTableFlushExecutor.create_flush_token(path_hash, &flush_handler);
+//      memTableFlushExecutor.create_flush_token(&flush_handler);
 //      ...
 //      flush_token->submit(memtable)
 //      ...
 class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() {}
-    ~MemTableFlushExecutor() {}
+    ~MemTableFlushExecutor() {
+        _flush_pool->shutdown();
+    }
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.

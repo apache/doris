@@ -31,6 +31,9 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "util/hash_util.hpp"
 #include "http/rest_monitor_iface.h"
+#include "gutil/ref_counted.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -86,9 +89,8 @@ private:
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
 
-    // Cancel thread
-    bool _stop;
-    std::thread _cancel_thread;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _cancel_thread;
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
 };

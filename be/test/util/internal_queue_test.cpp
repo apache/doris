@@ -264,7 +264,7 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
         const int num_per_consumer = nodes.size() / NUM_CONSUMERS;
         const int num_per_producer = nodes.size() / num_producers;
 
-        vector<vector<int> > results;
+        vector<vector<int>> results;
         results.resize(NUM_CONSUMERS);
 
         int expected_delta = -1;

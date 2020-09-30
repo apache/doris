@@ -108,7 +108,11 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
-    agg_update_row(&dst_row, src_row, _table_mem_pool.get());
+    if (_tablet_schema->has_sequence_col()) {
+        agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(), _table_mem_pool.get());
+    } else {
+        agg_update_row(&dst_row, src_row, _table_mem_pool.get());
+    }
 }
 
 OLAPStatus MemTable::flush() {
@@ -124,8 +128,8 @@ OLAPStatus MemTable::flush() {
         }
         RETURN_NOT_OK(_rowset_writer->flush());
     }
-    DorisMetrics::instance()->memtable_flush_total.increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->memtable_flush_total->increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     return OLAP_SUCCESS;
 }
 

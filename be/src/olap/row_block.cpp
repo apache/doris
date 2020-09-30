@@ -48,13 +48,12 @@ RowBlock::~RowBlock() {
     delete[] _mem_buf;
 }
 
-OLAPStatus RowBlock::init(const RowBlockInfo& block_info) {
+void RowBlock::init(const RowBlockInfo& block_info) {
     _info = block_info;
     _null_supported = block_info.null_supported;
     _capacity = _info.row_num;
     _compute_layout();
     _mem_buf = new char[_mem_buf_bytes];
-    return OLAP_SUCCESS;
 }
 
 OLAPStatus RowBlock::finalize(uint32_t row_num) {
@@ -82,7 +81,7 @@ void RowBlock::_compute_layout() {
     size_t memory_size = 0;
     for (int col_id = 0; col_id < _schema->num_columns(); ++col_id) {
         const TabletColumn& column = _schema->column(col_id);
-        if (!column_set.empty() && column_set.find(col_id) == std::end(column_set)) {
+        if (!column_set.empty() && column_set.find(col_id) == column_set.end()) {
             // which may lead BE crash
             _field_offset_in_memory.push_back(std::numeric_limits<std::size_t>::max());
             continue;

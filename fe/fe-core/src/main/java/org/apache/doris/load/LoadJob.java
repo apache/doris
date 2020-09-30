@@ -74,7 +74,6 @@ public class LoadJob implements Writable {
     }
 
     private static final int DEFAULT_TIMEOUT_S = 0;
-    private static final double DEFAULT_MAX_FILTER_RATIO = 0;
     private static final long DEFAULT_EXEC_MEM_LIMIT = 2147483648L; // 2GB
 
     private long id;
@@ -85,7 +84,7 @@ public class LoadJob implements Writable {
     private long transactionId = -1;
     long timestamp;
     private int timeoutSecond;
-    private double maxFilterRatio;
+    private double maxFilterRatio = Config.default_max_filter_ratio;
     private JobState state;
 
     private BrokerDesc brokerDesc;
@@ -137,7 +136,7 @@ public class LoadJob implements Writable {
     }
 
     public LoadJob(String label) {
-        this(label, DEFAULT_TIMEOUT_S, DEFAULT_MAX_FILTER_RATIO);
+        this(label, DEFAULT_TIMEOUT_S, Config.default_max_filter_ratio);
     }
     
     // convert an async delete job to load job
@@ -544,6 +543,14 @@ public class LoadJob implements Writable {
         this.idToTableLoadInfo = idToTableLoadInfo;
     }
 
+    public List<Long> getAllTableIds() {
+        List<Long> tblIds = Lists.newArrayList();
+        if (idToTableLoadInfo != null) {
+            tblIds.addAll(idToTableLoadInfo.keySet());
+        }
+        return tblIds;
+    }
+
     public Map<Long, TabletLoadInfo> getIdToTabletLoadInfo() {
         return idToTabletLoadInfo;
     }
@@ -692,7 +699,7 @@ public class LoadJob implements Writable {
             pushTasks.clear();
             pushTasks = null;
         }
-        
+
         resourceInfo = null;
     }
 

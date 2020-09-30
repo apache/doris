@@ -26,14 +26,17 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.task.StreamLoadTask;
+import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
@@ -44,7 +47,6 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -68,15 +70,15 @@ public class StreamLoadPlanner {
     // Data will load to this table
     private Database db;
     private OlapTable destTable;
-    private StreamLoadTask streamLoadTask;
+    private LoadTaskInfo taskInfo;
 
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
-    public StreamLoadPlanner(Database db, OlapTable destTable, StreamLoadTask streamLoadTask) {
+    public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
         this.destTable = destTable;
-        this.streamLoadTask = streamLoadTask;
+        this.taskInfo = taskInfo;
     }
 
     private void resetAnalyzer() {
@@ -94,10 +96,25 @@ public class StreamLoadPlanner {
 
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+        if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
+                && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
+            throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+        }
+        if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND
+                && !destTable.hasDeleteSign() ) {
+            throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+        }
+
+        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol()) {
+            throw new UserException("Table " + destTable.getName() + " has sequence column, need to specify the sequence column");
+        }
+        if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
+            throw new UserException("There is no sequence column in the table " + destTable.getName());
+        }
         resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
-        boolean negative = streamLoadTask.getNegative();
+        boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
@@ -110,7 +127,7 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, taskInfo);
         scanNode.init(analyzer);
         descTable.computeMemLayout();
         scanNode.finalize(analyzer);
@@ -118,7 +135,7 @@ public class StreamLoadPlanner {
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
-        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId(), streamLoadTask.getTimeout());
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout());
         olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -129,47 +146,47 @@ public class StreamLoadPlanner {
         fragment.finalize(null, false);
 
         TExecPlanFragmentParams params = new TExecPlanFragmentParams();
-        params.setProtocol_version(PaloInternalServiceVersion.V1);
+        params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
 
-        params.setDesc_tbl(analyzer.getDescTbl().toThrift());
+        params.setDescTbl(analyzer.getDescTbl().toThrift());
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
         // user load id (streamLoadTask.id) as query id
-        execParams.setQuery_id(loadId);
-        execParams.setFragment_instance_id(new TUniqueId(loadId.hi, loadId.lo + 1));
+        execParams.setQueryId(loadId);
+        execParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + 1));
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
         List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
         for (TScanRangeLocations locations : scanNode.getScanRangeLocations(0)) {
-            scanRangeParams.add(new TScanRangeParams(locations.getScan_range()));
+            scanRangeParams.add(new TScanRangeParams(locations.getScanRange()));
         }
         // For stream load, only one sender
-        execParams.setSender_id(0);
-        execParams.setNum_senders(1);
+        execParams.setSenderId(0);
+        execParams.setNumSenders(1);
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
-        execParams.setPer_node_scan_ranges(perNodeScanRange);
+        execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setQuery_type(TQueryType.LOAD);
-        queryOptions.setQuery_timeout(streamLoadTask.getTimeout());
-        queryOptions.setMem_limit(streamLoadTask.getMemLimit());
+        queryOptions.setQueryType(TQueryType.LOAD);
+        queryOptions.setQueryTimeout(taskInfo.getTimeout());
+        queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
-        queryOptions.setLoad_mem_limit(streamLoadTask.getMemLimit());
-        params.setQuery_options(queryOptions);
+        queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
+        params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
-        queryGlobals.setTimestamp_ms(new Date().getTime());
-        queryGlobals.setTime_zone(streamLoadTask.getTimezone());
-        params.setQuery_globals(queryGlobals);
+        queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        queryGlobals.setTimestampMs(new Date().getTime());
+        queryGlobals.setTimeZone(taskInfo.getTimezone());
+        params.setQueryGlobals(queryGlobals);
 
         // set load error hub if exist
         LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
         if (param != null) {
             TLoadErrorHubInfo info = param.toThrift();
             if (info != null) {
-                params.setLoad_error_hub_info(info);
+                params.setLoadErrorHubInfo(info);
             }
         }
 
@@ -182,7 +199,7 @@ public class StreamLoadPlanner {
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
 
-        PartitionNames partitionNames = streamLoadTask.getPartitions();
+        PartitionNames partitionNames = taskInfo.getPartitions();
         if (partitionNames != null) {
             for (String partName : partitionNames.getPartitionNames()) {
                 Partition part = destTable.getPartition(partName, partitionNames.isTemp());
@@ -195,7 +212,11 @@ public class StreamLoadPlanner {
             for (Partition partition : destTable.getPartitions()) {
                 partitionIds.add(partition.getId());
             }
+            if (partitionIds.isEmpty()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, destTable.getName());
+            }
         }
+
         return partitionIds;
     }
 }

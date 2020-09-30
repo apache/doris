@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -61,6 +62,7 @@ public class DescribeStmt extends ShowStmt {
                     .addColumn(new Column("Key", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Default", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
                     .build();
 
     private static final ShowResultSetMetaData DESC_MYSQL_TABLE_ALL_META_DATA =
@@ -166,15 +168,17 @@ public class DescribeStmt extends ShowStmt {
                             }
                             String extraStr = StringUtils.join(extras, ",");
 
-                            List<String> row = Arrays.asList("",
-                                                             "",
-                                                             column.getDisplayName(),
-                                                             column.getOriginType().toString(),
-                                                             column.isAllowNull() ? "Yes" : "No",
-                                                             ((Boolean) column.isKey()).toString(),
-                                                             column.getDefaultValue() == null
-                                                                     ? FeConstants.null_string : column.getDefaultValue(),
-                                                             extraStr);
+                            List<String> row = Arrays.asList(
+                                    "",
+                                    "",
+                                    column.getDisplayName(),
+                                    column.getOriginType().toString(),
+                                    column.isAllowNull() ? "Yes" : "No",
+                                    ((Boolean) column.isKey()).toString(),
+                                    column.getDefaultValue() == null ? FeConstants.null_string : column.getDefaultValue(),
+                                    extraStr,
+                                    ((Boolean) column.isVisible()).toString()
+                            );
 
                             if (j == 0) {
                                 row.set(0, indexName);
@@ -188,6 +192,18 @@ public class DescribeStmt extends ShowStmt {
                             totalRows.add(EMPTY_ROW);
                         }
                     } // end for indices
+                } else if (table.getType() == TableType.ODBC) {
+                    isOlapTable = false;
+                    OdbcTable odbcTable = (OdbcTable) table;
+                    List<String> row = Arrays.asList(odbcTable.getHost(),
+                            odbcTable.getPort(),
+                            odbcTable.getUserName(),
+                            odbcTable.getPasswd(),
+                            odbcTable.getOdbcDatabaseName(),
+                            odbcTable.getOdbcTableName(),
+                            odbcTable.getOdbcDriver(),
+                            odbcTable.getOdbcTableTypeName());
+                    totalRows.add(row);
                 } else if (table.getType() == TableType.MYSQL) {
                     isOlapTable = false;
                     MysqlTable mysqlTable = (MysqlTable) table;

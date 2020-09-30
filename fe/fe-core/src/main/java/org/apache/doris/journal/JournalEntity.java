@@ -62,6 +62,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
@@ -578,6 +579,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
                 data = AlterRoutineLoadJobOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_GLOBAL_VARIABLE_V2: {
+                data = GlobalVarPersistInfo.read(in);
                 isRead = true;
                 break;
             }

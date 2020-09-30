@@ -224,6 +224,20 @@ Status OlapScanner::_init_return_columns() {
         _return_columns.push_back(index);
         _query_slots.push_back(slot);
     }
+    // expand the sequence column
+    if (_tablet->tablet_schema().has_sequence_col()) {
+        bool has_replace_col = false;
+        for (auto col : _return_columns) {
+            if (_tablet->tablet_schema().column(col).aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                has_replace_col = true;
+                break;
+            }
+        }
+        if (has_replace_col) {
+            _return_columns.push_back(_tablet->tablet_schema().sequence_col_idx());
+        }
+    }
+
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
@@ -476,8 +490,14 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 
-    DorisMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
-    DorisMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
+    COUNTER_UPDATE(_parent->_filtered_segment_counter, _reader->stats().filtered_segment_number);
+    COUNTER_UPDATE(_parent->_total_segment_counter, _reader->stats().total_segment_number);
+
+    DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
+    DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
+
+    _tablet->query_scan_bytes->increment(_compressed_bytes_read);
+    _tablet->query_scan_rows->increment(_raw_rows_read);
 
     _has_update_counter = true;
 }

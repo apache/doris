@@ -18,14 +18,19 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
+import org.apache.doris.system.SystemInfoService;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,11 +47,47 @@ public class DataDescriptionTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
+    @Mocked
+    private Database db;
+    @Mocked
+    private OlapTable tbl;
+    @Mocked
+    private Analyzer analyzer;
+    @Mocked
+    private Catalog catalog;
 
     @Before
-    public void setUp() {
+    public void setUp() throws AnalysisException {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = SystemInfoService.DEFAULT_CLUSTER;
+
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testCluster:testDb";
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getDb(anyString);
+                minTimes = 0;
+                result = db;
+
+                db.getTable(anyString);
+                minTimes = 0;
+                result = tbl;
+
+            }
+        };
     }
 
     @Test
@@ -54,33 +95,42 @@ public class DataDescriptionTest {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                                                    null, null, null, false, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable", desc.toString());
+        Assert.assertEquals("APPEND DATA INFILE ('abc.txt') INTO TABLE testTable", desc.toString());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"), null, null, null,
                                                   true, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable", desc.toString());
+        Assert.assertEquals("APPEND DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable", desc.toString());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"), null,
                                                   null, null, true, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable", desc.toString());
+        Assert.assertEquals("APPEND DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable", desc.toString());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("col1", "col2"), null, null, true, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable (col1, col2)", desc.toString());
+        Assert.assertEquals("APPEND DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable (col1, col2)", desc.toString());
         Assert.assertEquals("testTable", desc.getTableName());
         Assert.assertEquals("[col1, col2]", desc.getFileFieldNames().toString());
         Assert.assertEquals("[abc.txt]", desc.getFilePaths().toString());
         Assert.assertTrue(desc.isNegative());
         Assert.assertNull(desc.getColumnSeparator());
+        Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
+
+        desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
+                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, false, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
+        desc.analyze("testDb");
+        Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
+        Assert.assertEquals("1 = 1", desc.getWhereExpr().toSql());
+        Assert.assertEquals("1 = 1", desc.getDeleteCondition().toSql());
+        Assert.assertEquals(",", desc.getColumnSeparator());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
                                                   Lists.newArrayList("col1", "col2"), new ColumnSeparator("\t"),
                                                   null, true, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
+        Assert.assertEquals("APPEND DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
                         +  " COLUMNS TERMINATED BY '\t' (col1, col2)",
                 desc.toString());
 
@@ -89,7 +139,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("col1", "col2"), new ColumnSeparator("\\x01"),
                                                   null, true, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
+        Assert.assertEquals("APPEND DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
                         +  " COLUMNS TERMINATED BY '\\x01' (col1, col2)",
                 desc.toString());
 
@@ -98,7 +148,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("abc.txt"),
                                                   null, null, null, false, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2)", desc.toString());
+        Assert.assertEquals("APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2)", desc.toString());
         
         // alignment_timestamp func
         List<Expr> params = Lists.newArrayList();
@@ -111,7 +161,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        String sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
+        String sql = "APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = alignment_timestamp('day', `k2`))";
         Assert.assertEquals(sql, desc.toString());
 
@@ -126,7 +176,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("k2", "k3"), null, null,
                                                   false, Lists.newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
+        sql = "APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('-', '10'))";
         Assert.assertEquals(sql, desc.toString());
 
@@ -141,7 +191,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
+        sql = "APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('', NULL))";
         Assert.assertEquals(sql, desc.toString());
 
@@ -151,9 +201,10 @@ public class DataDescriptionTest {
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                                         new FunctionCallExpr("bitmap_dict", params));
         desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
-                                   "testHiveTable", false, Lists.newArrayList(predicate), null);
+                                   "testHiveTable", false, Lists.newArrayList(predicate),
+                null, LoadTask.MergeType.APPEND, null);
         desc.analyze("testDb");
-        sql = "DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET (`k1` = bitmap_dict(`k2`))";
+        sql = "APPEND DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET (`k1` = bitmap_dict(`k2`))";
         Assert.assertEquals(sql, desc.toSql());
     }
 
@@ -161,6 +212,15 @@ public class DataDescriptionTest {
     public void testNoTable() throws AnalysisException {
         DataDescription desc = new DataDescription("", null, Lists.newArrayList("abc.txt"),
                                                                   null, null, null, false, null);
+        desc.analyze("testDb");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testNegMerge() throws AnalysisException {
+        Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
+
+        DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
+                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, true, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
         desc.analyze("testDb");
     }
 
@@ -246,5 +306,43 @@ public class DataDescriptionTest {
                 Assert.fail();
             }
         }
+    }
+
+    @Test
+    public void testAnalyzeSequenceColumnNormal() throws AnalysisException {
+        DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
+                Lists.newArrayList("k1", "k2", "source_sequence","v1"), new ColumnSeparator("\t"),
+                null, null,false, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+        new Expectations() {
+            {
+                tbl.getName();
+                minTimes = 0;
+                result = "testTable";
+
+                tbl.hasSequenceCol();
+                minTimes = 0;
+                result =true;
+            }
+        };
+        desc.analyze("testDb");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testAnalyzeSequenceColumnWithoutSourceSequence() throws AnalysisException {
+        DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
+                Lists.newArrayList("k1", "k2","v1"), new ColumnSeparator("\t"),
+                null, null,false, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+        new Expectations() {
+            {
+                tbl.getName();
+                minTimes = 0;
+                result = "testTable";
+
+                tbl.hasSequenceCol();
+                minTimes = 0;
+                result =true;
+            }
+        };
+        desc.analyze("testDb");
     }
 }

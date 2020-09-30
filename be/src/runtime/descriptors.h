@@ -251,6 +251,45 @@ private:
     std::string _passwd;
 };
 
+class ODBCTableDescriptor : public TableDescriptor {
+public:
+    ODBCTableDescriptor(const TTableDescriptor& tdesc);
+    virtual std::string debug_string() const;
+    const std::string db() const {
+        return _db;
+    }
+    const std::string table() const {
+        return _table;
+    }
+    const std::string host() const {
+        return _host;
+    }
+    const std::string port() const {
+        return _port;
+    }
+    const std::string user() const {
+        return _user;
+    }
+    const std::string passwd() const {
+        return _passwd;
+    }
+    const std::string driver() const {
+        return _driver;
+    }
+    const TOdbcTableType::type type() const {
+        return _type;
+    }
+private:
+    std::string _db;
+    std::string _table;
+    std::string _host;
+    std::string _port;
+    std::string _user;
+    std::string _passwd;
+    std::string _driver;
+    TOdbcTableType::type _type;
+};
+
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}

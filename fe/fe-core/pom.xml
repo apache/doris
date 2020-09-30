@@ -36,7 +36,7 @@ under the License.
 
     <properties>
         <doris.home>${basedir}/../../</doris.home>
-        <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
+        <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thridparty>${basedir}/../../thirdparty</doris.thridparty>
     </properties>
 
@@ -52,9 +52,36 @@ under the License.
                 <doris.thridparty>${env.DORIS_THIRDPARTY}</doris.thridparty>
             </properties>
         </profile>
+        <profile>
+            <id>ut_parallel</id>
+            <activation>
+                <property>
+                    <name>env.FE_UT_PARALLEL</name>
+                </property>
+            </activation>
+            <properties>
+                <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
+            </properties>
+        </profile>
     </profiles>
 
     <dependencies>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-web</artifactId>
+            <version>2.7</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>springloaded</artifactId>
+            <version>1.2.6.RELEASE</version>
+        </dependency>
+
         <dependency>
             <groupId>org.apache</groupId>
             <artifactId>spark-dpp</artifactId>
@@ -154,6 +181,12 @@ under the License.
         <dependency>
             <groupId>org.mortbay.jetty</groupId>
             <artifactId>jetty</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>servlet-api-2.5</artifactId>
+                    <groupId>org.mortbay.jetty</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.mortbay.jetty/jetty-util -->
@@ -203,6 +236,12 @@ under the License.
         <dependency>
             <groupId>com.baidu</groupId>
             <artifactId>jprotobuf-rpc-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>servlet-api</artifactId>
+                    <groupId>javax.servlet</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.json/json -->
@@ -454,6 +493,82 @@ under the License.
             <artifactId>spark-sql_2.12</artifactId>
             <scope>provided</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.hibernate</groupId>
+            <artifactId>hibernate-validator</artifactId>
+            <version>5.1.0.Final</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.hibernate.validator</groupId>
+                    <artifactId>hibernate-validator</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-classic</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>log4j-slf4j-impl</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!--Spring boot-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-classic</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>log4j-slf4j-impl</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.5.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.5.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -468,6 +583,7 @@ under the License.
                 <configuration>
                     <thriftExecutable>${doris.thridparty}/installed/bin/thrift</thriftExecutable>
                     <thriftSourceRoot>${doris.home}/gensrc/thrift</thriftSourceRoot>
+                    <generator>java:fullcamel</generator>
                 </configuration>
                 <executions>
                     <execution>

@@ -21,8 +21,10 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -30,12 +32,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.thrift.TTabletType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -86,6 +88,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
 
     public static final String PROPERTIES_TYPE = "type";
+    // This is common prefix for function column
+    public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
+    public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -400,7 +405,7 @@ public class PropertyAnalyzer {
             storageFormat = properties.get(PROPERTIES_STORAGE_FORMAT);
             properties.remove(PROPERTIES_STORAGE_FORMAT);
         } else {
-            return TStorageFormat.DEFAULT;
+            return TStorageFormat.V2;
         }
 
         if (storageFormat.equalsIgnoreCase("v1")) {
@@ -408,7 +413,7 @@ public class PropertyAnalyzer {
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;
         } else if (storageFormat.equalsIgnoreCase("default")) {
-            return TStorageFormat.DEFAULT;
+            return TStorageFormat.V2;
         } else {
             throw new AnalysisException("unknown storage format: " + storageFormat);
         }
@@ -432,5 +437,25 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TYPE);
         }
         return type;
+    }
+
+    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws  AnalysisException{
+        String typeStr = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
+        if (properties != null && properties.containsKey(propertyName)) {
+            typeStr = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (typeStr == null) {
+            return null;
+        }
+        if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+        PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
+        if (!type.isFixedPointType() && !type.isDateType())  {
+            throw new AnalysisException("sequence type only support integer types and date types");
+        }
+        return ScalarType.createType(type);
     }
 }

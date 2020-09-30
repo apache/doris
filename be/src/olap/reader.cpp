@@ -92,7 +92,7 @@ private:
         }
 
         const RowCursor* current_row(bool* delete_flag) const {
-            *delete_flag = _is_delete;
+            *delete_flag = _is_delete || _current_row->is_delete();
             return _current_row;
         }
 
@@ -109,6 +109,9 @@ private:
             auto res = _refresh_current_row();
             *row = _current_row;
             *delete_flag = _is_delete;
+            if (_current_row!= nullptr) {
+                *delete_flag = _is_delete || _current_row->is_delete();
+            };
             return res;
         }
 
@@ -411,13 +414,11 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             *eof = true;
             return OLAP_SUCCESS;
         }
-
         cur_delete_flag = _next_delete_flag;
         // the verion is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
-        agg_finalize_row(_value_cids, row_cursor, mem_pool);
         // skip the lower version rows;
         while (nullptr != _next_key) {
             auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
@@ -427,14 +428,22 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
                 }
                 break;
             }
-
             // break while can NOT doing aggregation
             if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
+                agg_finalize_row(_value_cids, row_cursor, mem_pool);
                 break;
             }
             ++merged_count;
+            cur_delete_flag = _next_delete_flag;
+            // if has sequence column, the higher version need to merge the lower versions
+            if (_has_sequence_col) {
+                agg_update_row_with_sequence(_value_cids, row_cursor, *_next_key, _sequence_col_idx);
+            }
         }
-        if (!cur_delete_flag) {
+
+        // if reader needs to filter delete row and current delete_flag is ture, 
+        // then continue
+        if (!(cur_delete_flag && _filter_delete)) {
             break;
         }
         _stats.rows_del_filtered++;
@@ -587,6 +596,19 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 
     _collect_iter = new CollectIterator();
     _collect_iter->init(this);
+
+    if (_tablet->tablet_schema().has_sequence_col()) {
+        _sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+        if (_sequence_col_idx != -1) {
+            for (auto col : _return_columns) {
+                // query has sequence col
+                if (col == _sequence_col_idx) {
+                    _has_sequence_col = true;
+                    break;
+                }
+            }
+        }
+    }
 
     return res;
 }
@@ -1039,8 +1061,13 @@ OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
                                               _tablet->delete_predicates(),
                                               read_params.version.second);
         _tablet->release_header_lock();
+
+        if (read_params.reader_type == READER_BASE_COMPACTION) {
+            _filter_delete = true;
+        }
         return ret;
-    } else {
+    } 
+    else {
         return OLAP_SUCCESS;
     }
 }

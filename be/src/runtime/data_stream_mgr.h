@@ -98,7 +98,7 @@ private:
     // we don't want to create a map<pair<TUniqueId, PlanNodeId>, DataStreamRecvr*>,
     // because that requires a bunch of copying of ids for lookup
     typedef boost::unordered_multimap<uint32_t,
-            boost::shared_ptr<DataStreamRecvr> > StreamMap;
+            boost::shared_ptr<DataStreamRecvr>> StreamMap;
     StreamMap _receiver_map;
 
     // less-than ordering for pair<TUniqueId, PlanNodeId>

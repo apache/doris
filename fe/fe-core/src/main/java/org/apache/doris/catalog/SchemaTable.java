@@ -221,6 +221,7 @@ public class SchemaTable extends Table {
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("NUMERIC_PRECISION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("NUMERIC_SCALE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("DATETIME_PRECISION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                                     .column("COLLATION_NAME", ScalarType.createVarchar(32))
                                     .column("COLUMN_TYPE", ScalarType.createVarchar(32))
@@ -230,6 +231,8 @@ public class SchemaTable extends Table {
                                     .column("COLUMN_COMMENT", ScalarType.createVarchar(255))
                                     .column("COLUMN_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DECIMAL_DIGITS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GENERATION_EXPRESSION", ScalarType.createVarchar(64))
+                                    .column("SRS_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
                     .put("character_sets", new SchemaTable(
                             SystemIdGenerator.getNextId(),
@@ -307,3 +310,4 @@ public class SchemaTable extends Table {
         return tTableDescriptor;
     }
 }
+

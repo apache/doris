@@ -160,7 +160,7 @@ public class UserIdentity implements Writable {
         TUserIdentity tUserIdent = new TUserIdentity();
         tUserIdent.setHost(host);
         tUserIdent.setUsername(user);
-        tUserIdent.setIs_domain(isDomain);
+        tUserIdent.setIsDomain(isDomain);
         return tUserIdent;
     }
 

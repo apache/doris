@@ -108,7 +108,7 @@ TEST_F(SystemMetricsTest, normal) {
         ASSERT_TRUE(memory_allocated_bytes != nullptr);
 
         // network
-        auto net_entity = registry.get_entity("network_metrics.xgbe0");
+        auto net_entity = registry.get_entity("network_metrics.xgbe0", {{"device", "xgbe0"}});
         ASSERT_TRUE(net_entity != nullptr);
 
         Metric* receive_bytes = net_entity->get_metric("network_receive_bytes");
@@ -125,7 +125,7 @@ TEST_F(SystemMetricsTest, normal) {
         ASSERT_STREQ("88277614", send_packets->to_string().c_str());
 
         // disk
-        auto disk_entity = registry.get_entity("disk_metrics.sda");
+        auto disk_entity = registry.get_entity("disk_metrics.sda", {{"device", "sda"}});
         ASSERT_TRUE(disk_entity != nullptr);
         Metric* bytes_read = disk_entity->get_metric("disk_bytes_read");
         ASSERT_TRUE(bytes_read != nullptr);
@@ -207,13 +207,13 @@ TEST_F(SystemMetricsTest, no_proc_file) {
         Metric* memory_allocated_bytes = entity->get_metric("memory_allocated_bytes");
         ASSERT_TRUE(memory_allocated_bytes != nullptr);
         // network
-        auto net_entity = registry.get_entity("network_metrics.xgbe0");
+        auto net_entity = registry.get_entity("network_metrics.xgbe0", {{"device", "xgbe0"}});
         ASSERT_TRUE(net_entity != nullptr);
         Metric* receive_bytes = net_entity->get_metric("network_receive_bytes");
         ASSERT_TRUE(receive_bytes != nullptr);
         ASSERT_STREQ("0", receive_bytes->to_string().c_str());
         // disk
-        auto disk_entity = registry.get_entity("disk_metrics.sda");
+        auto disk_entity = registry.get_entity("disk_metrics.sda", {{"device", "sda"}});
         ASSERT_TRUE(disk_entity != nullptr);
         Metric* bytes_read = disk_entity->get_metric("disk_bytes_read");
         ASSERT_TRUE(bytes_read != nullptr);

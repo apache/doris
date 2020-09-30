@@ -174,6 +174,26 @@ std::string MySQLTableDescriptor::debug_string() const {
     return out.str();
 }
 
+ODBCTableDescriptor::ODBCTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc),
+          _db(tdesc.odbcTable.db),
+          _table(tdesc.odbcTable.table),
+          _host(tdesc.odbcTable.host),
+          _port(tdesc.odbcTable.port),
+          _user(tdesc.odbcTable.user),
+          _passwd(tdesc.odbcTable.passwd),
+          _driver(tdesc.odbcTable.driver),
+          _type(tdesc.odbcTable.type){
+}
+
+std::string ODBCTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "ODBCTable(" << TableDescriptor::debug_string() << " _db" << _db << " table=" <<
+        _table << " host=" << _host << " port=" << _port << " user=" << _user << " passwd=" << _passwd
+        << " driver=" << _driver << " type" << _type;
+    return out.str();
+}
+
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc) :
         _id(tdesc.id),
         _table_desc(NULL),
@@ -471,6 +491,10 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         switch (tdesc.tableType) {
         case TTableType::MYSQL_TABLE:
             desc = pool->add(new MySQLTableDescriptor(tdesc));
+            break;
+
+        case TTableType::ODBC_TABLE:
+            desc = pool->add(new ODBCTableDescriptor(tdesc));
             break;
 
         case TTableType::OLAP_TABLE:

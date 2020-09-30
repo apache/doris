@@ -496,10 +496,14 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
 bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool, Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs) {
     int nullcount = 0;
     bool valid = true;
-    size_t column_num = std::min(slot_descs.size(), _parsed_jsonpaths.size());
+    size_t column_num = slot_descs.size();
 
     for (size_t i = 0; i < column_num; i++) {
-        rapidjson::Value* json_values = JsonFunctions::get_json_array_from_parsed_json(_parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator());
+        rapidjson::Value* json_values = nullptr;
+        if (LIKELY( i < _parsed_jsonpaths.size())) {
+            json_values = JsonFunctions::get_json_array_from_parsed_json(_parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator());
+        }
+
         if (json_values == nullptr) {
             // not match in jsondata.
             if (slot_descs[i]->is_nullable()) {
@@ -531,6 +535,7 @@ bool JsonReader::_write_values_by_jsonpath(rapidjson::Value& objectValue, MemPoo
     if (nullcount == column_num) {
         _state->append_error_msg_to_file(_print_json_value(objectValue), "All fields is null or not matched, this is a invalid row.");
         _counter->num_rows_filtered++;
+        valid = false;
     }
     return valid;
 }
@@ -550,11 +555,15 @@ Status JsonReader::_handle_nested_complex_json(Tuple* tuple, const std::vector<S
         }
         RETURN_IF_ERROR(st);
         if (*eof) {
-            return Status::OK();// read over,then return
+            return Status::OK(); // read over,then return
         }
         break; // read a valid row
     }
-    _write_values_by_jsonpath(*_json_doc, tuple_pool, tuple, slot_descs);
+    if (!_write_values_by_jsonpath(*_json_doc, tuple_pool, tuple, slot_descs)) {
+        // there is only one line in this case, so if it return false, just set eof = true
+        // so that the caller will continue reading next line.
+        *eof = true;
+    }
     return Status::OK();
 }
 

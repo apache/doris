@@ -56,10 +56,12 @@ under the License.
 
     `$ docker run -it apachedoris/doris-dev:build-env`
     
-    如果你希望编译本地 Doris 源码，则可以挂载路径：
-    
+    建议以挂载本地 Doris 源码目录的方式运行镜像，这样编译的产出二进制文件会存储在宿主机中，不会因为镜像退出而消失。
+
+    同时，建议同时将镜像中 maven 的 `.m2` 目录挂载到宿主机目录，以防止每次启动镜像编译时，重复下载 maven 的依赖库。
+
     ```
-    $ docker run -it -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
     ```
     
 3. 下载源码
@@ -79,7 +81,7 @@ under the License.
     ```
     
     编译完成后，产出文件在 `output/` 目录中。
-
+    
 ### 自行编译开发环境镜像
 
 你也可以自己创建一个 Doris 开发环境镜像，具体可参阅 `docker/README.md` 文件。
@@ -106,3 +108,22 @@ under the License.
     ```
     
     编译完成后，产出文件在 `output/` 目录中。
+
+## 特别声明
+
+自 0.13 版本开始，默认的编译产出中将取消对 [1] 和 [2] 两个第三方库的依赖。这两个第三方库为 [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html) 协议。该协议与 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 协议不兼容，因此默认不出现在 Apache 发布版本中。
+
+移除依赖库 [1] 会导致无法访问 MySQL 外部表。访问 MySQL 外部表的功能会在后续版本中通过 UnixODBC 实现。
+
+移除依赖库 [2] 会导致在无法读取部分早期版本（0.8版本之前）写入的部分数据。因为早期版本中的数据是使用 LZO 算法压缩的，在之后的版本中，已经更改为 LZ4 压缩算法。后续我们会提供工具用于检测和转换这部分数据。
+
+如果有需求，用户可以继续使用这两个依赖库。如需使用，需要在编译时添加如下选项：
+
+```
+WITH_MYSQL=1 WITH_LZO=1 sh build.sh
+```
+
+注意，当用户依赖这两个第三方库时，则默认不在 Apache License 2.0 协议框架下使用 Doris。请注意 GPL 相关协议约束。
+
+* [1] mysql-5.7.18
+* [2] lzo-2.10

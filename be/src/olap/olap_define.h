@@ -64,7 +64,6 @@ enum OLAPDataVersion {
 };
 
 // storage_root_path下不同类型文件夹名称
-static const std::string ALIGN_TAG_PREFIX = "/align_tag";
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
@@ -213,6 +212,7 @@ enum OLAPStatus {
     OLAP_ERR_READER_GET_ITERATOR_ERROR = -701,
     OLAP_ERR_CAPTURE_ROWSET_READER_ERROR = -702,
     OLAP_ERR_READER_READING_ERROR = -703,
+    OLAP_ERR_READER_INITIALIZE_ERROR = -704,
 
     // BaseCompaction
     // [-800, -900)
@@ -305,6 +305,8 @@ enum OLAPStatus {
     OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED = -1603,
     OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID = -1604,
     OLAP_ERR_QUERY_SPLIT_KEY_ERR = -1605,
+    //Error caused by a data quality issue during schema change/materialized view
+    OLAP_ERR_DATA_QUALITY_ERR = -1606,
 
     // Column File
     // [-1700, -1800)

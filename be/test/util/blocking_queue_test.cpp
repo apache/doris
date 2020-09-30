@@ -120,7 +120,7 @@ public:
     }
 
 private:
-    typedef std::vector<boost::shared_ptr<boost::thread> > ThreadVector;
+    typedef std::vector<boost::shared_ptr<boost::thread>> ThreadVector;
 
     int _iterations;
     int _nthreads;

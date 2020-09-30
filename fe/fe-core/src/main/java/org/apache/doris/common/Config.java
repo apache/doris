@@ -544,6 +544,26 @@ public class Config extends ConfigBase {
     public static String spark_resource_path = "";
 
     /**
+     * The specified spark launcher log dir
+     */
+    @ConfField
+    public static String spark_launcher_log_dir = sys_log_dir + "/spark_launcher_log";
+
+    /**
+     * Default yarn client path
+     */
+    @ConfField
+    public static String yarn_client_path = PaloFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn";
+
+    /**
+     * Default yarn config file directory
+     * Each time before running the yarn command, we need to check that the
+     * config file exists under this path, and if not, create them.
+     */
+    @ConfField
+    public static String yarn_config_dir = PaloFe.DORIS_HOME_DIR + "/lib/yarn-config";
+
+    /**
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
      * In some situation, such as switch the master, the current number is maybe more then desired_max_waiting_jobs
@@ -1147,6 +1167,12 @@ public class Config extends ConfigBase {
     public static boolean enable_spark_load = false;
 
     /**
+     * enable use odbc table
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_odbc_table = false;
+
+    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1208,4 +1234,33 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_allowed_in_element_num_of_delete = 1024;
 
+    /**
+     * In some cases, some tablets may have all replicas damaged or lost.
+     * At this time, the data has been lost, and the damaged tablets
+     * will cause the entire query to fail, and the remaining healthy tablets cannot be queried.
+     * In this case, you can set this configuration to true.
+     * The system will replace damaged tablets with empty tablets to ensure that the query
+     * can be executed. (but at this time the data has been lost, so the query results may be inaccurate)
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean recover_with_empty_tablet = false;
+
+    /**
+     * Whether to add a delete sign column when create unique table
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_batch_delete_by_default = false;
+
+    /**
+     * Used to set default db data quota bytes.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_data_quota_bytes = 1024 * 1024 * 1024 * 1024L; // 1TB
+
+    /*
+     * Maximum percentage of data that can be filtered (due to reasons such as data is irregulary)
+     * The default value is 0.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double default_max_filter_ratio = 0;
 }

@@ -49,7 +49,7 @@ BrokerScanNode::~BrokerScanNode() {
 }
 
 // We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
-// class becaurce there are some other member in it.
+// class because there are some other member in it.
 static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
     return v1->range() < v2->range();
 }
@@ -235,7 +235,7 @@ Status BrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    // Open partition
+    // Close partition
     if (_partition_expr_ctxs.size() > 0) {
         Expr::close(_partition_expr_ctxs, state);
         for (auto iter : _partition_infos) {

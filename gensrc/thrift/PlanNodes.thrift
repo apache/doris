@@ -49,7 +49,8 @@ enum TPlanNodeType {
   REPEAT_NODE,
   ASSERT_NUM_ROWS_NODE,
   INTERSECT_NODE,
-  EXCEPT_NODE
+  EXCEPT_NODE,
+  ODBC_SCAN_NODE
 }
 
 // phases of an execution node
@@ -198,6 +199,16 @@ struct TMySQLScanNode {
   4: required list<string> filters
 }
 
+struct TOdbcScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
+  3: optional string driver
+  4: optional Types.TOdbcTableType type
+  5: optional list<string> columns
+  6: optional list<string> filters
+}
+
+
 struct TBrokerScanNode {
     1: required Types.TTupleId tuple_id
 
@@ -280,6 +291,7 @@ struct TSchemaScanNode {
   9: optional i64 thread_id
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
+  12: optional bool show_hidden_cloumns = false
 }
 
 struct TMetaScanNode {
@@ -680,6 +692,7 @@ struct TPlanNode {
   32: optional TAssertNumRowsNode assert_num_rows_node
   33: optional TIntersectNode intersect_node
   34: optional TExceptNode except_node
+  35: optional TOdbcScanNode odbc_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

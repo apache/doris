@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -346,6 +347,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         Preconditions.checkArgument(slots.size() == 1);
         SlotRef baseColumnRef = slots.get(0);
         String baseColumnName = baseColumnRef.getColumnName().toLowerCase();
+        Column baseColumn = baseColumnRef.getColumn();
+        Preconditions.checkNotNull(baseColumn);
+        Type baseType = baseColumn.getOriginType();
         Expr functionChild0 = functionCallExpr.getChild(0);
         String mvColumnName;
         AggregateType mvAggregateType;
@@ -362,14 +366,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 } else if (baseColumnType == PrimitiveType.FLOAT) {
                     type = Type.DOUBLE;
                 } else {
-                    type = Type.fromPrimitiveType(baseColumnRef.getType().getPrimitiveType());
+                    type = baseType;
                 }
                 break;
             case "min":
             case "max":
                 mvColumnName = baseColumnName;
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
-                type = Type.fromPrimitiveType(baseColumnRef.getType().getPrimitiveType());
+                type = baseType;
                 break;
             case FunctionSet.BITMAP_UNION:
                 // Compatible aggregation models
@@ -433,7 +437,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     case FunctionSet.BITMAP_UNION:
                         if (functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
                             CastExpr castExpr = new CastExpr(new TypeDef(Type.VARCHAR), baseSlotRef);
-                            castExpr.setImplicit(true);
                             List<Expr> params = Lists.newArrayList();
                             params.add(castExpr);
                             FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP, params);
@@ -445,7 +448,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     case FunctionSet.HLL_UNION:
                         if (functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
                             CastExpr castExpr = new CastExpr(new TypeDef(Type.VARCHAR), baseSlotRef);
-                            castExpr.setImplicit(true);
                             List<Expr> params = Lists.newArrayList();
                             params.add(castExpr);
                             FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.HLL_HASH, params);

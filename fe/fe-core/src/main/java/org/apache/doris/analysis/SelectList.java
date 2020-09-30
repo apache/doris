@@ -24,12 +24,14 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Select list items plus distinct clause.
  */
 public class SelectList {
     private boolean isDistinct;
+    private Map<String, String> optHints;
 
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -72,7 +74,15 @@ public class SelectList {
     public void setIsDistinct(boolean value) {
         isDistinct = value;
     }
-    
+
+    public Map<String, String> getOptHints() {
+        return optHints;
+    }
+
+    public void setOptHints(Map<String, String> optHints) {
+        this.optHints = optHints;
+    }
+
     public void reset() {
         for (SelectListItem item : items) {
             if (!item.isStar()) {

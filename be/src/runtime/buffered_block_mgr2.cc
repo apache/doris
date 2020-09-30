@@ -58,7 +58,7 @@ public:
             : _mgr(mgr),
               _state(state),
               _tracker(tracker),
-              _query_tracker(MemTracker::CreateTracker(-1, "BufferedBlockMgr2", _mgr->_mem_tracker->parent())),
+              _query_tracker(_mgr->_mem_tracker->parent()),
               _num_reserved_buffers(num_reserved_buffers),
               _num_tmp_reserved_buffers(0),
               _num_pinned_buffers(0) {

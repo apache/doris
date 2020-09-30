@@ -574,7 +574,7 @@ public class RollupJob extends AlterJob {
         }
         Preconditions.checkState(rollupIndex.getState() == IndexState.ROLLUP);
 
-        Preconditions.checkArgument(finishTabletInfo.getTablet_id() == rollupTabletId);
+        Preconditions.checkArgument(finishTabletInfo.getTabletId() == rollupTabletId);
         Tablet rollupTablet = rollupIndex.getTablet(rollupTabletId);
         if (rollupTablet == null) {
             throw new MetaNotFoundException("Cannot find rollup tablet[" + rollupTabletId + "]");
@@ -591,15 +591,15 @@ public class RollupJob extends AlterJob {
         }
 
         long version = finishTabletInfo.getVersion();
-        long versionHash = finishTabletInfo.getVersion_hash();
-        long dataSize = finishTabletInfo.getData_size();
-        long rowCount = finishTabletInfo.getRow_count();
+        long versionHash = finishTabletInfo.getVersionHash();
+        long dataSize = finishTabletInfo.getDataSize();
+        long rowCount = finishTabletInfo.getRowCount();
         // yiguolei: not check version here because the replica's first version will be set by rollup job
         // the version is not set now
         rollupReplica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
-        if (finishTabletInfo.isSetPath_hash()) {
-            rollupReplica.setPathHash(finishTabletInfo.getPath_hash());
+        if (finishTabletInfo.isSetPathHash()) {
+            rollupReplica.setPathHash(finishTabletInfo.getPathHash());
         }
 
         setReplicaFinished(partitionId, rollupReplicaId);
@@ -903,6 +903,10 @@ public class RollupJob extends AlterJob {
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            if (olapTable == null) {
+                LOG.warn("table {} could not be found when replay rollup job", tableId);
+                return;
+            }
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
             db.writeUnlock();

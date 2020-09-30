@@ -25,6 +25,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
@@ -289,6 +290,9 @@ public class SelectStmt extends QueryStmt {
                 } else {
                     dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
                 }
+                if(withClause_ != null && isViewTableRef(tblRef)){
+                    continue;
+                }
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
                 }
@@ -311,6 +315,16 @@ public class SelectStmt extends QueryStmt {
                 dbs.put(dbName, db);
             }
         }
+    }
+
+    private boolean isViewTableRef(TableRef tblRef) {
+        List<View> views = withClause_.getViews();
+        for(View view : views){
+            if(view.getName().equals(tblRef.getName().toString())){
+                return true;
+            }
+        }
+        return false;
     }
 
     // Column alias generator used during query rewriting.
@@ -339,7 +353,6 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-
         fromClause_.setNeedToSql(needToSql);
         fromClause_.analyze(analyzer);
 
@@ -436,11 +449,10 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
-
+        // do this before whereClause.analyze , some expr is not analyzed, this may cause some
+        // function not work as expected such as equals;
+        whereClauseRewrite();
         if (whereClause != null) {
-            // do this before whereClause.analyze , some expr is not analyzed, this may cause some
-            // function not work as expected such as equals;
-            whereClauseRewrite();
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
             }
@@ -526,16 +538,16 @@ public class SelectStmt extends QueryStmt {
     }
 
     private void whereClauseRewrite() {
-        Expr deDuplicatedWhere = deduplicateOrs(whereClause);
-        if (deDuplicatedWhere != null) {
-            whereClause = deDuplicatedWhere;
-        }
         if (whereClause instanceof IntLiteral) {
             if (((IntLiteral) whereClause).getLongValue() == 0) {
                 whereClause = new BoolLiteral(false);
             } else {
                 whereClause = new BoolLiteral(true);
             }
+        }
+        Expr deDuplicatedWhere = deduplicateOrs(whereClause);
+        if (deDuplicatedWhere != null) {
+            whereClause = deDuplicatedWhere;
         }
     }
 
@@ -568,7 +580,9 @@ public class SelectStmt extends QueryStmt {
      * identical term, and pull out the duplicated terms.
      */
     private Expr deduplicateOrs(Expr expr) {
-        if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
+        if (expr == null) {
+            return null;
+        } else if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
             Expr rewritedExpr = processDuplicateOrs(extractDuplicateOrs((CompoundPredicate) expr));
             if (rewritedExpr != null) {
                 return rewritedExpr;

@@ -208,13 +208,16 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 memory_copy(mem_ptr, storage_ptr, null_byte);
 
                 // 2. copy length and content
-                size_t storage_field_bytes =
-                    *reinterpret_cast<StringLengthType*>(storage_ptr + null_byte);
-                Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
-                char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
-                memory_copy(data, storage_ptr + sizeof(StringLengthType) + null_byte, storage_field_bytes);
-                slice->data = data;
-                slice->size = storage_field_bytes;
+                bool is_null = *reinterpret_cast<bool*>(mem_ptr);
+                if (!is_null) {
+                    size_t storage_field_bytes =
+                        *reinterpret_cast<StringLengthType*>(storage_ptr + null_byte);
+                    Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
+                    char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
+                    memory_copy(data, storage_ptr + sizeof(StringLengthType) + null_byte, storage_field_bytes);
+                    slice->data = data;
+                    slice->size = storage_field_bytes;
+                }
 
                 mem_ptr += mem_row_bytes;
                 storage_ptr += storage_row_bytes;
@@ -235,11 +238,14 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 memory_copy(mem_ptr, storage_ptr, null_byte);
 
                 // 2. copy length and content
-                Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
-                char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
-                memory_copy(data, storage_ptr + null_byte, storage_field_bytes);
-                slice->data = data;
-                slice->size = storage_field_bytes;
+                bool is_null = *reinterpret_cast<bool*>(mem_ptr);
+                if (!is_null) {
+                    Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
+                    char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
+                    memory_copy(data, storage_ptr + null_byte, storage_field_bytes);
+                    slice->data = data;
+                    slice->size = storage_field_bytes;
+                }
 
                 mem_ptr += mem_row_bytes;
                 storage_ptr += storage_row_bytes;
@@ -248,7 +254,14 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
             size_t storage_field_bytes = column.index_length();
             mem_field_offset += storage_field_bytes + 1;
             for (size_t j = 0; j < num_entries; ++j) {
-                memory_copy(mem_ptr + 1 - null_byte, storage_ptr, storage_field_bytes + null_byte);
+                // 1. copy null_byte
+                memory_copy(mem_ptr, storage_ptr, null_byte);
+
+                // 2. copy content
+                bool is_null = *reinterpret_cast<bool*>(mem_ptr);
+                if (!is_null) {
+                    memory_copy(mem_ptr + 1, storage_ptr + null_byte, storage_field_bytes);
+                }
 
                 mem_ptr += mem_row_bytes;
                 storage_ptr += storage_row_bytes;

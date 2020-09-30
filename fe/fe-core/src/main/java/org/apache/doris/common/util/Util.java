@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -476,6 +477,10 @@ public class Util {
         conn.setConnectTimeout(connectTimeoutMs);
         conn.setReadTimeout(readTimeoutMs);
         return conn.getInputStream();
+    }
+
+    public static boolean showHiddenColumns() {
+        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().showHiddenColumns();
     }
 }
 

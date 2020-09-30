@@ -190,6 +190,12 @@ public final class FeMetaVersion {
     // force drop db, force drop table, force drop partition
     // make force drop operation do not recycle meta
     public static final int VERSION_89 = 89;
+    // for global variable persist
+    public static final int VERSION_90 = 90;
+    // sparkLoadAppHandle
+    public static final int VERSION_91 = 91;
+    // for mysql external table support resource
+    public static final int VERSION_92 = 92;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_89;
+    public static final int VERSION_CURRENT = VERSION_92;
 }

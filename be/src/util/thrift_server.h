@@ -137,7 +137,7 @@ private:
 
     // Map of active session keys to shared_ptr containing that key; when a key is
     // removed it is automatically freed.
-    typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey> > SessionKeySet;
+    typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey>> SessionKeySet;
     SessionKeySet _session_keys;
 
     // Helper class which monitors starting servers. Needs access to internal members, and
@@ -145,11 +145,11 @@ private:
     class ThriftServerEventProcessor;
     friend class ThriftServerEventProcessor;
 
-    MetricEntity* _thrift_server_metric_entity;
+    std::shared_ptr<MetricEntity> _thrift_server_metric_entity;
     // Number of currently active connections
-    IntGauge thrift_current_connections;
+    IntGauge* thrift_current_connections;
     // Total connections made over the lifetime of this server
-    IntCounter thrift_connections_total;
+    IntCounter* thrift_connections_total;
 };
 
 }

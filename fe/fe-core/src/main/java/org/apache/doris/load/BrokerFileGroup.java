@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import com.google.common.base.Strings;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -43,6 +44,7 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,6 +80,10 @@ public class BrokerFileGroup implements Writable {
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
     // filter the data which has been conformed
     private Expr whereExpr;
+    private Expr deleteCondition;
+    private LoadTask.MergeType mergeType;
+    // sequence column name
+    private String sequenceCol;
 
     // load from table
     private long srcTableId = -1;
@@ -103,6 +109,9 @@ public class BrokerFileGroup implements Writable {
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
         this.whereExpr = dataDescription.getWhereExpr();
+        this.deleteCondition = dataDescription.getDeleteCondition();
+        this.mergeType = dataDescription.getMergeType();
+        this.sequenceCol = dataDescription.getSequenceCol();
     }
 
     // NOTE: DBLock will be held
@@ -255,6 +264,22 @@ public class BrokerFileGroup implements Writable {
         return isLoadFromTable;
     }
 
+    public Expr getDeleteCondition() {
+        return deleteCondition;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -312,7 +337,7 @@ public class BrokerFileGroup implements Writable {
         return sb.toString();
     }
 
-
+    @Deprecated
     @Override
     public void write(DataOutput out) throws IOException {
         // tableId
@@ -362,6 +387,7 @@ public class BrokerFileGroup implements Writable {
         out.writeBoolean(isLoadFromTable);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         valueSeparator = Text.readString(in);
@@ -435,6 +461,7 @@ public class BrokerFileGroup implements Writable {
         }
     }
 
+    @Deprecated
     public static BrokerFileGroup read(DataInput in) throws IOException {
         BrokerFileGroup fileGroup = new BrokerFileGroup();
         fileGroup.readFields(in);

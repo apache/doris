@@ -27,10 +27,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 
-import com.google.common.base.Preconditions; 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
-import org.apache.logging.log4j.LogManager; 
+import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
@@ -122,7 +122,7 @@ public class TimeUtils {
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         } else {
-            timezone = VariableMgr.getGlobalSessionVariable().getTimeZone();
+            timezone = VariableMgr.getDefaultSessionVariable().getTimeZone();
         }
         return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
     }

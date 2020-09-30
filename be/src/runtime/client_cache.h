@@ -102,7 +102,7 @@ private:
 
     // map from (host, port) to list of client keys for that address
     typedef boost::unordered_map <
-    TNetworkAddress, std::list<void*> > ClientCacheMap;
+    TNetworkAddress, std::list<void*>> ClientCacheMap;
     ClientCacheMap _client_cache;
 
     // Map from client key back to its associated ThriftClientImpl transport
@@ -114,13 +114,13 @@ private:
     // max connections per host in this cache, -1 means unlimited
     int _max_cache_size_per_host;
 
-    MetricEntity* _thrift_client_metric_entity;
+    std::shared_ptr<MetricEntity> _thrift_client_metric_entity;
 
     // Number of clients 'checked-out' from the cache
-    IntGauge thrift_used_clients;
+    IntGauge* thrift_used_clients;
 
     // Total clients in the cache, including those in use
-    IntGauge thrift_opened_clients;
+    IntGauge* thrift_opened_clients;
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status create_client(const TNetworkAddress& hostport, client_factory factory_method,

@@ -109,7 +109,7 @@ public class StructType extends Type {
         Preconditions.checkNotNull(fields);
         Preconditions.checkNotNull(!fields.isEmpty());
         node.setType(TTypeNodeType.STRUCT);
-        node.setStruct_fields(new ArrayList<TStructField>());
+        node.setStructFields(new ArrayList<TStructField>());
         for (StructField field : fields) {
             field.toThrift(container, node);
         }

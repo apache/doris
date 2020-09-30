@@ -75,6 +75,12 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         Expr::create_expr_trees(_pool, tnode.hash_join_node.other_join_conjuncts,
                               &_other_join_conjunct_ctxs));
 
+    if (!_other_join_conjunct_ctxs.empty()) {
+        // If LEFT SEMI JOIN/LEFT ANTI JOIN with not equal predicate,
+        // build table should not be deduplicated.
+        _build_unique = false;
+    }
+
     return Status::OK();
 }
 

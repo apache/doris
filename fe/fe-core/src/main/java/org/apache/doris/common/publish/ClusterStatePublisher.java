@@ -104,19 +104,19 @@ public class ClusterStatePublisher {
                 TAgentPublishRequest request = stateUpdate.toThrift();
                 TAgentResult tAgentResult = null;
                 try {
-                    tAgentResult = client.publish_cluster_state(request);
+                    tAgentResult = client.publishClusterState(request);
                 } catch (TException e) {
                     // Ok, lets try another time
                     if (!ClientPool.backendPool.reopen(client)) {
                         // Failed another time, throw this
                         throw e;
                     }
-                    tAgentResult = client.publish_cluster_state(request);
+                    tAgentResult = client.publishClusterState(request);
                 }
-                if (tAgentResult.getStatus().getStatus_code() != TStatusCode.OK) {
+                if (tAgentResult.getStatus().getStatusCode() != TStatusCode.OK) {
                     // Success execute, no dirty data possibility
                     LOG.warn("Backend execute publish failed. backend=[{}], message=[{}]",
-                            addr, tAgentResult.getStatus().getError_msgs());
+                            addr, tAgentResult.getStatus().getErrorMsgs());
                 }
                 LOG.debug("Success publish to backend([{}])", addr);
                 // Publish here

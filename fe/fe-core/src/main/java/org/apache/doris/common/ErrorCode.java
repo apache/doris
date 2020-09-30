@@ -103,7 +103,8 @@ public enum ErrorCode {
     ERR_PARTITION_CLAUSE_ON_NONPARTITIONED(1747, new byte[] {'H', 'Y', '0', '0', '0'},
             "PARTITION () clause on non partitioned table"),
     ERR_EMPTY_PARTITION_IN_TABLE(1748, new byte[] {'H', 'Y', '0', '0', '0'},
-            "data cannot be inserted into table with emtpy partition. [%s]"),
+            "data cannot be inserted into table with empty partition. " +
+                    "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),
     ERR_NO_SUCH_PARTITION(1749, new byte[] {'H', 'Y', '0', '0', '0'}, "partition '%s' doesn't exist"),
     // Following is Palo's error code, which start from 5000
     ERR_NOT_OLAP_TABLE(5000, new byte[] {'H', 'Y', '0', '0', '0'}, "Table '%s' is not a OLAP table"),
@@ -210,7 +211,7 @@ public enum ErrorCode {
             "Table %s is not a colocated table"),
     ERR_INVALID_OPERATION(5065, new byte[] { '4', '2', '0', '0', '0' }, "Operation %s is invalid"),
     ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[] {'4', '2', '0', '0', '0'},
-            "Unsupported time unit %s. Expect DAY/WEEK/MONTH."),
+            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH."),
     ERROR_DYNAMIC_PARTITION_START_ZERO(5066, new byte[] {'4', '2', '0', '0', '0'},
             "Dynamic partition start must less than 0"),
     ERROR_DYNAMIC_PARTITION_START_FORMAT(5066, new byte[] {'4', '2', '0', '0', '0'},

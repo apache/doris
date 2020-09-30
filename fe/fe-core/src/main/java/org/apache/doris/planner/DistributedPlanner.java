@@ -271,9 +271,9 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) {
-        if (node instanceof MysqlScanNode) {
+        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        } else if (node instanceof SchemaScanNode) {
+        }  else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else {
             // es scan node, olap scan node are random partitioned
@@ -361,13 +361,18 @@ public class DistributedPlanner {
         //   side to be partitioned for correctness)
         // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
         // we set partition join as default when broadcast join cost equals partition join cost
-        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
-                && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN
-                && (perNodeMemLimit == 0 || Math.round(
-                (double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)
-                && (node.getInnerRef().isBroadcastJoin() || (!node.getInnerRef().isPartitionJoin()
-                && isBroadcastCostSmaller(broadcastCost, partitionCost)))) {
-            doBroadcast = true;
+        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
+            if (node.getInnerRef().isBroadcastJoin()) {
+                // respect user join hint
+                doBroadcast = true;
+            } else if (!node.getInnerRef().isPartitionJoin()
+                    && isBroadcastCostSmaller(broadcastCost, partitionCost)
+                    && (perNodeMemLimit == 0
+                        || Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)) {
+                doBroadcast = true;
+            } else {
+                doBroadcast = false;
+            }
         } else {
             doBroadcast = false;
         }
@@ -458,6 +463,12 @@ public class DistributedPlanner {
 
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
             cannotReason.add("Session disabled");
+            return false;
+        }
+
+        // If user have a join hint to use proper way of join, can not be colocate join
+        if (node.getInnerRef().hasJoinHints()) {
+            cannotReason.add("Has join hint");
             return false;
         }
 
@@ -820,7 +831,16 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            return createMergeAggregationFragment(node, childFragment);
+
+            // Check table's distribution. See #4481.
+            PlanNode childPlan = childFragment.getPlanRoot();
+            if (childPlan instanceof OlapScanNode &&
+                    ((OlapScanNode) childPlan).getOlapTable().meetAggDistributionRequirements(node.getAggInfo())) {
+                childFragment.addPlanRoot(node);
+                return childFragment;
+            } else {
+                return createMergeAggregationFragment(node, childFragment);
+            }
         }
     }
 

@@ -207,7 +207,7 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 
 OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
                                         std::vector<DataDir*> stores) {
-    DorisMetrics::instance()->create_tablet_requests_total.increment(1);
+    DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
     int32_t schema_hash = request.tablet_schema.schema_hash;
@@ -231,7 +231,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         } else {
             LOG(WARNING) << "fail to create tablet. tablet exist but with different schema_hash. "
                     << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
-            DorisMetrics::instance()->create_tablet_requests_failed.increment(1);
+            DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             return OLAP_ERR_CE_TABLET_ID_EXIST;
         }
     }
@@ -247,7 +247,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
                          << "new_tablet_id=" << tablet_id << ", new_schema_hash=" << schema_hash
                          << ", base_tablet_id=" << request.base_tablet_id
                          << ", base_schema_hash=" << request.base_schema_hash;
-            DorisMetrics::instance()->create_tablet_requests_failed.increment(1);
+            DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             return OLAP_ERR_TABLE_CREATE_META_ERROR;
         }
         // If we are doing schema-change, we should use the same data dir
@@ -262,7 +262,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
             AlterTabletType::SCHEMA_CHANGE, request, is_schema_change, base_tablet.get(), stores);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to create tablet. tablet_id=" << request.tablet_id;
-        DorisMetrics::instance()->create_tablet_requests_failed.increment(1);
+        DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
@@ -459,7 +459,7 @@ OLAPStatus TabletManager::drop_tablet(
 OLAPStatus TabletManager::_drop_tablet_unlocked(
         TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
-    DorisMetrics::instance()->drop_tablet_requests_total.increment(1);
+    DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
     // Fetch tablet which need to be droped
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
@@ -635,6 +635,8 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(
         const string& path, TTabletId* tablet_id, TSchemaHash* schema_hash) {
     static re2::RE2 normal_re("/data/\\d+/(\\d+)/(\\d+)($|/)");
+    // match tablet schema hash data path, for example, the path is /data/1/16791/29998
+    // 1 is shard id , 16791 is tablet id, 29998 is schema hash
     if (RE2::PartialMatch(path, normal_re, tablet_id, schema_hash)) {
         return true;
     }
@@ -762,9 +764,9 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
         // TODO(lingbin): Remove 'max' from metric name, it would be misunderstood as the
         // biggest in history(like peak), but it is really just the value at current moment.
         if (compaction_type == CompactionType::BASE_COMPACTION) {
-            DorisMetrics::instance()->tablet_base_max_compaction_score.set_value(highest_score);
+            DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(highest_score);
         } else {
-            DorisMetrics::instance()->tablet_cumulative_max_compaction_score.set_value(highest_score);
+            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(highest_score);
         }
     }
     return best_tablet;
@@ -810,6 +812,12 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         LOG(WARNING) << "fail to load tablet. tablet_id=" << tablet_id
                      << ", schema_hash:" << schema_hash;
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
+    }
+
+    // check if the tablet path exists since the path maybe deleted by gc thread
+    if (!Env::Default()->path_exists(tablet->tablet_path()).ok()) {
+        LOG(WARNING) << "tablet path not exists, create tablet failed, path=" << tablet->tablet_path();
+        return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
     }
 
     if (tablet_meta->tablet_state() == TABLET_SHUTDOWN) {
@@ -898,7 +906,7 @@ void TabletManager::release_schema_change_lock(TTabletId tablet_id) {
 }
 
 OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
-    DorisMetrics::instance()->report_tablet_requests_total.increment(1);
+    DorisMetrics::instance()->report_tablet_requests_total->increment(1);
     LOG(INFO) << "begin to process report tablet info."
               << "tablet_id=" << tablet_info->tablet_id
               << ", schema_hash=" << tablet_info->schema_hash;
@@ -926,7 +934,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
     StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
-    DorisMetrics::instance()->report_all_tablets_requests_total.increment(1);
+    DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
 
     for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
         ReadLock rlock(&_tablet_map_lock_array[i]);
@@ -1085,6 +1093,52 @@ OLAPStatus TabletManager::start_trash_sweep() {
     } while (clean_num >= 200);
     return OLAP_SUCCESS;
 } // start_trash_sweep
+
+void TabletManager::register_clone_tablet(int64_t tablet_id) {
+    RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
+    WriteLock wlock(&tablet_map_lock);
+    _tablets_under_clone.insert(tablet_id);
+}
+
+void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
+    RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
+    WriteLock wlock(&tablet_map_lock);
+    _tablets_under_clone.erase(tablet_id);
+}
+
+void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
+        SchemaHash schema_hash, const string& schema_hash_path) {
+    // acquire the read lock, so that there is no creating tablet or load tablet from meta tasks
+    // create tablet and load tablet task should check whether the dir exists
+    RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
+    ReadLock rlock(&tablet_map_lock);
+
+    // check if meta already exists
+    TabletMetaSharedPtr tablet_meta(new TabletMeta());
+    OLAPStatus check_st = TabletMetaManager::get_meta(data_dir, tablet_id, 
+        schema_hash, tablet_meta);
+    if (check_st == OLAP_SUCCESS) {
+        LOG(INFO) << "tablet meta exist is meta store, skip delete the path " << schema_hash_path;
+        return;
+    }
+
+    if (_tablets_under_clone.count(tablet_id) > 0) {
+        LOG(INFO) << "tablet is under clone, skip delete the path " << schema_hash_path;
+        return;
+    }
+
+    // TODO(ygl): may do other checks in the future
+    if (Env::Default()->path_exists(schema_hash_path).ok()) {
+        LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
+        OLAPStatus rm_st = move_to_trash(schema_hash_path, schema_hash_path);
+        if (rm_st != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to move dir to trash. dir=" << schema_hash_path;
+        } else {
+            LOG(INFO) << "move path " << schema_hash_path << " to trash successfully";
+        }
+    }
+    return;
+}
 
 bool TabletManager::try_schema_change_lock(TTabletId tablet_id) {
     bool res = false;

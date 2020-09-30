@@ -17,10 +17,8 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.spark.launcher.SparkAppHandle;
-
 public class SparkPendingTaskAttachment extends TaskAttachment {
-    private SparkAppHandle handle;
+    private SparkLoadAppHandle handle;
     private String appId;
     private String outputPath;
 
@@ -28,7 +26,7 @@ public class SparkPendingTaskAttachment extends TaskAttachment {
         super(taskId);
     }
 
-    public SparkAppHandle getHandle() {
+    public SparkLoadAppHandle getHandle() {
         return handle;
     }
 
@@ -40,7 +38,7 @@ public class SparkPendingTaskAttachment extends TaskAttachment {
         this.appId = appId;
     }
 
-    public void setHandle(SparkAppHandle handle) {
+    public void setHandle(SparkLoadAppHandle handle) {
         this.handle = handle;
     }
 

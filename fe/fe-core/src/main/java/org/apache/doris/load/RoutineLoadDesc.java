@@ -17,24 +17,39 @@
 
 package org.apache.doris.load;
 
+import com.google.common.base.Strings;
+
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.load.loadv2.LoadTask;
 
 public class RoutineLoadDesc {
     private final ColumnSeparator columnSeparator;
     private final ImportColumnsStmt columnsInfo;
     private final ImportWhereStmt wherePredicate;
+    private final Expr deleteCondition;
+    private LoadTask.MergeType mergeType;
     // nullable
     private final PartitionNames partitionNames;
+    private final String sequenceColName;
 
     public RoutineLoadDesc(ColumnSeparator columnSeparator, ImportColumnsStmt columnsInfo,
-            ImportWhereStmt wherePredicate, PartitionNames partitionNames) {
+                           ImportWhereStmt wherePredicate, PartitionNames partitionNames,
+                           Expr deleteCondition, LoadTask.MergeType mergeType,
+                           String sequenceColName) {
         this.columnSeparator = columnSeparator;
         this.columnsInfo = columnsInfo;
         this.wherePredicate = wherePredicate;
         this.partitionNames = partitionNames;
+        this.deleteCondition = deleteCondition;
+        this.mergeType = mergeType;
+        this.sequenceColName = sequenceColName;
     }
 
     public ColumnSeparator getColumnSeparator() {
@@ -49,8 +64,33 @@ public class RoutineLoadDesc {
         return wherePredicate;
     }
 
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
     // nullable
     public PartitionNames getPartitionNames() {
         return partitionNames;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
+    }
+
+    public String getSequenceColName() {
+        return sequenceColName;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceColName);
+    }
+
+    public void analyze(Analyzer analyzer) throws UserException {
+        if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
+            throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
+        }
+        if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
+            throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
+        }
     }
 }

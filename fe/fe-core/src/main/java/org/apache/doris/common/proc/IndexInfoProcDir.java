@@ -129,6 +129,15 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }
                 bfColumns = olapTable.getCopiedBfColumns();
+                // sequence col is the hidden column
+                if (olapTable.hasSequenceCol()) {
+                    for (Column column : schema) {
+                        if (column.isSequenceColumn()) {
+                            schema.remove(column);
+                            break;
+                        }
+                    }
+                }
             } else {
                 schema = table.getBaseSchema();
             }

@@ -109,15 +109,15 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         break;
                     }
                     TTabletMetaInfo metaInfo = new TTabletMetaInfo();
-                    metaInfo.setTablet_id(pair.first);
-                    metaInfo.setSchema_hash(pair.second);
+                    metaInfo.setTabletId(pair.first);
+                    metaInfo.setSchemaHash(pair.second);
                     TabletMeta tabletMeta = Catalog.getCurrentCatalog().getTabletInvertedIndex().getTabletMeta(pair.first);
                     if (tabletMeta == null) {
                         LOG.warn("could not find tablet [{}] in meta ignore it", pair.second);
                         continue;
                     }
-                    metaInfo.setPartition_id(tabletMeta.getPartitionId());
-                    metaInfo.setMeta_type(metaType);
+                    metaInfo.setPartitionId(tabletMeta.getPartitionId());
+                    metaInfo.setMetaType(metaType);
                     metaInfos.add(metaInfo);
                     ++tabletEntryNum;
                 }
@@ -128,20 +128,20 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                     // for schema change
                     for (Pair<Long, Integer> pair : tableIdWithSchemaHash) {
                         TTabletMetaInfo metaInfo = new TTabletMetaInfo();
-                        metaInfo.setTablet_id(pair.first);
-                        metaInfo.setSchema_hash(pair.second);
-                        metaInfo.setIs_in_memory(isInMemory);
-                        metaInfo.setMeta_type(metaType);
+                        metaInfo.setTabletId(pair.first);
+                        metaInfo.setSchemaHash(pair.second);
+                        metaInfo.setIsInMemory(isInMemory);
+                        metaInfo.setMetaType(metaType);
                         metaInfos.add(metaInfo);
                     }
                 } else {
                     // for ReportHandler
                     for (Triple<Long, Integer, Boolean> triple : tabletToInMemory) {
                         TTabletMetaInfo metaInfo = new TTabletMetaInfo();
-                        metaInfo.setTablet_id(triple.getLeft());
-                        metaInfo.setSchema_hash(triple.getMiddle());
-                        metaInfo.setIs_in_memory(triple.getRight());
-                        metaInfo.setMeta_type(metaType);
+                        metaInfo.setTabletId(triple.getLeft());
+                        metaInfo.setSchemaHash(triple.getMiddle());
+                        metaInfo.setIsInMemory(triple.getRight());
+                        metaInfo.setMetaType(metaType);
                         metaInfos.add(metaInfo);
                     }
                 }

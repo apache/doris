@@ -72,7 +72,7 @@ public class CastExpr extends Expr {
     /**
      * Copy c'tor used in clone().
      */
-    protected CastExpr(TypeDef targetTypeDef, Expr e) {
+    public CastExpr(TypeDef targetTypeDef, Expr e) {
         Preconditions.checkNotNull(targetTypeDef);
         Preconditions.checkNotNull(e);
         this.targetTypeDef = targetTypeDef;
@@ -162,9 +162,9 @@ public class CastExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
-        msg.setOutput_column(outputColumn);
+        msg.setOutputColumn(outputColumn);
         if (type.isNativeType() && getChild(0).getType().isNativeType()) {
-            msg.setChild_type(getChild(0).getType().getPrimitiveType().toThrift());
+            msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
         }
     }
 
@@ -289,7 +289,7 @@ public class CastExpr extends Expr {
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());
         } else if (type.isDateType()) {
-            return new DateLiteral(value.getStringValue(), type);
+            return new StringLiteral(value.getStringValue()).convertToDate(type);
         } else if (type.isBoolean()) {
             return new BoolLiteral(value.getStringValue());
         }

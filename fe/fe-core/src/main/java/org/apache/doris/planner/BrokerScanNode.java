@@ -18,43 +18,34 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerRangeDesc;
-import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -99,7 +90,6 @@ public class BrokerScanNode extends LoadScanNode {
 
     // used both for load statement and select statement
     private long totalBytes;
-    private int numInstances;
     private long bytesPerInstance;
 
     // Parameters need to process
@@ -202,10 +192,12 @@ public class BrokerScanNode extends LoadScanNode {
         context.params = params;
 
         BrokerFileGroup fileGroup = context.fileGroup;
-        params.setColumn_separator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
-        params.setLine_delimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
-        params.setStrict_mode(strictMode);
+        params.setColumnSeparator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
+        params.setLineDelimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
+        params.setStrictMode(strictMode);
         params.setProperties(brokerDesc.getProperties());
+        deleteCondition = fileGroup.getDeleteCondition();
+        mergeType = fileGroup.getMergeType();
         initColumns(context);
         initWhereExpr(fileGroup.getWhereExpr(), analyzer);
     }
@@ -216,6 +208,7 @@ public class BrokerScanNode extends LoadScanNode {
      * The smap of slot which belongs to expr will be analyzed by src desc.
      * slotDescByName: the single slot from columns in load stmt
      * exprMap: the expr from column mapping in load stmt.
+     *
      * @param context
      * @throws UserException
      */
@@ -229,81 +222,21 @@ public class BrokerScanNode extends LoadScanNode {
         List<ImportColumnDesc> columnExprs = Lists.newArrayList();
         if (isLoad()) {
             columnExprs = context.fileGroup.getColumnExprList();
+            if (mergeType == LoadTask.MergeType.MERGE) {
+                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+            } else if (mergeType == LoadTask.MergeType.DELETE) {
+                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            }
+            // add columnExpr for sequence column
+            if (context.fileGroup.hasSequenceCol()) {
+                columnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, context.fileGroup.getSequenceCol())));
+            }
         }
 
         Load.initColumns(targetTable, columnExprs,
                 context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
                 context.tupleDescriptor, context.slotDescByName, context.params);
-    }
-
-    private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
-        Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
-        Map<String, Expr> exprMap = context.exprMap;
-        Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
-
-        boolean isNegative = context.fileGroup.isNegative();
-        for (SlotDescriptor destSlotDesc : desc.getSlots()) {
-            if (!destSlotDesc.isMaterialized()) {
-                continue;
-            }
-            Expr expr = null;
-            if (exprMap != null) {
-                expr = exprMap.get(destSlotDesc.getColumn().getName());
-            }
-            if (expr == null) {
-                SlotDescriptor srcSlotDesc = slotDescByName.get(destSlotDesc.getColumn().getName());
-                if (srcSlotDesc != null) {
-                    destSidToSrcSidWithoutTrans.put(destSlotDesc.getId().asInt(), srcSlotDesc.getId().asInt());
-                    // If dest is allow null, we set source to nullable
-                    if (destSlotDesc.getColumn().isAllowNull()) {
-                        srcSlotDesc.setIsNullable(true);
-                    }
-                    expr = new SlotRef(srcSlotDesc);
-                } else {
-                    Column column = destSlotDesc.getColumn();
-                    if (column.getDefaultValue() != null) {
-                        expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
-                    } else {
-                        if (column.isAllowNull()) {
-                            expr = NullLiteral.create(column.getType());
-                        } else {
-                            throw new UserException("Unknown slot ref("
-                                    + destSlotDesc.getColumn().getName() + ") in source file");
-                        }
-                    }
-                }
-            }
-
-            // check hll_hash
-            if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
-                if (!(expr instanceof FunctionCallExpr)) {
-                    throw new AnalysisException("HLL column must use hll_hash function, like "
-                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
-                }
-                FunctionCallExpr fn = (FunctionCallExpr) expr;
-                if (!fn.getFnName().getFunction().equalsIgnoreCase("hll_hash") && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
-                    throw new AnalysisException("HLL column must use hll_hash function, like "
-                            + destSlotDesc.getColumn().getName() + "=hll_hash(xxx) or " + destSlotDesc.getColumn().getName() + "=hll_empty()");
-                }
-                expr.setType(Type.HLL);
-            }
-
-            checkBitmapCompatibility(analyzer, destSlotDesc, expr);
-
-            // analyze negative
-            if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
-                expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
-                expr.analyze(analyzer);
-            }
-            expr = castToSlot(destSlotDesc, expr);
-            context.params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
-        }
-        context.params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
-        context.params.setSrc_tuple_id(context.tupleDescriptor.getId().asInt());
-        context.params.setDest_tuple_id(desc.getId().asInt());
-        context.params.setStrict_mode(strictMode);
-        // Need re compute memory layout after set some slot descriptor to nullable
-        context.tupleDescriptor.computeMemLayout();
     }
 
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params, String brokerName)
@@ -321,18 +254,18 @@ public class BrokerScanNode extends LoadScanNode {
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
+        brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
 
         // Scan range
         TScanRange scanRange = new TScanRange();
-        scanRange.setBroker_scan_range(brokerScanRange);
+        scanRange.setBrokerScanRange(brokerScanRange);
 
         // Locations
         TScanRangeLocations locations = new TScanRangeLocations();
-        locations.setScan_range(scanRange);
+        locations.setScanRange(scanRange);
 
         TScanRangeLocation location = new TScanRangeLocation();
-        location.setBackend_id(selectedBackend.getId());
+        location.setBackendId(selectedBackend.getId());
         location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
         locations.addToLocations(location);
 
@@ -491,15 +424,15 @@ public class BrokerScanNode extends LoadScanNode {
                                                    TFileFormatType formatType, long rangeBytes,
                                                    List<String> columnsFromPath, int numberOfColumnsFromFile) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-        rangeDesc.setFile_type(TFileType.FILE_BROKER);
-        rangeDesc.setFormat_type(formatType);
+        rangeDesc.setFileType(TFileType.FILE_BROKER);
+        rangeDesc.setFormatType(formatType);
         rangeDesc.setPath(fileStatus.path);
         rangeDesc.setSplittable(fileStatus.isSplitable);
-        rangeDesc.setStart_offset(curFileOffset);
+        rangeDesc.setStartOffset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
-        rangeDesc.setFile_size(fileStatus.size);
-        rangeDesc.setNum_of_columns_from_file(numberOfColumnsFromFile);
-        rangeDesc.setColumns_from_path(columnsFromPath);
+        rangeDesc.setFileSize(fileStatus.size);
+        rangeDesc.setNumOfColumnsFromFile(numberOfColumnsFromFile);
+        rangeDesc.setColumnsFromPath(columnsFromPath);
         return rangeDesc;
     }
 
@@ -514,7 +447,8 @@ public class BrokerScanNode extends LoadScanNode {
             }
             ParamCreateContext context = paramCreateContexts.get(i);
             try {
-                finalizeParams(context);
+                finalizeParams(context.slotDescByName, context.exprMap, context.params,
+                        context.tupleDescriptor, strictMode, context.fileGroup.isNegative(), analyzer);
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
@@ -534,20 +468,8 @@ public class BrokerScanNode extends LoadScanNode {
     }
 
     @Override
-    protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.BROKER_SCAN_NODE;
-        TBrokerScanNode brokerScanNode = new TBrokerScanNode(desc.getId().asInt());
-        msg.setBroker_scan_node(brokerScanNode);
-    }
-
-    @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return locationsList;
-    }
-
-    @Override
-    public int getNumInstances() {
-        return numInstances;
     }
 
     @Override

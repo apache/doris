@@ -33,6 +33,7 @@ import org.apache.doris.analysis.GroupByClause;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.InlineViewRef;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.LiteralExpr;
@@ -52,11 +53,14 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -149,7 +153,7 @@ public class SingleNodePlanner {
             LOG.trace("desctbl: " + analyzer.getDescTbl().debugString());
         }
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
-                ctx_.getQueryOptions().getDefault_order_by_limit());
+                ctx_.getQueryOptions().getDefaultOrderByLimit());
         Preconditions.checkNotNull(singleNodePlan);
         return singleNodePlan;
     }
@@ -1036,6 +1040,8 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                //set outputSmap to substitute literal in outputExpr 
+                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
                 return unionNode;
             }
@@ -1359,8 +1365,18 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
+                if (!Util.showHiddenColumns() && ((OlapTable) tblRef.getTable()).hasDeleteSign()) {
+                    Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                            new SlotRef(tblRef.getAliasAsName(), Column.DELETE_SIGN), new IntLiteral(0));
+                    conjunct.analyze(analyzer);
+                    analyzer.registerConjunct(conjunct, tblRef.getDesc().getId());
+                }
+
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;
+                break;
+            case ODBC:
+                scanNode = new OdbcScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), (OdbcTable) tblRef.getTable());
                 break;
             case MYSQL:
                 scanNode = new MysqlScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), (MysqlTable) tblRef.getTable());
@@ -1404,6 +1420,11 @@ public class SingleNodePlanner {
 
                                 SlotRef leftSlot = eqJoinPredicate.getChild(0).unwrapSlotRef();
                                 SlotRef rightSlot = eqJoinPredicate.getChild(1).unwrapSlotRef();
+
+                                // ensure the type is match
+                                if (!leftSlot.getDesc().getType().matchesType(rightSlot.getDesc().getType())) {
+                                    continue;
+                                }
 
                                 // example: t1.id = t2.id and t1.id = 1  => t2.id =1
                                 if (otherSlot.isBound(leftSlot.getSlotId()) && rightSlot.isBound(tupleId)) {

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -38,6 +39,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
@@ -47,6 +49,7 @@ public class Table extends MetaObject implements Writable {
 
     public enum TableType {
         MYSQL,
+        ODBC,
         OLAP,
         SCHEMA,
         INLINE_VIEW,
@@ -144,7 +147,14 @@ public class Table extends MetaObject implements Writable {
 
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
-        return fullSchema;
+        return getBaseSchema(Util.showHiddenColumns());
+    }
+    public List<Column> getBaseSchema(boolean full) {
+        if (full) {
+            return fullSchema;
+        } else {
+            return fullSchema.stream().filter(column -> column.isVisible()).collect(Collectors.toList());
+        }
     }
 
     public void setNewFullSchema(List<Column> newSchema) {
@@ -172,6 +182,8 @@ public class Table extends MetaObject implements Writable {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
+        } else if (type == TableType.ODBC) {
+            table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
             table = new MysqlTable();
         } else if (type == TableType.VIEW) {
@@ -265,6 +277,8 @@ public class Table extends MetaObject implements Writable {
     public String getEngine() {
         if (this instanceof OlapTable) {
             return "Doris";
+        } else if (this instanceof OdbcTable) {
+            return "Odbc";
         } else if (this instanceof MysqlTable) {
             return "MySQL";
         } else if (this instanceof SchemaTable) {

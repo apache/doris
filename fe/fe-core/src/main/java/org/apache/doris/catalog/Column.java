@@ -47,6 +47,8 @@ import java.util.List;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+    public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
@@ -72,7 +74,12 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
+    // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
+    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being relayed.
     private Expr defineExpr; // use to define column in materialize view
+    @SerializedName(value = "visible")
+    private boolean visible;
 
     public Column() {
         this.name = "";
@@ -80,6 +87,7 @@ public class Column implements Writable {
         this.isAggregationTypeImplicit = false;
         this.isKey = false;
         this.stats = new ColumnStats();
+        this.visible = true;
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -101,6 +109,10 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment) {
+        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
+    }
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+                  String defaultValue, String comment, boolean visible) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -119,6 +131,7 @@ public class Column implements Writable {
         this.comment = comment;
 
         this.stats = new ColumnStats();
+        this.visible = visible;
     }
 
     public Column(Column column) {
@@ -131,6 +144,7 @@ public class Column implements Writable {
         this.defaultValue = column.getDefaultValue();
         this.comment = column.getComment();
         this.stats = column.getStats();
+        this.visible = column.visible;
     }
 
     public void setName(String newName) {
@@ -166,6 +180,22 @@ public class Column implements Writable {
 
     public boolean isKey() {
         return this.isKey;
+    }
+
+    public boolean isVisible() {
+        return visible;
+    }
+
+    public void setIsVisible(boolean isVisible) {
+        this.visible = isVisible;
+    }
+
+    public boolean isDeleteSignColumn() {
+        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(DELETE_SIGN, true);
+    }
+
+    public boolean isSequenceColumn() {
+        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
     }
 
     public PrimitiveType getDataType() { return type.getPrimitiveType(); }
@@ -242,7 +272,7 @@ public class Column implements Writable {
 
     public TColumn toThrift() {
         TColumn tColumn = new TColumn();
-        tColumn.setColumn_name(this.name);
+        tColumn.setColumnName(this.name);
 
         TColumnType tColumnType = new TColumnType();
         tColumnType.setType(this.getDataType().toThrift());
@@ -250,18 +280,19 @@ public class Column implements Writable {
         tColumnType.setPrecision(this.getPrecision());
         tColumnType.setScale(this.getScale());
 
-        tColumnType.setIndex_len(this.getOlapColumnIndexSize());
+        tColumnType.setIndexLen(this.getOlapColumnIndexSize());
 
-        tColumn.setColumn_type(tColumnType);
+        tColumn.setColumnType(tColumnType);
         if (null != this.aggregationType) {
-            tColumn.setAggregation_type(this.aggregationType.toThrift());
+            tColumn.setAggregationType(this.aggregationType.toThrift());
         }
-        tColumn.setIs_key(this.isKey);
-        tColumn.setIs_allow_null(this.isAllowNull);
-        tColumn.setDefault_value(this.defaultValue);
-        if (this.defineExpr != null) {
-            tColumn.setDefine_expr(this.defineExpr.treeToThrift());
-        }
+        tColumn.setIsKey(this.isKey);
+        tColumn.setIsAllowNull(this.isAllowNull);
+        tColumn.setDefaultValue(this.defaultValue);
+        tColumn.setVisible(visible);
+        // The define expr does not need to be serialized here for now.
+        // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
+        // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
         return tColumn;
     }
 
@@ -358,11 +389,16 @@ public class Column implements Writable {
     }
 
     public String toSql() {
+        return toSql(false);
+    }
+
+    public String toSql(boolean isUniqueTable) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
         sb.append(typeStr).append(" ");
-        if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
+        if (aggregationType != null && aggregationType != AggregateType.NONE
+                && !isUniqueTable &&  !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
         if (isAllowNull) {
@@ -435,6 +471,9 @@ public class Column implements Writable {
         if (!comment.equals(other.getComment())) {
             return false;
         }
+        if (!visible == other.visible) {
+            return false;
+        }
 
         return true;
     }
@@ -445,6 +484,7 @@ public class Column implements Writable {
         Text.writeString(out, json);
     }
 
+    @Deprecated
     private void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);

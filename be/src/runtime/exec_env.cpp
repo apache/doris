@@ -21,7 +21,8 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() {}
+ExecEnv::ExecEnv() : _is_init(false) {
+}
 
 ExecEnv::~ExecEnv() {}
 

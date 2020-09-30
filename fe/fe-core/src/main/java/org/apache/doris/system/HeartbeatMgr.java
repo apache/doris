@@ -82,9 +82,9 @@ public class HeartbeatMgr extends MasterDaemon {
         TMasterInfo tMasterInfo = new TMasterInfo(
                 new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
-        tMasterInfo.setHttp_port(Config.http_port);
+        tMasterInfo.setHttpPort(Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
-        tMasterInfo.setHeartbeat_flags(flags);
+        tMasterInfo.setHeartbeatFlags(flags);
         masterInfo.set(tMasterInfo);
     }
 
@@ -107,7 +107,7 @@ public class HeartbeatMgr extends MasterDaemon {
         List<Frontend> frontends = Catalog.getCurrentCatalog().getFrontends(null);
         String masterFeNodeName = "";
         for (Frontend frontend : frontends) {
-            if (frontend.getHost().equals(masterInfo.get().getNetwork_address().getHostname())) {
+            if (frontend.getHost().equals(masterInfo.get().getNetworkAddress().getHostname())) {
                 masterFeNodeName = frontend.getNodeName();
             }
             FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(frontend,
@@ -122,7 +122,7 @@ public class HeartbeatMgr extends MasterDaemon {
         for (Map.Entry<String, List<FsBroker>> entry : brokerMap.entrySet()) {
             for (FsBroker brokerAddress : entry.getValue()) {
                 BrokerHeartbeatHandler handler = new BrokerHeartbeatHandler(entry.getKey(), brokerAddress,
-                        masterInfo.get().getNetwork_address().getHostname());
+                        masterInfo.get().getNetworkAddress().getHostname());
                 hbResponses.add(executor.submit(handler));
             }
         }
@@ -223,20 +223,20 @@ public class HeartbeatMgr extends MasterDaemon {
                 client = ClientPool.heartbeatPool.borrowObject(beAddr);
 
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
-                copiedMasterInfo.setBackend_ip(backend.getHost());
+                copiedMasterInfo.setBackendIp(backend.getHost());
                 long flags = heartbeatFlags.getHeartbeatFlags();
-                copiedMasterInfo.setHeartbeat_flags(flags);
-                copiedMasterInfo.setBackend_id(backendId);
+                copiedMasterInfo.setHeartbeatFlags(flags);
+                copiedMasterInfo.setBackendId(backendId);
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
 
                 ok = true;
-                if (result.getStatus().getStatus_code() == TStatusCode.OK) {
-                    TBackendInfo tBackendInfo = result.getBackend_info();
-                    int bePort = tBackendInfo.getBe_port();
-                    int httpPort = tBackendInfo.getHttp_port();
+                if (result.getStatus().getStatusCode() == TStatusCode.OK) {
+                    TBackendInfo tBackendInfo = result.getBackendInfo();
+                    int bePort = tBackendInfo.getBePort();
+                    int httpPort = tBackendInfo.getHttpPort();
                     int brpcPort = -1;
-                    if (tBackendInfo.isSetBrpc_port()) {
-                        brpcPort = tBackendInfo.getBrpc_port();
+                    if (tBackendInfo.isSetBrpcPort()) {
+                        brpcPort = tBackendInfo.getBrpcPort();
                     }
                     String version = "";
                     if (tBackendInfo.isSetVersion()) {
@@ -246,8 +246,8 @@ public class HeartbeatMgr extends MasterDaemon {
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), version);
                 } else {
-                    return new BackendHbResponse(backendId, result.getStatus().getError_msgs().isEmpty() ? "Unknown error"
-                            : result.getStatus().getError_msgs().get(0));
+                    return new BackendHbResponse(backendId, result.getStatus().getErrorMsgs().isEmpty() ? "Unknown error"
+                            : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
                 LOG.warn("backend heartbeat got exception", e);

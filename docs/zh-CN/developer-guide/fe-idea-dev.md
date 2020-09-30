@@ -31,15 +31,34 @@ under the License.
 JDK1.8+  , Intellj IDEA
 
 1. 从 https://github.com/apache/incubator-doris.git 下载源码到本地
+
 2. 使用Intellj IDEA 打开代码根目录
+
 3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
+
+    1. 安装 thrift 0.9.3 版本。
+
+        MacOS: `brew install https://gist.githubusercontent.com/chrislusf/8b4e7c19551ba220232f037b43c0eaf3/raw/01465b867b8ef9af7c7c3fa830c83666c825122d/thrift.rb`
+
+        Windows: `http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.exe`
+
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：
-```
-cd fe
-mvn  generate-sources
-```
+
+    ```
+    cd fe
+    mvn  generate-sources
+    ```
+
+    如果出现错误，请先执行：
+
+    ```
+    cd fe && mvn install -DskipTests
+    ```
+
 或者通过图形界面运行运行maven 命令生成
+
 ![](/images/gen_code.png)
+
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
 ## 2.调试

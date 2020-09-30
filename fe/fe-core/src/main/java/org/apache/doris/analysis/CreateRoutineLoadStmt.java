@@ -17,6 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -25,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -89,6 +95,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_INTERVAL_SEC_PROPERTY = "max_batch_interval";
     public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
+    public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
 
     public static final String FORMAT = "format";// the value is csv or json, default is csv
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
@@ -118,6 +125,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
+            .add(EXEC_MEM_LIMIT_PROPERTY)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -145,6 +153,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
     private boolean strictMode = true;
+    private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     /**
      * RoutineLoad support json data.
@@ -165,22 +174,25 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     // custom kafka property map<key, value>
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
+    private LoadTask.MergeType mergeType;
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> { return v >= 5 && v <= 60; };
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v >= 200000; };
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
+    public static final Predicate<Long>  EXEC_MEM_LIMIT_PRED = (v) -> { return v >= 0L; };
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
-                                 Map<String, String> jobProperties,
-                                 String typeName, Map<String, String> dataSourceProperties) {
+                                 Map<String, String> jobProperties, String typeName,
+                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType) {
         this.labelName = labelName;
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = dataSourceProperties;
+        this.mergeType = mergeType;
     }
 
     public String getName() {
@@ -223,6 +235,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return maxBatchSizeBytes;
     }
 
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
+
     public boolean isStrictMode() {
         return strictMode;
     }
@@ -263,6 +279,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return customKafkaProperties;
     }
 
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -276,6 +296,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         checkJobProperties();
         // check data source properties
         checkDataSourceProperties();
+        // analyze merge type
+        if (routineLoadDesc != null) {
+            routineLoadDesc.analyze(analyzer);
+        } else if (mergeType == LoadTask.MergeType.MERGE) {
+            throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
+        }
     }
 
     public void checkDBTable(Analyzer analyzer) throws AnalysisException {
@@ -285,47 +311,78 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        if (db == null) {
+            throw new AnalysisException("database: " + dbName + " not found.");
+        }
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new AnalysisException("table: " + dbName + " not found.");
+        }
+        if (mergeType != LoadTask.MergeType.APPEND
+                && (table.getType() != Table.TableType.OLAP
+                || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
+            throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+        }
+        if (mergeType != LoadTask.MergeType.APPEND
+                && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign()) ) {
+            throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+        }
     }
 
     public void checkLoadProperties() throws UserException {
-        if (loadPropertyList == null) {
-            return;
-        }
         ColumnSeparator columnSeparator = null;
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt importWhereStmt = null;
+        ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
-        for (ParseNode parseNode : loadPropertyList) {
-            if (parseNode instanceof ColumnSeparator) {
-                // check column separator
-                if (columnSeparator != null) {
-                    throw new AnalysisException("repeat setting of column separator");
+        ImportDeleteOnStmt importDeleteOnStmt = null;
+        if (loadPropertyList != null) {
+            for (ParseNode parseNode : loadPropertyList) {
+                if (parseNode instanceof ColumnSeparator) {
+                    // check column separator
+                    if (columnSeparator != null) {
+                        throw new AnalysisException("repeat setting of column separator");
+                    }
+                    columnSeparator = (ColumnSeparator) parseNode;
+                    columnSeparator.analyze(null);
+                } else if (parseNode instanceof ImportColumnsStmt) {
+                    // check columns info
+                    if (importColumnsStmt != null) {
+                        throw new AnalysisException("repeat setting of columns info");
+                    }
+                    importColumnsStmt = (ImportColumnsStmt) parseNode;
+                } else if (parseNode instanceof ImportWhereStmt) {
+                    // check where expr
+                    if (importWhereStmt != null) {
+                        throw new AnalysisException("repeat setting of where predicate");
+                    }
+                    importWhereStmt = (ImportWhereStmt) parseNode;
+                } else if (parseNode instanceof PartitionNames) {
+                    // check partition names
+                    if (partitionNames != null) {
+                        throw new AnalysisException("repeat setting of partition names");
+                    }
+                    partitionNames = (PartitionNames) parseNode;
+                    partitionNames.analyze(null);
+                } else if (parseNode instanceof ImportDeleteOnStmt) {
+                    // check delete expr
+                    if (importDeleteOnStmt != null) {
+                        throw new AnalysisException("repeat setting of delete predicate");
+                    }
+                    importDeleteOnStmt = (ImportDeleteOnStmt) parseNode;
+                } else if (parseNode instanceof ImportSequenceStmt) {
+                    // check sequence column
+                    if (importSequenceStmt != null) {
+                        throw new AnalysisException("repeat setting of sequence column");
+                    }
+                    importSequenceStmt = (ImportSequenceStmt) parseNode;
                 }
-                columnSeparator = (ColumnSeparator) parseNode;
-                columnSeparator.analyze(null);
-            } else if (parseNode instanceof ImportColumnsStmt) {
-                // check columns info
-                if (importColumnsStmt != null) {
-                    throw new AnalysisException("repeat setting of columns info");
-                }
-                importColumnsStmt = (ImportColumnsStmt) parseNode;
-            } else if (parseNode instanceof ImportWhereStmt) {
-                // check where expr
-                if (importWhereStmt != null) {
-                    throw new AnalysisException("repeat setting of where predicate");
-                }
-                importWhereStmt = (ImportWhereStmt) parseNode;
-            } else if (parseNode instanceof PartitionNames) {
-                // check partition names
-                if (partitionNames != null) {
-                    throw new AnalysisException("repeat setting of partition names");
-                }
-                partitionNames = (PartitionNames) parseNode;
-                partitionNames.analyze(null);
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
-                partitionNames);
+                        partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+                        importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
     private void checkJobProperties() throws UserException {
@@ -358,7 +415,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
                                                       RoutineLoadJob.DEFAULT_STRICT_MODE,
                                                       LoadStmt.STRICT_MODE + " should be a boolean");
-
+        execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
+                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }

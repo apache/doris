@@ -34,10 +34,47 @@ under the License.
 （TODO）
 
 ## 设置配置项
-（TODO）
+
+BE 的配置项有两种方式进行配置：
+
+1. 静态配置
+
+	在 `conf/be.conf` 文件中添加和设置配置项。`be.conf` 中的配置项会在 BE 进行启动时被读取。没有在 `be.conf` 中的配置项将使用默认值。
+
+2. 动态配置
+
+	BE 启动后，可以通过一下命令动态设置配置项。
+
+	```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+
+	**通过该方式修改的配置项将在 BE 进程重启后失效。**
 
 ## 应用举例
-（TODO）
+
+1. 静态方式修改 `max_compaction_concurrency`
+
+	通过在 `be.conf` 文件中添加：
+
+	```max_compaction_concurrency=5```
+
+	之后重启 BE 进程以生效该配置。
+
+2. 动态方式修改 `streaming_load_max_mb`
+
+	BE 启动后，通过下面命令动态设置配置项 `streaming_load_max_mb`:
+
+	```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+
+	返回值如下，则说明设置成功。
+
+	```
+	{
+	    "status": "OK",
+	    "msg": ""
+	}
+	```
+
+	**BE 重启后该配置将失效。**
 
 ## 配置项列表
 
@@ -153,6 +190,46 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 默认值：2
 
 与base_compaction_trace_threshold类似。
+
+### `cumulative_compaction_policy`
+
+* 类型：string
+* 描述：配置 cumulative compaction 阶段的合并策略，目前实现了两种合并策略，num_based和size_based
+* 默认值：size_based
+
+详细说明，ordinary，是最初版本的cumulative compaction合并策略，做一次cumulative compaction之后直接base compaction流程。size_based，通用策略是ordinary策略的优化版本，仅当rowset的磁盘体积在相同数量级时才进行版本合并。合并之后满足条件的rowset进行晋升到base compaction阶段。能够做到在大量小批量导入的情况下：降低base compact的写入放大率，并在读取放大率和空间放大率之间进行权衡，同时减少了文件版本的数据。
+
+### `cumulative_size_based_promotion_size_mbytes`
+
+* 类型：int64
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过了此配置大小，该rowset将用于base compaction。单位是m字节。
+* 默认值：1024
+
+一般情况下，配置在2G以内，为了防止cumulative compaction时间过长，导致版本积压。
+
+### `cumulative_size_based_promotion_ratio`
+
+* 类型：double
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过base版本rowset的配置比例时，该rowset将用于base compaction。
+* 默认值：0.05
+
+一般情况下，建议配置不要高于0.1，低于0.02。
+
+### `cumulative_size_based_promotion_min_size_mbytes`
+
+* 类型：int64
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
+* 默认值：64
+
+一般情况下，配置在512m以内，配置过大会导致base版本早期的大小过小，一直不进行base compaction。
+
+### `cumulative_size_based_compaction_lower_size_mbytes`
+
+* 类型：int64
+* 描述：在size_based策略下，cumulative compaction进行合并时，选出的要进行合并的rowset的总磁盘大小大于此配置时，才按级别策略划分合并。小于这个配置时，直接执行合并。单位是m字节。
+* 默认值：64
+
+一般情况下，配置在128m以内，配置过大会导致cumulative compaction写放大较多。
 
 ### `default_num_rows_per_column_file_block`
 
@@ -344,6 +421,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `min_compaction_failure_interval_sec`
 
+* 类型：int32
+* 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
+* 默认值：600
+* 单位：秒
+
 ### `min_cumulative_compaction_num_singleton_deltas`
 
 ### `min_file_descriptor_number`
@@ -441,6 +523,15 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `storage_page_cache_limit`
 
 ### `storage_root_path`
+
+### `storage_strict_check_incompatible_old_format`
+* 类型：bool
+* 描述：用来检查不兼容的旧版本格式时是否使用严格的验证方式
+* 默认值： true
+* 可动态修改：否
+
+配置用来检查不兼容的旧版本格式时是否使用严格的验证方式，当含有旧版本的 hdr 格式时，使用严谨的方式时，程序会
+打出 fatal log 并且退出运行；否则，程序仅打印 warn log.
 
 ### `streaming_load_max_mb`
 

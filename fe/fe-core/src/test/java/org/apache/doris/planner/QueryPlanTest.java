@@ -17,11 +17,12 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
@@ -35,11 +36,14 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
+
+import com.google.common.collect.Lists;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
@@ -68,34 +72,34 @@ public class QueryPlanTest {
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        
-        createTable("create table test.test1\n" + 
+
+        createTable("create table test.test1\n" +
                 "(\n" +
                 "    query_id varchar(48) comment \"Unique query id\",\n" +
                 "    time datetime not null comment \"Query start time\",\n" +
-                "    client_ip varchar(32) comment \"Client IP\",\n" + 
-                "    user varchar(64) comment \"User name\",\n" + 
-                "    db varchar(96) comment \"Database of this query\",\n" + 
-                "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n" + 
-                "    query_time bigint comment \"Query execution time in millisecond\",\n" + 
-                "    scan_bytes bigint comment \"Total scan bytes of this query\",\n" + 
-                "    scan_rows bigint comment \"Total scan rows of this query\",\n" + 
-                "    return_rows bigint comment \"Returned rows of this query\",\n" + 
-                "    stmt_id int comment \"An incremental id of statement\",\n" + 
-                "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n" + 
-                "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n" + 
-                "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n" + 
-                ")\n" + 
-                "partition by range(time) ()\n" + 
-                "distributed by hash(query_id) buckets 1\n" + 
-                "properties(\n" + 
-                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" + 
-                "    \"dynamic_partition.start\" = \"-30\",\n" + 
-                "    \"dynamic_partition.end\" = \"3\",\n" + 
-                "    \"dynamic_partition.prefix\" = \"p\",\n" + 
-                "    \"dynamic_partition.buckets\" = \"1\",\n" + 
-                "    \"dynamic_partition.enable\" = \"true\",\n" + 
-                "    \"replication_num\" = \"1\"\n" + 
+                "    client_ip varchar(32) comment \"Client IP\",\n" +
+                "    user varchar(64) comment \"User name\",\n" +
+                "    db varchar(96) comment \"Database of this query\",\n" +
+                "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n" +
+                "    query_time bigint comment \"Query execution time in millisecond\",\n" +
+                "    scan_bytes bigint comment \"Total scan bytes of this query\",\n" +
+                "    scan_rows bigint comment \"Total scan rows of this query\",\n" +
+                "    return_rows bigint comment \"Returned rows of this query\",\n" +
+                "    stmt_id int comment \"An incremental id of statement\",\n" +
+                "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n" +
+                "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n" +
+                "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n" +
+                ")\n" +
+                "partition by range(time) ()\n" +
+                "distributed by hash(query_id) buckets 1\n" +
+                "properties(\n" +
+                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
+                "    \"dynamic_partition.start\" = \"-30\",\n" +
+                "    \"dynamic_partition.end\" = \"3\",\n" +
+                "    \"dynamic_partition.prefix\" = \"p\",\n" +
+                "    \"dynamic_partition.buckets\" = \"1\",\n" +
+                "    \"dynamic_partition.enable\" = \"true\",\n" +
+                "    \"replication_num\" = \"1\"\n" +
                 ");");
 
         createTable("CREATE TABLE test.bitmap_table (\n" +
@@ -136,7 +140,8 @@ public class QueryPlanTest {
 
         createTable("CREATE TABLE test.bitmap_table_2 (\n" +
                 "  `id` int(11) NULL COMMENT \"\",\n" +
-                "  `id2` bitmap bitmap_union NULL\n" +
+                "  `id2` bitmap bitmap_union NULL,\n" +
+                "  `id3` bitmap bitmap_union NULL\n" +
                 ") ENGINE=OLAP\n" +
                 "AGGREGATE KEY(`id`)\n" +
                 "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
@@ -153,45 +158,45 @@ public class QueryPlanTest {
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\"\n" +
                 ");");
-        
+
         createTable("CREATE TABLE test.`bigtable` (\n" +
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" + 
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" + 
-                "  `k3` int(11) NULL COMMENT \"\",\n" + 
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" + 
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" + 
-                "  `k6` char(5) NULL COMMENT \"\",\n" + 
-                "  `k10` date NULL COMMENT \"\",\n" + 
-                "  `k11` datetime NULL COMMENT \"\",\n" + 
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" + 
-                "  `k8` double MAX NULL COMMENT \"\",\n" + 
-                "  `k9` float SUM NULL COMMENT \"\"\n" + 
-                ") ENGINE=OLAP\n" + 
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" + 
-                "COMMENT \"OLAP\"\n" + 
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" + 
-                "PROPERTIES (\n" + 
-                "\"replication_num\" = \"1\"\n" + 
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+                "  `k3` int(11) NULL COMMENT \"\",\n" +
+                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+                "  `k6` char(5) NULL COMMENT \"\",\n" +
+                "  `k10` date NULL COMMENT \"\",\n" +
+                "  `k11` datetime NULL COMMENT \"\",\n" +
+                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+                "  `k8` double MAX NULL COMMENT \"\",\n" +
+                "  `k9` float SUM NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
                 ");");
-        
-        createTable("CREATE TABLE test.`baseall` (\n" + 
-                "  `k1` tinyint(4) NULL COMMENT \"\",\n" + 
-                "  `k2` smallint(6) NULL COMMENT \"\",\n" + 
-                "  `k3` int(11) NULL COMMENT \"\",\n" + 
-                "  `k4` bigint(20) NULL COMMENT \"\",\n" + 
-                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" + 
-                "  `k6` char(5) NULL COMMENT \"\",\n" + 
-                "  `k10` date NULL COMMENT \"\",\n" + 
-                "  `k11` datetime NULL COMMENT \"\",\n" + 
-                "  `k7` varchar(20) NULL COMMENT \"\",\n" + 
-                "  `k8` double MAX NULL COMMENT \"\",\n" + 
-                "  `k9` float SUM NULL COMMENT \"\"\n" + 
-                ") ENGINE=OLAP\n" + 
-                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" + 
-                "COMMENT \"OLAP\"\n" + 
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" + 
-                "PROPERTIES (\n" + 
-                "\"replication_num\" = \"1\"\n" + 
+
+        createTable("CREATE TABLE test.`baseall` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+                "  `k3` int(11) NULL COMMENT \"\",\n" +
+                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+                "  `k6` char(5) NULL COMMENT \"\",\n" +
+                "  `k10` date NULL COMMENT \"\",\n" +
+                "  `k11` datetime NULL COMMENT \"\",\n" +
+                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+                "  `k8` double MAX NULL COMMENT \"\",\n" +
+                "  `k9` float SUM NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
                 ");");
 
         createTable("CREATE TABLE test.`dynamic_partition` (\n" +
@@ -303,6 +308,59 @@ public class QueryPlanTest {
                 "\"password\" = \"123\",\n" +
                 "\"database\" = \"db1\",\n" +
                 "\"table\" = \"tbl1\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.`table_partitioned` (\n" +
+                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+                "PARTITION BY RANGE(`dt`)\n" +
+                "(PARTITION p20200101 VALUES [(\"-1\"), (\"20200101\")),\n" +
+                "PARTITION p20200201 VALUES [(\"20200101\"), (\"20200201\")))\n" +
+                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.`table_unpartitioned` (\n" +
+                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        Config.enable_odbc_table = true;
+        createTable("create external table test.odbc_oracle\n" +
+                "(k1 int, k2 int)\n" +
+                "ENGINE=ODBC\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\",\n" +
+                "\"driver\" = \"Oracle Driver\",\n" +
+                "\"odbc_type\" = \"oracle\"\n" +
+                ");");
+
+        createTable("create external table test.odbc_mysql\n" +
+                "(k1 int, k2 int)\n" +
+                "ENGINE=ODBC\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\",\n" +
+                "\"driver\" = \"Oracle Driver\",\n" +
+                "\"odbc_type\" = \"mysql\"\n" +
                 ");");
     }
 
@@ -471,7 +529,7 @@ public class QueryPlanTest {
         String sql = "select * from test.baseall a where k1 in (select k1 from test.bigtable b where k2 > 0 and k1 = 1);";
         UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertEquals(MysqlStateType.EOF, connectContext.getState().getStateType());
-        
+
         sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
         List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
@@ -482,11 +540,11 @@ public class QueryPlanTest {
         String sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
         List<StatementBase>stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
-        
+
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
         stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(1, stmts.size());
-        
+
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;SHOW VARIABLES LIKE 'lower_case_%';";
         stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(4, stmts.size());
@@ -527,6 +585,18 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct id2) from test.bitmap_table order by count(distinct id2)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select count(distinct if(id = 1, id2, null)) from test.bitmap_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select count(distinct ifnull(id2, id3)) from test.bitmap_table_2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select count(distinct coalesce(id2, id3)) from test.bitmap_table_2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
@@ -603,7 +673,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -613,7 +682,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id in (2);";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` IN (2)"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` IN (2)"));
 
@@ -623,7 +691,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id BETWEEN 1 AND 2;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` >= 1, `join1`.`id` <= 2"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` >= 1, `join2`.`id` <= 2"));
 
@@ -632,7 +699,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -643,7 +709,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "where join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("other join predicates: `join2`.`id` > 1"));
 
@@ -652,7 +717,6 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -661,7 +725,6 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -670,7 +733,6 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -679,7 +741,6 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "where join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -688,16 +749,21 @@ public class QueryPlanTest {
                 "join join2 on join1.id = join2.id\n" +
                 "and 1 < join2.id;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+
+        sql = "select *\n from join1\n" +
+                "join join2 on join1.id = join2.value\n" +
+                "and join2.value in ('abc');";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertFalse(explainString.contains("'abc' is not a number"));
+        Assert.assertFalse(explainString.contains("`join1`.`value` IN ('abc')"));
 
         // test anti join, right table join predicate, only push to right table
         sql = "select *\n from join1\n" +
                 "left anti join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -706,7 +772,6 @@ public class QueryPlanTest {
                 "left semi join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -715,7 +780,6 @@ public class QueryPlanTest {
                 "left anti join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -724,7 +788,6 @@ public class QueryPlanTest {
                 "left semi join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test anti join, left table where predicate, only push to left table
@@ -733,7 +796,6 @@ public class QueryPlanTest {
                 "left anti join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -743,7 +805,6 @@ public class QueryPlanTest {
                 "left semi join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
     }
@@ -845,6 +906,21 @@ public class QueryPlanTest {
         // 4.2.1 test null in when expr
         String sql421 = "select case 'a' when null then 'a' else 'other' end as col421";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql421), "constant exprs: \n         'other'"));
+
+        // 5.1 test same type in then expr and else expr
+        String sql51 = "select case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql51),
+                "OUTPUT EXPRS: CASE WHEN 132 THEN `k7` ELSE 'all' END"));
+
+        // 5.2 test same type in then expr and else expr
+        String sql52 = "select case when 2 < 1 then 'all' else k7 end as col52 from test.baseall group by col52";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql52),
+                "OUTPUT EXPRS: `k7`"));
+
+        // 5.3 test different in then expr and else expr, and return CastExpr<SlotRef>
+        String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql53),
+                "OUTPUT EXPRS:<slot 0> `k1`"));
     }
 
     @Test
@@ -901,6 +977,10 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
 
+        queryStr = "explain select * from test.colocate1 t1 join [shuffle] test.colocate2 t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("colocate: false"));
+
         // t1.k1 = t2.k2 not same order with distribute column
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -954,26 +1034,103 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
-        
+
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+
+        // should clear the jointest table to make sure do not affect other test
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(0);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 0, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testJoinWithOdbcTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // set data size and row count for the olap table
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+
+        queryStr = "explain select * from jointest t1, odbc_mysql t2 where t1.k1 = t2.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+        Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
+
+        queryStr = "explain select * from jointest t1, odbc_mysql t2, odbc_mysql t3 where t1.k1 = t3.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
+
+        // should clear the jointest table to make sure do not affect other test
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(0);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 0, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testPushDownOfOdbcTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // MySQL ODBC table can push down all filter
+        String queryStr = "explain select * from odbc_mysql where k1 > 10 and abs(k1) > 10";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`k1` > 10"));
+        Assert.assertTrue(explainString.contains("abs(`k1`) > 10"));
+
+        // now we do not support odbc scan node push down function call, except MySQL ODBC table
+        // this table is Oracle ODBC table, so abs(k1) should not be pushed down
+        queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("k1 > 10"));
+        Assert.assertTrue(!explainString.contains("abs(k1) > 10"));
     }
 
     @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
-        
+
         // default set PreferBroadcastJoin true
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
-        
+
         connectContext.getSessionVariable().setPreferJoinMethod("shuffle");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
 
-    
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
@@ -1005,4 +1162,38 @@ public class QueryPlanTest {
             Assert.assertFalse(explainString.contains(denseRank));
         }
     }
+
+    @Test
+    public void testInformationFunctions() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        InformationFunction infoFunc = new InformationFunction("database");
+        infoFunc.analyze(analyzer);
+        Assert.assertEquals("test", infoFunc.getStrValue());
+
+        infoFunc = new InformationFunction("user");
+        infoFunc.analyze(analyzer);
+        Assert.assertEquals("'root'@'127.0.0.1'", infoFunc.getStrValue());
+
+        infoFunc = new InformationFunction("current_user");
+        infoFunc.analyze(analyzer);
+        Assert.assertEquals("'root'@'%'", infoFunc.getStrValue());
+    }
+
+    @Test
+    public void testAggregateSatisfyOlapTableDistribution() throws Exception {
+        FeConstants.runningUnitTest = true;
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "SELECT dt, dis_key, COUNT(1) FROM table_unpartitioned  group by dt, dis_key";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+
+        sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+    }
 }
+
+

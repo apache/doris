@@ -110,12 +110,13 @@ class FeMetaResolver:
         self.exec_sql(sql);
         table_list = self.cur.fetchall()
         for table_tuple in table_list :
-            table = {}
-            table['db_id'] = db['db_id'] 
-            table['db_name'] = db['db_name'] 
-            table['tbl_id'] = long(table_tuple[0])
-            table['tbl_name'] = table_tuple[1]
-            self.table_list.append(table)
+            if table_tuple[6] == "OLAP":
+                table = {}
+                table['db_id'] = db['db_id'] 
+                table['db_name'] = db['db_name'] 
+                table['tbl_id'] = long(table_tuple[0])
+                table['tbl_name'] = table_tuple[1]
+                self.table_list.append(table)
         return
 
     def fetch_rollup_map(self):

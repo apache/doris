@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
@@ -35,6 +36,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -79,6 +81,8 @@ public class KafkaRoutineLoadJobTest {
     private PartitionNames partitionNames;
 
     private ColumnSeparator columnSeparator = new ColumnSeparator(",");
+
+    private ImportSequenceStmt sequenceStmt = new ImportSequenceStmt("source_sequence");
 
     @Mocked
     ConnectContext connectContext;
@@ -240,7 +244,8 @@ public class KafkaRoutineLoadJobTest {
     public void testFromCreateStmtWithErrorTable(@Mocked Catalog catalog,
                                                  @Injectable Database database) throws LoadException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, partitionNames);
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null,
+                partitionNames, null, LoadTask.MergeType.APPEND, null);
         Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
 
         new Expectations() {
@@ -264,7 +269,8 @@ public class KafkaRoutineLoadJobTest {
                                    @Injectable Database database,
             @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, partitionNames);
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, partitionNames, null,
+                LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
         Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
         List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
         List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
@@ -312,6 +318,7 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertEquals(topicName, Deencapsulation.getField(kafkaRoutineLoadJob, "topic"));
         List<Integer> kafkaPartitionResult = Deencapsulation.getField(kafkaRoutineLoadJob, "customKafkaPartitions");
         Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
+        Assert.assertEquals(sequenceStmt.getSequenceColName(), kafkaRoutineLoadJob.getSequenceCol());
     }
 
     private CreateRoutineLoadStmt initCreateRoutineLoadStmt() {
@@ -329,7 +336,8 @@ public class KafkaRoutineLoadJobTest {
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
-                                                                                typeName, customProperties);
+                                                                                typeName, customProperties,
+                                                                                LoadTask.MergeType.APPEND);
         Deencapsulation.setField(createRoutineLoadStmt, "name", jobName);
         return createRoutineLoadStmt;
     }

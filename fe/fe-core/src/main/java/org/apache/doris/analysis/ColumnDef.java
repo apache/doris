@@ -83,6 +83,7 @@ public class ColumnDef {
     private boolean isAllowNull;
     private DefaultValue defaultValue;
     private String comment;
+    private boolean visible;
 
     public ColumnDef(String name, TypeDef typeDef) {
         this.name = name;
@@ -90,9 +91,13 @@ public class ColumnDef {
         this.comment = "";
         this.defaultValue = DefaultValue.NOT_SET;
     }
+    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
+                     boolean isAllowNull, DefaultValue defaultValue, String comment) {
+        this(name, typeDef, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
+    }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, DefaultValue defaultValue, String comment) {
+            boolean isAllowNull, DefaultValue defaultValue, String comment, boolean visible) {
         this.name = name;
         this.typeDef = typeDef;
         this.isKey = isKey;
@@ -100,6 +105,27 @@ public class ColumnDef {
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
         this.comment = comment;
+        this.visible = visible;
+    }
+
+    public static ColumnDef newDeleteSignColumnDef() {
+        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null, false,
+                new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+    }
+
+    public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType, false,
+                new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+    }
+
+    public static ColumnDef newSequenceColumnDef(Type type) {
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, true, DefaultValue.NULL_DEFAULT_VALUE,
+                "sequence column hidden column", false);
+    }
+
+    public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, true, DefaultValue.NULL_DEFAULT_VALUE,
+                "sequence column hidden column", false);
     }
 
     public boolean isAllowNull() { return isAllowNull; }
@@ -111,6 +137,10 @@ public class ColumnDef {
     public void setIsKey(boolean isKey) { this.isKey = isKey; }
     public TypeDef getTypeDef() { return typeDef; }
     public Type getType() { return typeDef.getType(); }
+
+    public boolean isVisible() {
+        return visible;
+    }
 
     public void analyze(boolean isOlap) throws AnalysisException {
         if (name == null || typeDef == null) {
@@ -271,7 +301,8 @@ public class ColumnDef {
     }
 
     public Column toColumn() {
-        return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment);
+        return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment,
+                visible);
     }
 
     @Override

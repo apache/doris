@@ -23,10 +23,14 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -38,6 +42,8 @@ import org.apache.commons.lang.StringUtils;
 import org.junit.Assert;
 
 import java.io.IOException;
+import java.io.StringReader;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -64,6 +70,11 @@ public class DorisAssert {
 
     public DorisAssert useDatabase(String dbName) {
         ctx.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
+        return this;
+    }
+
+    public DorisAssert withoutUseDatabase() {
+        ctx.setDatabase("");
         return this;
     }
 
@@ -161,6 +172,16 @@ public class DorisAssert {
             String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.NORMAL);
             System.out.println(explainString);
             return explainString;
+        }
+
+        public Planner internalExecuteOneAndGetPlan() throws Exception{
+            SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
+            SqlParser parser = new SqlParser(input);
+            List<StatementBase> stmts =  SqlParserUtils.getMultiStmts(parser);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, stmts.get(0));
+            stmtExecutor.execute();
+
+            return stmtExecutor.planner();
         }
     }
 }

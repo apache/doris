@@ -179,7 +179,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                         List<TPartitionVersionInfo> versionInfos = unfinishedTask.getPartitionVersionInfos();
                         Set<Long> errorPartitionIds = Sets.newHashSet();
                         for (TPartitionVersionInfo versionInfo : versionInfos) {
-                            errorPartitionIds.add(versionInfo.getPartition_id());
+                            errorPartitionIds.add(versionInfo.getPartitionId());
                         }
                         if (errorPartitionIds.isEmpty()) {
                             continue;

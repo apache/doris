@@ -17,8 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 
 import com.google.common.collect.Lists;
@@ -27,19 +31,56 @@ import com.google.common.collect.Maps;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
+import mockit.Mocked;
 
 public class CreateRoutineLoadStmtTest {
 
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmtTest.class);
+    @Mocked
+    Database database;
+
+    @Mocked
+    private Catalog catalog;
+
+    @Mocked
+    OlapTable table;
+
+    @Before
+    public void setUp() {
+        new MockUp<Catalog>() {
+            @Mock
+            public Catalog getCurrentCatalog() {
+                return catalog;
+            }
+        };
+        new Expectations() {
+            {
+                catalog.getDb(anyString);
+                minTimes = 0;
+                result = database;
+
+                database.getTable(anyString);
+                minTimes = 0;
+                result = table;
+
+                table.hasDeleteSign();
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+    }
 
     @Test
     public void testAnalyzeWithDuplicateProperty(@Injectable Analyzer analyzer) throws UserException {
@@ -70,7 +111,8 @@ public class CreateRoutineLoadStmtTest {
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
-                                                                                typeName, customProperties);
+                                                                                typeName, customProperties,
+                                                                                LoadTask.MergeType.APPEND);
 
         new MockUp<StatementBase>() {
             @Mock
@@ -119,7 +161,8 @@ public class CreateRoutineLoadStmtTest {
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
-                                                                                typeName, customProperties);
+                                                                                typeName, customProperties,
+                                                                                LoadTask.MergeType.APPEND);
         new MockUp<StatementBase>() {
             @Mock
             public void analyze(Analyzer analyzer1) {

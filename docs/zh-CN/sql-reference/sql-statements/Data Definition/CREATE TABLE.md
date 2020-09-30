@@ -151,7 +151,7 @@ under the License.
     注意：
         "path" 中如果有多个文件，用逗号[,]分割。如果文件名中包含逗号，那么使用 %2c 来替代。如果文件名中包含 %，使用 %25 代替
         现在文件内容格式支持CSV，支持GZ，BZ2，LZ4，LZO(LZOP) 压缩格式。
-
+    
     3) 如果是 hive，则需要在 properties 提供以下信息：
     ```
     PROPERTIES (
@@ -159,7 +159,7 @@ under the License.
         "table" = "hive_table_name",
         "hive.metastore.uris" = "thrift://127.0.0.1:9083"
     )
-
+    
     ```
     其中 database 是 hive 表对应的库名字，table 是 hive 表的名字，hive.metastore.uris 是 hive metastore 服务地址。
     注意：目前hive外部表仅用于Spark Load使用，不支持查询。
@@ -193,7 +193,7 @@ under the License.
             ...
             )
         ```
-
+        
         说明：
             使用指定的 key 列和指定的数值范围进行分区。
             1) 分区名称仅支持字母开头，字母、数字和下划线组成
@@ -202,7 +202,7 @@ under the License.
             3) 分区为左闭右开区间，首个分区的左边界为做最小值
             4) NULL 值只会存放在包含最小值的分区中。当包含最小值的分区被删除后，NULL 值将无法导入。
             5) 可以指定一列或多列作为分区列。如果分区值缺省，则会默认填充最小值。
-
+        
         注意：
             1) 分区一般用于时间维度的数据管理
             2) 有数据回溯需求的，可以考虑首个分区为空分区，以便后续增加分区
@@ -253,7 +253,7 @@ under the License.
            当表为两级分区时，这些属性为附属于每一个分区。
            如果希望不同分区有不同属性。可以通过 ADD PARTITION 或 MODIFY PARTITION 进行操作
 
-    2 如果 Engine 类型为 olap, 可以指定某列使用 bloom filter 索引
+    2) 如果 Engine 类型为 olap, 可以指定某列使用 bloom filter 索引
            bloom filter 索引仅适用于查询条件为 in 和 equal 的情况，该列的值越分散效果越好
            目前只支持以下情况的列:除了 TINYINT FLOAT DOUBLE 类型以外的 key 列及聚合方法为 REPLACE 的 value 列
 
@@ -270,9 +270,9 @@ under the License.
            "colocate_with"="table1"
            )
 ```
-    
+
     4) 如果希望使用动态分区特性，需要在properties 中指定
-    
+
 ```
       PROPERTIES (
           "dynamic_partition.enable" = "true|false",
@@ -288,7 +288,7 @@ under the License.
     dynamic_partition.end: 用于指定提前创建的分区数量。值必须大于0。
     dynamic_partition.prefix: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
-
+    
     5) 建表时可以批量创建多个 Rollup
     语法：
     ```
@@ -296,7 +296,7 @@ under the License.
                [FROM from_index_name]
                 [PROPERTIES ("key"="value", ...)],...)
     ```
-
+    
     6) 如果希望使用 内存表 特性，需要在 properties 中指定
 
 ```
@@ -305,6 +305,15 @@ under the License.
         )   
 ```
     当 in_memory 属性为 true 时，Doris会尽可能将该表的数据和索引Cache到BE 内存中
+    
+    7) 创建UNIQUE_KEYS表时，可以指定一个sequence列，当KEY列相同时，将按照sequence列进行REPLACE(较大值替换较小值，否则无法替换)
+
+```
+        PROPERTIES (
+            "function_column.sequence_type" = 'Date',
+        );
+```
+    sequence_type用来指定sequence列的类型，可以为整型和时间类型
 ## example
 
 1. 创建一个 olap 表，使用 HASH 分桶，使用列存，相同key的记录进行聚合
@@ -410,8 +419,9 @@ under the License.
 
 4. 创建一个 mysql 表
 
+   4.1 直接通过外表信息创建mysql表
 ```
-    CREATE TABLE example_db.table_mysql
+    CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
     k2 INT,
@@ -426,6 +436,36 @@ under the License.
     "port" = "8239",
     "user" = "mysql_user",
     "password" = "mysql_passwd",
+    "database" = "mysql_db_test",
+    "table" = "mysql_table_test"
+    )
+```
+
+   4.2 通过External Catalog Resource创建mysql表
+```
+   CREATE EXTERNAL RESOURCE "mysql_resource" 
+   PROPERTIES
+   (
+     "type" = "odbc_catalog",
+     "user" = "mysql_user",
+     "password" = "mysql_passwd",
+     "host" = "127.0.0.1",
+      "port" = "8239"			
+   );
+```
+```
+    CREATE EXTERNAL TABLE example_db.table_mysql
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    k4 VARCHAR(2048),
+    k5 DATETIME
+    )
+    ENGINE=mysql
+    PROPERTIES
+    (
+    "odbc_catalog_resource" = "mysql_resource",
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
     )
@@ -641,3 +681,5 @@ under the License.
 ## keyword
 
     CREATE,TABLE
+
+```

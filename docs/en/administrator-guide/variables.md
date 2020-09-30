@@ -85,6 +85,18 @@ SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
 SET forward_to_master = concat('tr', 'u', 'e');
 ```
 
+### Set variables in the query statement
+
+In some scenarios, we may need to set variables specifically for certain queries.
+The SET_VAR hint sets the session value of a system variable temporarily (for the duration of a single statement). Examples:
+
+```
+SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
+SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+```
+
+Note that the comment must start with /*+ and can only follow the SELECT.
+
 ## Supported variables
 
 * `SQL_AUTO_IS_NULL`
@@ -318,6 +330,10 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `version`
 
     Used for compatibility with MySQL clients. No practical effect.
+
+* `performance_schema`
+
+    Used for compatibility with MySQL JDBC 8.0.16 or later version. No practical effect.    
     
 * `version_comment`
 

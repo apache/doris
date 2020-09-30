@@ -275,6 +275,9 @@ FE 的配置项有两种方式进行配置：
 
 ### `enable_auth_check`
 
+### `enable_batch_delete_by_default`
+在创建 unique 表时是否自动启用批量删除功能
+
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`
@@ -670,3 +673,29 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 ### `cache_result_max_row_count`
 
 为了避免过多占用内存，能够被缓存最大的行数，默认2000，超过这个阈值将不能缓存置。
+
+### `recover_with_empty_tablet`
+
+在某些极特殊情况下，如代码BUG、或人为误操作等，可能导致部分分片的全部副本都丢失。这种情况下，数据已经实质性的丢失。但是在某些场景下，业务依然希望能够在即使有数据丢失的情况下，保证查询正常不报错，降低用户层的感知程度。此时，我们可以通过使用空白Tablet填充丢失副本的功能，来保证查询能够正常执行。
+
+将此参数设置为 true，则 Doris 会自动使用空白副本填充所有副本都以损坏或丢失的 Tablet。
+
+默认为 false。
+
+
+### `enable_odbc_table`
+
+将此参数设置为 true，则 Doris 能够支持ODBC的外表建立，查询。具体ODBC表的使用方式，参考ODBC表的使用文档。
+
+在该功能仍然在实验阶段，所以当前改参数默认为 false。
+
+
+### `default_db_data_quota_bytes`
+
+用于设置database data的默认quota值，单位为 bytes，默认1T.
+
+### 'default_max_filter_ratio'
+
+默认的最大容忍可过滤（数据不规范等原因）的数据比例。它将被Load Job 中设置的"max_filter_ratio"覆盖，默认0，取值范围0-1.
+
+

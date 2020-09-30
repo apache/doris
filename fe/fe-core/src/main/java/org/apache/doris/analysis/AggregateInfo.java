@@ -662,8 +662,13 @@ public final class AggregateInfo extends AggregateInfoBase {
         exprs.addAll(aggregateExprs_);
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
-            outputTupleSmap_.put(expr.clone(),
-                    new SlotRef(outputTupleDesc_.getSlots().get(i)));
+            if (expr.isImplicitCast()) {
+                outputTupleSmap_.put(expr.getChild(0).clone(),
+                        new SlotRef(outputTupleDesc_.getSlots().get(i)));
+            } else {
+                outputTupleSmap_.put(expr.clone(),
+                        new SlotRef(outputTupleDesc_.getSlots().get(i)));
+            }
             if (!requiresIntermediateTuple()) continue;
 
             intermediateTupleSmap_.put(expr.clone(),

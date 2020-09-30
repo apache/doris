@@ -122,6 +122,9 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
 
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
+
+    _filtered_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentFiltered", TUnit::UNIT);
+    _total_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentTotal", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {

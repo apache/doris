@@ -76,7 +76,7 @@ public class BuiltinAggregateFunction extends Function {
         } else {
             fn.setId(op_.thriftOp.ordinal());
         }
-        fn.setAggregate_fn(new TAggregateFunction(intermediateType_.toThrift()));
+        fn.setAggregateFn(new TAggregateFunction(intermediateType_.toThrift()));
         return fn;
     }
 

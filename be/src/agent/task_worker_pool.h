@@ -28,17 +28,22 @@
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "gutil/ref_counted.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "util/condition_variable.h"
 #include "util/mutex.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 
 namespace doris {
 
 class ExecEnv;
+class ThreadPool;
 
 class TaskWorkerPool {
 public:
+    // You need to modify the content in TYPE_STRING at the same time,
     enum TaskWorkerType {
         CREATE_TABLE,
         DROP_TABLE,
@@ -67,7 +72,34 @@ public:
         UPDATE_TABLET_META_INFO
     };
 
-    typedef void* (*CALLBACK_FUNCTION)(void*);
+    inline const std::string TYPE_STRING(TaskWorkerType type) {
+        switch(type) {
+            case CREATE_TABLE: return "CREATE_TABLE";
+            case DROP_TABLE: return "DROP_TABLE";
+            case PUSH: return "PUSH";
+            case REALTIME_PUSH: return "REALTIME_PUSH";
+            case PUBLISH_VERSION: return "PUBLISH_VERSION";
+            case CLEAR_ALTER_TASK: return "CLEAR_ALTER_TASK";
+            case CLEAR_TRANSACTION_TASK: return "CLEAR_TRANSACTION_TASK";
+            case DELETE: return "DELETE";
+            case ALTER_TABLE: return "ALTER_TABLE";
+            case QUERY_SPLIT_KEY: return "QUERY_SPLIT_KEY";
+            case CLONE: return "CLONE";
+            case STORAGE_MEDIUM_MIGRATE: return "STORAGE_MEDIUM_MIGRATE";
+            case CHECK_CONSISTENCY: return "CHECK_CONSISTENCY";
+            case REPORT_TASK: return "REPORT_TASK";
+            case REPORT_DISK_STATE: return "REPORT_DISK_STATE";
+            case REPORT_OLAP_TABLE: return "REPORT_OLAP_TABLE";
+            case UPLOAD: return "UPLOAD";
+            case DOWNLOAD: return "DOWNLOAD";
+            case MAKE_SNAPSHOT: return "MAKE_SNAPSHOT";
+            case RELEASE_SNAPSHOT: return "RELEASE_SNAPSHOT";
+            case MOVE: return "MOVE";
+            case RECOVER_TABLET: return "RECOVER_TABLET";
+            case UPDATE_TABLET_META_INFO:  return "UPDATE_TABLET_META_INFO";
+            default: return "Unknown";
+        }
+    }
 
     TaskWorkerPool(
             const TaskWorkerType task_worker_type,
@@ -75,8 +107,11 @@ public:
             const TMasterInfo& master_info);
     virtual ~TaskWorkerPool();
 
-    // Start the task worker callback thread
+    // Start the task worker thread pool
     virtual void start();
+
+    // Stop the task worker
+    virtual void stop();
 
     // Submit task to task pool
     //
@@ -84,36 +119,36 @@ public:
     // * task: the task need callback thread to do
     virtual void submit_task(const TAgentTaskRequest& task);
 
+    // notify the worker. currently for task/disk/tablet report thread
+    void notify_thread();
+
 private:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
-    void _spawn_callback_worker_thread(CALLBACK_FUNCTION callback_func);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
             TPriority::type priority);
 
-    static void* _create_tablet_worker_thread_callback(void* arg_this);
-    static void* _drop_tablet_worker_thread_callback(void* arg_this);
-    static void* _push_worker_thread_callback(void* arg_this);
-    static void* _publish_version_worker_thread_callback(void* arg_this);
-    static void* _clear_transaction_task_worker_thread_callback(void* arg_this);
-    static void* _alter_tablet_worker_thread_callback(void* arg_this);
-    static void* _clone_worker_thread_callback(void* arg_this);
-    static void* _storage_medium_migrate_worker_thread_callback(void* arg_this);
-    static void* _check_consistency_worker_thread_callback(void* arg_this);
-    static void* _report_task_worker_thread_callback(void* arg_this);
-    static void* _report_disk_state_worker_thread_callback(void* arg_this);
-    static void* _report_tablet_worker_thread_callback(void* arg_this);
-    static void* _upload_worker_thread_callback(void* arg_this);
-    static void* _download_worker_thread_callback(void* arg_this);
-    static void* _make_snapshot_thread_callback(void* arg_this);
-    static void* _release_snapshot_thread_callback(void* arg_this);
-    static void* _move_dir_thread_callback(void* arg_this);
-    static void* _recover_tablet_thread_callback(void* arg_this);
-    static void* _update_tablet_meta_worker_thread_callback(void* arg_this);
+    void _create_tablet_worker_thread_callback();
+    void _drop_tablet_worker_thread_callback();
+    void _push_worker_thread_callback();
+    void _publish_version_worker_thread_callback();
+    void _clear_transaction_task_worker_thread_callback();
+    void _alter_tablet_worker_thread_callback();
+    void _clone_worker_thread_callback();
+    void _storage_medium_migrate_worker_thread_callback();
+    void _check_consistency_worker_thread_callback();
+    void _report_task_worker_thread_callback();
+    void _report_disk_state_worker_thread_callback();
+    void _report_tablet_worker_thread_callback();
+    void _upload_worker_thread_callback();
+    void _download_worker_thread_callback();
+    void _make_snapshot_thread_callback();
+    void _release_snapshot_thread_callback();
+    void _move_dir_thread_callback();
+    void _update_tablet_meta_worker_thread_callback();
 
     void _alter_tablet(
-            TaskWorkerPool* worker_pool_this,
             const TAgentTaskRequest& alter_tablet_request,
             int64_t signature,
             const TTaskType::type task_type,
@@ -133,6 +168,9 @@ private:
             bool overwrite,
             std::vector<std::string>* error_msgs);
 
+private:
+    std::string _name;
+
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
     TBackend _backend;
@@ -143,11 +181,13 @@ private:
     // Protect task queue
     Mutex _worker_thread_lock;
     ConditionVariable _worker_thread_condition_variable;
+    CountDownLatch _stop_background_threads_latch;
+    bool _is_work;
+    std::unique_ptr<ThreadPool> _thread_pool;
     std::deque<TAgentTaskRequest> _tasks;
 
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
-    CALLBACK_FUNCTION _callback_function;
 
     static FrontendServiceClientCache _master_service_client_cache;
     static std::atomic_ulong _s_report_version;

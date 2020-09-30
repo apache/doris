@@ -38,7 +38,6 @@ import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
-import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
@@ -52,6 +51,7 @@ import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
+import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
@@ -105,6 +105,7 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
+import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
@@ -1084,6 +1085,9 @@ public class ShowExecutor {
         if (procNodeI instanceof SchemaChangeProcDir) {
             rows = ((SchemaChangeProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
                     showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+        } else if (procNodeI instanceof RollupProcDir) {
+            rows = ((RollupProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         } else {
             rows = procNodeI.fetchResult().getRows();
         }
@@ -1130,13 +1134,13 @@ public class ShowExecutor {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
             Long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String dbName = null;
+            String dbName = FeConstants.null_string;
             Long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String tableName = null;
+            String tableName = FeConstants.null_string;
             Long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String partitionName = null;
+            String partitionName = FeConstants.null_string;
             Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String indexName = null;
+            String indexName = FeConstants.null_string;
             Boolean isSync = true;
 
             // check real meta
@@ -1240,7 +1244,7 @@ public class ShowExecutor {
                 } else {
                     partitions = olapTable.getPartitions();
                 }
-                List<List<Comparable>> tableInfos =  new ArrayList<List<Comparable>>();
+                List<List<Comparable>> tabletInfos =  new ArrayList<>();
                 String indexName = showStmt.getIndexName();
                 long indexId = -1;
                 if (indexName != null) {
@@ -1260,18 +1264,18 @@ public class ShowExecutor {
                             continue;
                         }
                         TabletsProcDir procDir = new TabletsProcDir(db, index);
-                        tableInfos.addAll(procDir.fetchComparableResult(
+                        tabletInfos.addAll(procDir.fetchComparableResult(
                                 showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
-                        if (sizeLimit > -1 && tableInfos.size() >= sizeLimit) {
+                        if (sizeLimit > -1 && tabletInfos.size() >= sizeLimit) {
                             stop = true;
                             break;
                         }
                     }
                 }
-                if (sizeLimit > -1 && tableInfos.size() < sizeLimit) {
-                    tableInfos.clear();
+                if (sizeLimit > -1 && tabletInfos.size() < sizeLimit) {
+                    tabletInfos.clear();
                 } else if (sizeLimit > -1) {
-                    tableInfos = tableInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                    tabletInfos = tabletInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
                 }
 
                 // order by
@@ -1279,15 +1283,15 @@ public class ShowExecutor {
                 ListComparator<List<Comparable>> comparator = null;
                 if (orderByPairs != null) {
                     OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                    comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+                    comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
                 } else {
                     // order by tabletId, replicaId
-                    comparator = new ListComparator<List<Comparable>>(0, 1);
+                    comparator = new ListComparator<>(0, 1);
                 }
-                Collections.sort(tableInfos, comparator);
+                Collections.sort(tabletInfos, comparator);
 
-                for (List<Comparable> tabletInfo : tableInfos) {
-                    List<String> oneTablet = new ArrayList<String>(tableInfos.size());
+                for (List<Comparable> tabletInfo : tabletInfos) {
+                    List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
                     for (Comparable column : tabletInfo) {
                         oneTablet.add(column.toString());
                     }
@@ -1313,10 +1317,48 @@ public class ShowExecutor {
     // Handle show resources
     private void handleShowResources() {
         ShowResourcesStmt showStmt = (ShowResourcesStmt) stmt;
-        List<List<String>> rowSet = Catalog.getCurrentCatalog().getResourceMgr().getResourcesInfo();
+        List<List<Comparable>> resourcesInfos = Catalog.getCurrentCatalog().getResourceMgr()
+                .getResourcesInfo(showStmt.getNameValue(),
+                                showStmt.isAccurateMatch(),
+                                showStmt.getTypeSet());
+
+        // order the result of List<LoadInfo> by orderByPairs in show stmt
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        ListComparator<List<Comparable>> comparator = null;
+        if (orderByPairs != null) {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+        } else {
+            // sort by name asc
+            comparator = new ListComparator<List<Comparable>>(0);
+        }
+        Collections.sort(resourcesInfos, comparator);
+
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<Comparable> resourceInfo : resourcesInfos) {
+            List<String> oneResource = new ArrayList<String>(resourceInfo.size());
+
+            for (Comparable element : resourceInfo) {
+                oneResource.add(element.toString());
+            }
+            rows.add(oneResource);
+        }
+
+        // filter by limit
+        long limit = showStmt.getLimit();
+        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
+        if (offset >= rows.size()) {
+            rows = Lists.newArrayList();
+        } else if (limit != -1L) {
+            if ((limit + offset) < rows.size()) {
+                rows = rows.subList((int) offset, (int) (limit + offset));
+            } else {
+                rows = rows.subList((int) offset, rows.size());
+            }
+        }
 
         // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowExport() throws AnalysisException {

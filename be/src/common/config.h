@@ -223,6 +223,12 @@ namespace config {
     CONF_mInt32(disk_stat_monitor_interval, "5");
     CONF_mInt32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
+
+    // Config is used to check incompatible old format hdr_ format
+    // whether doris uses strict way. When config is true, process will log fatal
+    // and exit. When config is false, process will only log warning.
+    CONF_Bool(storage_strict_check_incompatible_old_format, "true");
+
     // BE process will exit if the percentage of error disk reach this value.
     CONF_mInt32(max_percentage_of_error_disk, "0");
     // CONF_Int32(default_num_rows_per_data_block, "1024");
@@ -267,6 +273,27 @@ namespace config {
     CONF_mDouble(base_cumulative_delta_ratio, "0.3");
     CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
     CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
+
+    // config the cumulative compaction policy
+    // Valid configs: num_base, size_based
+    // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
+    // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring 
+    // lower write amplification, trading off read amplification and space amplification.
+    CONF_String(cumulative_compaction_policy, "size_based");
+
+    // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size, 
+    // this rowset will be given to base compaction, unit is m byte.
+    CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+    // In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
+    // base rowset's total disk size, this rowset will be given to base compaction. The value must be between 
+    // 0 and 1.
+    CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
+    // In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this 
+    // rowset will be not given to base compaction. The unit is m byte.
+    CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
+    // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than 
+    // this size, size_based policy also does cumulative compaction. The unit is m byte.
+    CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 
     // cumulative compaction policy: max delta file's size unit:B
     CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
@@ -446,9 +473,6 @@ namespace config {
     // result buffer cancelled time (unit: second)
     CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 
-    // can perform recovering tablet
-    CONF_Bool(force_recovery, "false");
-
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
     CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
@@ -552,6 +576,16 @@ namespace config {
 
     // Soft memory limit as a fraction of hard memory limit.
     CONF_Double(soft_mem_limit_frac, "0.9");
+    
+    // Set max cache's size of query results, the unit is M byte
+    CONF_Int32(query_cache_max_size_mb, "256"); 
+
+    // Cache memory is pruned when reach query_cache_max_size_mb + query_cache_elasticity_size_mb
+    CONF_Int32(query_cache_elasticity_size_mb, "128");
+
+    // Maximum number of cache partitions corresponding to a SQL
+    CONF_Int32(query_cache_max_partition_count, "1024");
+    
 } // namespace config
 
 } // namespace doris

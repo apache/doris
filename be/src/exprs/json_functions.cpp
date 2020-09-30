@@ -229,13 +229,13 @@ rapidjson::Value* JsonFunctions::get_json_object(
 #ifndef BE_TEST
     parsed_paths = reinterpret_cast<std::vector<JsonPath>*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (parsed_paths == nullptr) {
-        boost::tokenizer<boost::escaped_list_separator<char> > tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+        boost::tokenizer<boost::escaped_list_separator<char>> tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
         std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, &tmp_parsed_paths);
         parsed_paths = &tmp_parsed_paths;
     }
 #else
-    boost::tokenizer<boost::escaped_list_separator<char> > tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    boost::tokenizer<boost::escaped_list_separator<char>> tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
     parsed_paths = &tmp_parsed_paths;
@@ -332,7 +332,7 @@ void JsonFunctions::json_path_prepare(
     }
 
     std::string path_str(reinterpret_cast<char*>(path->ptr), path->len);
-    boost::tokenizer<boost::escaped_list_separator<char> > tok(path_str,
+    boost::tokenizer<boost::escaped_list_separator<char>> tok(path_str,
             boost::escaped_list_separator<char>("\\", ".", "\""));
     std::vector<std::string> path_exprs(tok.begin(), tok.end());
     std::vector<JsonPath>* parsed_paths = new std::vector<JsonPath>();
@@ -363,7 +363,7 @@ void JsonFunctions::parse_json_paths(
     //    '$.text#abc.xyz'  ->  [$, text#abc, xyz]
     //    '$."text.abc".xyz'  ->  [$, text.abc, xyz]
     //    '$."text.abc"[1].xyz'  ->  [$, text.abc[1], xyz]
-    boost::tokenizer<boost::escaped_list_separator<char> > tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    boost::tokenizer<boost::escaped_list_separator<char>> tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, parsed_paths);
 }
@@ -371,6 +371,9 @@ void JsonFunctions::parse_json_paths(
 void JsonFunctions::get_parsed_paths(
         const std::vector<std::string>& path_exprs,
         std::vector<JsonPath>* parsed_paths) {
+    if(path_exprs.empty()){
+        return;
+    }
 
     if (path_exprs[0] != "$") {
         parsed_paths->emplace_back("", -1, false);

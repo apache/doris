@@ -85,6 +85,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
+    public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
     /*
      * configure the mem limit of load process on BE. 
      * Previously users used exec_mem_limit to set memory limits.
@@ -262,6 +263,8 @@ public class SessionVariable implements Serializable, Writable {
     private int maxScanKeyNum = -1;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     private int maxPushdownConditionsPerColumn = -1;
+    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
+    private boolean showHiddenColumns = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -444,7 +447,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnablePartitionCache(boolean enablePartitionCache) {
         this.enablePartitionCache = enablePartitionCache;
     }
-    
+
     // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
@@ -509,33 +512,42 @@ public class SessionVariable implements Serializable, Writable {
         this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
     }
 
+    public boolean showHiddenColumns() {
+        return showHiddenColumns;
+    }
+
+    public void setShowHiddenColumns(boolean showHiddenColumns) {
+        this.showHiddenColumns = showHiddenColumns;
+    }
+
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
-        tResult.setMem_limit(maxExecMemByte);
+        tResult.setMemLimit(maxExecMemByte);
 
         // TODO chenhao, reservation will be calculated by cost
-        tResult.setMin_reservation(0);
-        tResult.setMax_reservation(maxExecMemByte);
-        tResult.setInitial_reservation_total_claims(maxExecMemByte);
-        tResult.setBuffer_pool_limit(maxExecMemByte);
+        tResult.setMinReservation(0);
+        tResult.setMaxReservation(maxExecMemByte);
+        tResult.setInitialReservationTotalClaims(maxExecMemByte);
+        tResult.setBufferPoolLimit(maxExecMemByte);
 
-        tResult.setQuery_timeout(queryTimeoutS);
-        tResult.setIs_report_success(isReportSucc);
-        tResult.setCodegen_level(codegenLevel);
+        tResult.setQueryTimeout(queryTimeoutS);
+        tResult.setIsReportSuccess(isReportSucc);
+        tResult.setCodegenLevel(codegenLevel);
 
-        tResult.setBatch_size(batchSize);
-        tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
-        tResult.setLoad_mem_limit(loadMemLimit);
+        tResult.setBatchSize(batchSize);
+        tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
+        tResult.setLoadMemLimit(loadMemLimit);
 
         if (maxScanKeyNum > -1) {
-            tResult.setMax_scan_key_num(maxScanKeyNum);
+            tResult.setMaxScanKeyNum(maxScanKeyNum);
         }
         if (maxPushdownConditionsPerColumn > -1) {
-            tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
+            tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
         }
-        tResult.setEnable_spilling(enableSpilling);
+        tResult.setEnableSpilling(enableSpilling);
         return tResult;
     }
 
@@ -578,51 +590,56 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, root.toString());
     }
 
+    @Deprecated
+    private void readFromStream(DataInput in) throws IOException {
+        codegenLevel = in.readInt();
+        netBufferLength = in.readInt();
+        sqlSafeUpdates = in.readInt();
+        timeZone = Text.readString(in);
+        netReadTimeout = in.readInt();
+        netWriteTimeout = in.readInt();
+        waitTimeout = in.readInt();
+        interactiveTimeout = in.readInt();
+        queryCacheType = in.readInt();
+        autoIncrementIncrement = in.readInt();
+        maxAllowedPacket = in.readInt();
+        sqlSelectLimit = in.readLong();
+        sqlAutoIsNull = in.readBoolean();
+        collationDatabase = Text.readString(in);
+        collationConnection = Text.readString(in);
+        charsetServer = Text.readString(in);
+        charsetResults = Text.readString(in);
+        charsetConnection = Text.readString(in);
+        charsetClient = Text.readString(in);
+        txIsolation = Text.readString(in);
+        autoCommit = in.readBoolean();
+        resourceGroup = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
+            sqlMode = in.readLong();
+        } else {
+            // read old version SQL mode
+            Text.readString(in);
+            sqlMode = 0L;
+        }
+        isReportSucc = in.readBoolean();
+        queryTimeoutS = in.readInt();
+        maxExecMemByte = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
+            collationServer = Text.readString(in);
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
+            batchSize = in.readInt();
+            disableStreamPreaggregations = in.readBoolean();
+            parallelExecInstanceNum = in.readInt();
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
+            exchangeInstanceParallel = in.readInt();
+        }
+    }
+
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67) {
-            codegenLevel = in.readInt();
-            netBufferLength = in.readInt();
-            sqlSafeUpdates = in.readInt();
-            timeZone = Text.readString(in);
-            netReadTimeout = in.readInt();
-            netWriteTimeout = in.readInt();
-            waitTimeout = in.readInt();
-            interactiveTimeout = in.readInt();
-            queryCacheType = in.readInt();
-            autoIncrementIncrement = in.readInt();
-            maxAllowedPacket = in.readInt();
-            sqlSelectLimit = in.readLong();
-            sqlAutoIsNull = in.readBoolean();
-            collationDatabase = Text.readString(in);
-            collationConnection = Text.readString(in);
-            charsetServer = Text.readString(in);
-            charsetResults = Text.readString(in);
-            charsetConnection = Text.readString(in);
-            charsetClient = Text.readString(in);
-            txIsolation = Text.readString(in);
-            autoCommit = in.readBoolean();
-            resourceGroup = Text.readString(in);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
-                sqlMode = in.readLong();
-            } else {
-                // read old version SQL mode
-                Text.readString(in);
-                sqlMode = 0L;
-            }
-            isReportSucc = in.readBoolean();
-            queryTimeoutS = in.readInt();
-            maxExecMemByte = in.readLong();
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
-                collationServer = Text.readString(in);
-            }
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
-                batchSize = in.readInt();
-                disableStreamPreaggregations = in.readBoolean();
-                parallelExecInstanceNum = in.readInt();
-            }
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
-                exchangeInstanceParallel = in.readInt();
-            }
+            readFromStream(in);
         } else {
             readFromJson(in);
         }

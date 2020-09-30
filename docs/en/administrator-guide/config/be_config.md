@@ -34,10 +34,47 @@ This document mainly introduces the relevant configuration items of BE.
 (TODO)
 
 ## Set configuration items
-(TODO)
+
+There are two ways to configure BE configuration items:
+
+1. Static configuration
+
+         Add and set configuration items in the `conf/be.conf` file. The configuration items in `be.conf` will be read when BE starts. Configuration items not in `be.conf` will use default values.
+
+2. Dynamic configuration
+
+         After BE starts, the configuration items can be dynamically set with the following commands.
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+
+         **Configuration items modified in this way will become invalid after the BE process restarts. **
 
 ## Examples
-(TODO)
+
+1. Modify `max_compaction_concurrency` statically
+
+         By adding in the `be.conf` file:
+
+         ```max_compaction_concurrency=5```
+
+         Then restart the BE process to take effect the configuration.
+
+2. Modify `streaming_load_max_mb` dynamically
+
+         After BE starts, the configuration item `streaming_load_max_mb` is dynamically set by the following command:
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+
+         The return value is as follows, indicating that the setting is successful.
+
+         ```
+         {
+             "status": "OK",
+             "msg": ""
+         }
+         ```
+
+         **The configuration will be invalid after BE restarted. **
 
 ## Configurations
 
@@ -156,6 +193,46 @@ Generally it needs to be turned off. When you want to manually operate the compa
 
 Similar to `base_compaction_trace_threshold`.
 
+### `cumulative_compaction_policy`
+
+* Type: string
+* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
+* Default value: size_based
+
+In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satifies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
+
+### `cumulative_size_based_promotion_size_mbytes`
+
+* Type: int64
+* Description: Under the size_based policy, the total disk size of the output rowset of cumulative compaction exceeds this configuration size, and the rowset will be used for base compaction. The unit is m bytes.
+* Default value: 1024
+
+In general, if the configuration is less than 2G, in order to prevent the cumulative compression time from being too long, resulting in the version backlog.
+
+### `cumulative_size_based_promotion_ratio`
+
+* Type: double
+* Description: Under the size_based policy, when the total disk size of the cumulative compaction output rowset exceeds the configuration ratio of the base version rowset, the rowset will be used for base compaction.
+* Default value: 0.05
+
+Generally, it is recommended that the configuration should not be higher than 0.1 and lower than 0.02.
+
+### `cumulative_size_based_promotion_min_size_mbytes`
+
+* Type: int64
+* Description: Under the size_based strategy, if the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
+* Default value: 64
+
+Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
+
+### `cumulative_size_based_compaction_lower_size_mbytes`
+
+* Type: int64
+* Description: Under the size_based strategy, when the cumulative compaction is merged, the selected rowsets to be merged have a larger disk size than this configuration, then they are divided and merged according to the level policy. When it is smaller than this configuration, merge directly. The unit is m bytes.
+* Default value: 64
+
+Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.
+
 ### `default_num_rows_per_column_file_block`
 
 ### `default_query_options`
@@ -256,7 +333,7 @@ The default value is `false`.
 ### ignore_rowset_stale_unconsistent_delete
 
 * Type: boolean
-* Description：It is used to decide whether to delete the outdated merged rowset if it cannot form a consistent version path.
+* Description:It is used to decide whether to delete the outdated merged rowset if it cannot form a consistent version path.
 * Default: false
 
 The merged expired rowset version path will be deleted after half an hour. In abnormal situations, deleting these versions will result in the problem that the consistent path of the query cannot be constructed. When the configuration is false, the program check is strict and the program will directly report an error and exit.
@@ -344,6 +421,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `min_buffer_size`
 
 ### `min_compaction_failure_interval_sec`
+
+* Type: int32
+* Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
+* Default value: 600
+* Unit: seconds
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
@@ -442,6 +524,15 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `storage_page_cache_limit`
 
 ### `storage_root_path`
+
+### `storage_strict_check_incompatible_old_format`
+* Type: bool
+* Description: Used to check incompatible old format strictly
+* Default value: true
+* Dynamically modify: false
+
+This config is used to check incompatible old format hdr_ format whether doris uses strict way. When config is true, 
+process will log fatal and exit. When config is false, process will only log warning.
 
 ### `streaming_load_max_mb`
 

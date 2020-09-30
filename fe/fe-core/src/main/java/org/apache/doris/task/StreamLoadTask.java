@@ -17,22 +17,27 @@
 
 package org.apache.doris.task;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -43,7 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.StringReader;
 import java.util.List;
 
-public class StreamLoadTask {
+public class StreamLoadTask implements LoadTaskInfo {
 
     private static final Logger LOG = LogManager.getLogger(StreamLoadTask.class);
 
@@ -66,6 +71,9 @@ public class StreamLoadTask {
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int timeout = Config.stream_load_default_timeout_second;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
+    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    private Expr deleteCondition;
+    private String sequenceCol;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -152,6 +160,17 @@ public class StreamLoadTask {
     public void setJsonRoot(String jsonRoot) {
         this.jsonRoot = jsonRoot;
     }
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
+    }
 
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
@@ -165,7 +184,7 @@ public class StreamLoadTask {
             setColumnToColumnExpr(request.getColumns());
         }
         if (request.isSetWhere()) {
-            setWhereExpr(request.getWhere());
+            whereExpr = parseWhereExpr(request.getWhere());
         }
         if (request.isSetColumnSeparator()) {
             setColumnSeparator(request.getColumnSeparator());
@@ -204,44 +223,34 @@ public class StreamLoadTask {
             if (request.getJsonpaths() != null) {
                 jsonPaths = request.getJsonpaths();
             }
-            if (request.getJson_root() != null) {
-                jsonRoot = request.getJson_root();
+            if (request.getJsonRoot() != null) {
+                jsonRoot = request.getJsonRoot();
             }
-            stripOuterArray = request.isStrip_outer_array();
+            stripOuterArray = request.isStripOuterArray();
         }
-    }
-
-    public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        TUniqueId dummyId = new TUniqueId();
-        TFileFormatType fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-        if (routineLoadJob.getFormat().equals("json")) {
-            fileFormatType = TFileFormatType.FORMAT_JSON;
+        if (request.isSetMergeType()) {
+            try {
+                mergeType = LoadTask.MergeType.valueOf(request.getMergeType().toString());
+            } catch (IllegalArgumentException e) {
+                throw new UserException("unknown merge type " + request.getMergeType().toString());
+            }
         }
-        StreamLoadTask streamLoadTask = new StreamLoadTask(dummyId, -1L /* dummy txn id*/,
-                TFileType.FILE_STREAM, fileFormatType);
-        streamLoadTask.setOptionalFromRoutineLoadJob(routineLoadJob);
-        return streamLoadTask;
-    }
-
-    private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        // copy the columnExprDescs, cause it may be changed when planning.
-        // so we keep the columnExprDescs in routine load job as origin.
-        if (routineLoadJob.getColumnDescs() != null) {
-            columnExprDescs = Lists.newArrayList(routineLoadJob.getColumnDescs());
+        if (request.isSetDeleteCondition()) {
+            deleteCondition = parseWhereExpr(request.getDeleteCondition());
         }
-        whereExpr = routineLoadJob.getWhereExpr();
-        columnSeparator = routineLoadJob.getColumnSeparator();
-        partitions = routineLoadJob.getPartitions();
-        strictMode = routineLoadJob.isStrictMode();
-        timezone = routineLoadJob.getTimezone();
-        timeout = (int) routineLoadJob.getMaxBatchIntervalS() * 2;
-        if (!routineLoadJob.getJsonPaths().isEmpty()) {
-            jsonPaths = routineLoadJob.getJsonPaths();
+        if (negative && mergeType != LoadTask.MergeType.APPEND) {
+            throw new AnalysisException("Negative is only used when merge type is append.");
         }
-        if (!routineLoadJob.getJsonRoot().isEmpty()) {
-            jsonRoot = routineLoadJob.getJsonRoot();
+        if (mergeType == LoadTask.MergeType.MERGE) {
+            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+        }  else if (mergeType == LoadTask.MergeType.DELETE) {
+            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
         }
-        stripOuterArray = routineLoadJob.isStripOuterArray();
+        if (request.isSetSequenceCol()) {
+            sequenceCol = request.getSequenceCol();
+            // add expr for sequence column
+            columnExprDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
+        }
     }
 
     // used for stream load
@@ -273,7 +282,7 @@ public class StreamLoadTask {
         }
     }
 
-    private void setWhereExpr(String whereString) throws UserException {
+    private Expr parseWhereExpr(String whereString) throws UserException {
         String whereSQL = new String("WHERE " + whereString);
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)));
         ImportWhereStmt whereStmt;
@@ -295,7 +304,7 @@ public class StreamLoadTask {
             LOG.warn("failed to parse where header, sql={}", whereSQL, e);
             throw new UserException("parse columns header failed", e);
         }
-        whereExpr = whereStmt.getExpr();
+        return whereStmt.getExpr();
     }
 
     private void setColumnSeparator(String oriSeparator) throws AnalysisException {

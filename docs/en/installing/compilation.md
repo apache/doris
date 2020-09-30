@@ -56,10 +56,12 @@ Note: For different versions of Oris, you need to download the corresponding mir
 
 	`$ docker run -it apachedoris/doris-dev:build-env`
 
-	If you want to compile the local Doris source code, you can mount the path:
+    It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
+
+     At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
     ```
 
 3. Download source code
@@ -105,3 +107,22 @@ You can try to compile Doris directly in your own Linux environment.
     $ sh build.sh
     ```
 	After compilation, the output file is in the `output/` directory.
+	
+## Special statement
+
+Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it should not appear in the Apache release by default.
+
+Remove library [1] will result in the inability to access MySQL external tables. The feature of accessing MySQL external tables will be implemented through `UnixODBC` in future release version.
+
+Remove library [2] will cause some data written in earlier versions (before version 0.8) to be unable to read. Because the data in the earlier version was compressed using the LZO algorithm, in later versions, it has been changed to the LZ4 compression algorithm. We will provide tools to detect and convert this part of the data in the future.
+
+If required, users can continue to use these two dependent libraries. If you want to use it, you need to add the following options when compiling:
+
+```
+WITH_MYSQL=1 WITH_LZO=1 sh build.sh
+```
+
+Note that when users rely on these two third-party libraries, Doris is not used under the Apache License 2.0 by default. Please pay attention to the GPL related agreements.
+
+* [1] mysql-5.7.18
+* [2] lzo-2.10

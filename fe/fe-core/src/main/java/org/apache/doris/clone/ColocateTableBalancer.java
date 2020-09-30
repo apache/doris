@@ -546,6 +546,11 @@ public class ColocateTableBalancer extends MasterDaemon {
             // sort backends with replica num
             List<Map.Entry<Long, Long>> backendWithReplicaNum =
                     getSortedBackendReplicaNumPairs(allAvailBackendIds, flatBackendsPerBucketSeq);
+            // if there is only one available backend, end the outer loop
+            if (backendWithReplicaNum.size() == 1) {
+                LOG.info("there is only one available backend, end the outer loop in colocate group {}", groupId);
+                break;
+            }
 
             int i = 0;
             int j = backendWithReplicaNum.size() - 1;
@@ -600,11 +605,18 @@ public class ColocateTableBalancer extends MasterDaemon {
                 }
 
                 if (!isThisRoundChanged) {
-                    // select another load backend and try again
                     LOG.info("unable to replace backend {} with backend {} in colocate group {}",
                             srcBeId, destBeId, groupId);
-                    j--;
-                    continue;
+                    if (--j == i) {
+                        // if all backends are checked but this round is not changed,
+                        // we should end the outer loop to avoid endless loops
+                        LOG.info("all backends are checked but this round is not changed, " +
+                                         "end outer loop in colocate group {}", groupId);
+                        break OUT;
+                    } else {
+                        // select another load backend and try again
+                        continue;
+                    }
                 }
 
                 break;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -32,6 +31,8 @@ import org.apache.doris.thrift.TFloatLiteral;
 import org.apache.doris.thrift.TIntLiteral;
 import org.apache.doris.thrift.TStringLiteral;
 
+import com.google.common.base.Strings;
+
 // System variable
 // Converted to StringLiteral in analyze, if this variable is not exist, throw AnalysisException.
 public class SysVariableDesc extends Expr {
@@ -41,6 +42,8 @@ public class SysVariableDesc extends Expr {
     private long intValue;
     private double floatValue;
     private String strValue;
+
+    private LiteralExpr literalExpr;
 
     public SysVariableDesc(String name) {
         this(name, SetType.SESSION);
@@ -89,18 +92,52 @@ public class SysVariableDesc extends Expr {
 
     public void setBoolValue(boolean value) {
         this.boolValue = value;
+        this.literalExpr = new BoolLiteral(value);
     }
 
     public void setIntValue(long value) {
         this.intValue = value;
+        this.literalExpr = new IntLiteral(value);
     }
 
     public void setFloatValue(double value) {
         this.floatValue = value;
+        this.literalExpr = new FloatLiteral(value);
     }
 
     public void setStringValue(String value) {
         this.strValue = value;
+        this.literalExpr = new StringLiteral(value);
+    }
+
+    public Expr getLiteralExpr() {
+        return this.literalExpr;
+    }
+
+    @Override
+    public Expr getResultValue() throws AnalysisException {
+        Expr expr = super.getResultValue();
+        if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+            // SQL_MODE is a special variable. Its type is int, but it is usually set using a string.
+            // Such as `set sql_mode =  concat(@@sql_mode, "STRICT_TRANS_TABLES");`
+            // So we return the string type here so that it can correctly match the subsequent function signature.
+            // We will convert the string to int in VariableMgr.
+            // And we also set `isSqlMode` to true in StringLiteral, so that it can be cast back
+            // to Integer when returning value.
+            try {
+                StringLiteral s = new StringLiteral(SqlModeHelper.decode(intValue));
+                s.setIsSqlMode(true);
+                return s;
+            } catch (DdlException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        return expr;
+    }
+
+    @Override
+    protected boolean isConstantImpl() {
+        return true;
     }
 
     @Override

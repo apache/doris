@@ -27,12 +27,12 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TStorageFormat;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -79,6 +79,9 @@ public class CreateReplicaTask extends AgentTask {
 
     private TStorageFormat storageFormat = null;
 
+    // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
+    private boolean isRecoverTask = false;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
@@ -110,7 +113,15 @@ public class CreateReplicaTask extends AgentTask {
         this.isInMemory = isInMemory;
         this.tabletType = tabletType;
     }
-    
+
+    public void setIsRecoverTask(boolean isRecoverTask) {
+        this.isRecoverTask = isRecoverTask;
+    }
+
+    public boolean isRecoverTask() {
+        return isRecoverTask;
+    }
+
     public void countDownLatch(long backendId, long tabletId) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
@@ -147,29 +158,40 @@ public class CreateReplicaTask extends AgentTask {
 
     public TCreateTabletReq toThrift() {
         TCreateTabletReq createTabletReq = new TCreateTabletReq();
-        createTabletReq.setTablet_id(tabletId);
+        createTabletReq.setTabletId(tabletId);
 
         TTabletSchema tSchema = new TTabletSchema();
-        tSchema.setShort_key_column_count(shortKeyColumnCount);
-        tSchema.setSchema_hash(schemaHash);
-        tSchema.setKeys_type(keysType.toThrift());
-        tSchema.setStorage_type(storageType);
-
+        tSchema.setShortKeyColumnCount(shortKeyColumnCount);
+        tSchema.setSchemaHash(schemaHash);
+        tSchema.setKeysType(keysType.toThrift());
+        tSchema.setStorageType(storageType);
+        int deleteSign = -1;
+        int sequenceCol = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();
-        for (Column column : columns) {
+        for (int i = 0; i < columns.size(); i++) {
+            Column column = columns.get(i);
             TColumn tColumn = column.toThrift();
             // is bloom filter column
             if (bfColumns != null && bfColumns.contains(column.getName())) {
-                tColumn.setIs_bloom_filter_column(true);
+                tColumn.setIsBloomFilterColumn(true);
             }
             // when doing schema change, some modified column has a prefix in name.
             // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
             if(column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                tColumn.setColumn_name(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
+                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
             }
+            tColumn.setVisible(column.isVisible());
             tColumns.add(tColumn);
+            if (column.isDeleteSignColumn()) {
+                deleteSign = i;
+            }
+            if (column.isSequenceColumn()) {
+                sequenceCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
+        tSchema.setDeleteSignIdx(deleteSign);
+        tSchema.setSequenceColIdx(sequenceCol);
 
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
@@ -181,31 +203,31 @@ public class CreateReplicaTask extends AgentTask {
         }
 
         if (bfColumns != null) {
-            tSchema.setBloom_filter_fpp(bfFpp);
+            tSchema.setBloomFilterFpp(bfFpp);
         }
-        tSchema.setIs_in_memory(isInMemory);
-        createTabletReq.setTablet_schema(tSchema);
+        tSchema.setIsInMemory(isInMemory);
+        createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);
-        createTabletReq.setVersion_hash(versionHash);
+        createTabletReq.setVersionHash(versionHash);
 
-        createTabletReq.setStorage_medium(storageMedium);
+        createTabletReq.setStorageMedium(storageMedium);
         if (inRestoreMode) {
-            createTabletReq.setIn_restore_mode(true);
+            createTabletReq.setInRestoreMode(true);
         }
-        createTabletReq.setTable_id(tableId);
-        createTabletReq.setPartition_id(partitionId);
+        createTabletReq.setTableId(tableId);
+        createTabletReq.setPartitionId(partitionId);
 
         if (baseTabletId != -1) {
-            createTabletReq.setBase_tablet_id(baseTabletId);
-            createTabletReq.setBase_schema_hash(baseSchemaHash);
+            createTabletReq.setBaseTabletId(baseTabletId);
+            createTabletReq.setBaseSchemaHash(baseSchemaHash);
         }
 
         if (storageFormat != null) {
-            createTabletReq.setStorage_format(storageFormat);
+            createTabletReq.setStorageFormat(storageFormat);
         }
 
-        createTabletReq.setTablet_type(tabletType);
+        createTabletReq.setTabletType(tabletType);
         return createTabletReq;
     }
 }

@@ -382,7 +382,7 @@ public class Analyzer {
         TQueryGlobals queryGlobals = new TQueryGlobals();
         Calendar currentDate = Calendar.getInstance();
         String nowStr = formatter.format(currentDate.getTime());
-        queryGlobals.setNow_string(nowStr);
+        queryGlobals.setNowString(nowStr);
         return queryGlobals;
     }
 
@@ -655,7 +655,7 @@ public class Analyzer {
         // find table all name
         for (TupleDescriptor desc : tupleByAlias.get(tblName.toString())) {
             //result = desc;
-            if (!isVisible(desc.getId())) {
+            if (!colName.equalsIgnoreCase(Column.DELETE_SIGN) && !isVisible(desc.getId())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR, 
                         Joiner.on(".").join(tblName.getTbl(),colName));
             }

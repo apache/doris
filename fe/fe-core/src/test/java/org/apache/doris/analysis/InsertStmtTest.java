@@ -180,6 +180,7 @@ public class InsertStmtTest {
 
         new Expectations() {{
             targetTable.getBaseSchema(); result = getBaseSchema();
+            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
             targetTable.getFullSchema(); result = getFullSchema();
         }};
 
@@ -237,6 +238,7 @@ public class InsertStmtTest {
 
         new Expectations() {{
             targetTable.getBaseSchema(); result = getBaseSchema();
+            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
             targetTable.getFullSchema(); result = getFullSchema();
         }};
 
