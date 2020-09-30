@@ -226,11 +226,11 @@ static bool is_literal_node(const Expr* expr) {
 }
 
 Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
+    // process binary predicate
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             return Status::InternalError("build disjuncts failed: number of childs is not 2");
         }
-
         SlotRef* slot_ref = nullptr;
         TExprOpcode::type op;
         Expr* expr = nullptr;
@@ -243,7 +243,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()
             || TExprNodeType::CAST_EXPR == conjunct->get_child(0)->node_type()) {
             expr = conjunct->get_child(1);
-            // process such as sub-query: select * from (select split_part(k, "_", 1) as new_field from case_replay_for_milimin) t where t.new_field > 1;
+            // process such as sub-query: select * from (select split_part(k, "_", 1) as new_field from table) t where t.new_field > 1;
             RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(conjunct->get_child(0));
             // process cast expr, such as:
             // k (float) > 2.0, k(int) > 3.2
@@ -283,93 +283,94 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         _disjuncts.push_back(predicate);
         return Status::OK();
     }
-    
-    if (is_match_func(conjunct)) {
-        Expr* expr = conjunct->get_child(1);
-        ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
-        vector<ExtLiteral> query_conditions;
-        query_conditions.emplace_back(literal);
-        vector<ExtColumnDesc> cols; //TODO
-        ExtPredicate* predicate = new ExtFunction(
-                        TExprNodeType::FUNCTION_CALL,
-                        conjunct->fn().name.function_name,
-                        cols,
-                        query_conditions);
-        if (_es_query_status.ok()) {
-            _es_query_status 
-                = BooleanQueryBuilder::check_es_query(*(ExtFunction *)predicate); 
-            if (!_es_query_status.ok()) {
-                delete predicate;
-                return _es_query_status;
-            }
-        }
-        _disjuncts.push_back(predicate);
-
-        return Status::OK();
-    }
-
-    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
-        && (conjunct->fn().name.function_name == "is_null_pred" || conjunct->fn().name.function_name == "is_not_null_pred")) {
-        // such as sub-query: select * from (select split_part(k, "_", 1) as new_field from case_replay_for_milimin) t where t.new_field > 1;
-        // conjunct->get_child(0)->node_type() == TExprNodeType::FUNCTION_CALL, at present doris on es can not support push down function 
-        RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(conjunct->get_child(0));
-        SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
-        const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
-        bool is_not_null;
-        if (conjunct->fn().name.function_name == "is_null_pred") {
-            is_not_null = false;
-        } else {
-            is_not_null = true;
-        }
-        std::string col = slot_desc->col_name();
-        if (_field_context.find(col) != _field_context.end()) {
-            col = _field_context[col];
-        }
-        // use TExprNodeType::IS_NULL_PRED for BooleanQueryBuilder translate
-        ExtIsNullPredicate* predicate = new ExtIsNullPredicate(TExprNodeType::IS_NULL_PRED, col, slot_desc->type(), is_not_null);
-        _disjuncts.push_back(predicate);
-        return Status::OK();
-    }
-
+    // process function call predicate: esquery, is_null_pred, is_not_null_pred
     if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()) {
         std::string fname = conjunct->fn().name.function_name;
-        if (fname != "like") {
-            return Status::InternalError("build disjuncts failed: function name is not like");
-        }
+        if (fname == "esquery") {
+            if (conjunct->children().size() != 2) {
+                return Status::InternalError("build disjuncts failed: number of childs is not 2");
+            }
+            Expr* expr = conjunct->get_child(1);
+            ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+            vector<ExtLiteral> query_conditions;
+            query_conditions.emplace_back(literal);
+            vector<ExtColumnDesc> cols;
+            ExtPredicate* predicate = new ExtFunction(
+                            TExprNodeType::FUNCTION_CALL,
+                            "esquery",
+                            cols,
+                            query_conditions);
+            if (_es_query_status.ok()) {
+                _es_query_status = BooleanQueryBuilder::check_es_query(*(ExtFunction *)predicate); 
+                if (!_es_query_status.ok()) {
+                    delete predicate;
+                    return _es_query_status;
+                }
+            }
+            _disjuncts.push_back(predicate);
+        } else if (fname == "is_null_pred" || fname == "is_not_null_pred") {
+            if (conjunct->children().size() != 1) {
+                return Status::InternalError("build disjuncts failed: number of childs is not 1");
+            }
+            // such as sub-query: select * from (select split_part(k, "_", 1) as new_field from table) t where t.new_field > 1;
+            // conjunct->get_child(0)->node_type() == TExprNodeType::FUNCTION_CALL, at present doris on es can not support push down function
+            RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(conjunct->get_child(0));
+            SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
+            const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
+            if (slot_desc == nullptr) {
+                return Status::InternalError("build disjuncts failed: no SLOT_REF child");
+            }
+            bool is_not_null = fname == "is_not_null_pred" ? true : false;
+            std::string col = slot_desc->col_name();
+            if (_field_context.find(col) != _field_context.end()) {
+                col = _field_context[col];
+            }
+            // use TExprNodeType::IS_NULL_PRED for BooleanQueryBuilder translate
+            ExtIsNullPredicate* predicate = new ExtIsNullPredicate(TExprNodeType::IS_NULL_PRED, col, slot_desc->type(), is_not_null);
+            _disjuncts.push_back(predicate);
+        } else if (fname == "like") {
+            if (conjunct->children().size() != 2) {
+                return Status::InternalError("build disjuncts failed: number of childs is not 2");
+            }
+            SlotRef* slot_ref = nullptr;
+            Expr* expr = nullptr;
+            if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()) {
+                expr = conjunct->get_child(1);
+                slot_ref = (SlotRef*)(conjunct->get_child(0));
+            } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()) {
+                expr = conjunct->get_child(0);
+                slot_ref = (SlotRef*)(conjunct->get_child(1));
+            } else {
+                return Status::InternalError("build disjuncts failed: no SLOT_REF child");
+            }
+            const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
+            if (slot_desc == nullptr) {
+                return Status::InternalError("build disjuncts failed: slot_desc is null");
+            }
 
-        SlotRef* slot_ref = nullptr;
-        Expr* expr = nullptr;
-        if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()) {
-            expr = conjunct->get_child(1);
-            slot_ref = (SlotRef*)(conjunct->get_child(0));
-        } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()) {
-            expr = conjunct->get_child(0);
-            slot_ref = (SlotRef*)(conjunct->get_child(1));
+            PrimitiveType type = expr->type().type;
+            if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
+                return Status::InternalError("build disjuncts failed: like value is not a string");
+            }
+            std::string col = slot_desc->col_name();
+            if (_field_context.find(col) != _field_context.end()) {
+                col = _field_context[col];
+            }
+            ExtLiteral literal(type, _context->get_value(expr, NULL));
+            ExtPredicate* predicate = new ExtLikePredicate(
+                        TExprNodeType::LIKE_PRED,
+                        col,
+                        slot_desc->type(),
+                        literal);
+
+            _disjuncts.push_back(predicate);
         } else {
-            return Status::InternalError("build disjuncts failed: no SLOT_REF child");
+            std::stringstream ss;
+            ss << "can not process function predicate[ " 
+               << fname
+               << " ]";
+            return Status::InternalError(ss.str());
         }
-
-        const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
-        if (slot_desc == nullptr) {
-            return Status::InternalError("build disjuncts failed: slot_desc is null");
-        }
-
-        PrimitiveType type = expr->type().type;
-        if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
-            return Status::InternalError("build disjuncts failed: like value is not a string");
-        }
-        std::string col = slot_desc->col_name();
-        if (_field_context.find(col) != _field_context.end()) {
-            col = _field_context[col];
-        }
-        ExtLiteral literal(type, _context->get_value(expr, NULL));
-        ExtPredicate* predicate = new ExtLikePredicate(
-                    TExprNodeType::LIKE_PRED,
-                    col,
-                    slot_desc->type(),
-                    literal);
-
-        _disjuncts.push_back(predicate);
         return Status::OK();
     }
       
@@ -463,14 +464,6 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
     std::stringstream ss;
     ss << "build disjuncts failed: node type " << conjunct->node_type() << " is not supported";
     return Status::InternalError(ss.str());
-}
-
-bool EsPredicate::is_match_func(const Expr* conjunct) {
-    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
-        && conjunct->fn().name.function_name == "esquery") {
-            return true;
-    }
-    return false;
 }
 
 const SlotDescriptor* EsPredicate::get_slot_desc(const SlotRef* slotRef) {

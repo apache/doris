@@ -167,6 +167,10 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 
     3. For a column type loaded with a range limit, if the original data can pass the type conversion normally, but cannot pass the range limit, strict mode will not affect it. For example, if the type is decimal(1,0) and the original data is 10, it is eligible for type conversion but not for column declarations. This data strict has no effect on it.
 
+* merge\_type
+     The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
+
+
 #### strict mode and load relationship of source data
 
 Here is an example of a column type of TinyInt.
@@ -236,6 +240,10 @@ Specific commands and examples for viewing the status of the ** job** can be vie
 Specific commands and examples for viewing the **Task** status can be viewed with the `HELP SHOW ROUTINE LOAD TASK;` command.
 
 You can only view tasks that are currently running, and tasks that have ended and are not started cannot be viewed.
+
+### Alter job
+
+Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data Manipulation/alter-routine-load.md).
 
 ### Job Control
 

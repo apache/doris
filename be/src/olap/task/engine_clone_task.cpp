@@ -63,6 +63,14 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req,
     _master_info(master_info) {}
 
 OLAPStatus EngineCloneTask::execute() {
+    // register the tablet to avoid it is deleted by gc thread during clone process
+    StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id);
+    OLAPStatus st = _do_clone();
+    StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
+    return st;
+}
+
+OLAPStatus EngineCloneTask::_do_clone() {
     AgentStatus status = DORIS_SUCCESS;
     string src_file_path;
     TBackend src_host;
@@ -330,7 +338,7 @@ AgentStatus EngineCloneTask::_clone_copy(
         std::string remote_url_prefix;
         {
             // TODO(zc): if snapshot path has been returned from source, it is some strange to
-            // concat talbet_id and schema hash here.
+            // concat tablet_id and schema hash here.
             std::stringstream ss;
             ss << "http://" << src.host << ":" << src.http_port
                 << HTTP_REQUEST_PREFIX
@@ -468,7 +476,7 @@ Status EngineCloneTask::_download_files(
     RETURN_IF_ERROR(FileUtils::remove_all(local_path));
     RETURN_IF_ERROR(FileUtils::create_dir(local_path));
 
-    // Get remove dir file list
+    // Get remote dir file list
     string file_list_str;
     auto list_files_cb = [&remote_url_prefix, &file_list_str] (HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));

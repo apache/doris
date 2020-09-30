@@ -37,8 +37,8 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         uint8_t null_bitmap = 0;
         ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &pool);
         ColumnBlockView column_block_view(&block);
@@ -74,8 +74,8 @@ public:
         ASSERT_EQ(0, rle_page_decoder.current_index());
         ASSERT_EQ(size, rle_page_decoder.count());
 
-        MemTracker tracker;
-        MemPool pool(&tracker);
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
         CppType* values = reinterpret_cast<CppType*>(pool.allocate(size * sizeof(CppType)));
         uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
         ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, size, &pool);
@@ -114,7 +114,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderRandom) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
@@ -126,7 +126,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderSequence) {
@@ -138,7 +138,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
@@ -172,7 +172,7 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BOOL, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_BOOL>,
-        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_BOOL> >(bools.get(), size);
+        segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_BOOL>>(bools.get(), size);
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {

@@ -36,8 +36,13 @@ static const std::string HTTP_NEGATIVE = "negative";
 static const std::string HTTP_STRICT_MODE = "strict_mode";
 static const std::string HTTP_TIMEZONE = "timezone";
 static const std::string HTTP_EXEC_MEM_LIMIT = "exec_mem_limit";
-static const std::string HTTP_EXEC_JSONPATHS  = "jsonpaths";
-static const std::string HTTP_EXEC_STRIP_OUTER_ARRAY = "strip_outer_array";
+static const std::string HTTP_JSONPATHS  = "jsonpaths";
+static const std::string HTTP_JSONROOT  = "json_root";
+static const std::string HTTP_STRIP_OUTER_ARRAY = "strip_outer_array";
+static const std::string HTTP_MERGE_TYPE = "merge_type";
+static const std::string HTTP_DELETE_CONDITION = "delete";
+static const std::string HTTP_FUNCTION_COLUMN = "function_column";
+static const std::string HTTP_SEQUENCE_COL = "sequence_col";
 
 static const std::string HTTP_100_CONTINUE = "100-continue";
 

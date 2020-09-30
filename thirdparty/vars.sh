@@ -171,7 +171,6 @@ RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
 BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz"
-BOOST_DOWNLOAD="https://sourceforge.mirrorservice.org/b/bo/boost/boost/1.64.0/boost_1_64_0.tar.gz"
 BOOST_NAME=boost_1_64_0.tar.gz
 BOOST_SOURCE=boost_1_64_0
 BOOST_MD5SUM="319c6ffbbeccc366f14bb68767a6db79"
@@ -187,6 +186,12 @@ BOOST_FOR_MYSQL_DOWNLOAD="http://sourceforge.net/projects/boost/files/boost/1.59
 BOOST_FOR_MYSQL_NAME=boost_1_59_0.tar.gz
 BOOST_FOR_MYSQL_SOURCE=boost_1_59_0
 BOOST_FOR_MYSQL_MD5SUM="51528a0e3b33d9e10aaa311d9eb451e3"
+
+# unix odbc
+ODBC_DOWNLOAD="http://www.unixodbc.org/unixODBC-2.3.7.tar.gz"
+ODBC_NAME=unixODBC-2.3.7.tar.gz
+ODBC_SOURCE=unixODBC-2.3.7
+ODBC_MD5SUM="274a711b0c77394e052db6493840c6f9"
 
 # leveldb
 LEVELDB_DOWNLOAD="https://github.com/google/leveldb/archive/v1.20.tar.gz"
@@ -260,10 +265,10 @@ CROARINGBITMAP_NAME=CRoaring-0.2.60.tar.gz
 CROARINGBITMAP_SOURCE=CRoaring-0.2.60
 CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
 # ORC
-ORC_DOWNLOAD="https://github.com/apache/orc/archive/rel/release-1.5.8.tar.gz"
+ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.5.8/orc-1.5.8.tar.gz"
 ORC_NAME=orc-1.5.8.tar.gz
-ORC_SOURCE=orc-rel-release-1.5.8
-ORC_MD5SUM="49eb9ce94060b26d4bc3595b2f1efb4c"
+ORC_SOURCE=orc-1.5.8
+ORC_MD5SUM="2318b0a8233c8833b3a6cfd771c60883"
 
 # jemalloc
 JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
@@ -271,12 +276,30 @@ JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
 JEMALLOC_SOURCE="jemalloc-5.2.1"
 JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
 
-#CCTZ
+# CCTZ
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
 CCTZ_NAME="cctz-2.3.tar.gz"
 CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
+# datatables, bootstrap 3 and jQuery 3
+DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.22"
+DATATABLES_NAME="DataTables.zip"
+DATATABLES_SOURCE="DataTables-1.10.22"
+DATATABLES_MD5SUM="62558846fc6a6db1428e7816a2a351f7"
+
+# bootstrap table js
+BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
+BOOTSTRAP_TABLE_JS_NAME="bootstrap-table.min.js"
+BOOTSTRAP_TABLE_JS_FILE="bootstrap-table.min.js"
+BOOTSTRAP_TABLE_JS_MD5SUM="6cc9c41eaf7e81e54e220061cc9c0432"
+
+# bootstrap table css
+BOOTSTRAP_TABLE_CSS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.css"
+BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
+BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
+BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA FLATBUFFERS ARROW BROTLI DOUBLE_CONVERSION ZSTD S2 BITSHUFFLE CROARINGBITMAP ORC JEMALLOC CCTZ"
+export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL ODBC LEVELDB BRPC ROCKSDB LIBRDKAFKA FLATBUFFERS ARROW BROTLI DOUBLE_CONVERSION ZSTD S2 BITSHUFFLE CROARINGBITMAP ORC JEMALLOC CCTZ DATATABLES BOOTSTRAP_TABLE_JS BOOTSTRAP_TABLE_CSS"
 

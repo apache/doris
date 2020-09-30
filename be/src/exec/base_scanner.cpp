@@ -27,23 +27,25 @@
 
 namespace doris {
 
-BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params, ScannerCounter* counter) :
-        _state(state), _params(params), _counter(counter),
-        _src_tuple(nullptr),
-        _src_tuple_row(nullptr),
+BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
+                         const TBrokerScanRangeParams& params, ScannerCounter* counter)
+        : _state(state),
+          _params(params),
+          _counter(counter),
+          _src_tuple(nullptr),
+          _src_tuple_row(nullptr),
 #if BE_TEST
-        _mem_tracker(new MemTracker()),
-        _mem_pool(_mem_tracker.get()),
+          _mem_tracker(new MemTracker()),
 #else
-        _mem_tracker(new MemTracker(-1, "Broker Scanner", state->instance_mem_tracker())),
-        _mem_pool(_state->instance_mem_tracker()),
+          _mem_tracker(MemTracker::CreateTracker(-1, "Broker Scanner", state->instance_mem_tracker())),
 #endif
-        _dest_tuple_desc(nullptr),
-        _strict_mode(false),
-        _profile(profile),
-        _rows_read_counter(nullptr),
-        _read_timer(nullptr),
-        _materialize_timer(nullptr) {
+          _mem_pool(_mem_tracker.get()),
+          _dest_tuple_desc(nullptr),
+          _strict_mode(false),
+          _profile(profile),
+          _rows_read_counter(nullptr),
+          _read_timer(nullptr),
+          _materialize_timer(nullptr) {
 }
 
 Status BaseScanner::open() {
@@ -113,7 +115,7 @@ Status BaseScanner::init_expr_ctxes() {
         }
         ExprContext* ctx = nullptr;
         RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker.get()));
+        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
         RETURN_IF_ERROR(ctx->open(_state));
         _dest_expr_ctx.emplace_back(ctx);
         if (has_slot_id_map) {
@@ -134,7 +136,7 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
-bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool* mem_pool) {
+bool BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     int ctx_idx = 0;
     for (auto slot_desc : _dest_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {

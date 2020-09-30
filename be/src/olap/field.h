@@ -43,8 +43,9 @@ public:
     explicit Field(const TabletColumn& column)
         : _type_info(get_type_info(column.type())),
         _key_coder(get_key_coder(column.type())),
+        _name(column.name()),
         _index_size(column.index_length()),
-        _is_nullable(column.is_nullable()),
+        _is_nullable(column.is_nullable()), 
         _agg_info(get_aggregate_info(column.aggregation(), column.type())),
         _length(column.length()) {
     }
@@ -55,6 +56,7 @@ public:
     inline int32_t length() const { return _length; }
     inline size_t field_size() const { return size() + 1; }
     inline size_t index_size() const { return _index_size; }
+    inline const std::string& name() const { return _name; }
 
     virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
@@ -78,7 +80,7 @@ public:
     // todo(kks): Unify AggregateInfo::init method and Field::agg_init method
 
     // This function will initialize destination with source.
-    // This functionn differs copy functionn in that if this filed
+    // This functionn differs copy functionn in that if this field
     // contain aggregate information, this functionn will initialize
     // destination in aggregate format, and update with srouce content.
     virtual void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool, ObjectPool* agg_pool) const {
@@ -189,12 +191,12 @@ public:
         _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
     }
 
-    // deep copy filed content from `src` to `dst` without null-byte
+    // deep copy field content from `src` to `dst` without null-byte
     inline void deep_copy_content(char* dst, const char* src, MemPool* mem_pool) const {
         _type_info->deep_copy(dst, src, mem_pool);
     }
 
-    // shallow copy filed content from `src` to `dst` without null-byte.
+    // shallow copy field content from `src` to `dst` without null-byte.
     // for string like type, shallow copy only copies Slice, not the actual data pointed by slice.
     inline void shallow_copy_content(char* dst, const char* src) const {
         _type_info->shallow_copy(dst, src);
@@ -259,6 +261,7 @@ private:
     // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
     const TypeInfo* _type_info;
     const KeyCoder* _key_coder;
+    std::string _name;
     uint16_t _index_size;
     bool _is_nullable;
 

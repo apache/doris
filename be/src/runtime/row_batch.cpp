@@ -56,7 +56,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
-        _mem_tracker->consume(_tuple_ptrs_size);
+        _mem_tracker->Consume(_tuple_ptrs_size);
         _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != NULL);
     } else {
@@ -90,7 +90,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
-        _mem_tracker->consume(_tuple_ptrs_size);
+        _mem_tracker->Consume(_tuple_ptrs_size);
         _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != nullptr);
     } else {
@@ -188,7 +188,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
     if (config::enable_partitioned_aggregation) {
-        _mem_tracker->consume(_tuple_ptrs_size);
+        _mem_tracker->Consume(_tuple_ptrs_size);
         _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != NULL);
     } else {
@@ -291,7 +291,7 @@ void RowBatch::clear() {
     if (config::enable_partitioned_aggregation) {
         DCHECK(_tuple_ptrs != NULL);
         free(_tuple_ptrs);
-        _mem_tracker->release(_tuple_ptrs_size);
+        _mem_tracker->Release(_tuple_ptrs_size);
         _tuple_ptrs = NULL;
     }
     _cleared = true;
@@ -438,7 +438,7 @@ void RowBatch::add_io_buffer(DiskIoMgr::BufferDescriptor* buffer) {
     DCHECK(buffer != NULL);
     _io_buffers.push_back(buffer);
     _auxiliary_mem_usage += buffer->buffer_len();
-    buffer->set_mem_tracker(_mem_tracker);
+    buffer->set_mem_tracker(std::shared_ptr<MemTracker>(_mem_tracker));  // TODO(yingchun): fixme
 }
 
 Status RowBatch::resize_and_allocate_tuple_buffer(RuntimeState* state,
@@ -522,23 +522,30 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
         DiskIoMgr::BufferDescriptor* buffer = _io_buffers[i];
         dest->_io_buffers.push_back(buffer);
         dest->_auxiliary_mem_usage += buffer->buffer_len();
-        buffer->set_mem_tracker(dest->_mem_tracker);
+        buffer->set_mem_tracker(std::shared_ptr<MemTracker>(dest->_mem_tracker));   // TODO(yingchun): fixme
     }
+    _io_buffers.clear();
 
     for (BufferInfo& buffer_info : _buffers) {
         dest->add_buffer(
             buffer_info.client, std::move(buffer_info.buffer), FlushMode::NO_FLUSH_RESOURCES);
     }
+    _buffers.clear();
 
     for (int i = 0; i < _tuple_streams.size(); ++i) {
         dest->_tuple_streams.push_back(_tuple_streams[i]);
         dest->_auxiliary_mem_usage += _tuple_streams[i]->byte_size();
     }
+    // Resource release should be done by dest RowBatch. if we don't clear the corresponding resources.
+    // This Rowbatch calls the reset() method, dest Rowbatch will also call the reset() method again,
+    // which will cause the core problem of double delete
+    _tuple_streams.clear();
 
     for (int i = 0; i < _blocks.size(); ++i) {
         dest->_blocks.push_back(_blocks[i]);
         dest->_auxiliary_mem_usage += _blocks[i]->buffer_len();
     }
+    _blocks.clear();
 
     dest->_need_to_return |= _need_to_return;
 
@@ -578,7 +585,7 @@ void RowBatch::acquire_state(RowBatch* src) {
         DiskIoMgr::BufferDescriptor* buffer = src->_io_buffers[i];
         _io_buffers.push_back(buffer);
         _auxiliary_mem_usage += buffer->buffer_len();
-        buffer->set_mem_tracker(_mem_tracker);
+        buffer->set_mem_tracker(std::shared_ptr<MemTracker>(_mem_tracker));  // TODO(yingchun): fixme
     }
     src->_io_buffers.clear();
     src->_auxiliary_mem_usage = 0;

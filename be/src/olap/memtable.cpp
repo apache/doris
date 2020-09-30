@@ -31,22 +31,21 @@ namespace doris {
 
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker)
-    : _tablet_id(tablet_id),
-      _schema(schema),
-      _tablet_schema(tablet_schema),
-      _tuple_desc(tuple_desc),
-      _slot_descs(slot_descs),
-      _keys_type(keys_type),
-      _row_comparator(_schema),
-      _rowset_writer(rowset_writer) {
-
-    _schema_size = _schema->schema_size();
-    _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker));
-    _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
-    _table_mem_pool.reset(new MemPool(_mem_tracker.get()));
-    _skip_list = new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
-}
+                   KeysType keys_type, RowsetWriter* rowset_writer,
+                   const std::shared_ptr<MemTracker>& parent_tracker)
+        : _tablet_id(tablet_id),
+          _schema(schema),
+          _tablet_schema(tablet_schema),
+          _tuple_desc(tuple_desc),
+          _slot_descs(slot_descs),
+          _keys_type(keys_type),
+          _row_comparator(_schema),
+          _mem_tracker(MemTracker::CreateTracker(-1, "MemTable", parent_tracker)),
+          _buffer_mem_pool(new MemPool(_mem_tracker.get())),
+          _table_mem_pool(new MemPool(_mem_tracker.get())),
+          _schema_size(_schema->schema_size()),
+          _skip_list(new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS)),
+          _rowset_writer(rowset_writer) {}
 
 MemTable::~MemTable() {
     delete _skip_list;
@@ -109,7 +108,11 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
-    agg_update_row(&dst_row, src_row, _table_mem_pool.get());
+    if (_tablet_schema->has_sequence_col()) {
+        agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(), _table_mem_pool.get());
+    } else {
+        agg_update_row(&dst_row, src_row, _table_mem_pool.get());
+    }
 }
 
 OLAPStatus MemTable::flush() {
@@ -125,8 +128,8 @@ OLAPStatus MemTable::flush() {
         }
         RETURN_NOT_OK(_rowset_writer->flush());
     }
-    DorisMetrics::instance()->memtable_flush_total.increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->memtable_flush_total->increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     return OLAP_SUCCESS;
 }
 

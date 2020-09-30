@@ -1032,7 +1032,7 @@ bool SplitStringIntoKeyValues(const string& line,
 bool SplitStringIntoKeyValuePairs(const string& line,
                                   const string& key_value_delimiters,
                                   const string& key_value_pair_delimiters,
-                                  vector<pair<string, string> >* kv_pairs);
+                                  vector<pair<string, string>>* kv_pairs);
 
 
 // ----------------------------------------------------------------------

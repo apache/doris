@@ -79,8 +79,10 @@ under the License.
 
 * `dynamic_partition.time_unit`
 
-    动态分区调度的单位。可指定为 `DAY`、`WEEK`、`MONTH`。分别表示按天、按星期、按月进行分区创建或删除。
+    动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`。分别表示按天、按星期、按月进行分区创建或删除。
     
+    当指定为 `HOUR` 时，动态创建的分区名后缀格式为 `yyyyMMddHH`，例如`2020032501`。
+
     当指定为 `DAY` 时，动态创建的分区名后缀格式为 `yyyyMMdd`，例如`20200325`。
     
     当指定为 `WEEK` 时，动态创建的分区名后缀格式为`yyyy_ww`。即当前日期属于这一年的第几周，例如 `2020-03-25` 创建的分区名后缀为 `2020_13`, 表明目前为2020年第13周。
@@ -106,7 +108,11 @@ under the License.
 * `dynamic_partition.buckets`
 
     动态创建的分区所对应的分桶数量。
-    
+  
+* `dynamic_partition.replication_num`
+
+    动态创建的分区所对应的副本数量，如果不填写，则默认为该表创建时指定的副本数量。
+
 * `dynamic_partition.start_day_of_week`
 
     当 `time_unit` 为 `WEEK` 时，该参数用于指定每周的起始点。取值为 1 到 7。其中 1 表示周一，7 表示周日。默认为 1，即表示每周以周一为起始点。
@@ -115,17 +121,22 @@ under the License.
 
     当 `time_unit` 为 `MONTH` 时，该参数用于指定每月的起始日期。取值为 1 到 28。其中 1 表示每月1号，28 表示每月28号。默认为 1，即表示每月以1号位起始点。暂不支持以29、30、31号为起始日，以避免因闰年或闰月带来的歧义。
   
+### 注意事项 
+ 
+动态分区使用过程中，如果因为一些意外情况导致 `dynamic_partition.start` 和 `dynamic_partition.end` 之间的某些分区丢失，那么当前时间与 `dynamic_partition.end` 之间的丢失分区会被重新创建，`dynamic_partition.start`与当前时间之间的丢失分区不会重新创建。
+    
 ## 示例
 
 1. 表 tbl1 分区列 k1 类型为 DATE，创建一个动态分区规则。按天分区，只保留最近7天的分区，并且预先创建未来3天的分区。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -153,12 +164,13 @@ under the License.
 2. 表 tbl1 分区列 k1 类型为 DATETIME，创建一个动态分区规则。按星期分区，只保留最近2个星期的分区，并且预先创建未来2个星期的分区。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATETIME,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -197,12 +209,13 @@ under the License.
 3. 表 tbl1 分区列 k1 类型为 DATE，创建一个动态分区规则。按月分区，不删除历史分区，并且预先创建未来2个月的分区。同时设定以每月3号为起始日。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",

@@ -27,17 +27,24 @@
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, mem_tracker, StorageEngine::instance());
+OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
+                             DeltaWriter** writer) {
+    *writer = new DeltaWriter(req, parent, StorageEngine::instance());
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine) :
-        _req(*req), _tablet(nullptr), _cur_rowset(nullptr), _new_rowset(nullptr),
-        _new_tablet(nullptr), _rowset_writer(nullptr), _tablet_schema(nullptr),
-        _delta_written_success(false), _storage_engine(storage_engine) {
-    _mem_tracker.reset(new MemTracker(-1, "delta writer", parent));
-}
+DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
+                         StorageEngine* storage_engine)
+        : _req(*req),
+          _tablet(nullptr),
+          _cur_rowset(nullptr),
+          _new_rowset(nullptr),
+          _new_tablet(nullptr),
+          _rowset_writer(nullptr),
+          _tablet_schema(nullptr),
+          _delta_written_success(false),
+          _storage_engine(storage_engine),
+          _mem_tracker(MemTracker::CreateTracker(-1, "DeltaWriter", parent)) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -53,6 +60,10 @@ DeltaWriter::~DeltaWriter() {
     if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
+
+        const FlushStatistic& stat = _flush_token->get_stats();
+        _tablet->flush_bytes->increment(stat.flush_size_bytes);
+        _tablet->flush_count->increment(stat.flush_count);
     }
 
     if (_tablet != nullptr) {
@@ -85,7 +96,7 @@ OLAPStatus DeltaWriter::init() {
     TabletManager* tablet_mgr = _storage_engine->tablet_manager();
     _tablet = tablet_mgr->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
-        LOG(WARNING) << "fail to find tablet . tablet_id=" << _req.tablet_id
+        LOG(WARNING) << "fail to find tablet. tablet_id=" << _req.tablet_id
                      << ", schema_hash=" << _req.schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
@@ -132,9 +143,10 @@ OLAPStatus DeltaWriter::init() {
     writer_context.tablet_id = _req.tablet_id;
     writer_context.partition_id = _req.partition_id;
     writer_context.tablet_schema_hash = _req.schema_hash;
-    writer_context.rowset_type = _storage_engine->default_rowset_type();
     if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         writer_context.rowset_type = BETA_ROWSET;
+    } else {
+        writer_context.rowset_type = ALPHA_ROWSET;
     }
     writer_context.rowset_path_prefix = _tablet->tablet_path();
     writer_context.tablet_schema = &(_tablet->tablet_schema());
@@ -195,7 +207,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
 void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
                                   _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker.get()));
+                                  _mem_tracker));
 }
 
 OLAPStatus DeltaWriter::close() {

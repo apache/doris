@@ -122,6 +122,9 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
 
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
+
+    _filtered_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentFiltered", TUnit::UNIT);
+    _total_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentTotal", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -558,7 +561,7 @@ static Status get_hints(
         tablet_id, schema_hash, true, &err);
     if (table == nullptr) {
         std::stringstream ss;
-        ss << "failed to get tablet: " << tablet_id << "with schema hash: "
+        ss << "failed to get tablet: " << tablet_id << " with schema hash: "
             << schema_hash << ", reason: " << err;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
@@ -681,7 +684,11 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
             }
             OlapScanner* scanner = new OlapScanner(
                 state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
+            // add scanner to pool before doing prepare.
+            // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool->add(scanner);
+            RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _olap_filter, _is_null_vector));
+    
             _olap_scanners.push_back(scanner);
             disk_set.insert(scanner->scan_disk());
         }
@@ -950,7 +957,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
 }
 
 void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str) {
-    if (Expr::type_without_cast(expr) != TExprNodeType::SLOT_REF) {
+    if (expr->node_type() != TExprNodeType::SLOT_REF) {
         return;
     }
 
@@ -1254,7 +1261,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             break;
         }
         RowBatch *row_batch = new RowBatch(
-                this->row_desc(), state->batch_size(), _runtime_state->fragment_mem_tracker());
+                this->row_desc(), state->batch_size(), _runtime_state->fragment_mem_tracker().get());
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {

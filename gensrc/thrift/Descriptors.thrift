@@ -215,6 +215,17 @@ struct TMySQLTable {
   6: required string table
 }
 
+struct TOdbcTable {
+  1: optional string host
+  2: optional string port
+  3: optional string user
+  4: optional string passwd
+  5: optional string db
+  6: optional string table
+  7: optional string driver
+  8: optional Types.TOdbcTableType type
+}
+
 struct TEsTable {
 }
 
@@ -242,6 +253,7 @@ struct TTableDescriptor {
   12: optional TSchemaTable schemaTable
   14: optional TBrokerTable BrokerTable
   15: optional TEsTable esTable
+  16: optional TOdbcTable odbcTable
 }
 
 struct TDescriptorTable {

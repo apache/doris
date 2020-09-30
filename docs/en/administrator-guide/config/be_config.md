@@ -34,10 +34,47 @@ This document mainly introduces the relevant configuration items of BE.
 (TODO)
 
 ## Set configuration items
-(TODO)
+
+There are two ways to configure BE configuration items:
+
+1. Static configuration
+
+         Add and set configuration items in the `conf/be.conf` file. The configuration items in `be.conf` will be read when BE starts. Configuration items not in `be.conf` will use default values.
+
+2. Dynamic configuration
+
+         After BE starts, the configuration items can be dynamically set with the following commands.
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+
+         **Configuration items modified in this way will become invalid after the BE process restarts. **
 
 ## Examples
-(TODO)
+
+1. Modify `max_compaction_concurrency` statically
+
+         By adding in the `be.conf` file:
+
+         ```max_compaction_concurrency=5```
+
+         Then restart the BE process to take effect the configuration.
+
+2. Modify `streaming_load_max_mb` dynamically
+
+         After BE starts, the configuration item `streaming_load_max_mb` is dynamically set by the following command:
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+
+         The return value is as follows, indicating that the setting is successful.
+
+         ```
+         {
+             "status": "OK",
+             "msg": ""
+         }
+         ```
+
+         **The configuration will be invalid after BE restarted. **
 
 ## Configurations
 
@@ -132,6 +169,14 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `create_tablet_worker_count`
 
+### `disable_auto_compaction`
+
+* Type: bool
+* Description: Whether disable automatic compaction task
+* Default value: false
+
+Generally it needs to be turned off. When you want to manually operate the compaction task in the debugging or test environment, you can turn on the configuration.
+
 ### `cumulative_compaction_budgeted_bytes`
 
 ### `cumulative_compaction_check_interval_seconds`
@@ -147,6 +192,46 @@ User can set this configuration to a larger value to get better QPS performance.
 * Default value: 10
 
 Similar to `base_compaction_trace_threshold`.
+
+### `cumulative_compaction_policy`
+
+* Type: string
+* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
+* Default value: size_based
+
+In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satifies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
+
+### `cumulative_size_based_promotion_size_mbytes`
+
+* Type: int64
+* Description: Under the size_based policy, the total disk size of the output rowset of cumulative compaction exceeds this configuration size, and the rowset will be used for base compaction. The unit is m bytes.
+* Default value: 1024
+
+In general, if the configuration is less than 2G, in order to prevent the cumulative compression time from being too long, resulting in the version backlog.
+
+### `cumulative_size_based_promotion_ratio`
+
+* Type: double
+* Description: Under the size_based policy, when the total disk size of the cumulative compaction output rowset exceeds the configuration ratio of the base version rowset, the rowset will be used for base compaction.
+* Default value: 0.05
+
+Generally, it is recommended that the configuration should not be higher than 0.1 and lower than 0.02.
+
+### `cumulative_size_based_promotion_min_size_mbytes`
+
+* Type: int64
+* Description: Under the size_based strategy, if the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
+* Default value: 64
+
+Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
+
+### `cumulative_size_based_compaction_lower_size_mbytes`
+
+* Type: int64
+* Description: Under the size_based strategy, when the cumulative compaction is merged, the selected rowsets to be merged have a larger disk size than this configuration, then they are divided and merged according to the level policy. When it is smaller than this configuration, merge directly. The unit is m bytes.
+* Default value: 64
+
+Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.
 
 ### `default_num_rows_per_column_file_block`
 
@@ -245,6 +330,15 @@ When BE starts, it will check all the paths under the `storage_root_path` in  co
 
 The default value is `false`.
 
+### ignore_rowset_stale_unconsistent_delete
+
+* Type: boolean
+* Description:It is used to decide whether to delete the outdated merged rowset if it cannot form a consistent version path.
+* Default: false
+
+The merged expired rowset version path will be deleted after half an hour. In abnormal situations, deleting these versions will result in the problem that the consistent path of the query cannot be constructed. When the configuration is false, the program check is strict and the program will directly report an error and exit.
+When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispathed by fe, -230 error will appear.
+
 ### inc_rowset_expired_sec
 
 * Type: boolean
@@ -261,8 +355,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 1. If the tablet information is not repairable, you can delete the wrong tablet through the `meta_tool` tool under the condition that other copies are normal.
 2. Set `ignore_load_tablet_failure` to true, BE will ignore these wrong tablets and start normally.
-
-### `inc_rowset_expired_sec`
 
 ### `index_stream_cache_capacity`
 
@@ -329,6 +421,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `min_buffer_size`
 
 ### `min_compaction_failure_interval_sec`
+
+* Type: int32
+* Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
+* Default value: 600
+* Unit: seconds
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
@@ -428,7 +525,32 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `storage_root_path`
 
+### `storage_strict_check_incompatible_old_format`
+* Type: bool
+* Description: Used to check incompatible old format strictly
+* Default value: true
+* Dynamically modify: false
+
+This config is used to check incompatible old format hdr_ format whether doris uses strict way. When config is true, 
+process will log fatal and exit. When config is false, process will only log warning.
+
 ### `streaming_load_max_mb`
+
+* Type: int64
+* Description: Used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 10240
+* Dynamically modify: yes
+
+Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
+
+### `streaming_load_max_batch_size_mb`
+
+* Type: int64
+* Description: For some data formats, such as JSON, it is used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Default value: 100
+* Dynamically modify: yes
+
+Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
 
 ### `streaming_load_rpc_max_alive_time_sec`
 
@@ -454,6 +576,14 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `tablet_stat_cache_update_interval_second`
 
+### `tablet_rowset_stale_sweep_time_sec`
+
+* Type: int64
+* Description: It is used to control the expiration time of cleaning up the merged rowset version. When the current time now() minus the max created rowset‘s create time in a version path is greater than tablet_rowset_stale_sweep_time_sec, the current path is cleaned up and these merged rowsets are deleted, the unit is second.
+* Default: 1800
+
+When writing is too frequent and the disk time is insufficient, you can configure less tablet_rowset_stale_sweep_time_sec. However, if this time is less than 5 minutes, it may cause fe to query the version that has been merged, causing a query -230 error.
+
 ### `tablet_writer_open_rpc_timeout_sec`
 
 ### `tc_free_memory_rate`
@@ -467,6 +597,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 If the system is found to be in a high-stress scenario and a large number of threads are found in the tcmalloc lock competition phase through the BE thread stack, such as a large number of `SpinLock` related stacks, you can try increasing this parameter to improve system performance. [Reference] (https://github.com/gperftools/gperftools/issues/1111)
 
 ### `tc_use_memory_min`
+
+### `thrift_client_retry_interval_ms`
+
+* Type: int64
+* Description: Used to set retry interval for thrift client in be to avoid avalanche disaster in fe thrift server, the unit is ms.
+* Default: 1000
 
 ### `thrift_connect_timeout_seconds`
 

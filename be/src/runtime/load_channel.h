@@ -39,7 +39,7 @@ class TabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t mem_limit,
-                int64_t timeout_s, MemTracker* mem_tracker);
+                int64_t timeout_s, const std::shared_ptr<MemTracker>& mem_tracker);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -75,7 +75,7 @@ private:
 
     UniqueId _load_id;
     // Tracks the total memory comsupted by current load job on this BE
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;

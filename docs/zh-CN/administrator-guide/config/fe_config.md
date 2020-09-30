@@ -110,6 +110,14 @@ FE 的配置项有两种方式进行配置：
 
 ## 配置项列表
 
+### `agent_task_resend_wait_time_ms`
+
+当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。 
+  
+该配置目前主要用来解决`PUBLISH_VERSION`代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
+
+但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。  
+    
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
@@ -200,6 +208,12 @@ FE 的配置项有两种方式进行配置：
 
 ### `consistency_check_start_time`
 
+### `db_used_data_quota_update_interval_secs`
+
+为了更好的数据导入性能，在数据导入之前的数据库已使用的数据量是否超出配额的检查中，我们并不实时计算数据库已经使用的数据量，而是获取后台线程周期性更新的值。
+
+该配置用于设置更新数据库使用的数据量的值的时间间隔。
+
 ### `default_rowset_type`
 
 ### `default_storage_medium`
@@ -261,6 +275,9 @@ FE 的配置项有两种方式进行配置：
 
 ### `enable_auth_check`
 
+### `enable_batch_delete_by_default`
+在创建 unique 表时是否自动启用批量删除功能
+
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`
@@ -317,6 +334,16 @@ FE 的配置项有两种方式进行配置：
 
 ### `http_port`
 
+HTTP服务监听的端口号，默认为8030
+
+### `http_max_line_length`
+
+HTTP服务允许接收请求的URL的最大长度，单位为比特，默认是4096
+
+### `http_max_header_size`
+
+HTTP服务允许接收请求的Header的最大长度，单位为比特，默认是8192
+
 ### `ignore_meta_check`
 
 ### `init_connect`
@@ -363,6 +390,10 @@ FE 的配置项有两种方式进行配置：
 
 ### `max_agent_task_threads_num`
 
+### `max_allowed_in_element_num_of_delete`
+    
+该配置被用于限制delete语句中谓词in的元素数量。默认值为1024。 
+
 ### `max_allowed_packet`
 
 ### `max_backend_down_time_second`
@@ -374,6 +405,15 @@ FE 的配置项有两种方式进行配置：
 ### `max_broker_concurrency`
 
 ### `max_bytes_per_broker_scanner`
+
+### `max_clone_task_timeout_sec`
+
+类型：long
+说明：用于控制一个 clone 任务的最大超时时间。单位秒。
+默认值：7200
+动态修改：是
+
+可以配合 `mix_clone_task_timeout_sec` 来控制一个 clone 任务最大和最小的超时间。正常情况下，一个 clone 任务的超时间是通过数据量和最小传输速率（5MB/s）估算的。而在某些特殊情况下，可以通过这两个配置来认为设定 clone 任务超时时间的上下界，以保证 clone 任务可以顺利完成。
 
 ### `max_connection_scheduler_threads_num`
 
@@ -436,6 +476,15 @@ current running txns on db xxx is xx, larger than limit xx
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
+
+### `min_clone_task_timeout_sec`
+
+类型：long
+说明：用于控制一个 clone 任务的最小超时时间。单位秒。
+默认值：120
+动态修改：是
+
+见 `max_clone_task_timeout_sec` 说明。
 
 ### `mini_load_default_timeout_second`
 
@@ -591,8 +640,62 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 
 ### `enable_strict_storage_medium`
 
-该配置表示在建表时，检查集群中是否存在相应的存储介质。例如当用户指定建表时存储介质为`SSD`，但此时集群中只存在`HDD`的磁盘时,
+该配置表示在建表时，检查集群中是否存在相应的存储介质。例如当用户指定建表时存储介质为`SSD`，但此时集群中只存在`HDD`的磁盘时:
 
 若该参数为`True`，则建表时会报错 `Failed to find enough host in all backends with storage medium with storage medium is SSD, need 3`.
 
 若该参数为`False`，则建表时不会报错，而是将表建立在存储介质为`HDD`的磁盘上。
+
+### `thrift_server_type`
+
+该配置表示FE的Thrift服务使用的服务模型, 类型为string, 大小写不敏感。
+
+若该参数为`SIMPLE`, 则使用`TSimpleServer`模型, 该模型一般不适用于生产环境，仅限于测试使用。
+
+若该参数为`THREADED`, 则使用`TThreadedSelectorServer`模型，该模型为非阻塞式I/O模型，即主从Reactor模型，该模型能及时响应大量的并发连接请求，在多数场景下有较好的表现。
+
+若该参数为`THREAD_POOL`, 则使用`TThreadPoolServer`模型，该模型为阻塞式I/O模型，使用线程池处理用户连接，并发连接数受限于线程池的数量，如果能提前预估并发请求的数量，并且能容忍足够多的线程资源开销，该模型会有较好的性能表现，默认使用该服务模型。
+
+### `cache_enable_sql_mode`
+
+该开关打开会缓存SQL查询结果集，如果查询的所有表的所有分区中的最后更新时间离查询时的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count则缓存结果集，下个相同SQL会命中缓存。
+
+### `cache_enable_partition_mode`
+
+该开关打开会按照分区缓存查询结果集，如果查询的表的分区时间离查询时的间隔小于cache_last_version_interval_second，则会按照分区缓存结果集。
+
+查询时会从缓存中获取部分数据，从磁盘中获取部分数据，并把数据合并返回给客户端。
+
+### `cache_last_version_interval_second`
+
+表最新分区的版本的时间间隔，指数据更新离当前的时间间隔，一般设置为900秒，区分离线和实时导入。
+
+### `cache_result_max_row_count`
+
+为了避免过多占用内存，能够被缓存最大的行数，默认2000，超过这个阈值将不能缓存置。
+
+### `recover_with_empty_tablet`
+
+在某些极特殊情况下，如代码BUG、或人为误操作等，可能导致部分分片的全部副本都丢失。这种情况下，数据已经实质性的丢失。但是在某些场景下，业务依然希望能够在即使有数据丢失的情况下，保证查询正常不报错，降低用户层的感知程度。此时，我们可以通过使用空白Tablet填充丢失副本的功能，来保证查询能够正常执行。
+
+将此参数设置为 true，则 Doris 会自动使用空白副本填充所有副本都以损坏或丢失的 Tablet。
+
+默认为 false。
+
+
+### `enable_odbc_table`
+
+将此参数设置为 true，则 Doris 能够支持ODBC的外表建立，查询。具体ODBC表的使用方式，参考ODBC表的使用文档。
+
+在该功能仍然在实验阶段，所以当前改参数默认为 false。
+
+
+### `default_db_data_quota_bytes`
+
+用于设置database data的默认quota值，单位为 bytes，默认1T.
+
+### 'default_max_filter_ratio'
+
+默认的最大容忍可过滤（数据不规范等原因）的数据比例。它将被Load Job 中设置的"max_filter_ratio"覆盖，默认0，取值范围0-1.
+
+

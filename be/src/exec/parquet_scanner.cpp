@@ -18,7 +18,6 @@
 #include "exec/parquet_scanner.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
@@ -80,7 +79,7 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
+        if (fill_dest_tuple(tuple, tuple_pool)) {
             break;// break if true
         }
     }

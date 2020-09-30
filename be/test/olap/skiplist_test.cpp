@@ -50,7 +50,7 @@ struct TestComparator {
 class SkipTest : public testing::Test {};
 
 TEST_F(SkipTest, Empty) {
-    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
     TestComparator cmp;
@@ -68,7 +68,7 @@ TEST_F(SkipTest, Empty) {
 }
 
 TEST_F(SkipTest, InsertAndLookup) {
-    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
     const int N = 2000;
@@ -150,7 +150,7 @@ TEST_F(SkipTest, InsertAndLookup) {
 
 // Only non-DUP model will use Find() and InsertWithHint().
 TEST_F(SkipTest, InsertWithHintNoneDupModel) {
-    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
     const int N = 2000;
@@ -260,7 +260,7 @@ private:
     // Current state of the test
     State _current;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
 
     // SkipList is not protected by _mu.  We just use a single writer
@@ -268,10 +268,10 @@ private:
     SkipList<Key, TestComparator> _list;
 
 public:
-    ConcurrentTest():
-        _mem_tracker(new MemTracker(-1)),
-        _mem_pool(new MemPool(_mem_tracker.get())),
-        _list(TestComparator(), _mem_pool.get(), false) { }
+    ConcurrentTest()
+            : _mem_tracker(new MemTracker(-1)),
+              _mem_pool(new MemPool(_mem_tracker.get())),
+              _list(TestComparator(), _mem_pool.get(), false) {}
 
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {

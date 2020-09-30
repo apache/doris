@@ -85,6 +85,18 @@ SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
 SET forward_to_master = concat('tr', 'u', 'e');
 ```
 
+### 在查询语句中设置变量
+
+在一些场景中，我们可能需要对某些查询有针对性的设置变量。
+通过使用SET_VAR提示可以在查询中设置会话变量（在单个语句内生效）。例子：
+
+```
+SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
+SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+```
+
+注意注释必须以/*+ 开头，并且只能跟随在SELECT之后。
+
 ## 支持的变量
 
 * `SQL_AUTO_IS_NULL`
@@ -159,7 +171,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `exec_mem_limit`
 
-    用于设置单个查询的内存限制。默认为 2GB，单位为字节。
+    用于设置单个查询的内存限制。默认为 2GB，单位为B/K/KB/M/MB/G/GB/T/TB/P/PB, 默认为B。
     
     该参数用于限制一个查询计划中，单个查询计划的实例所能使用的内存。一个查询计划可能有多个实例，一个 BE 节点可能执行一个或多个实例。所以该参数并不能准确限制一个查询在整个集群的内存使用，也不能准确限制一个查询在单一 BE 节点上的内存使用。具体需要根据生成的查询计划判断。
     
@@ -233,7 +245,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `lower_case_table_names`
 
     用于兼容 MySQL 客户端。不可设置。当前 Doris 中的表名默认为大小写敏感。
-    
+
 * `max_allowed_packet`
 
     用于兼容 JDBC 连接池 C3P0。 无实际作用。
@@ -317,6 +329,10 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `version`
 
     用于兼容 MySQL 客户端。无实际作用。
+
+* `performance_schema`
+
+    用于兼容 8.0.16及以上版本的MySQL JDBC。无实际作用。     
     
 * `version_comment`
 
@@ -338,3 +354,8 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     是否将 bitmap 和 hll 类型的 count distinct 查询重写为 bitmap_union_count 和 hll_union_agg 。
 
+* `prefer_join_method`
+
+    在选择join的具体实现方式是broadcast join还是shuffle join时，如果broadcast join cost和shuffle join cost相等时，优先选择哪种join方式。
+
+    目前该变量的可选值为"broadcast" 或者 "shuffle"。

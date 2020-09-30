@@ -68,7 +68,7 @@ under the License.
 
         timeout: 指定导入的超时时间。单位秒。默认是 600 秒。可设置范围为 1 秒 ~ 259200 秒。
 
-        strict_mode: 用户指定此次导入是否开启严格模式，默认为开启。关闭方式为 -H "strict_mode: false"。
+        strict_mode: 用户指定此次导入是否开启严格模式，默认为关闭。开启方式为 -H "strict_mode: true"。
 
         timezone: 指定本次导入所使用的时区。默认为东八区。该参数会影响所有导入涉及的和时区有关的函数结果。
 
@@ -88,6 +88,14 @@ under the License.
             {"k1" : 3, "v1" : 4}
            ]
            当strip_outer_array为true，最后导入到doris中会生成两行数据。
+
+        json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+
+        merge_type: 数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理， 示例：`-H "merge_type: MERGE" -H "delete: flag=1"`
+        delete: 仅在 MERGE下有意义， 表示数据的删除条件
+        
+        function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, 
+            source_sequence可以是数据源中的列，也可以是表结构中的一列。
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
@@ -144,6 +152,7 @@ under the License.
 
     10. 简单模式，导入json数据
          表结构： 
+
            `category` varchar(512) NULL COMMENT "",
            `author` varchar(512) NULL COMMENT "",
            `title` varchar(512) NULL COMMENT "",
@@ -158,6 +167,7 @@ under the License.
                {"category":"Java","author":"avc","title":"Effective Java","price":95},
                {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
               ]
+
     11. 匹配模式，导入json数据
        json数据格式：
            [
@@ -170,6 +180,26 @@ under the License.
          说明：
            1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
            2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
+
+    12. 用户指定json根节点
+       json数据格式:
+            {
+            "RECORDS":[
+                {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+                {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+                {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+                ]
+            }
+        通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性  
+         curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
+
+    13. 删除与这批导入key 相同的数据
+         curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    14. 将这批数据中与flag 列为ture 的数据相匹配的列删除，其他行正常追加
+         curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1"  -T testData http://host:port/api/testDb/testTbl/_stream_load
+         
+    15. 导入数据到含有sequence列的UNIQUE_KEYS表中
+        curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 ## keyword
     STREAM,LOAD

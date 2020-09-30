@@ -84,8 +84,8 @@ Status UnionNode::prepare(RuntimeState* state) {
 
     // Prepare result expr lists.
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        RETURN_IF_ERROR(Expr::prepare(
-                _child_expr_lists[i], state, child(i)->row_desc(), expr_mem_tracker()));
+        RETURN_IF_ERROR(Expr::prepare(_child_expr_lists[i], state, child(i)->row_desc(),
+                                      expr_mem_tracker()));
         // TODO(zc)
         // AddExprCtxsToFree(_child_expr_lists[i]);
         DCHECK_EQ(_child_expr_lists[i].size(), _tuple_desc->slots().size());
@@ -152,7 +152,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
         if (_child_batch.get() == nullptr) {
             DCHECK_LT(_child_idx, _children.size());
             _child_batch.reset(new RowBatch(
-                    child(_child_idx)->row_desc(), state->batch_size(), mem_tracker()));
+                    child(_child_idx)->row_desc(), state->batch_size(), mem_tracker().get()));
             _child_row_idx = 0;
             // open the current child unless it's the first child, which was already opened in
             // UnionNode::open().
@@ -219,6 +219,7 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
     while (_const_expr_list_idx < _const_expr_lists.size() && !row_batch->at_capacity()) {
         materialize_exprs(
             _const_expr_lists[_const_expr_list_idx], nullptr, tuple_buf, row_batch);
+        RETURN_IF_ERROR(get_error_msg(_const_expr_lists[_const_expr_list_idx]));
         tuple_buf += _tuple_desc->byte_size();
         ++_const_expr_list_idx;
     }

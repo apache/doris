@@ -92,7 +92,7 @@ private:
         }
 
         const RowCursor* current_row(bool* delete_flag) const {
-            *delete_flag = _is_delete;
+            *delete_flag = _is_delete || _current_row->is_delete();
             return _current_row;
         }
 
@@ -109,6 +109,9 @@ private:
             auto res = _refresh_current_row();
             *row = _current_row;
             *delete_flag = _is_delete;
+            if (_current_row!= nullptr) {
+                *delete_flag = _is_delete || _current_row->is_delete();
+            };
             return res;
         }
 
@@ -152,7 +155,12 @@ private:
     // if row cursors equal, compare data version.
     class ChildCtxComparator {
     public:
+        ChildCtxComparator(const bool& revparam=false) {
+            _reverse = revparam;
+        }
         bool operator()(const ChildCtx* a, const ChildCtx* b);
+    private:
+        bool _reverse;
     };
 
     inline OLAPStatus _merge_next(const RowCursor** row, bool* delete_flag);
@@ -172,7 +180,7 @@ private:
     bool _merge = true;
     // used when `_merge == true`
     typedef std::priority_queue<ChildCtx*, std::vector<ChildCtx*>, ChildCtxComparator> MergeHeap;
-    MergeHeap _heap;
+    std::unique_ptr<MergeHeap> _heap;
     // used when `_merge == false`
     int _child_idx = 0;
 
@@ -195,6 +203,11 @@ void CollectIterator::init(Reader* reader) {
             (_reader->_aggregation ||
              _reader->_tablet->keys_type() == KeysType::DUP_KEYS)) {
         _merge = false;
+        _heap.reset(nullptr);
+    } else if (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS) {
+        _heap.reset(new MergeHeap(ChildCtxComparator(true)));
+    } else {
+        _heap.reset(new MergeHeap());
     }
 }
 
@@ -208,8 +221,8 @@ OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
     ChildCtx* child_ptr = child.release();
     _children.push_back(child_ptr);
     if (_merge) {
-        _heap.push(child_ptr);
-        _cur_child = _heap.top();
+        _heap->push(child_ptr);
+        _cur_child = _heap->top();
     } else {
         if (_cur_child == nullptr) {
             _cur_child = _children[_child_idx];
@@ -219,14 +232,14 @@ OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 }
 
 inline OLAPStatus CollectIterator::_merge_next(const RowCursor** row, bool* delete_flag) {
-    _heap.pop();
+    _heap->pop();
     auto res = _cur_child->next(row, delete_flag);
     if (res == OLAP_SUCCESS) {
-        _heap.push(_cur_child);
-        _cur_child = _heap.top();
+        _heap->push(_cur_child);
+        _cur_child = _heap->top();
     } else if (res == OLAP_ERR_DATA_EOF) {
-        if (!_heap.empty()) {
-            _cur_child = _heap.top();
+        if (!_heap->empty()) {
+            _cur_child = _heap->top();
         } else {
             _cur_child = nullptr;
             return OLAP_ERR_DATA_EOF;
@@ -269,12 +282,18 @@ bool CollectIterator::ChildCtxComparator::operator()(const ChildCtx* a, const Ch
         return cmp_res > 0;
     }
     // if row cursors equal, compare data version.
+    // read data from higher version to lower version.
+    // for UNIQUE_KEYS just read the highest version and no need agg_update.
+    // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
+    if (_reverse) {
+        return a->version() < b->version();
+    }
     return a->version() > b->version();
 }
 
 void CollectIterator::clear() {
-    while (!_heap.empty()) {
-        _heap.pop();
+    while (_heap != nullptr && !_heap->empty()) {
+        _heap->pop();
     }
     for (auto child : _children) {
         delete child;
@@ -389,16 +408,18 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
 OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
+    int64_t merged_count = 0;
     do {
         if (UNLIKELY(_next_key == nullptr)) {
             *eof = true;
             return OLAP_SUCCESS;
         }
-
         cur_delete_flag = _next_delete_flag;
-        init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
-
-        int64_t merged_count = 0;
+        // the verion is in reverse order, the first row is the highest version,
+        // in UNIQUE_KEY highest version is the final result, there is no need to
+        // merge the lower versions
+        direct_copy_row(row_cursor, *_next_key);
+        // skip the lower version rows;
         while (nullptr != _next_key) {
             auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
             if (res != OLAP_SUCCESS) {
@@ -407,34 +428,27 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
                 }
                 break;
             }
-
-            // we will not do aggregation in two case:
-            //   1. DUP_KEYS keys type has no semantic to aggregate,
-            //   2. to make cost of each scan round reasonable, we will control merged_count.
-            if (_aggregation && merged_count > config::doris_scanner_row_num) {
-                agg_finalize_row(_value_cids, row_cursor, mem_pool);
-                break;
-            }
             // break while can NOT doing aggregation
             if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
                 agg_finalize_row(_value_cids, row_cursor, mem_pool);
                 break;
             }
-
-            cur_delete_flag = _next_delete_flag;
-            agg_update_row(_value_cids, row_cursor, *_next_key);
             ++merged_count;
+            cur_delete_flag = _next_delete_flag;
+            // if has sequence column, the higher version need to merge the lower versions
+            if (_has_sequence_col) {
+                agg_update_row_with_sequence(_value_cids, row_cursor, *_next_key, _sequence_col_idx);
+            }
         }
 
-        _merged_rows += merged_count;
-
-        if (!cur_delete_flag) {
-            return OLAP_SUCCESS;
+        // if reader needs to filter delete row and current delete_flag is ture, 
+        // then continue
+        if (!(cur_delete_flag && _filter_delete)) {
+            break;
         }
-
         _stats.rows_del_filtered++;
     } while (cur_delete_flag);
-
+    _merged_rows += merged_count;
     return OLAP_SUCCESS;
 }
 
@@ -582,6 +596,19 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 
     _collect_iter = new CollectIterator();
     _collect_iter->init(this);
+
+    if (_tablet->tablet_schema().has_sequence_col()) {
+        _sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+        if (_sequence_col_idx != -1) {
+            for (auto col : _return_columns) {
+                // query has sequence col
+                if (col == _sequence_col_idx) {
+                    _has_sequence_col = true;
+                    break;
+                }
+            }
+        }
+    }
 
     return res;
 }
@@ -1034,8 +1061,13 @@ OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
                                               _tablet->delete_predicates(),
                                               read_params.version.second);
         _tablet->release_header_lock();
+
+        if (read_params.reader_type == READER_BASE_COMPACTION) {
+            _filter_delete = true;
+        }
         return ret;
-    } else {
+    } 
+    else {
         return OLAP_SUCCESS;
     }
 }

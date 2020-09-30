@@ -27,6 +27,8 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_count, MetricUnit::NOUNIT);
+
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
     if (process_mem_limit == -1) {
@@ -61,8 +63,8 @@ static int64_t calc_job_timeout_s(int64_t timeout_in_req_s) {
     return load_channel_timeout_s;
 }
 
-LoadChannelMgr::LoadChannelMgr() : _is_stopped(false) {
-    REGISTER_GAUGE_DORIS_METRIC(load_channel_count, [this]() {
+LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
+    REGISTER_HOOK_METRIC(load_channel_count, [this]() {
         std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
@@ -70,16 +72,17 @@ LoadChannelMgr::LoadChannelMgr() : _is_stopped(false) {
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
-    _is_stopped.store(true);
-    if (_load_channels_clean_thread.joinable()) {
-        _load_channels_clean_thread.join();
+    DEREGISTER_HOOK_METRIC(load_channel_count);
+    _stop_background_threads_latch.count_down();
+    if (_load_channels_clean_thread) {
+        _load_channels_clean_thread->join();
     }
     delete _lastest_success_channel;
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _mem_tracker.reset(new MemTracker(load_mem_limit, "load channel mgr"));
+    _mem_tracker = MemTracker::CreateTracker(load_mem_limit, "load channel mgr");
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -103,7 +106,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             channel.reset(new LoadChannel(load_id, job_max_memory,
-                                          job_timeout_s, _mem_tracker.get()));
+                                          job_timeout_s, _mem_tracker));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -212,22 +215,22 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 }
 
 Status LoadChannelMgr::_start_bg_worker() {
-    _load_channels_clean_thread = std::thread(
-        [this] {
+    RETURN_IF_ERROR(
+        Thread::create("LoadChannelMgr", "cancel_timeout_load_channels",
+                       [this]() {
 #ifdef GOOGLE_PROFILER
-            ProfilerRegisterThread();
+                           ProfilerRegisterThread();
 #endif
-
 #ifndef BE_TEST
-            uint32_t interval = 60;
+                           uint32_t interval = 60;
 #else
-            uint32_t interval = 1;
+                           uint32_t interval = 1;
 #endif
-            while (!_is_stopped.load()) {
-                _start_load_channels_clean();
-                sleep(interval);
-            }
-        });
+                           while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
+                               _start_load_channels_clean();
+                           }},
+                       &_load_channels_clean_thread));
+
     return Status::OK();
 }
 

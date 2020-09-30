@@ -106,5 +106,5 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 Asynchronous imports are, in fact, encapsulated asynchronously by a synchronous import. Filling in streaming is as efficient as not filling in * execution.
 
 Since Doris used to import asynchronously, in order to be compatible with the old usage habits, the `INSERT'statement without streaming will still return a label. Users need to view the status of the `label' import job through the `SHOW LOAD command.
-##keyword
+## keyword
 INSERT

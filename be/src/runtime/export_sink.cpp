@@ -67,10 +67,10 @@ Status ExportSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
 
-    _mem_tracker.reset(new MemTracker(-1, "ExportSink", state->instance_mem_tracker()));
+    _mem_tracker = MemTracker::CreateTracker(-1, "ExportSink", state->instance_mem_tracker());
 
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker.get()));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
 
     // TODO(lingbin): add some Counter
     _bytes_written_counter = ADD_COUNTER(profile(), "BytesExported", TUnit::BYTES);

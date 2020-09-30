@@ -42,7 +42,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/palo_internal_service.pb.h"
 
 #include <arpa/inet.h>
 
@@ -128,6 +127,11 @@ public:
         return &_pb_batch;
     }
 
+    std::string get_fragment_instance_id_str() {
+        UniqueId uid(_fragment_instance_id);
+        return uid.to_string();
+    }
+
 private:
     inline Status _wait_last_brpc() {
         auto cntl = &_closure->cntl;
@@ -170,7 +174,7 @@ private:
     PUniqueId _finst_id;
     PRowBatch _pb_batch;
     PTransmitDataParams _brpc_request;
-    palo::PInternalService_Stub* _brpc_stub = nullptr;
+    PBackendService_Stub* _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
@@ -379,26 +383,31 @@ Status DataStreamSender::init(const TDataSink& tsink) {
 Status DataStreamSender::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     _state = state;
+    std::string instances;
+    for (const auto& channel : _channels) {
+        if (instances.empty()) {
+            instances = channel->get_fragment_instance_id_str();
+        } else {
+            instances += ", ";
+            instances += channel->get_fragment_instance_id_str();
+        }
+    }
     std::stringstream title;
-    title << "DataStreamSender (dst_id=" << _dest_node_id << ")";
+    title << "DataStreamSender (dst_id=" << _dest_node_id << ", dst_fragments=[" << instances << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker.reset(
-            new MemTracker(_profile, -1, "DataStreamSender", state->instance_mem_tracker()));
+    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamSender", state->instance_mem_tracker());
 
-    if (_part_type == TPartitionType::UNPARTITIONED 
-            || _part_type == TPartitionType::RANDOM) {
+    if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         // Randomize the order we open/transmit to channels to avoid thundering herd problems.
         srand(reinterpret_cast<uint64_t>(this));
         random_shuffle(_channels.begin(), _channels.end());
     } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
-        RETURN_IF_ERROR(Expr::prepare(
-                _partition_expr_ctxs, state, _row_desc, _expr_mem_tracker.get()));
+        RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
     } else {
-        RETURN_IF_ERROR(Expr::prepare(
-                _partition_expr_ctxs, state, _row_desc, _expr_mem_tracker.get()));
+        RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
         for (auto iter : _partition_infos) {
-            RETURN_IF_ERROR(iter->prepare(state, _row_desc, _expr_mem_tracker.get()));
+            RETURN_IF_ERROR(iter->prepare(state, _row_desc, _expr_mem_tracker));
         }
     }
 

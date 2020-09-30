@@ -77,7 +77,4 @@ Please refer to [Scheam Change](alter-table-schema-change.html)
     * `LARGEINT`
     * `DECIMAL`
     * `BOOL`
-* The bitmap index takes effect only in segmentV2. You need to add the following configuration to the configuration file of be
-    ```
-    default_rowset_type=BETA
-    ``` 
+* The bitmap index takes effect only in segmentV2. The table's storage format will be converted to V2 automatically when creating index.

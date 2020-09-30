@@ -19,7 +19,8 @@
 
 #include <iomanip>
 #include <sstream>
-#include <math.h>
+#include <cmath>
+#include <stdlib.h>
 
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
@@ -114,6 +115,66 @@ DoubleVal MathFunctions::e(FunctionContext* ctx) {
     return DoubleVal(M_E);
 }
 
+DecimalVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::DecimalVal& val) {
+    if (val.is_null) {
+        return DecimalVal::null();
+    } else if (val.sign) {
+        return negative_decimal(ctx, val);
+    } else {
+        return positive_decimal(ctx, val);
+    }
+}
+
+DecimalV2Val MathFunctions::abs(FunctionContext* ctx, const doris_udf::DecimalV2Val& val) {
+    if (val.is_null) {
+        return DecimalV2Val::null();
+    }
+    if (UNLIKELY(val.val == MIN_INT128)) {
+        return DecimalV2Val::null();
+    } else {
+        return DecimalV2Val(::abs(val.val));
+    }
+}
+
+LargeIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::LargeIntVal& val) {
+    if (val.is_null) {
+        return LargeIntVal::null();
+    }
+    if (UNLIKELY(val.val == MIN_INT128)) {
+        return LargeIntVal::null();
+    } else {
+        return LargeIntVal(::abs(val.val));
+    }
+}
+
+LargeIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::BigIntVal& val) {
+    if (val.is_null) {
+        return LargeIntVal::null();
+    }
+    return LargeIntVal(::abs(__int128(val.val)));
+}
+
+BigIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::IntVal& val) {
+    if (val.is_null) {
+        return BigIntVal::null();
+    }
+    return BigIntVal(::abs(int64_t(val.val)));
+}
+
+IntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::SmallIntVal& val) {
+    if (val.is_null) {
+        return IntVal::null();
+    }
+    return IntVal(::abs(int32_t(val.val)));
+}
+
+SmallIntVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::TinyIntVal& val) {
+    if (val.is_null) {
+        return SmallIntVal::null();
+    }
+    return SmallIntVal(::abs(int16_t(val.val)));
+}
+
 // Generates a UDF that always calls FN() on the input val and returns it.
 #define ONE_ARG_MATH_FN(NAME, RET_TYPE, INPUT_TYPE, FN) \
     RET_TYPE MathFunctions::NAME(FunctionContext* ctx, const INPUT_TYPE& v) { \
@@ -122,6 +183,7 @@ DoubleVal MathFunctions::e(FunctionContext* ctx) {
     }
 
 ONE_ARG_MATH_FN(abs, DoubleVal, DoubleVal, std::fabs);
+ONE_ARG_MATH_FN(abs, FloatVal, FloatVal, std::fabs);
 ONE_ARG_MATH_FN(sin, DoubleVal, DoubleVal, std::sin);
 ONE_ARG_MATH_FN(asin, DoubleVal, DoubleVal, std::asin);
 ONE_ARG_MATH_FN(cos, DoubleVal, DoubleVal, std::cos);

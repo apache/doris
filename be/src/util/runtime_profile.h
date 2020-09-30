@@ -454,6 +454,11 @@ public:
     HighWaterMarkCounter* AddHighWaterMarkCounter(const std::string& name,
             TUnit::type unit, const std::string& parent_counter_name = "");
 
+    // Only for create MemTracker(using profile's counter to calc consumption)
+    std::shared_ptr<HighWaterMarkCounter> AddSharedHighWaterMarkCounter(
+        const std::string& name, TUnit::type unit,
+        const std::string& parent_counter_name = "");
+
     // stops updating the value of 'rate_counter'. Rate counters are updated
     // periodically so should be removed as soon as the underlying counter is
     // no longer going to change.
@@ -480,6 +485,9 @@ private:
     // object, but occasionally allocated in the constructor.
     std::unique_ptr<ObjectPool> _pool;
 
+    // Pool for allocated counters. These counters are shared with some other objects.
+    std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
+
     // True if we have to delete the _pool on destruction.
     bool _own_pool;
 
@@ -500,7 +508,7 @@ private:
 
     // Map from parent counter name to a set of child counter name.
     // All top level counters are the child of "" (root).
-    typedef std::map<std::string, std::set<std::string> > ChildCounterMap;
+    typedef std::map<std::string, std::set<std::string>> ChildCounterMap;
     ChildCounterMap _child_counter_map;
 
     // A set of bucket counters registered in this runtime profile.
@@ -515,7 +523,7 @@ private:
     typedef std::map<std::string, RuntimeProfile*> ChildMap;
     ChildMap _child_map;
     // vector of (profile, indentation flag)
-    typedef std::vector<std::pair<RuntimeProfile*, bool> > ChildVector;
+    typedef std::vector<std::pair<RuntimeProfile*, bool>> ChildVector;
     ChildVector _children;
     mutable boost::mutex _children_lock;  // protects _child_map and _children
 

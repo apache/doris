@@ -190,8 +190,8 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
   RETURN_IF_ERROR(ExecNode::prepare(state));
   state_ = state;
 
-  mem_pool_.reset(new MemPool(mem_tracker()));
-  agg_fn_pool_.reset(new MemPool(expr_mem_tracker()));
+  mem_pool_.reset(new MemPool(mem_tracker().get()));
+  agg_fn_pool_.reset(new MemPool(expr_mem_tracker().get()));
 
   ht_resize_timer_ = ADD_TIMER(runtime_profile(), "HTResizeTime");
   get_results_timer_ = ADD_TIMER(runtime_profile(), "GetResultsTime");
@@ -247,7 +247,7 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
   RETURN_IF_ERROR(NewAggFnEvaluator::Create(agg_fns_, state, _pool, agg_fn_pool_.get(),
       &agg_fn_evals_, expr_mem_tracker(), row_desc));
   
-  expr_results_pool_.reset(new MemPool(_expr_mem_tracker.get()));
+  expr_results_pool_.reset(new MemPool(expr_mem_tracker().get()));
   if (!grouping_exprs_.empty()) {
     RowDescriptor build_row_desc(intermediate_tuple_desc_, false);
     RETURN_IF_ERROR(PartitionedHashTableCtx::Create(_pool, state, build_exprs_,
@@ -308,7 +308,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
   // Streaming preaggregations do all processing in GetNext().
   if (is_streaming_preagg_) return Status::OK();
 
-  RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker());
+  RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
   // Read all the rows from the child and process them.
   bool eos = false;
   do {
@@ -532,7 +532,7 @@ Status PartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
 
   if (child_batch_ == NULL) {
     child_batch_.reset(new RowBatch(child(0)->row_desc(), state->batch_size(),
-        mem_tracker()));
+        mem_tracker().get()));
   }
 
   do {
@@ -722,7 +722,7 @@ PartitionedAggregationNode::Partition::~Partition() {
 }
 
 Status PartitionedAggregationNode::Partition::InitStreams() {
-  agg_fn_pool.reset(new MemPool(parent->expr_mem_tracker()));
+  agg_fn_pool.reset(new MemPool(parent->expr_mem_tracker().get()));
   DCHECK_EQ(agg_fn_evals.size(), 0);
   NewAggFnEvaluator::ShallowClone(parent->partition_pool_.get(), agg_fn_pool.get(),
       parent->agg_fn_evals_, &agg_fn_evals);
@@ -1363,7 +1363,7 @@ Status PartitionedAggregationNode::ProcessStream(BufferedTupleStream3* input_str
     bool eos = false;
   const RowDescriptor* desc =
         AGGREGATED_ROWS ? &intermediate_row_desc_ : &(_children[0]->row_desc());
-  RowBatch batch(*desc, state_->batch_size(), const_cast<MemTracker*>(mem_tracker()));
+  RowBatch batch(*desc, state_->batch_size(), mem_tracker().get());
     do {
       RETURN_IF_ERROR(input_stream->GetNext(&batch, &eos));
       RETURN_IF_ERROR(

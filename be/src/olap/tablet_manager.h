@@ -125,12 +125,20 @@ public:
     // Prevent schema change executed concurrently.
     bool try_schema_change_lock(TTabletId tablet_id);
 
+    void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
+        SchemaHash schema_hash, const string& schema_hash_path);
+
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
                                size_t* tablet_counter);
 
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
 
     void do_tablet_meta_checkpoint(DataDir* data_dir);
+
+    void  obtain_all_tablets(vector<TabletInfo> &tablets_info);
+
+    void register_clone_tablet(int64_t tablet_id);
+    void unregister_clone_tablet(int64_t tablet_id);
 
 private:
     // Add a tablet pointer to StorageEngine
@@ -219,6 +227,9 @@ private:
     int64_t _last_update_stat_ms;
 
     inline tablet_map_t& _get_tablet_map(TTabletId tablet_id);
+
+    std::set<int64_t> _tablets_under_clone;
+    std::set<int64_t> _tablets_under_restore;
 };
 
 inline RWMutex& TabletManager::_get_tablet_map_lock(TTabletId tabletId) {

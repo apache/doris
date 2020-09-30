@@ -20,6 +20,7 @@
 #include "http/action/checksum_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/health_action.h"
+#include "http/action/tablets_info_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/mini_load.h"
@@ -85,12 +86,16 @@ Status HttpService::start() {
     HealthAction* health_action = new HealthAction(_env);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
+    // Register Tablets Info action
+    TabletsInfoAction* tablets_info_action = new TabletsInfoAction();
+    _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
+
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get());
 
     // register metrics
     {
-        auto action = new MetricsAction(DorisMetrics::instance()->metrics());
+        auto action = new MetricsAction(DorisMetrics::instance()->metric_registry());
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
@@ -119,12 +124,18 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show", show_compaction_action);
     CompactionAction* run_compaction_action = new CompactionAction(CompactionActionType::RUN_COMPACTION);
     _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run", run_compaction_action);
+    CompactionAction* run_status_compaction_action = new CompactionAction(CompactionActionType::RUN_COMPACTION_STATUS);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status", run_status_compaction_action);
 
     UpdateConfigAction* update_config_action = new UpdateConfigAction();
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
-    RETURN_IF_ERROR(_ev_http_server->start());
+    _ev_http_server->start();
     return Status::OK();
+}
+
+void HttpService::stop() {
+    _ev_http_server->stop();
 }
 
 }

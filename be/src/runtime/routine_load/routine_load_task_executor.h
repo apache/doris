@@ -43,31 +43,9 @@ class RoutineLoadTaskExecutor {
 public:
     typedef std::function<void(StreamLoadContext*)> ExecFinishCallback;
 
-    RoutineLoadTaskExecutor(ExecEnv* exec_env)
-            : _exec_env(exec_env),
-              _thread_pool(config::routine_load_thread_pool_size, 1),
-              _data_consumer_pool(10) {
-        REGISTER_GAUGE_DORIS_METRIC(routine_load_task_count, [this]() {
-            std::lock_guard<std::mutex> l(_lock);
-            return _task_map.size();
-        });
+    RoutineLoadTaskExecutor(ExecEnv* exec_env);
 
-        _data_consumer_pool.start_bg_worker();
-    }
-
-    ~RoutineLoadTaskExecutor() {
-        _thread_pool.shutdown();
-        _thread_pool.join();
-
-        LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
-        for (auto it = _task_map.begin(); it != _task_map.end(); ++it) {
-            auto ctx = it->second;
-            if (ctx->unref()) {
-                delete ctx;
-            }
-        }
-        _task_map.clear();
-    }
+    ~RoutineLoadTaskExecutor();
 
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);

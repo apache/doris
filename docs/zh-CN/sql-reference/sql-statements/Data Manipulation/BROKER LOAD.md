@@ -57,6 +57,7 @@ under the License.
 
         用于描述一批导入数据。
         语法：
+            [MERGE|APPEND|DELETE]
             DATA INFILE
             (
             "file_path1"[, file_path2, ...]
@@ -68,7 +69,9 @@ under the License.
             [FORMAT AS "file_type"]
             [(column_list)]
             [SET (k1 = func(k2))]
-            [WHERE predicate]    
+            [WHERE predicate]
+            [DELETE ON label=true]
+            [ORDER BY source_sequence]
 
         说明：
             file_path: 
@@ -111,6 +114,19 @@ under the License.
             WHERE:
           
             对做完 transform 的数据进行过滤，符合 where 条件的数据才能被导入。WHERE 语句中只可引用表中列名。
+
+            merge_type:
+
+            数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete on条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理,
+
+            delete_on_predicates:
+
+            表示删除条件，仅在 merge type 为MERGE 时有意义，语法与where 相同
+            
+            ORDER BY:
+            
+            只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
+
     3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
@@ -184,7 +200,7 @@ under the License.
 
 ## example
 
-    1. 从 HDFS 导入一批数据，指定超时时间和过滤比例。使用铭文 my_hdfs_broker 的 broker。简单认证。
+    1. 从 HDFS 导入一批数据，指定超时时间和过滤比例。使用明文 my_hdfs_broker 的 broker。简单认证。
 
         LOAD LABEL example_db.label1
         (
@@ -429,6 +445,38 @@ under the License.
          SET (data_time=str_to_date(data_time, '%Y-%m-%d %H%%3A%i%%3A%s'))
         ) 
         WITH BROKER "hdfs" ("username"="user", "password"="pass");
+
+    13. 从 HDFS 导入一批数据，指定超时时间和过滤比例。使用明文 my_hdfs_broker 的 broker。简单认证。并且将原有数据中与 导入数据中v2 大于100 的列相匹配的列删除，其他列正常导入
+
+        LOAD LABEL example_db.label1
+        (
+        MERGE DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        COLUMNS TERMINATED BY "\t"
+        (k1, k2, k3, v2, v1)
+        )
+        DELETE ON v2 >100
+        WITH BROKER my_hdfs_broker
+        (
+        "username" = "hdfs_user",
+        "password" = "hdfs_passwd"
+        )
+        PROPERTIES
+        (
+        "timeout" = "3600",
+        "max_filter_ratio" = "0.1"
+        );
+        
+    14. 导入时指定source_sequence列，保证UNIQUE_KEYS表中的替换顺序：
+        LOAD LABEL example_db.label_sequence
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,source_sequence,v1,v2)
+         ORDER BY source_sequence
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
          
 ## keyword
 

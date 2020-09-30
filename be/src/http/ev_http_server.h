@@ -29,6 +29,7 @@ namespace doris {
 
 class HttpHandler;
 class HttpRequest;
+class ThreadPool;
 
 class EvHttpServer {
 public:
@@ -39,7 +40,10 @@ public:
     // register handler for an a path-method pair
     bool register_handler(
         const HttpMethod& method, const std::string& path, HttpHandler* handler);
-    Status start();
+
+    void register_static_file_handler(HttpHandler* handler);
+
+    void start();
     void stop();
     void join();
 
@@ -64,11 +68,13 @@ private:
     int _real_port;
 
     int _server_fd = -1;
-    std::vector<std::thread> _workers;
+    std::unique_ptr<ThreadPool> _workers;
+    std::vector<std::shared_ptr<event_base>> event_bases;
 
     pthread_rwlock_t _rw_lock;
 
     PathTrie<HttpHandler*> _get_handlers;
+    HttpHandler* _static_file_handler = nullptr;
     PathTrie<HttpHandler*> _put_handlers;
     PathTrie<HttpHandler*> _post_handlers;
     PathTrie<HttpHandler*> _delete_handlers;

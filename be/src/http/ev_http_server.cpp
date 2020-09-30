@@ -26,6 +26,7 @@
 #include <event2/http.h>
 #include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
+#include <event2/thread.h>
 
 #include "common/logging.h"
 #include "service/brpc.h"
@@ -34,6 +35,7 @@
 #include "http/http_headers.h"
 #include "http/http_channel.h"
 #include "util/debug_util.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -84,46 +86,50 @@ EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
 }
 
 EvHttpServer::~EvHttpServer() {
+    stop();
     pthread_rwlock_destroy(&_rw_lock);
 }
 
-Status EvHttpServer::start() {
+void EvHttpServer::start() {
     // bind to 
-    RETURN_IF_ERROR(_bind());
+    CHECK(_bind().ok());
+    ThreadPoolBuilder("EvHttpServer")
+            .set_min_threads(_num_workers)
+            .set_max_threads(_num_workers)
+            .build(&_workers);
+
+    evthread_use_pthreads();
+    event_bases.resize(_num_workers);
     for (int i = 0; i < _num_workers; ++i) {
-        auto worker = [this, i] () {
-            LOG(INFO) << "EvHttpServer worker start, id=" << i;
-            std::shared_ptr<event_base> base(
-                event_base_new(), [] (event_base* base) { event_base_free(base); });
-            if (base == nullptr) {
-                LOG(WARNING) << "Couldn't create an event_base.";
-                return; 
-            }
+        CHECK(_workers->submit_func([this, i]() {
+            std::shared_ptr<event_base> base(event_base_new(), [](event_base *base) {
+                event_base_free(base);
+            });
+            CHECK(base != nullptr) << "Couldn't create an event_base.";
+            event_bases[i] = base;
+
             /* Create a new evhttp object to handle requests. */
-            std::shared_ptr<evhttp> http(
-                evhttp_new(base.get()), [] (evhttp* http) { evhttp_free(http); });
-            if (http == nullptr) {
-                LOG(WARNING) << "Couldn't create an evhttp.";
-                return; 
-            }
+            std::shared_ptr<evhttp> http(evhttp_new(base.get()), [](evhttp *http) {
+                evhttp_free(http);
+            });
+            CHECK(http != nullptr) << "Couldn't create an evhttp.";
+
             auto res = evhttp_accept_socket(http.get(), _server_fd);
-            if (res < 0) {
-                LOG(WARNING) << "evhttp accept socket failed";
-                return;
-            }
+            CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
 
             evhttp_set_newreqcb(http.get(), on_connection, this);
             evhttp_set_gencb(http.get(), on_request, this);
 
             event_base_dispatch(base.get());
-        };
-        _workers.emplace_back(worker);
-        _workers[i].detach();
+        }).ok());
     }
-    return Status::OK();
 }
 
 void EvHttpServer::stop() {
+    for (int i = 0; i < _num_workers; ++i) {
+        LOG(WARNING) << "event_base_loopexit ret: " << event_base_loopexit(event_bases[i].get(), nullptr);
+    }
+    _workers->shutdown();
     close(_server_fd);
 }
 
@@ -206,6 +212,14 @@ bool EvHttpServer::register_handler(
     return result;
 }
 
+void EvHttpServer::register_static_file_handler(HttpHandler* handler) {
+    DCHECK(handler != nullptr);
+    DCHECK(_static_file_handler == nullptr);
+    pthread_rwlock_wrlock(&_rw_lock);
+    _static_file_handler = handler;
+    pthread_rwlock_unlock(&_rw_lock);
+}
+
 int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     std::unique_ptr<HttpRequest> request(new HttpRequest(ev_req));
     auto res = request->init_from_evhttp();
@@ -247,6 +261,10 @@ HttpHandler* EvHttpServer::_find_handler(HttpRequest* req) {
     switch (req->method()) {
     case GET:
         _get_handlers.retrieve(path, &handler, req->params());
+        // Static file handler is a fallback handler
+        if (handler == nullptr) {
+            handler = _static_file_handler;
+        }
         break;
     case PUT:
         _put_handlers.retrieve(path, &handler, req->params());

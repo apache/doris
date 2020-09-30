@@ -182,7 +182,7 @@ private:
 
     OlapScanKeys _scan_keys;
 
-    std::vector<std::unique_ptr<TPaloScanRange> > _scan_ranges;
+    std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
 
     std::vector<TCondition> _olap_filter;
 
@@ -291,6 +291,11 @@ private:
     RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
     // number of created olap scanners
     RuntimeProfile::Counter* _num_scanners = nullptr;
+
+    // number of segment filted by column stat when creating seg iterator
+    RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
+    // total number of segment related to this scan node
+    RuntimeProfile::Counter* _total_segment_counter = nullptr;
 };
 
 } // namespace doris

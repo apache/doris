@@ -268,6 +268,23 @@ visible_functions = [
 
     [['abs'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
+    [['abs'], 'FLOAT', ['FLOAT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_8FloatValE'],
+    [['abs'], 'LARGEINT', ['LARGEINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_11LargeIntValE'],
+    [['abs'], 'LARGEINT', ['BIGINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
+    [['abs'], 'INT', ['SMALLINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_11SmallIntValE'],
+    [['abs'], 'BIGINT', ['INT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
+    [['abs'], 'SMALLINT', ['TINYINT'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_10TinyIntValE'],
+    [['abs'], 'DECIMAL', ['DECIMAL'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_10DecimalValE'],
+    [['abs'], 'DECIMALV2', ['DECIMALV2'],
+        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE'],
+
     [['sign'], 'FLOAT', ['DOUBLE'],
         '_ZN5doris13MathFunctions4signEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
 
@@ -461,6 +478,7 @@ visible_functions = [
     [['if'], 'DATE', ['BOOLEAN', 'DATE', 'DATE'], ''],
     [['if'], 'DECIMAL', ['BOOLEAN', 'DECIMAL', 'DECIMAL'], ''],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], ''],
+    [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], ''],
 
@@ -493,6 +511,7 @@ visible_functions = [
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATE'], ''],
     [['ifnull'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['ifnull'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
+    [['ifnull'], 'BITMAP', ['BITMAP', 'BITMAP'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['ifnull'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
 
@@ -508,6 +527,7 @@ visible_functions = [
     [['coalesce'], 'DATE', ['DATE', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
+    [['coalesce'], 'BITMAP', ['BITMAP', '...'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], ''],
 
@@ -588,6 +608,8 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE'],
     [['concat'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+    [['replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'],
+            '_ZN5doris15StringFunctions7replaceEPN9doris_udf15FunctionContextERKNS1_9StringValES6_S6_'],
     [['concat_ws'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'],
             '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValEiPS5_'],

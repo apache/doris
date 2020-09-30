@@ -34,6 +34,7 @@ struct TColumn {
     6: optional string default_value
     7: optional bool is_bloom_filter_column
     8: optional Exprs.TExpr define_expr
+    9: optional bool visible = true
 }
 
 struct TTabletSchema {
@@ -45,6 +46,8 @@ struct TTabletSchema {
     6: optional double bloom_filter_fpp
     7: optional list<Descriptors.TOlapTableIndex> indexes
     8: optional bool is_in_memory
+    9: optional i32 delete_sign_idx = -1
+    10: optional i32 sequence_col_idx = -1
 }
 
 // this enum stands for different storage format in src_backends
@@ -104,6 +107,13 @@ struct TAlterTabletReqV2 {
     // version of data which this alter task should transform
     5: optional Types.TVersion alter_version
     6: optional Types.TVersionHash alter_version_hash // Deprecated
+    7: optional list<TAlterMaterializedViewParam> materialized_view_params
+}
+
+struct TAlterMaterializedViewParam {
+    1: required string column_name
+    2: optional string origin_column_name
+    3: optional Exprs.TExpr mv_expr
 }
 
 struct TClusterInfo {

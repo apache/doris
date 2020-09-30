@@ -27,6 +27,20 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 
+// orc include file didn't expose orc::TimezoneError
+// we have to declare it by hand, following is the source code in orc link
+// https://github.com/apache/orc/blob/84353fbfc447b06e0924024a8e03c1aaebd3e7a5/c%2B%2B/src/Timezone.hh#L104-L109
+namespace orc {
+
+class TimezoneError: public std::runtime_error {
+public:
+    TimezoneError(const std::string& what);
+    TimezoneError(const TimezoneError&);
+    virtual ~TimezoneError() noexcept;
+};
+
+}
+
 namespace doris {
 
 class ORCFileStream : public orc::InputStream {
@@ -245,16 +259,23 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             } else {
                                 decimal_str = ((orc::Decimal128VectorBatch*) cvb)->values[_current_line_of_group].toString();
                             }
+                            
+                            int negative = decimal_str[0] == '-' ? 1 : 0;
+                            int decimal_scale_length = decimal_str.size() - negative;
 
                             std::string v;
-                            if (decimal_str.size() <= scale) {
+                            if (decimal_scale_length <= scale) {
                                 // decimal(5,2) : the integer of 0.01 is 1, so we should fill 0 befor integer
-                                v = "0.";
-                                int fill_zero = scale - decimal_str.size();
+                                v = std::string(negative ? "-0." : "0.");
+                                int fill_zero = scale - decimal_scale_length;
                                 while (fill_zero--) {
                                     v += "0";
                                 }
-                                v += decimal_str;
+                                if (negative) {
+                                    v += decimal_str.substr(1, decimal_str.length());
+                                } else {
+                                    v += decimal_str;
+                                }
                             } else {
                                 //Orc api will fill in 0 at the end, so size must greater than scale
                                 v = decimal_str.substr(0, decimal_str.size() - scale) + "." + decimal_str.substr(decimal_str.size() - scale);
@@ -319,7 +340,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
+            if (fill_dest_tuple(tuple, tuple_pool)) {
                 break; // get one line, break from while
             } // else skip this line and continue get_next to return
         }
@@ -332,6 +353,11 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     } catch (orc::InvalidArgument& e) {
         std::stringstream str_error;
         str_error << "ParseError : " << e.what();
+        LOG(WARNING) << str_error.str();
+        return Status::InternalError(str_error.str());
+    } catch (orc::TimezoneError& e) {
+        std::stringstream str_error;
+        str_error << "TimezoneError : " << e.what();
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }

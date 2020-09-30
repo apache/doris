@@ -90,11 +90,12 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     tablet_meta_pb.set_cumulative_layer_point(-1);
     tablet_meta_pb.set_tablet_state(PB_RUNNING);
     *(tablet_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
-    tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_MEMORY ?
+    tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_DISK ?
             TabletTypePB::TABLET_TYPE_DISK : TabletTypePB::TABLET_TYPE_MEMORY);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
+    schema->set_sequence_col_idx(tablet_schema.sequence_col_idx);
     switch(tablet_schema.keys_type) {
         case TKeysType::DUP_KEYS:
             schema->set_keys_type(KeysType::DUP_KEYS);
@@ -125,7 +126,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         string data_type;
         EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
         column->set_type(data_type);
-        if (tcolumn.column_type.type == TPrimitiveType::DECIMAL) {
+        if (tcolumn.column_type.type == TPrimitiveType::DECIMAL ||
+            tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
             column->set_precision(tcolumn.column_type.precision);
             column->set_frac(tcolumn.column_type.scale);
         }
@@ -178,6 +180,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
 
     if (tablet_schema.__isset.is_in_memory) {
         schema->set_is_in_memory(tablet_schema.is_in_memory);
+    }
+
+    if (tablet_schema.__isset.delete_sign_idx) {
+        schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
     }
 
     init_from_pb(tablet_meta_pb);
@@ -376,6 +382,12 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _inc_rs_metas.push_back(std::move(rs_meta));
     }
 
+    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        rs_meta->init_from_pb(it);
+        _stale_rs_metas.push_back(std::move(rs_meta));
+    }
+
     // generate AlterTabletTask
     if (tablet_meta_pb.has_alter_task()) {
         AlterTabletTask* alter_tablet_task = new AlterTabletTask();
@@ -425,6 +437,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     }
     for (auto rs : _inc_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_inc_rs_metas());
+    }
+    for (auto rs : _stale_rs_metas) {
+        rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
     }
     _schema.to_schema_pb(tablet_meta_pb->mutable_schema());
     if (_alter_task != nullptr) {
@@ -497,6 +512,7 @@ void TabletMeta::delete_rs_meta_by_version(const Version& version,
 
 void TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
                                  const vector<RowsetMetaSharedPtr>& to_delete) {
+    // Remove to_delete rowsets from _rs_metas                                 
     for (auto rs_to_del : to_delete) {
         auto it = _rs_metas.begin();
         while (it != _rs_metas.end()) {
@@ -512,6 +528,9 @@ void TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
             }
         }
     }
+    // put to_delete rowsets in _stale_rs_metas.
+    _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
+    // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
 }
 
@@ -542,6 +561,26 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 
     _inc_rs_metas.push_back(rs_meta);
     return OLAP_SUCCESS;
+}
+
+void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
+    auto it = _stale_rs_metas.begin();
+    while (it != _stale_rs_metas.end()) {
+        if ((*it)->version() == version) {
+            it = _stale_rs_metas.erase(it);
+        } else {
+            it++;
+        }
+    }
+}
+
+RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
+    for (auto it : _stale_rs_metas) {
+        if (it->version() == version) {
+            return it;
+        }
+    }
+    return nullptr;
 }
 
 void TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
@@ -575,6 +614,7 @@ void TabletMeta::add_delete_predicate(const DeletePredicatePB& delete_predicate,
     DeletePredicatePB* del_pred = _del_pred_array.Add();
     del_pred->set_version(version);
     *del_pred->mutable_sub_predicates() = delete_predicate.sub_predicates();
+    *del_pred->mutable_in_predicates() = delete_predicate.in_predicates();
 }
 
 void TabletMeta::remove_delete_predicate_by_version(const Version& version) {

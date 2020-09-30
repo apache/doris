@@ -114,6 +114,11 @@ public:
     // in open()/get_next().
     void close();
 
+    // Abort this execution. Must be called if we skip running open().
+    // It will let DataSink node closed with error status, to avoid use resources which created in open() phase.
+    // DataSink node should distinguish Aborted status from other error status.
+    void set_abort();
+
     // Initiate cancellation. Must not be called until after prepare() returned.
     void cancel();
 
@@ -149,8 +154,7 @@ private:
     ExecEnv* _exec_env;  // not owned
     ExecNode* _plan;  // lives in _runtime_state->obj_pool()
     TUniqueId _query_id;
-    // MemTracker* _mem_tracker;
-    boost::scoped_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // profile reporting-related
     report_status_callback _report_status_cb;
@@ -226,7 +230,7 @@ private:
     }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges
-    typedef std::map<TPlanNodeId, std::vector<TScanRangeParams> > PerNodeScanRanges;
+    typedef std::map<TPlanNodeId, std::vector<TScanRangeParams>> PerNodeScanRanges;
 
     // Main loop of profile reporting thread.
     // Exits when notified on _done_cv.
@@ -257,10 +261,6 @@ private:
     // Stops report thread, if one is running. Blocks until report thread terminates.
     // Idempotent.
     void stop_report_thread();
-
-    // Print stats about scan ranges for each volumeId in params to info log.
-    void print_volume_ids(const TPlanExecParams& params);
-    void print_volume_ids(const PerNodeScanRanges& per_node_scan_ranges);
 
     const DescriptorTbl& desc_tbl() {
         return _runtime_state->desc_tbl();

@@ -61,10 +61,11 @@ under the License.
         note:
             1) Use a partitioned table to keep at least one partition.
             2) Execute DROP PARTITION For a period of time, the deleted partition can be recovered by the RECOVER statement. See the RECOVER statement for details.
-            
+            3) If DROP PARTITION FORCE is executed, the system will not check whether the partition has unfinished transactions, the partition will be deleted directly and cannot be recovered, generally this operation is not recommended
+ 
     3. Modify the partition properties
         grammar:
-            MODIFY PARTITION partition_name SET ("key" = "value", ...)
+            MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
         Description:
             1) The following attributes of the modified partition are currently supported.
                 - storage_medium
@@ -154,7 +155,6 @@ under the License.
             5) The following types of conversions are currently supported (accuracy loss is guaranteed by the user)
                 TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL is converted to VARCHAR
-                Convert LARGEINT to DOUBLE
                 VARCHAR supports modification of maximum length
                 Convert VARCHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.
                 Convert VARCHAR to DATE (currently support six formats: "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d")
@@ -178,6 +178,21 @@ under the License.
             PROPERTIES ("key"="value")
         note:
             Can also be merged into the above schema change operation to modify, see the example below
+    
+    7. Enable batch delete support
+        grammar:
+            ENABLE FEATURE "BATCH_DELETE"
+        note:
+            1) Only support unique tables
+            2) Batch deletion is supported for old tables, while new tables are already supported when they are created
+
+    8. Enable the ability to import in order by the value of the sequence column
+        grammer:
+            ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
+        note:
+            1) Only support unique tables
+            2) The sequence_type is used to specify the type of the sequence column, which can be integral and time type
+            3) Only the orderliness of newly imported data is supported. Historical data cannot be changed
      
 
     Rename supports modification of the following names:
@@ -233,12 +248,20 @@ under the License.
     4. Modify the number of partition copies
         ALTER TABLE example_db.my_table
         MODIFY PARTITION p1 SET("replication_num"="1");
+        
+    5. Batch modify the specified partitions
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+        
+    6. Batch modify all partitions
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (*) SET("storage_medium"="HDD");
 
-    5. Delete the partition
+    7. Delete the partition
         ALTER TABLE example_db.my_table
         DROP PARTITION p1;
         
-    6. Add a partition that specifies the upper and lower bounds
+    8. Add a partition that specifies the upper and lower bounds
 
         ALTER TABLE example_db.my_table
         ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));
@@ -331,15 +354,21 @@ under the License.
     
     14. Modify the dynamic partition properties of the table (support adding dynamic partition properties to tables without dynamic partition properties)
     
-        ALTER TABLE example_db.my_table set ("dynamic_partition_enable" = "false");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
     
         If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes
     
-        ALTER TABLE example_db.my_table set ("dynamic_partition. Enable "= "true", dynamic_partition. Time_unit" = "DAY", "dynamic_partition. End "= "3", "dynamic_partition. Prefix" = "p", "Dynamic_partition. Buckets" = "32");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable"= "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end "= "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
 
     15. Modify the in_memory property of the table
 
         ALTER TABLE example_db.my_table set ("in_memory" = "true");
+    16. Enable batch delete support
+
+        ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE"
+    17. Enable the ability to import in order by the value of the Sequence column
+
+        ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
         
     [rename]
     1. Modify the table named table1 to table2

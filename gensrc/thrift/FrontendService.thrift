@@ -66,6 +66,7 @@ struct TDescribeTableParams {
   3: optional string user   // deprecated
   4: optional string user_ip    // deprecated
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  6: optional bool show_hidden_columns = false
 }
 
 // Results of a call to describeTable()
@@ -551,6 +552,10 @@ struct TStreamLoadPutRequest {
     23: optional bool strip_outer_array
     24: optional string jsonpaths
     25: optional i64 thrift_rpc_timeout_ms
+    26: optional string json_root
+    27: optional Types.TMergeType merge_type
+    28: optional string delete_condition
+    29: optional string sequence_col
 }
 
 struct TStreamLoadPutResult {

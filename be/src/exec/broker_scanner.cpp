@@ -34,7 +34,6 @@
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
-#include "json_scanner.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -396,7 +395,7 @@ bool BrokerScanner::convert_one_row(
     if (!line_to_src_tuple(line)) {
         return false;
     }
-    return fill_dest_tuple(line, tuple, tuple_pool);
+    return fill_dest_tuple(tuple, tuple_pool);
 }
 
 // Convert one row to this tuple

@@ -87,6 +87,7 @@ if(PIC_LIB_PATH)
     set(LIBBZ2 ${PIC_LIB_PATH}/lib/libbz2.a)
     set(LIBZ ${PIC_LIB_PATH}/lib/libz.a)
     set(LIBEVENT ${PIC_LIB_PATH}/lib/libevent.a)
+    set(LIBEVENT_PTHREADS ${PIC_LIB_PATH}/lib/libevent_pthreads.a)
 else()
     message(STATUS "undefined PIC_LIB_PATH")
     set(Boost_USE_STATIC_LIBS ON)
@@ -94,6 +95,7 @@ else()
     set(LIBBZ2 -lbz2)
     set(LIBZ -lz)
     set(LIBEVENT event)
+    set(LIBEVENT_PTHREADS libevent_pthreads)
 endif()
 
 
@@ -129,6 +131,9 @@ set_target_properties(glog PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/li
 
 add_library(re2 STATIC IMPORTED)
 set_target_properties(re2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libre2.a)
+
+add_library(odbc STATIC IMPORTED)
+set_target_properties(odbc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libodbc.a)
 
 add_library(pprof STATIC IMPORTED)
 set_target_properties(pprof PROPERTIES IMPORTED_LOCATION
@@ -177,6 +182,9 @@ endif()
 
 add_library(libevent STATIC IMPORTED)
 set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
+
+add_library(libevent_pthreads STATIC IMPORTED)
+set_target_properties(libevent_pthreads PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent_pthreads.a)
 
 add_library(crypto STATIC IMPORTED)
 set_target_properties(crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcrypto.a)
@@ -396,6 +404,7 @@ set(DORIS_DEPENDENCIES
     pprof
     lz4
     libevent
+    libevent_pthreads
     curl
     ${LIBZ}
     ${LIBBZ2}
@@ -416,6 +425,7 @@ set(DORIS_DEPENDENCIES
     arrow
     parquet
     orc
+    odbc
     cctz
     ${WL_END_GROUP}
 )
@@ -567,5 +577,6 @@ install(FILES
 
 install(FILES
     ${BASE_DIR}/../conf/be.conf
+    ${BASE_DIR}/../conf/odbcinst.ini
     DESTINATION ${OUTPUT_DIR}/conf)
 

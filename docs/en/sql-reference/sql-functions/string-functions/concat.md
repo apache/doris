@@ -57,5 +57,5 @@ mysql> select concat("a", null, "c");
 | NULL                   |
 +------------------------+
 ```
-##keyword
+## keyword
 CONCAT

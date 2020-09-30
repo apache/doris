@@ -50,5 +50,5 @@ Delete a custom function. The name of the function and the type of the parameter
 ```
 DROP FUNCTION my_add(INT, INT)
 ```
-##keyword
+## keyword
 DROP,FUNCTION

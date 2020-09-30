@@ -147,6 +147,65 @@ message PFetchDataResult {
     optional PQueryStatistics query_statistics = 4;
 };
 
+//Add message definition to fetch and update cache
+enum PCacheStatus {    
+    DEFAULT = 0;
+    CACHE_OK = 1;
+    PARAM_ERROR = 2;
+    SIZE_OVER_LIMIT = 3;
+    NO_SQL_KEY = 4;
+    NO_PARTITION_KEY = 5;
+    INVALID_KEY_RANGE = 6;
+    DATA_OVERDUE = 7;
+    EMPTY_DATA = 8;
+};
+
+message PCacheParam {
+    required int64 partition_key = 1;
+    optional int64 last_version = 2;
+    optional int64 last_version_time = 3;
+};
+
+message PCacheValue {
+    required PCacheParam param = 1;
+    required int32 data_size = 2;
+    repeated bytes rows = 3;
+};
+
+//for update&clear return
+message PCacheResponse {
+    required PCacheStatus status = 1;
+};
+
+message PUpdateCacheRequest{
+    required PUniqueId sql_key = 1;
+    repeated PCacheValue values = 2;
+};
+
+message PFetchCacheRequest {
+    required PUniqueId sql_key = 1;
+    repeated PCacheParam params = 2;
+};
+
+message PFetchCacheResult {
+    required PCacheStatus status = 1;
+    repeated PCacheValue values = 2;
+};
+
+enum PClearType {
+    CLEAR_ALL = 0;
+    PRUNE_CACHE = 1;
+    CLEAR_BEFORE_TIME = 2;
+    CLEAR_SQL_KEY = 3;
+};
+
+message PClearCacheRequest {
+    required PClearType clear_type = 1;
+    optional int64 before_time = 2;
+    optional PUniqueId sql_key = 3;
+};
+//End cache proto definition
+
 message PTriggerProfileReportRequest {
     repeated PUniqueId instance_ids = 1;
 };
@@ -195,5 +254,8 @@ service PBackendService {
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
     rpc trigger_profile_report(PTriggerProfileReportRequest) returns (PTriggerProfileReportResult);
     rpc get_info(PProxyRequest) returns (PProxyResult); 
+    rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);
+    rpc fetch_cache(PFetchCacheRequest) returns (PFetchCacheResult);
+    rpc clear_cache(PClearCacheRequest) returns (PCacheResponse);
 };
 

@@ -96,7 +96,7 @@ private:
     ZoneMap _segment_zone_map;
     // TODO(zc): we should replace this memory pool later, we only allocate min/max
     // for field. But MemPool allocate 4KB least, it will a waste for most cases.
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 
     // serialized ZoneMapPB for each data page

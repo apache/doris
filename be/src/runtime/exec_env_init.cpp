@@ -35,6 +35,7 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "runtime/bufferpool/reservation_tracker.h"
+#include "runtime/cache/result_cache.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/parse_util.h"
@@ -65,14 +66,17 @@
 
 namespace doris {
 
-Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
+Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {    
     return env->_init(store_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
+    //Only init once before be destroyed
+    if (_is_init) {
+        return Status::OK();
+    }
     _store_paths = store_paths;
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
-    _metrics = DorisMetrics::instance()->metrics();
     _stream_mgr = new DataStreamMgr();
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
@@ -80,7 +84,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
     _extdatasource_client_cache = new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
-    _mem_tracker = nullptr;
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
     _thread_pool = new PriorityThreadPool(
@@ -91,6 +94,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
+    _result_cache = new ResultCache(config::query_cache_max_size_mb, config::query_cache_elasticity_size_mb);
     _master_info = new TMasterInfo();
     _etl_job_mgr = new EtlJobMgr(this);
     _load_path_mgr = new LoadPathMgr(this);
@@ -106,10 +110,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _plugin_mgr = new PluginMgr();
 
-    _backend_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "backend");
-    _frontend_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "frontend");
-    _broker_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "broker");
-    _extdatasource_client_cache->init_metrics(DorisMetrics::instance()->metrics(), "extdatasource");
+    _backend_client_cache->init_metrics("backend");
+    _frontend_client_cache->init_metrics("frontend");
+    _broker_client_cache->init_metrics("broker");
+    _extdatasource_client_cache->init_metrics("extdatasource");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -124,6 +128,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
     _heartbeat_flags = new HeartbeatFlags();
+    _is_init = true;
     return Status::OK();
 }
 
@@ -178,11 +183,12 @@ Status ExecEnv::_init_mem_tracker() {
         return Status::InternalError(ss.str());
     }
 
-    _mem_tracker = new MemTracker(bytes_limit);
+    _mem_tracker =
+            MemTracker::CreateTracker(bytes_limit, "ExecEnv root", MemTracker::GetRootTracker());
 
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
-    RETURN_IF_ERROR(_tmp_file_mgr->init(DorisMetrics::instance()->metrics()));
+    RETURN_IF_ERROR(_tmp_file_mgr->init());
 
     int64_t storage_cache_limit = ParseUtil::parse_mem_spec(
         config::storage_page_cache_limit, &is_percent);
@@ -208,35 +214,38 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size,
 }
 
 void ExecEnv::_destory() {
-    delete _brpc_stub_cache;
-    delete _load_stream_mgr;
-    delete _load_channel_mgr;
-    delete _broker_mgr;
-    delete _bfd_parser;
-    delete _tmp_file_mgr;
-    delete _disk_io_mgr;
-    delete _load_path_mgr;
-    delete _etl_job_mgr;
-    delete _master_info;
-    delete _fragment_mgr;
-    delete _cgroups_mgr;
-    delete _etl_thread_pool;
-    delete _thread_pool;
-    delete _thread_mgr;
-    delete _pool_mem_trackers;
-    delete _mem_tracker;
-    delete _broker_client_cache;
-    delete _extdatasource_client_cache;
-    delete _frontend_client_cache;
-    delete _backend_client_cache;
-    delete _result_mgr;
-    delete _result_queue_mgr;
-    delete _stream_mgr;
-    delete _stream_load_executor;
-    delete _routine_load_task_executor;
-    delete _external_scan_context_mgr;
-    delete _heartbeat_flags;
-    _metrics = nullptr;
+    //Only destroy once after init
+    if (!_is_init) {
+        return;
+    }
+    SAFE_DELETE(_brpc_stub_cache);
+    SAFE_DELETE(_load_stream_mgr);
+    SAFE_DELETE(_load_channel_mgr);
+    SAFE_DELETE(_broker_mgr);
+    SAFE_DELETE(_bfd_parser);
+    SAFE_DELETE(_tmp_file_mgr);
+    SAFE_DELETE(_disk_io_mgr);
+    SAFE_DELETE(_load_path_mgr);
+    SAFE_DELETE(_etl_job_mgr);
+    SAFE_DELETE(_master_info);
+    SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_cgroups_mgr);
+    SAFE_DELETE(_etl_thread_pool);
+    SAFE_DELETE(_thread_pool);
+    SAFE_DELETE(_thread_mgr);
+    SAFE_DELETE(_pool_mem_trackers);
+    SAFE_DELETE(_broker_client_cache);
+    SAFE_DELETE(_extdatasource_client_cache);
+    SAFE_DELETE(_frontend_client_cache);
+    SAFE_DELETE(_backend_client_cache);
+    SAFE_DELETE(_result_mgr);
+    SAFE_DELETE(_result_queue_mgr);
+    SAFE_DELETE(_stream_mgr);
+    SAFE_DELETE(_stream_load_executor);
+    SAFE_DELETE(_routine_load_task_executor);
+    SAFE_DELETE(_external_scan_context_mgr);
+    SAFE_DELETE(_heartbeat_flags);
+    _is_init = false;
 }
 
 void ExecEnv::destroy(ExecEnv* env) {

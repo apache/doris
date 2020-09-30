@@ -47,6 +47,7 @@
 
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
+static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
 
 // 用来加速运算
 const static int32_t g_power_table[] = {
@@ -320,6 +321,8 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
 
 // 粗略检查date或者datetime类型是否正确
 bool valid_datetime(const std::string& value_str);
+
+bool valid_bool(const std::string& value_str);
 
 #define OLAP_LOG_WRITE(level, fmt, arg...) \
     do { \

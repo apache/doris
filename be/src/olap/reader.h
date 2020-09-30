@@ -201,7 +201,7 @@ private:
     TabletSharedPtr tablet() { return _tablet; }
 
 private:
-    std::unique_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::set<uint32_t> _load_bf_columns;
     std::vector<uint32_t> _return_columns;
@@ -224,6 +224,9 @@ private:
     bool _need_agg_finalize = true;
     ReaderType _reader_type = READER_QUERY;
     bool _next_delete_flag = false;
+    bool _filter_delete = false;
+    bool _has_sequence_col = false;
+    int32_t _sequence_col_idx = -1;
     const RowCursor* _next_key = nullptr;
     CollectIterator* _collect_iter = nullptr;
     std::vector<uint32_t> _key_cids;

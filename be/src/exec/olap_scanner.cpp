@@ -58,10 +58,7 @@ OlapScanner::OlapScanner(
             _direct_conjunct_size(parent->_direct_conjunct_size) {
     _reader.reset(new Reader());
     DCHECK(_reader.get() != NULL);
-    _ctor_status = _prepare(scan_range, key_ranges, parent->_olap_filter, parent->_is_null_vector);
-    if (!_ctor_status.ok()) {
-        LOG(WARNING) << "OlapScanner preapre failed, status:" << _ctor_status.get_error_msg();
-    }
+
     _rows_read_counter = parent->rows_read_counter();
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }
@@ -69,7 +66,7 @@ OlapScanner::OlapScanner(
 OlapScanner::~OlapScanner() {
 }
 
-Status OlapScanner::_prepare(
+Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls) {
     // Get olap table
@@ -123,7 +120,6 @@ Status OlapScanner::_prepare(
 }
 
 Status OlapScanner::open() {
-    RETURN_IF_ERROR(_ctor_status);
     SCOPED_TIMER(_parent->_reader_init_timer);
 
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
@@ -228,6 +224,20 @@ Status OlapScanner::_init_return_columns() {
         _return_columns.push_back(index);
         _query_slots.push_back(slot);
     }
+    // expand the sequence column
+    if (_tablet->tablet_schema().has_sequence_col()) {
+        bool has_replace_col = false;
+        for (auto col : _return_columns) {
+            if (_tablet->tablet_schema().column(col).aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                has_replace_col = true;
+                break;
+            }
+        }
+        if (has_replace_col) {
+            _return_columns.push_back(_tablet->tablet_schema().sequence_col_idx());
+        }
+    }
+
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
@@ -242,7 +252,7 @@ Status OlapScanner::get_batch(
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemTracker> tracker(new MemTracker(state->fragment_mem_tracker()->limit()));
+    auto tracker = MemTracker::CreateTracker(state->fragment_mem_tracker()->limit(), "OlapScanner");
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
@@ -480,8 +490,14 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 
-    DorisMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
-    DorisMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
+    COUNTER_UPDATE(_parent->_filtered_segment_counter, _reader->stats().filtered_segment_number);
+    COUNTER_UPDATE(_parent->_total_segment_counter, _reader->stats().total_segment_number);
+
+    DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
+    DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
+
+    _tablet->query_scan_bytes->increment(_compressed_bytes_read);
+    _tablet->query_scan_rows->increment(_raw_rows_read);
 
     _has_update_counter = true;
 }

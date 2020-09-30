@@ -30,17 +30,28 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(broker_count, MetricUnit::NOUNIT);
+
 BrokerMgr::BrokerMgr(ExecEnv* exec_env) : 
-        _exec_env(exec_env), _thread_stop(false), _ping_thread(&BrokerMgr::ping_worker, this) {
-    REGISTER_GAUGE_DORIS_METRIC(broker_count, [this]() {
+        _exec_env(exec_env), _stop_background_threads_latch(1) {
+    CHECK(Thread::create("BrokerMgr", "ping_worker",
+                         [this]() {
+                             this->ping_worker();
+                         },
+                         &_ping_thread).ok());
+
+    REGISTER_HOOK_METRIC(broker_count, [this]() {
         std::lock_guard<std::mutex> l(_mutex);
         return _broker_set.size();
     });
 }
 
 BrokerMgr::~BrokerMgr() {
-    _thread_stop = true;
-    _ping_thread.join();
+    DEREGISTER_HOOK_METRIC(broker_count);
+    _stop_background_threads_latch.count_down();
+    if (_ping_thread) {
+        _ping_thread->join();
+    }
 }
 
 void BrokerMgr::init() {
@@ -90,7 +101,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
 }
 
 void BrokerMgr::ping_worker() {
-    while (!_thread_stop) {
+    do {
         std::vector<TNetworkAddress> addresses;
         {
             std::lock_guard<std::mutex> l(_mutex);
@@ -101,8 +112,7 @@ void BrokerMgr::ping_worker() {
         for (auto& addr : addresses) {
             ping(addr);
         }
-        sleep(5);
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(5)));
 }
 
 }

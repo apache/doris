@@ -28,6 +28,9 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/tablets_channel.h"
+#include "util/countdown_latch.h"
+#include "gutil/ref_counted.h"
+#include "util/thread.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -70,12 +73,12 @@ private:
     Cache* _lastest_success_channel = nullptr;
 
     // check the total load mem consumption of this Backend
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
+    CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels
-    std::thread _load_channels_clean_thread;
+    scoped_refptr<Thread> _load_channels_clean_thread;
     Status _start_load_channels_clean();
-    std::atomic<bool> _is_stopped;
 };
 
 }

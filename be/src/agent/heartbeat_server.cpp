@@ -159,7 +159,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
-        _olap_engine->trigger_report();
+        _olap_engine->notify_listeners();
     }
 
     return Status::OK();
@@ -185,7 +185,6 @@ AgentStatus create_heartbeat_server(
             server_name,
             server_processor,
             server_port,
-            exec_env->metrics(),
             worker_thread_num);
     return DORIS_SUCCESS;
 }

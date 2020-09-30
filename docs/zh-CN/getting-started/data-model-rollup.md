@@ -88,7 +88,7 @@ AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
 
 表中的列按照是否设置了 `AggregationType`，分为 Key (维度列) 和 Value（指标列）。没有设置 `AggregationType` 的，如 `user_id`、`date`、`age` ... 等称为 **Key**，而设置了 `AggregationType` 的称为 **Value**。
 
-当我们导入数据时，对于 Key 列相同的行和聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下四种聚合方式：
+当我们导入数据时，对于 Key 列相同的行会聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下四种聚合方式：
 
 1. SUM：求和，多行的 Value 进行累加。
 2. REPLACE：替代，下一批数据中的 Value 会替换之前导入过的行中的 Value。
@@ -452,7 +452,7 @@ Doris 会自动命中这个 ROLLUP 表。
 
 我们将一行数据的前 **36 个字节** 作为这行数据的前缀索引。当遇到 VARCHAR 类型时，前缀索引会直接截断。我们举例说明：
 
-1. 以下表结构的前缀索引为 user_id(8Byte) + age(4Bytes) + message(prefix 24 Bytes)。
+1. 以下表结构的前缀索引为 user_id(8Byte) + age(4Bytes) + message(prefix 20 Bytes)。
 
 |ColumnName|Type|
 |---|---|
@@ -508,7 +508,7 @@ Base 表结构如下：
 
 可以看到，ROLLUP 和 Base 表的列完全一样，只是将 user_id 和 age 的顺序调换了。那么当我们进行如下查询时：
 
-`SELECT * FROM table where age=20 and massage LIKE "%error%";`
+`SELECT * FROM table where age=20 and message LIKE "%error%";`
 
 会优先选择 ROLLUP 表，因为 ROLLUP 的前缀索引匹配度更高。
 

@@ -23,7 +23,7 @@
 #include "olap/push_handler.h"
 #include "olap/row.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h" 
+#include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 
 namespace doris {
@@ -245,7 +245,7 @@ void PushHandlerTest::create_expr_info() {
         node.__set_scalar_type(scalar_type);
         varchar_type.types.push_back(node);
     }
-    
+
     // k1_int VARCHAR --> INT
     {
         TTypeDesc int_type;
@@ -337,7 +337,7 @@ void PushHandlerTest::create_expr_info() {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START + 2; 
+        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START + 2;
         slot_ref.slot_ref.tuple_id = 1;
 
         TExpr expr;
@@ -457,5 +457,6 @@ TEST_F(PushHandlerTest, PushBrokerReaderNormal) {
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    CpuInfo::init();
     return RUN_ALL_TESTS();
 }

@@ -52,7 +52,8 @@ public:
         PROTOCOL,
         QUERY,
         REF,
-        USERINFO
+        USERINFO,
+        PORT
     };
 
     // Tries to parse the part from url. Places the result in result.
@@ -84,6 +85,7 @@ private:
     static const StringValue _s_url_query;
     static const StringValue _s_url_ref;
     static const StringValue _s_url_userinfo;
+    static const StringValue _s_url_port;
     // Constants used in searching for URL parts.
     static const StringValue _s_protocol;
     static const StringValue _s_at;

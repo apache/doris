@@ -42,7 +42,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     LOG(INFO) << "begin to process storage media migrate. "
               << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
               << ", dest_storage_medium=" << storage_medium;
-    DorisMetrics::instance()->storage_migrate_requests_total.increment(1);
+    DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
@@ -231,7 +231,7 @@ void EngineStorageMigrationTask::_generate_new_header(
         const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta) {
     DCHECK(store != nullptr);
-    tablet->generate_tablet_meta_copy(new_tablet_meta);
+    tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {

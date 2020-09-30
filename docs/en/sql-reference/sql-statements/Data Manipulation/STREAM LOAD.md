@@ -101,7 +101,7 @@ Specifies the timeout for the load. Unit seconds. The default is 600 seconds. Th
 
 `strict_mode`
 
-The user specifies whether strict load mode is enabled for this load. The default is enabled. The shutdown mode is `-H "strict_mode: false"`.
+The user specifies whether strict load mode is enabled for this load. The default is disabled. Enable it with `-H "strict_mode: true"`.
 
 `timezone`
 
@@ -119,6 +119,13 @@ There are two ways to import json: simple mode and matched mode. If jsonpath is 
 
 `strip_outer_array`
 Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false.
+
+`json_root`
+json_root is a valid JSONPATH string that specifies the root node of the JSON Document. The default value is "".
+
+`merge_type`
+
+The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
 
 RETURN VALUES
 
@@ -213,7 +220,7 @@ Where url is the url given by ErrorURL.
                {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
               ]
 11. Matched load json by jsonpaths
-       json data：
+       For example json data:
            [
            {"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},
            {"category":"xuxb222","author":"2avc","title":"SayingsoftheCentury","price":895},
@@ -224,6 +231,23 @@ Where url is the url given by ErrorURL.
        Tips：
         1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
         2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
+
+12. User specifies the json_root node
+       For example json data:
+            {
+            "RECORDS":[
+                {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+                {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+                {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+                ]
+            }
+       Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example: 
+         curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
+
+13. delete all data which key columns match the load data 
+    curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
+14. delete all data which key columns match the load data where flag is true, others append
+    curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1"  -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 ## keyword
 

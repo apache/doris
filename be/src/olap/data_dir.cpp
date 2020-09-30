@@ -55,6 +55,11 @@ using strings::Substitute;
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_total_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_avail_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_data_used_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_state, MetricUnit::BYTES);
+
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
@@ -72,9 +77,16 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _cluster_id(-1),
           _to_be_deleted(false),
           _current_shard(0),
-          _meta(nullptr) {}
+          _meta(nullptr) {
+    _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("data_dir.") + path, {{"path", path}});
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_data_used_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
+}
 
 DataDir::~DataDir() {
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_data_dir_metric_entity);
     delete _id_generator;
     delete _meta;
 }
@@ -83,12 +95,6 @@ Status DataDir::init() {
     if (!FileUtils::check_exist(_path)) {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(Substitute("opendir failed, path=$0", _path)),
                                        "check file exist failed");
-    }
-    std::string align_tag_path = _path + ALIGN_TAG_PREFIX;
-    if (access(align_tag_path.c_str(), F_OK) == 0) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::NotFound(Substitute("align tag $0 was found", align_tag_path)),
-            "access file failed");
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
@@ -125,7 +131,7 @@ Status DataDir::_init_cluster_id() {
     if (fp == NULL) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
             Status::IOError(Substitute("failed to open cluster id file $0", cluster_id_path)),
-            "open file filed");
+            "open file failed");
     }
 
     int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
@@ -308,6 +314,7 @@ void DataDir::health_check() {
             }
         }
     }
+    disks_state->set_value(_is_used ? 1 : 0);
 }
 
 OLAPStatus DataDir::_read_and_write_test_file() {
@@ -595,6 +602,36 @@ OLAPStatus DataDir::set_convert_finished() {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
+
+    auto check_incompatible_old_func = [this](int64_t tablet_id, int32_t schema_hash,
+                                              const std::string& value) -> bool {
+                                                  
+        // if strict check incompatible old format, then log fatal
+        if (config::storage_strict_check_incompatible_old_format) {
+            LOG(FATAL) << "There are incompatible old format metas, current version does not support "
+                       << "and it may lead to data missing!!! "
+                       << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+        } else {
+            LOG(WARNING)
+                    << "There are incompatible old format metas, current version does not support "
+                    << "and it may lead to data missing!!! "
+                    << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+        }
+        return false;
+    };
+
+    // seek old header prefix. when check_incompatible_old_func is called, it has old format in olap_meta
+    OLAPStatus check_incompatible_old_status = TabletMetaManager::traverse_headers(
+            _meta, check_incompatible_old_func, OLD_HEADER_PREFIX);
+    if (check_incompatible_old_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "check incompatible old format meta fails, it may lead to data missing!!! " << _path;
+    } else {
+        LOG(INFO) << "successfully check incompatible old format meta " << _path;
+    }
+    return check_incompatible_old_status;
+}
+
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus DataDir::load() {
     LOG(INFO) << "start to load tablets from " << _path;
@@ -602,6 +639,10 @@ OLAPStatus DataDir::load() {
     // COMMITTED: add to txn manager
     // VISIBLE: add to tablet
     // if one rowset load failed, then the total data dir will not be loaded
+    
+    // necessarily check incompatible old format. when there are old metas, it may load to data missing
+    _check_incompatible_old_format_tablet();
+
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
     auto load_rowset_func = [&dir_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
@@ -746,6 +787,55 @@ void DataDir::remove_pending_ids(const std::string& id) {
     _pending_path_ids.erase(id);
 }
 
+// gc unused tablet schemahash dir
+void DataDir::perform_path_gc_by_tablet() {
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    _cv.wait(lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
+    if (_stop_bg_worker) {
+        return;
+    }
+    LOG(INFO) << "start to path gc by tablet schemahash.";
+    int counter = 0;
+    for (auto& path : _all_tablet_schemahash_paths) {
+        ++counter;
+        if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
+            SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
+        }
+        TTabletId tablet_id = -1;
+        TSchemaHash schema_hash = -1;
+        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
+                                                                                 &schema_hash);
+        if (!is_valid) {
+            LOG(WARNING) << "unknown path:" << path;
+            continue;
+        }
+        // should not happen, because already check it is a valid tablet schema hash path in previous step
+        // so that log fatal here
+        if (tablet_id < 1 || schema_hash < 1) {
+            LOG(WARNING) << "invalid tablet id " << tablet_id << " or schema hash " << schema_hash
+                << ", path=" << path;
+            continue;
+        }
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+        if (tablet != nullptr) {
+            // could find the tablet, then skip check it
+            continue;
+        }
+        boost::filesystem::path tablet_path(path);
+        boost::filesystem::path data_dir_path = 
+            tablet_path.parent_path().parent_path().parent_path().parent_path();
+        std::string data_dir_string = data_dir_path.string();
+        DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
+        if (data_dir == nullptr) {
+            LOG(WARNING) << "could not find data dir for tablet path " << path;
+            continue;
+        }
+        _tablet_manager->try_delete_unused_tablet_path(data_dir, tablet_id, schema_hash, path);
+    }
+    _all_tablet_schemahash_paths.clear();
+    LOG(INFO) << "finished one time path gc by tablet.";
+}
+
 void DataDir::perform_path_gc_by_rowsetid() {
     // init the set of valid path
     // validate the path in data dir
@@ -820,7 +910,6 @@ void DataDir::perform_path_scan() {
             }
             for (const auto& tablet_id : tablet_ids) {
                 std::string tablet_id_path = shard_path + "/" + tablet_id;
-                _all_check_paths.insert(tablet_id_path);
                 std::set<std::string> schema_hashes;
                 ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
                                                  Env::Default());
@@ -831,7 +920,7 @@ void DataDir::perform_path_scan() {
                 }
                 for (const auto& schema_hash : schema_hashes) {
                     std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
-                    _all_check_paths.insert(tablet_schema_hash_path);
+                    _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
                     std::set<std::string> rowset_files;
 
                     ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr,
@@ -866,15 +955,6 @@ bool DataDir::_check_pending_ids(const std::string& id) {
     return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
-void DataDir::_remove_check_paths_no_lock(const std::set<std::string>& paths) {
-    for (const auto& path : paths) {
-        auto path_iter = _all_check_paths.find(path);
-        if (path_iter != _all_check_paths.end()) {
-            _all_check_paths.erase(path_iter);
-        }
-    }
-}
-
 Status DataDir::update_capacity() {
     try {
         boost::filesystem::path path_name(_path);
@@ -890,16 +970,23 @@ Status DataDir::update_capacity() {
                 Substitute("get path $0 available capacity failed, error=$1", _path, e.what())),
             "boost::filesystem::space failed");
     }
+
+    disks_total_capacity->set_value(_disk_capacity_bytes);
+    disks_avail_capacity->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
               << ", available capacity: " << _available_bytes;
 
     return Status::OK();
 }
 
+void DataDir::update_user_data_size(int64_t size) {
+    disks_data_used_capacity->set_value(size);
+}
+
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
     double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                       (double)_disk_capacity_bytes;
-    int64_t left_bytes = _disk_capacity_bytes - _available_bytes - incoming_data_size;
+    int64_t left_bytes = _available_bytes - incoming_data_size;
 
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
         left_bytes <= config::storage_flood_stage_left_capacity_bytes) {

@@ -29,9 +29,11 @@
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "util/priority_thread_pool.hpp"
 #include "util/hash_util.hpp"
 #include "http/rest_monitor_iface.h"
+#include "gutil/ref_counted.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -40,6 +42,7 @@ class FragmentExecState;
 class TExecPlanFragmentParams;
 class TUniqueId;
 class PlanFragmentExecutor;
+class ThreadPool;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -86,11 +89,10 @@ private:
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
 
-    // Cancel thread
-    bool _stop;
-    std::thread _cancel_thread;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _cancel_thread;
     // every job is a pool
-    PriorityThreadPool _thread_pool;
+    std::unique_ptr<ThreadPool> _thread_pool;
 };
 
 }

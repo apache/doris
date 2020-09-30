@@ -282,6 +282,9 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();
         context.rowset_type = StorageEngine::instance()->default_rowset_type();
+        if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+            context.rowset_type = BETA_ROWSET;
+        }
         context.rowset_path_prefix = cur_tablet->tablet_path();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
@@ -468,6 +471,9 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();
         context.rowset_type = StorageEngine::instance()->default_rowset_type();
+        if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
+            context.rowset_type = BETA_ROWSET;
+        }
         context.rowset_path_prefix = cur_tablet->tablet_path();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
@@ -946,7 +952,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema,
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_tracker.reset(new MemTracker(_runtime_profile, -1, _runtime_profile->name(), _runtime_state->instance_mem_tracker()));
+    _mem_tracker = MemTracker::CreateTracker(-1, "PushBrokerReader", _runtime_state->instance_mem_tracker());
     _mem_pool.reset(new MemPool(_mem_tracker.get()));
     _counter.reset(new ScannerCounter());
 
@@ -1020,7 +1026,7 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
         const void* value = _tuple->get_slot(slot->tuple_offset());
         // try execute init method defined in aggregateInfo
         // by default it only copies data into cell
-        _schema->column(i)->consume(&cell, (const char*)value, is_null, 
+        _schema->column(i)->consume(&cell, (const char*)value, is_null,
                                     _mem_pool.get(), _runtime_state->obj_pool());
         // if column(i) is a value column, try execute finalize method defined in aggregateInfo
         // to convert data into final format

@@ -65,7 +65,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
-    _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker));
+    _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
 
     _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info->host, _node_info->brpc_port);
     if (_stub == nullptr) {
@@ -187,7 +187,8 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() && _pending_batches_num > 0) {
+    while (!_cancelled && _parent->_mem_tracker->AnyLimitExceeded(MemLimit::HARD) &&
+           _pending_batches_num > 0) {
         SCOPED_RAW_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
     }
@@ -202,7 +203,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
             _pending_batches_num++;
         }
 
-        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker));
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
         _cur_add_batch_request.clear_tablet_ids();
 
         row_no = _cur_batch->add_row();
@@ -410,7 +411,8 @@ bool IndexChannel::has_intolerable_failure() {
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024),
+          _stop_background_threads_latch(1) {
     if (!texprs.empty()) {
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
@@ -420,7 +422,6 @@ OlapTableSink::~OlapTableSink() {
     // We clear NodeChannels' batches here, cuz NodeChannels' batches destruction will use
     // OlapTableSink::_mem_tracker and its parents.
     // But their destructions are after OlapTableSink's.
-    // TODO: can be remove after all MemTrackers become shared.
     for (auto index_channel : _channels) {
         index_channel->for_each_node_channel([](NodeChannel* ch) { ch->clear_all_batches(); });
     }
@@ -463,13 +464,12 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
-    _mem_tracker = _pool->add(new MemTracker(-1, "OlapTableSink", state->instance_mem_tracker()));
+    _mem_tracker = MemTracker::CreateTracker(-1, "OlapTableSink", state->instance_mem_tracker());
 
     SCOPED_TIMER(_profile->total_time_counter());
 
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(
-            Expr::prepare(_output_expr_ctxs, state, _input_row_desc, _expr_mem_tracker.get()));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _input_row_desc, _expr_mem_tracker));
 
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
@@ -497,7 +497,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     }
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
-    _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker));
+    _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker.get()));
 
     _max_decimal_val.resize(_output_tuple_desc->slots().size());
     _min_decimal_val.resize(_output_tuple_desc->slots().size());
@@ -593,7 +593,9 @@ Status OlapTableSink::open(RuntimeState* state) {
         }
     }
 
-    _sender_thread = std::thread(&OlapTableSink::_send_batch_process, this);
+    RETURN_IF_ERROR(Thread::create("OlapTableSink", "send_batch_process",
+                                   [this]() { this->_send_batch_process(); },
+                                   &_sender_thread));
 
     return Status::OK();
 }
@@ -605,8 +607,8 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     state->update_num_rows_load_total(input_batch->num_rows());
     state->update_num_bytes_load_total(input_batch->total_byte_size());
-    DorisMetrics::instance()->load_rows_total.increment(input_batch->num_rows());
-    DorisMetrics::instance()->load_bytes_total.increment(input_batch->total_byte_size());
+    DorisMetrics::instance()->load_rows->increment(input_batch->num_rows());
+    DorisMetrics::instance()->load_bytes->increment(input_batch->total_byte_size());
     RowBatch* batch = input_batch;
     if (!_output_expr_ctxs.empty()) {
         SCOPED_RAW_TIMER(&_convert_batch_ns);
@@ -723,8 +725,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
-    if (_sender_thread.joinable()) {
-        _sender_thread.join();
+    _stop_background_threads_latch.count_down();
+    if (_sender_thread) {
+        _sender_thread->join();
     }
 
     Expr::close(_output_expr_ctxs, state);
@@ -900,7 +903,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
 
 void OlapTableSink::_send_batch_process() {
     SCOPED_RAW_TIMER(&_non_blocking_send_ns);
-    while (true) {
+    do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num](NodeChannel* ch) {
@@ -913,8 +916,7 @@ void OlapTableSink::_send_batch_process() {
                          "consumer thread exit.";
             return;
         }
-        SleepFor(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms));
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms)));
 }
 
 } // namespace stream_load

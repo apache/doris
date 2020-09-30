@@ -184,6 +184,8 @@ namespace config {
     CONF_Int32(port, "20001");
     // default thrift client connect timeout(in seconds)
     CONF_Int32(thrift_connect_timeout_seconds, "3");
+    // default thrift client retry interval (in milliseconds)
+    CONF_mInt64(thrift_client_retry_interval_ms, "1000");
     // max row count number for single scan range
     CONF_mInt32(doris_scan_range_row_count, "524288");
     // size of scanner queue between scanner thread and compute thread
@@ -221,6 +223,12 @@ namespace config {
     CONF_mInt32(disk_stat_monitor_interval, "5");
     CONF_mInt32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
+
+    // Config is used to check incompatible old format hdr_ format
+    // whether doris uses strict way. When config is true, process will log fatal
+    // and exit. When config is false, process will only log warning.
+    CONF_Bool(storage_strict_check_incompatible_old_format, "true");
+
     // BE process will exit if the percentage of error disk reach this value.
     CONF_mInt32(max_percentage_of_error_disk, "0");
     // CONF_Int32(default_num_rows_per_data_block, "1024");
@@ -230,6 +238,8 @@ namespace config {
     CONF_mInt32(pending_data_expire_time_sec, "1800");
     // inc_rowset expired interval
     CONF_mInt32(inc_rowset_expired_sec, "1800");
+    // inc_rowset snapshot rs sweep time interval
+    CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "3600");
     CONF_Int32(min_garbage_sweep_interval, "180");
@@ -252,6 +262,9 @@ namespace config {
     CONF_Bool(disable_storage_page_cache, "false");
 
     // be policy
+    // whether disable automatic compaction task
+    CONF_mBool(disable_auto_compaction, "false");
+
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");
     CONF_mInt32(base_compaction_check_interval_seconds, "60");
@@ -260,6 +273,27 @@ namespace config {
     CONF_mDouble(base_cumulative_delta_ratio, "0.3");
     CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
     CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
+
+    // config the cumulative compaction policy
+    // Valid configs: num_base, size_based
+    // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
+    // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring 
+    // lower write amplification, trading off read amplification and space amplification.
+    CONF_String(cumulative_compaction_policy, "size_based");
+
+    // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size, 
+    // this rowset will be given to base compaction, unit is m byte.
+    CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+    // In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
+    // base rowset's total disk size, this rowset will be given to base compaction. The value must be between 
+    // 0 and 1.
+    CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
+    // In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this 
+    // rowset will be not given to base compaction. The unit is m byte.
+    CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
+    // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than 
+    // this size, size_based policy also does cumulative compaction. The unit is m byte.
+    CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 
     // cumulative compaction policy: max delta file's size unit:B
     CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
@@ -299,11 +333,14 @@ namespace config {
     CONF_Int64(load_data_reserve_hours, "4");
     // log error log will be removed after this time
     CONF_mInt64(load_error_log_reserve_hours, "48");
-    // Deprecated, use streaming_load_max_mb instead
-    // CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
+    // The maximum amount of data that can be processed by a stream load
     CONF_mInt64(streaming_load_max_mb, "10240");
+    // Some data formats, such as JSON, cannot be streamed.
+    // Therefore, it is necessary to limit the maximum number of
+    // such data when using stream load to prevent excessive memory consumption.
+    CONF_mInt64(streaming_load_max_batch_size_mb, "100");
     // the alive time of a TabletsChannel.
     // If the channel does not receive any data till this time,
     // the channel will be removed.
@@ -320,8 +357,9 @@ namespace config {
     CONF_mInt32(olap_table_sink_send_interval_ms, "10");
 
     // Fragment thread pool
-    CONF_Int32(fragment_pool_thread_num, "64");
-    CONF_Int32(fragment_pool_queue_size, "1024");
+    CONF_Int32(fragment_pool_thread_num_min, "64");
+    CONF_Int32(fragment_pool_thread_num_max, "512");
+    CONF_Int32(fragment_pool_queue_size, "2048");
 
     //for cast
     // CONF_Bool(cast, "true");
@@ -435,9 +473,6 @@ namespace config {
     // result buffer cancelled time (unit: second)
     CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 
-    // can perform recovering tablet
-    CONF_Bool(force_recovery, "false");
-
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
     CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
@@ -536,6 +571,21 @@ namespace config {
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_load_tablet_failure, "false");
 
+    // Whether to continue to start be when load tablet from header failed.
+    CONF_Bool(ignore_rowset_stale_unconsistent_delete, "false");
+
+    // Soft memory limit as a fraction of hard memory limit.
+    CONF_Double(soft_mem_limit_frac, "0.9");
+    
+    // Set max cache's size of query results, the unit is M byte
+    CONF_Int32(query_cache_max_size_mb, "256"); 
+
+    // Cache memory is pruned when reach query_cache_max_size_mb + query_cache_elasticity_size_mb
+    CONF_Int32(query_cache_elasticity_size_mb, "128");
+
+    // Maximum number of cache partitions corresponding to a SQL
+    CONF_Int32(query_cache_max_partition_count, "1024");
+    
 } // namespace config
 
 } // namespace doris
