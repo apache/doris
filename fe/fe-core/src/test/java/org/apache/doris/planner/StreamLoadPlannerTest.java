@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -41,6 +42,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.StringReader;
+import java.util.Arrays;
 import java.util.List;
 
 import mockit.Expectations;
@@ -60,6 +62,9 @@ public class StreamLoadPlannerTest {
     @Mocked
     OlapTableSink sink;
 
+    @Mocked
+    Partition partition;
+
     @Test
     public void testNormalPlan() throws UserException {
         List<Column> columns = Lists.newArrayList();
@@ -72,6 +77,9 @@ public class StreamLoadPlannerTest {
                 destTable.getBaseSchema();
                 minTimes = 0;
                 result = columns;
+                destTable.getPartitions();
+                minTimes = 0;
+                result = Arrays.asList(partition);
                 scanNode.init((Analyzer) any);
                 minTimes = 0;
                 scanNode.getChildren();
@@ -80,6 +88,9 @@ public class StreamLoadPlannerTest {
                 scanNode.getId();
                 minTimes = 0;
                 result = new PlanNodeId(5);
+                partition.getId();
+                minTimes = 0;
+                result = 0;
             }
         };
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();

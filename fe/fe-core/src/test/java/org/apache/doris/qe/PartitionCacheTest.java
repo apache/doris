@@ -17,41 +17,13 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.thrift.TStorageType;
-
-import org.apache.doris.qe.ConnectScheduler;
-import org.apache.doris.qe.cache.Cache;
-import org.apache.doris.qe.cache.CacheCoordinator;
-import org.apache.doris.qe.cache.PartitionCache;
-import org.apache.doris.qe.cache.PartitionRange;
-import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
-import org.apache.doris.qe.cache.RowBatchBuilder;
-import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.SetPassVar;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.Planner;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.system.Backend;
-import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.proto.PUniqueId;
-import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -60,47 +32,56 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.RandomDistributionInfo;
-import org.apache.doris.catalog.SinglePartitionInfo;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.persist.EditLog;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.qe.cache.Cache;
+import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
+import org.apache.doris.qe.cache.CacheCoordinator;
+import org.apache.doris.qe.cache.PartitionCache;
+import org.apache.doris.qe.cache.PartitionRange;
+import org.apache.doris.qe.cache.RowBatchBuilder;
+import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TUniqueId;
-
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Tested;
-import mockit.Injectable;
-import mockit.Expectations;
-import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
-import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.List;
+
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class PartitionCacheTest {
     private static final Logger LOG = LogManager.getLogger(PartitionCacheTest.class);
@@ -173,7 +154,7 @@ public class PartitionCacheTest {
 
                 Deencapsulation.invoke(Catalog.class, "getCurrentSystemInfo");
                 minTimes = 0;
-                result = service;                             
+                result = service;
    
                 catalog.getDb(fullDbName);
                 minTimes = 0;
@@ -270,15 +251,6 @@ public class PartitionCacheTest {
         analyzer = new Analyzer(catalog, ctx);
         newRangeList = Lists.newArrayList();
     }
-
-    private void test1() {
-        new Expectations(catalog) {
-            {
-                catalog.getAuth();
-                result = auth;
-            }
-        };
-    } 
 
     private OlapTable createOrderTable() {
         Column column1 = new Column("date", ScalarType.INT);

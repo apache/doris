@@ -337,7 +337,7 @@ public class BrokerFileGroup implements Writable {
         return sb.toString();
     }
 
-
+    @Deprecated
     @Override
     public void write(DataOutput out) throws IOException {
         // tableId
@@ -387,6 +387,7 @@ public class BrokerFileGroup implements Writable {
         out.writeBoolean(isLoadFromTable);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         valueSeparator = Text.readString(in);
@@ -460,6 +461,7 @@ public class BrokerFileGroup implements Writable {
         }
     }
 
+    @Deprecated
     public static BrokerFileGroup read(DataInput in) throws IOException {
         BrokerFileGroup fileGroup = new BrokerFileGroup();
         fileGroup.readFields(in);
