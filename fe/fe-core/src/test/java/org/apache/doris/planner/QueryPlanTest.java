@@ -926,6 +926,11 @@ public class QueryPlanTest {
         String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall group by k2, col54, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql54),
                 "OUTPUT EXPRS:<slot 3> `k2` | <slot 4> `k1` | <slot 5> `k7`"));
+
+        // 5.5 test return CastExpr<CastExpr<SlotRef>> with other SlotRef in selectListItem
+        String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from test.baseall group by col55, k7";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql55),
+                "OUTPUT EXPRS:<slot 2> CAST(`k1` AS INT) | <slot 3> `k7`"));
     }
 
     @Test
