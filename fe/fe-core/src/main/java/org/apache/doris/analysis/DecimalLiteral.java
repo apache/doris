@@ -224,7 +224,9 @@ public class DecimalLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isFloatingPointType()) {
+        if (targetType.isDecimal() || targetType.isDecimalV2()) {
+            return this;
+        } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);
         } else if (targetType.isIntegerType()) {
             return new IntLiteral(value.longValue(), targetType);
