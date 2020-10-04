@@ -754,7 +754,9 @@ public class FunctionSet {
         final Type[] candicateArgTypes = candicate.getArgs();
         if (functionName.equalsIgnoreCase("hex")
                 || functionName.equalsIgnoreCase("greast")
-                || functionName.equalsIgnoreCase("least")) {
+                || functionName.equalsIgnoreCase("least")
+                || functionName.equalsIgnoreCase("lead")
+                || functionName.equalsIgnoreCase("lag")) {
             final ScalarType descArgType = (ScalarType)descArgTypes[0];
             final ScalarType candicateArgType = (ScalarType)candicateArgTypes[0];
             if (!descArgType.isStringType() && candicateArgType.isStringType()) {
