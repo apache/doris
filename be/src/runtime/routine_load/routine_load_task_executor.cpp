@@ -107,7 +107,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 
     // thread pool's queue size > 0 means there are tasks waiting to be executed, so no more tasks should be submitted.
     if (_thread_pool.get_queue_size() > 0) {
-        LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id);
+        LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
+                  << ", job id: " << task.job_id
+                  << ", queue size: " << _thread_pool.get_queue_size();
         return Status::TooManyTasks(UniqueId(task.id).to_string());
     }
 

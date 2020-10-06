@@ -129,7 +129,7 @@ private:
                     // the first task should blocking, or the tasks queue is empty
                     has_task = _work_queue.blocking_get(&task);
                 } else {
-                    // the 2rd, 3rd... task shoudl non blocking get
+                    // the 2rd, 3rd... task should non blocking get
                     has_task = _work_queue.non_blocking_get(&task);
                     if (!has_task) {
                         break;

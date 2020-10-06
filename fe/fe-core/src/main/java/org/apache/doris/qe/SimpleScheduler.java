@@ -42,8 +42,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 public class SimpleScheduler {
-    private static AtomicLong nextId = new AtomicLong(0);
     private static final Logger LOG = LogManager.getLogger(SimpleScheduler.class);
+
+    private static AtomicLong nextId = new AtomicLong(0);
 
     // backend id -> (try time, reason)
     // There will be multi threads to read and modify this map.
@@ -68,7 +69,7 @@ public class SimpleScheduler {
         LOG.debug("getHost backendID={}, backendSize={}", backendId, backends.size());
         Backend backend = backends.get(backendId);
 
-        if (backend != null && backend.isAlive() && !blacklistBackends.containsKey(backendId)) {
+        if (isAvailable(backend)) {
             backendIdRef.setRef(backendId);
             return new TNetworkAddress(backend.getHost(), backend.getBePort());
         } else {
@@ -78,8 +79,7 @@ public class SimpleScheduler {
                 }
                 // choose the first alive backend(in analysis stage, the locations are random)
                 Backend candidateBackend = backends.get(location.backend_id);
-                if (candidateBackend != null && candidateBackend.isAlive()
-                        && !blacklistBackends.containsKey(location.backend_id)) {
+                if (isAvailable(candidateBackend)) {
                     backendIdRef.setRef(location.backend_id);
                     return new TNetworkAddress(candidateBackend.getHost(), candidateBackend.getBePort());
                 }
@@ -90,6 +90,47 @@ public class SimpleScheduler {
         throw new UserException("there is no scanNode Backend. " +
                 getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
+    }
+
+    public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
+                                          Reference<Long> backendIdRef)
+            throws UserException {
+        if (backends == null || backends.isEmpty()) {
+            throw new UserException("candidate backends is empty");
+        }
+        int backendSize = backends.size();
+        long id = nextId.getAndIncrement() % backendSize;
+
+        List<Long> idToBackendId = Lists.newArrayList();
+        idToBackendId.addAll(backends.keySet());
+        Long backendId = idToBackendId.get((int) id);
+        Backend backend = backends.get(backendId);
+
+        if (isAvailable(backend)) {
+            backendIdRef.setRef(backendId);
+            return new TNetworkAddress(backend.getHost(), backend.getBePort());
+        } else {
+            long candidateId = id + 1;  // get next candidate id
+            for (int i = 0; i < backendSize; i++, candidateId++) {
+                LOG.debug("i={} candidatedId={}", i, candidateId);
+                if (candidateId >= backendSize) {
+                    candidateId = 0;
+                }
+                if (candidateId == id) {
+                    continue;
+                }
+                Long candidatebackendId = idToBackendId.get((int) candidateId);
+                LOG.debug("candidatebackendId={}", candidatebackendId);
+                Backend candidateBackend = backends.get(candidatebackendId);
+                if (isAvailable(candidateBackend)) {
+                    backendIdRef.setRef(candidatebackendId);
+                    return new TNetworkAddress(candidateBackend.getHost(), candidateBackend.getBePort());
+                }
+            }
+        }
+        // no backend returned
+        throw new UserException("there is no scanNode Backend. "
+                + getBackendErrorMsg(Lists.newArrayList(backends.keySet()), backends, 3));
     }
 
     // get the reason why backends can not be chosen.
@@ -112,48 +153,6 @@ public class SimpleScheduler {
         return res.toString();
     }
 
-    public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
-                                          Reference<Long> backendIdRef)
-            throws UserException {
-        if (backends == null || backends.isEmpty()) {
-            throw new UserException("candidate backends is empty");
-        }
-        int backendSize = backends.size();
-        long id = nextId.getAndIncrement() % backendSize;
-
-        List<Long> idToBackendId = Lists.newArrayList();
-        idToBackendId.addAll(backends.keySet());
-        Long backendId = idToBackendId.get((int) id);
-        Backend backend = backends.get(backendId);
-
-        if (backend != null && backend.isAlive() && !blacklistBackends.containsKey(backendId)) {
-            backendIdRef.setRef(backendId);
-            return new TNetworkAddress(backend.getHost(), backend.getBePort());
-        } else {
-            long candidateId = id + 1;  // get next candidate id
-            for (int i = 0; i < backendSize; i++, candidateId++) {
-                LOG.debug("i={} candidatedId={}", i, candidateId);
-                if (candidateId >= backendSize) {
-                    candidateId = 0;
-                }
-                if (candidateId == id) {
-                    continue;
-                }
-                Long candidatebackendId = idToBackendId.get((int) candidateId);
-                LOG.debug("candidatebackendId={}", candidatebackendId);
-                Backend candidateBackend = backends.get(candidatebackendId);
-                if (candidateBackend != null && candidateBackend.isAlive()
-                        && !blacklistBackends.containsKey(candidatebackendId)) {
-                    backendIdRef.setRef(candidatebackendId);
-                    return new TNetworkAddress(candidateBackend.getHost(), candidateBackend.getBePort());
-                }
-            }
-        }
-        // no backend returned
-        throw new UserException("there is no scanNode Backend. "
-                + getBackendErrorMsg(Lists.newArrayList(backends.keySet()), backends, 3));
-    }
-
     public static void addToBlacklist(Long backendID, String reason) {
         if (backendID == null) {
             return;
@@ -163,7 +162,7 @@ public class SimpleScheduler {
         LOG.warn("add backend {} to black list. reason: {}", backendID, reason);
     }
 
-    public static boolean isAlive(Backend backend) {
+    public static boolean isAvailable(Backend backend) {
         return (backend != null && backend.isAlive() && !blacklistBackends.containsKey(backend.getId()));
     }
     
@@ -194,22 +193,18 @@ public class SimpleScheduler {
                         Map.Entry<Long, Pair<Integer, String>> entry = iterator.next();
                         Long backendId = entry.getKey();
 
-                        // remove from blacklist if
-                        // 1. backend does not exist anymore
-                        // 2. backend is alive
-                        if (clusterInfoService.getBackend(backendId) == null
-                                || clusterInfoService.checkBackendAvailable(backendId)) {
+                        // remove from blacklist if backend does not exist anymore
+                        if (clusterInfoService.getBackend(backendId) == null) {
                             iterator.remove();
-                            LOG.debug("remove backendID {} which is alive", backendId);
+                            LOG.info("remove backend {} from black list because it does not exist", backendId);
                         } else {
                             // 3. max try time is reach
-                            Integer retryTimes = entry.getValue().first;
-                            retryTimes = retryTimes - 1;
-                            if (retryTimes <= 0) {
+                            entry.getValue().first = entry.getValue().first - 1;
+                            if (entry.getValue().first <= 0) {
                                 iterator.remove();
-                                LOG.warn("remove backendID {}. reach max try time", backendId);
+                                LOG.warn("remove backend {} from black list. reach max try time", backendId);
                             } else {
-                                LOG.debug("blacklistBackends backendID={} retryTimes={}", backendId, retryTimes);
+                                LOG.debug("blacklistBackends backendID={} retryTimes={}", backendId, entry.getValue().first);
                             }
                         }
                     }
@@ -217,7 +212,7 @@ public class SimpleScheduler {
                     LOG.debug("UpdateBlacklistThread retry end");
 
                 } catch (Throwable ex) {
-                    LOG.warn("blacklist thread exception" + ex);
+                    LOG.warn("blacklist thread exception", ex);
                 }
             }
         }
