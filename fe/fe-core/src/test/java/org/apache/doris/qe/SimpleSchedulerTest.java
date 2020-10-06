@@ -19,9 +19,11 @@ package org.apache.doris.qe;
 
 import mockit.Expectations;
 import mockit.Mocked;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
+import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -108,18 +110,26 @@ public class SimpleSchedulerTest {
         threeBackends.put((long) 2, backendC);
         ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
 
-        {   // null Backends
-            address = SimpleScheduler.getHost(Long.valueOf(0), nullLocations,
-                                              nullBackends, ref);
-            Assert.assertNull(address);
-        }
-        {   // empty Backends
-            address = SimpleScheduler.getHost(Long.valueOf(0), emptyLocations,
-                                              emptyBackends, ref);
-            Assert.assertNull(address);
-        }
-        {   // normal Backends
+        // null Backends
+        try {
+            SimpleScheduler.getHost(Long.valueOf(0), nullLocations,
+                    nullBackends, ref);
+            Assert.fail();
+        } catch (UserException e) {
 
+        }
+
+        // empty Backends
+        try {
+            SimpleScheduler.getHost(Long.valueOf(0), emptyLocations,
+                    emptyBackends, ref);
+            Assert.fail();
+        } catch (UserException e) {
+
+        }
+
+        // normal Backends
+        try {
             // BackendId exists
             Assert.assertEquals(SimpleScheduler.getHost(0, emptyLocations, immutableThreeBackends, ref)
                     .hostname, "addressA");
@@ -129,10 +139,17 @@ public class SimpleSchedulerTest {
             // BacknedId not exists and location exists, choose the locations's first
             Assert.assertEquals(SimpleScheduler.getHost(3, twoLocations, immutableThreeBackends, ref)
                     .hostname, "addressA");
+        } catch (UserException e) {
+            Assert.fail(e.getMessage());
         }
-        {   // abnormal
+
+        // abnormal
+        try {
             // BackendId not exists and location not exists
-            Assert.assertNull(SimpleScheduler.getHost(3, emptyLocations, immutableThreeBackends, ref));
+            SimpleScheduler.getHost(3, emptyLocations, immutableThreeBackends, ref);
+            Assert.fail();
+        } catch (UserException e) {
+
         }
 
     }
@@ -157,11 +174,23 @@ public class SimpleSchedulerTest {
         threeBackends.put((long) 2, backendC);
         ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
 
-        {   // abmormal
-            Assert.assertNull(SimpleScheduler.getHost(nullBackends, ref));
-            Assert.assertNull(SimpleScheduler.getHost(emptyBackends, ref));
-        }   // normal
-        {
+        // abmormal
+        try {
+            SimpleScheduler.getHost(nullBackends, ref);
+            Assert.fail();
+        } catch (UserException e) {
+
+        }
+
+        try {
+            SimpleScheduler.getHost(emptyBackends, ref);
+            Assert.fail();
+        } catch (UserException e) {
+
+        }
+
+        // normal
+        try {
             String a = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
             String b = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
             String c = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
@@ -170,13 +199,15 @@ public class SimpleSchedulerTest {
             b = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
             c = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
             Assert.assertTrue(!a.equals(b) && !a.equals(c) && !b.equals(c));
+        } catch (UserException e) {
+            Assert.fail(e.getMessage());
         }
     }
 
     // TODO(lingbin): PALO-2051.
     // Comment out these code temporatily.
     // @Test
-    public void testBlackList() {
+    public void testBlackList() throws UserException {
         FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
         TNetworkAddress address = null;
 
@@ -192,12 +223,12 @@ public class SimpleSchedulerTest {
         threeBackends.put((long) 102, backendC);
         ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
 
-        SimpleScheduler.addToBlacklist(Long.valueOf(100));
-        SimpleScheduler.addToBlacklist(Long.valueOf(101));
+        SimpleScheduler.addToBlacklist(Long.valueOf(100), "test");
+        SimpleScheduler.addToBlacklist(Long.valueOf(101), "test");
         address = SimpleScheduler.getHost(immutableThreeBackends, ref);
         // only backendc can work
         Assert.assertEquals(address.hostname, "addressC");
-        SimpleScheduler.addToBlacklist(Long.valueOf(102));
+        SimpleScheduler.addToBlacklist(Long.valueOf(102), "test");
         // no backend can work
         address = SimpleScheduler.getHost(immutableThreeBackends, ref);
         Assert.assertNull(address);
