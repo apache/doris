@@ -167,6 +167,7 @@ import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -5092,6 +5093,36 @@ public class Catalog {
         LOG.info("rename table[{}] to {}", tableName, newTableName);
     }
 
+    public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        String tableName = table.getName();
+        String newTableName = tableRenameClause.getNewTableName();
+        if (tableName.equals(newTableName)) {
+            throw new DdlException("Same table name");
+        }
+
+        // check if name is already used
+        if (db.getTable(newTableName) != null) {
+            throw new DdlException("Table name[" + newTableName + "] is already used");
+        }
+
+        table.setName(newTableName);
+
+        db.dropTable(tableName);
+        db.createTable(table);
+
+        TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
+        editLog.logTableRename(tableInfo);
+        LOG.info("rename table[{}] to {}", tableName, newTableName);
+    }
+
+    public void reflushTable(Database db, Table table) throws DdlException {
+        DropInfo dropInfo = new DropInfo(db.getId(), table.getId(), -1, true);
+        editLog.logDropTable(dropInfo);
+        CreateTableInfo createTableInfo = new CreateTableInfo(db.getFullName(), table);
+        editLog.logCreateTable(createTableInfo);
+        LOG.info("reflush db[{}] table[{}] for schema change", db.getFullName(), table.getName());
+    }
+
     public void replayRenameTable(TableInfo tableInfo) throws DdlException {
         long dbId = tableInfo.getDbId();
         long tableId = tableInfo.getTableId();
@@ -5100,7 +5131,7 @@ public class Catalog {
         Database db = getDb(dbId);
         db.writeLock();
         try {
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            Table table = db.getTable(tableId);
             String tableName = table.getName();
             db.dropTable(tableName);
             table.setName(newTableName);
