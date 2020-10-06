@@ -308,22 +308,10 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
     }
     Expr::close(_partition_expr_ctxs, state);
     for (auto& iter : _rollup_map) {
-        Status status = iter.second->close(state);
-        if (UNLIKELY(is_ok && !status.ok())) {
-            LOG(WARNING) << "close rollup_map error"
-                    << " err_msg=" << status.get_error_msg();
-            is_ok = false;
-            err_status = status;
-        }
+        iter.second->close(state);
     }
     for (auto iter : _partition_infos) {
-        Status status = iter->close(state);
-        if (UNLIKELY(is_ok && !status.ok())) {
-            LOG(WARNING) << "close partition_info error"
-                    << " err_msg=" << status.get_error_msg();
-            is_ok = false;
-            err_status = status;
-        }
+        iter->close(state);
     }
   
     _expr_mem_tracker.reset();

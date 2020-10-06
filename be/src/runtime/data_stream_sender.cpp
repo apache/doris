@@ -33,6 +33,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/mem_tracker.h"
+#include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/network_util.h"
 #include "util/thrift_client.h"
@@ -114,10 +115,10 @@ public:
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
-    void close(RuntimeState* state);
+    Status close(RuntimeState* state);
 
     // Get close wait's response, to finish channel close operation.
-    void close_wait(RuntimeState* state);
+    Status close_wait(RuntimeState* state);
 
     int64_t num_data_bytes_sent() const {
         return _num_data_bytes_sent;
@@ -137,9 +138,11 @@ private:
         auto cntl = &_closure->cntl;
         brpc::Join(cntl->call_id());
         if (cntl->Failed()) {
-            LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
-                << ", error_text=" << cntl->ErrorText();
-            return Status::ThriftRpcError("failed to send batch");
+            std::stringstream ss;
+            ss << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
+                << ", error_text=" << cntl->ErrorText() << ", client: " << BackendOptions::get_localhost();
+            LOG(WARNING) << ss.str();
+            return Status::ThriftRpcError(ss.str());
         }
         return Status::OK();
     }
@@ -296,16 +299,25 @@ Status DataStreamSender::Channel::close_internal() {
     return Status::OK();
 }
 
-void DataStreamSender::Channel::close(RuntimeState* state) {
-    state->log_error(close_internal().get_error_msg());
+Status DataStreamSender::Channel::close(RuntimeState* state) {
+    Status st = close_internal();
+    if (!st.ok()) {
+        state->log_error(st.get_error_msg());
+    }
+    return st;
 }
 
-void DataStreamSender::Channel::close_wait(RuntimeState* state) {
+Status DataStreamSender::Channel::close_wait(RuntimeState* state) {
     if (_need_close) {
-        state->log_error(_wait_last_brpc().get_error_msg());
+        Status st = _wait_last_brpc();
+        if (!st.ok()) {
+            state->log_error(st.get_error_msg());
+        }
         _need_close = false;
+        return st;
     }
     _batch.reset();
+    return Status::OK();
 }
 
 DataStreamSender::DataStreamSender(
@@ -606,19 +618,26 @@ Status DataStreamSender::compute_range_part_code(
 Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     // TODO: only close channels that didn't have any errors
     // make all channels close parallel
+    Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
-        _channels[i]->close(state);
+        Status st = _channels[i]->close(state);
+        if (!st.ok() && final_st.ok()) {
+            final_st = st;
+        }
     }
     // wait all channels to finish
     for (int i = 0; i < _channels.size(); ++i) {
-        _channels[i]->close_wait(state);
+        Status st = _channels[i]->close_wait(state);
+        if (!st.ok() && final_st.ok()) {
+            final_st = st;
+        }
     }
     for (auto iter : _partition_infos) {
-        RETURN_IF_ERROR(iter->close(state));
+        iter->close(state);
     }
     Expr::close(_partition_expr_ctxs, state);
 
-    return Status::OK();
+    return final_st;
 }
 
 template<typename T>
