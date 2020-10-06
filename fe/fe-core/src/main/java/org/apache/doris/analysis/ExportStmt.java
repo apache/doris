@@ -227,8 +227,8 @@ public class ExportStmt extends StatementBase {
             URI uri = new URI(path);
             String schema = uri.getScheme();
             if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs"))) {
-                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
+                    && !schema.equalsIgnoreCase("hdfs") && !schema.equalsIgnoreCase("oss"))) {
+                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://', 'OSS://' or 'BOS://' path.");
             }
         } catch (URISyntaxException e) {
             throw new AnalysisException("Invalid path format. " + e.getMessage());
