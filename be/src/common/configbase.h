@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -109,22 +110,30 @@ public:
 // configuration properties load from config file.
 class Properties {
 public:
-    bool load(const char* filename);
+    // load conf from file, if must_exist is true and file does not exist, return false
+    bool load(const char* filename, bool must_exist = true);
     template <typename T>
     bool get(const char* key, const char* defstr, T& retval) const;
+
+    void set(const std::string& key, const std::string& val);
+
+    // dump props to conf file
+    bool dump(const std::string& conffile);
 
 private:
     std::map<std::string, std::string> file_conf_map;
 };
 
-extern Properties props;
-
 // full configurations.
 extern std::map<std::string, std::string>* full_conf_map;
 
-bool init(const char* filename, bool fillconfmap = false);
+extern std::mutex custom_conf_lock;
 
-Status set_config(const std::string& field, const std::string& value);
+bool init(const char* conf_file, const char* custom_conf_file, bool fillconfmap = false);
+
+Status set_config(const std::string& field, const std::string& value, bool need_persist);
+
+bool persist_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris

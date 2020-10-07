@@ -28,6 +28,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
@@ -314,6 +315,11 @@ public class ConfigBase {
         File file = new File(customConfFile);
         if (!file.exists()) {
             file.createNewFile();
+        } else {
+            // clear the file content
+            try (PrintWriter writer = new PrintWriter(file)) {
+                writer.print("");
+            }
         }
 
         Properties props = new Properties();
@@ -329,3 +335,4 @@ public class ConfigBase {
         }
     }
 }
+

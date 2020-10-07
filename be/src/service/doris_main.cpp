@@ -119,8 +119,11 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    // init config.
+    // the config in be_custom.conf will overwrite the config in be.conf
     string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), true)) {
+    string custom_conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
+    if (!doris::config::init(conffile.c_str(), custom_conffile.c_str(), true)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

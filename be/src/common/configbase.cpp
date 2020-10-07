@@ -30,6 +30,9 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+// TODO: this should be unified
+#include "util/filesystem_util.h" // for create file
+#include "util/file_utils.h"    // for remove vfile
 
 namespace doris {
 namespace config {
@@ -37,7 +40,7 @@ namespace config {
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
 
-Properties props;
+std::mutex custom_conf_lock;
 
 // trim string
 std::string& trim(std::string& s) {
@@ -171,7 +174,7 @@ bool strtox(const std::string& valstr, std::string& retval) {
 }
 
 // load conf file
-bool Properties::load(const char* filename) {
+bool Properties::load(const char* filename, bool must_exist) {
     // if filename is null, use the empty props
     if (filename == nullptr) {
         return true;
@@ -180,8 +183,11 @@ bool Properties::load(const char* filename) {
     // open the conf file
     std::ifstream input(filename);
     if (!input.is_open()) {
-        std::cerr << "config::load() failed to open the file:" << filename << std::endl;
-        return false;
+        if (must_exist) {
+            std::cerr << "config::load() failed to open the file:" << filename << std::endl;
+            return false;
+        }
+        return true;
     }
 
     // load properties
@@ -227,6 +233,33 @@ bool Properties::get(const char* key, const char* defstr, T& retval) const {
     return strtox(valstr, retval);
 }
 
+void Properties::set(const std::string& key, const std::string& val) {
+    file_conf_map.emplace(key, val);
+}
+
+bool Properties::dump(const std::string& conffile) {
+    Status st = FileUtils::remove(conffile); 
+    if (!st.ok()) {
+        return false;
+    }
+    st = FileSystemUtil::create_file(conffile);
+    if (!st.ok()) {
+        return false;
+    }
+
+    std::ofstream out(conffile);
+    out << "# THIS IS AN AUTO GENERATED CONFIG FILE.\n";
+    out << "# You can modify this file manually, and the configurations in this file\n";
+    out << "# will overwrite the configurations in fe.conf\n";
+    out << "\n";
+    
+    for (auto const& iter : file_conf_map) {
+        out << iter.first << " = " << iter.second << "\n";
+    }
+    out.close();
+    return true;
+}
+
 template <typename T>
 bool update(const std::string& value, T& retval) {
     std::string valstr(value);
@@ -264,9 +297,10 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     }
 
 // init conf fields
-bool init(const char* filename, bool fillconfmap) {
+bool init(const char* conf_file, const char* custom_conf_file, bool fillconfmap) {
+    Properties props;
     // load properties file
-    if (!props.load(filename)) {
+    if (!props.load(conf_file) || !props.load(custom_conf_file, false)) {
         return false;
     }
     // fill full_conf_map ?
@@ -293,7 +327,7 @@ bool init(const char* filename, bool fillconfmap) {
     return true;
 }
 
-#define UPDATE_FIELD(FIELD, VALUE, TYPE)                                             \
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                    \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                          \
         if (!update((VALUE), *reinterpret_cast<TYPE*>((FIELD).storage))) {           \
             return Status::InvalidArgument(                                          \
@@ -304,10 +338,37 @@ bool init(const char* filename, bool fillconfmap) {
             oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                              \
         }                                                                            \
+        if (PERSIST) {                                                               \
+            persist_config(std::string(FIELD.name), VALUE);                          \
+        }                                                                            \
         return Status::OK();                                                         \
     }
 
-Status set_config(const std::string& field, const std::string& value) {
+
+// write config to be_custom.conf
+// the caller need to make sure that the given config is valid
+bool persist_config(const std::string& field, const std::string& value) {
+    // lock to make sure only one thread can modify the be_custom.conf
+    std::lock_guard<std::mutex> l(custom_conf_lock); 
+
+    static const string conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
+    Status st = FileSystemUtil::create_file(conffile);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to create or open be_custom.conf. " << st.get_error_msg();
+        return false;
+    }
+
+    Properties tmp_props;
+    if (!tmp_props.load(conffile.c_str())) {
+        LOG(WARNING) << "failed to load " << conffile;
+        return false;
+    }
+
+    tmp_props.set(field, value);
+    return tmp_props.dump(conffile);
+}
+
+Status set_config(const std::string& field, const std::string& value, bool need_persist) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
         return Status::NotFound(strings::Substitute("'$0' is not found", field));
@@ -317,11 +378,11 @@ Status set_config(const std::string& field, const std::string& value) {
         return Status::NotSupported(strings::Substitute("'$0' is not support to modify", field));
     }
 
-    UPDATE_FIELD(it->second, value, bool);
-    UPDATE_FIELD(it->second, value, int16_t);
-    UPDATE_FIELD(it->second, value, int32_t);
-    UPDATE_FIELD(it->second, value, int64_t);
-    UPDATE_FIELD(it->second, value, double);
+    UPDATE_FIELD(it->second, value, bool, need_persist);
+    UPDATE_FIELD(it->second, value, int16_t, need_persist);
+    UPDATE_FIELD(it->second, value, int32_t, need_persist);
+    UPDATE_FIELD(it->second, value, int64_t, need_persist);
+    UPDATE_FIELD(it->second, value, double, need_persist);
 
     // The other types are not thread safe to change dynamically.
     return Status::NotSupported(strings::Substitute(
