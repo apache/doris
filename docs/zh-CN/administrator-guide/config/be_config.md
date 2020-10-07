@@ -30,8 +30,15 @@ under the License.
 
 该文档主要介绍 BE 的相关配置项。
 
+BE 的配置文件 `be.conf` 通常存放在 BE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `be_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+
+BE 进程启动后，会先读取 `be.conf` 中的配置项，之后再读取 `be_custom.conf` 中的配置项。`be_custom.conf` 中的配置项会覆盖 `be.conf` 中相同的配置项。
+
 ## 查看配置项
-（TODO）
+
+用户可以通过访问 BE 的 Web 页面查看当前配置项：
+
+`http://be_host:be_webserver_port/varz`
 
 ## 设置配置项
 
@@ -45,9 +52,15 @@ BE 的配置项有两种方式进行配置：
 
 	BE 启动后，可以通过一下命令动态设置配置项。
 
-	```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+	```
+	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
+	```
 
-	**通过该方式修改的配置项将在 BE 进程重启后失效。**
+	在 0.13 版本及之前，通过该方式修改的配置项将在 BE 进程重启后失效。在 0.14 及之后版本中，可以通过以下命令持久化修改后的配置。修改后的配置项存储在 `be_custom.conf` 文件中。
+	
+	```
+	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true'
+	```
 
 ## 应用举例
 
@@ -74,7 +87,11 @@ BE 的配置项有两种方式进行配置：
 	}
 	```
 
-	**BE 重启后该配置将失效。**
+	BE 重启后该配置将失效。如果想持久化修改结果，使用如下命令：
+	
+	```
+	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024\&persist=true
+	```
 
 ## 配置项列表
 

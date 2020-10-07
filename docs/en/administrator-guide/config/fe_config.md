@@ -30,6 +30,10 @@ under the License.
 
 This document mainly introduces the relevant configuration items of FE.
 
+The FE configuration file `fe.conf` is usually stored in the `conf/` directory of the FE deployment path. In version 0.14, another configuration file `fe_custom.conf` will be introduced. The configuration file is used to record the configuration items that are dynamically configured and persisted by the user during operation.
+
+After the FE process is started, it will read the configuration items in `fe.conf` first, and then read the configuration items in `fe_custom.conf`. The configuration items in `fe_custom.conf` will overwrite the same configuration items in `fe.conf`.
+
 ## View configuration items
 
 There are two ways to view the configuration items of FE:
@@ -61,7 +65,7 @@ There are two ways to configure FE configuration items:
 
     Add and set configuration items in the `conf/fe.conf` file. The configuration items in `fe.conf` will be read when the FE process starts. Configuration items not in `fe.conf` will use default values.
     
-2. Dynamic configuration
+2. Dynamic configuration via MySQL protocol
 
     After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
 
@@ -74,6 +78,12 @@ There are two ways to configure FE configuration items:
     **Configuration items modified in this way will become invalid after the FE process restarts.**
 
     For more help on this command, you can view it through the `HELP ADMIN SET CONFIG;` command.
+    
+3. Dynamic configuration via HTTP protocol
+
+    For details, please refer to [Set Config Action](../http-actions/fe/set-config-action.md)
+
+    This method can also persist the modified configuration items. The configuration items will be persisted in the `fe_custom.conf` file and will still take effect after FE is restarted.
 
 ## Examples
 
@@ -99,7 +109,7 @@ There are two ways to configure FE configuration items:
     set forward_to_master = true;
     ADMIN SHOW FRONTEND CONFIG;
     ```
-    
+
     After modification in the above manner, if the Master FE restarts or a Master election is performed, the configuration will be invalid. You can add the configuration item directly in `fe.conf` and restart the FE to make the configuration item permanent.
 
 3. Modify `max_distribution_pruner_recursion_depth`

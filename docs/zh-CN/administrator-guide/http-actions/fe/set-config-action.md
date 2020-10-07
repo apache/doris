@@ -107,7 +107,8 @@ under the License.
     		"set": {
     			"max_bytes_per_broker_scanner": "21474836480"
     		},
-    		"err": {}
+    		"err": {},
+    		"persist": "ok"
     	},
     	"count": 0
     }
