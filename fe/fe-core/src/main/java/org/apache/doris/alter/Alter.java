@@ -236,7 +236,7 @@ public class Alter {
         if (currentAlterOps.hasRenameOp()) {
             processRename(db, externalTable, alterClauses);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
-            schemaChangeHandler.process(alterClauses, db, externalTable);
+            schemaChangeHandler.processExternalTable(alterClauses, db, externalTable);
         }
     }
 
@@ -270,7 +270,7 @@ public class Alter {
                 case MYSQL:
                 case ELASTICSEARCH:
                     processAlterExternalTable(stmt, table, db);
-                    break;
+                    return;
                 default:
                     throw new DdlException("Do not support alter " + table.getType().toString() + " table[" + tableName + "]");
             }

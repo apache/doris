@@ -384,7 +384,7 @@ public abstract class AlterHandler extends MasterDaemon {
     /*
      * entry function. handle alter ops for external table
      */
-    public void process(List<AlterClause> alterClauses, Database db, Table externalTable)
+    public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
             throws UserException {};
 
     /*

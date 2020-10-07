@@ -167,7 +167,6 @@ import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
-import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -180,6 +179,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
@@ -4298,6 +4298,11 @@ public class Catalog {
         }
     }
 
+    public void replayRefreshTable(String dbName, String tableName, List<Column> newSchema) throws DdlException {
+        Database db = this.fullNameToDb.get(dbName);
+        db.refreshTableSchemaWithLock(tableName, newSchema, true);
+    }
+
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
                                DistributionInfo distributionInfo, long version, long versionHash, short replicationNum,
                                TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
@@ -5115,12 +5120,11 @@ public class Catalog {
         LOG.info("rename table[{}] to {}", tableName, newTableName);
     }
 
-    public void reflushTable(Database db, Table table) throws DdlException {
-        DropInfo dropInfo = new DropInfo(db.getId(), table.getId(), -1, true);
-        editLog.logDropTable(dropInfo);
-        CreateTableInfo createTableInfo = new CreateTableInfo(db.getFullName(), table);
-        editLog.logCreateTable(createTableInfo);
-        LOG.info("reflush db[{}] table[{}] for schema change", db.getFullName(), table.getName());
+    public void refreshExternalTableSchema(Database db, Table table, List<Column> newSchema) {
+        RefreshExternalTableInfo refreshExternalTableInfo = new RefreshExternalTableInfo(db.getFullName(),
+                table.getName(), newSchema);
+        editLog.logRefreshExternalTableSchema(refreshExternalTableInfo);
+        LOG.info("refresh db[{}] table[{}] for schema change", db.getFullName(), table.getName());
     }
 
     public void replayRenameTable(TableInfo tableInfo) throws DdlException {

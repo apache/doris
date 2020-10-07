@@ -132,28 +132,24 @@ public class SchemaChangeHandler extends AlterHandler {
                           indexSchemaMap, newColNameSet);
     }
 
-    private void processAddColumn(AddColumnClause alterClause, Table externalTable) throws DdlException {
+    private void processAddColumn(AddColumnClause alterClause, Table externalTable, List<Column> newSchema) throws DdlException {
         Column column = alterClause.getColumn();
         ColumnPosition columnPos = alterClause.getColPos();
         Set<String> newColNameSet = Sets.newHashSet(column.getName());
 
-        List<Column> modIndexSchema = externalTable.getBaseSchema();
-        addColumnInternal(externalTable, column, columnPos, modIndexSchema, newColNameSet);
-        externalTable.setNewFullSchema(modIndexSchema);
+        addColumnInternal(column, columnPos, newSchema, newColNameSet);
     }
 
-    private void processAddColumns(AddColumnsClause alterClause, Table externalTable) throws DdlException {
+    private void processAddColumns(AddColumnsClause alterClause, Table externalTable, List<Column> newSchema) throws DdlException {
         List<Column> columns = alterClause.getColumns();
         Set<String> newColNameSet = Sets.newHashSet();
         for (Column column : alterClause.getColumns()) {
             newColNameSet.add(column.getName());
         }
 
-        List<Column> modIndexSchema = externalTable.getBaseSchema();
         for (Column newColumn : columns) {
-            addColumnInternal(externalTable, newColumn, null, modIndexSchema, newColNameSet);
+            addColumnInternal(newColumn, null, newSchema, newColNameSet);
         }
-        externalTable.setNewFullSchema(modIndexSchema);
     }
 
     private void processAddColumns(AddColumnsClause alterClause, OlapTable olapTable,
@@ -182,13 +178,12 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void processDropColumn(DropColumnClause alterClause, Table externalTable) throws DdlException {
+    private void processDropColumn(DropColumnClause alterClause, Table externalTable, List<Column> newSchema) throws DdlException {
         String dropColName = alterClause.getColName();
 
         // find column in base index and remove it
-        List<Column> baseSchema = externalTable.getBaseSchema();
         boolean found = false;
-        Iterator<Column> baseIter = baseSchema.iterator();
+        Iterator<Column> baseIter = newSchema.iterator();
         while (baseIter.hasNext()) {
             Column column = baseIter.next();
             if (column.getName().equalsIgnoreCase(dropColName)) {
@@ -200,8 +195,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (!found) {
             throw new DdlException("Column does not exists: " + dropColName);
-        } else {
-            externalTable.setNewFullSchema(baseSchema);
         }
     }
 
@@ -342,12 +335,11 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     // User can modify column type and column position
-    private void processModifyColumn(ModifyColumnClause alterClause, Table externalTable) throws DdlException {
+    private void processModifyColumn(ModifyColumnClause alterClause, Table externalTable, List<Column> newSchema) throws DdlException {
         Column modColumn = alterClause.getColumn();
         ColumnPosition columnPos = alterClause.getColPos();
 
         // find modified column
-        List<Column> schemaForFinding = externalTable.getBaseSchema();
         String newColName = modColumn.getName();
         boolean hasColPos = (columnPos != null && !columnPos.isFirst());
         boolean found = false;
@@ -355,8 +347,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         int modColIndex = -1;
         int lastColIndex = -1;
-        for (int i = 0; i < schemaForFinding.size(); i++) {
-            Column col = schemaForFinding.get(i);
+        for (int i = 0; i < newSchema.size(); i++) {
+            Column col = newSchema.get(i);
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
@@ -391,7 +383,7 @@ public class SchemaChangeHandler extends AlterHandler {
             hasColPos = true;
         }
 
-        Column oriColumn = schemaForFinding.get(modColIndex);
+        Column oriColumn = newSchema.get(modColIndex);
         // retain old column name
         modColumn.setName(oriColumn.getName());
 
@@ -399,19 +391,17 @@ public class SchemaChangeHandler extends AlterHandler {
         if (hasColPos) {
             // move col
             if (lastColIndex > modColIndex) {
-                schemaForFinding.add(lastColIndex + 1, modColumn);
-                schemaForFinding.remove(modColIndex);
+                newSchema.add(lastColIndex + 1, modColumn);
+                newSchema.remove(modColIndex);
             } else if (lastColIndex < modColIndex) {
-                schemaForFinding.remove(modColIndex);
-                schemaForFinding.add(lastColIndex + 1, modColumn);
+                newSchema.remove(modColIndex);
+                newSchema.add(lastColIndex + 1, modColumn);
             } else {
                 throw new DdlException("Column[" + columnPos.getLastCol() + "] modify position is invalid");
             }
         } else {
-            schemaForFinding.set(modColIndex, modColumn);
+            newSchema.set(modColIndex, modColumn);
         }
-
-        externalTable.setNewFullSchema(schemaForFinding);
     }
     // User can modify column type and column position
     private void processModifyColumn(ModifyColumnClause alterClause, OlapTable olapTable,
@@ -600,10 +590,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void processReorderColumn(ReorderColumnsClause alterClause, Table externalTable) throws DdlException {
+    private void processReorderColumn(ReorderColumnsClause alterClause, Table externalTable, List<Column> newSchema) throws DdlException {
         List<String> orderedColNames = alterClause.getColumnsByPos();
 
-        List<Column> newSchema = new LinkedList<Column>();
+        newSchema.clear();
         List<Column> targetIndexSchema = externalTable.getBaseSchema();
 
         // check and create new ordered column list
@@ -630,8 +620,6 @@ public class SchemaChangeHandler extends AlterHandler {
         if (newSchema.size() != targetIndexSchema.size()) {
             throw new DdlException("Reorder stmt should contains all columns");
         }
-        // replace the old column list
-        externalTable.setNewFullSchema(newSchema);
     }
 
     private void processReorderColumn(ReorderColumnsClause alterClause, OlapTable olapTable,
@@ -690,12 +678,9 @@ public class SchemaChangeHandler extends AlterHandler {
      * Add 'newColumn' to specified index.
      * Modified schema will be saved in 'indexSchemaMap'
      */
-    private void addColumnInternal(Table ExternalTable, Column newColumn, ColumnPosition columnPos,
+    private void addColumnInternal(Column newColumn, ColumnPosition columnPos,
                                    List<Column> modIndexSchema,
                                    Set<String> newColNameSet) throws DdlException {
-        if (!newColumn.isKey()) {
-            throw new DdlException("External table only support key column, but " + newColumn.getName() + " is not");
-        }
         String newColName = newColumn.getName();
         int posIndex = -1;
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
@@ -1684,29 +1669,36 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void process(List<AlterClause> alterClauses, Database db, Table externalTable)
+    public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
             throws UserException {
+        // copy the external table schema columns
+        List<Column> newSchema = Lists.newArrayList();
+        newSchema.addAll(externalTable.getBaseSchema(true));
+
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof AddColumnClause) {
                 // add column
-                processAddColumn((AddColumnClause) alterClause, externalTable);
+                processAddColumn((AddColumnClause) alterClause, externalTable, newSchema);
             } else if (alterClause instanceof AddColumnsClause) {
                 // add columns
-                processAddColumns((AddColumnsClause) alterClause, externalTable);
+                processAddColumns((AddColumnsClause) alterClause, externalTable, newSchema);
             } else if (alterClause instanceof DropColumnClause) {
                 // drop column and drop indexes on this column
-                processDropColumn((DropColumnClause) alterClause, externalTable);
+                processDropColumn((DropColumnClause) alterClause, externalTable, newSchema);
             } else if (alterClause instanceof ModifyColumnClause) {
                 // modify column
-                processModifyColumn((ModifyColumnClause) alterClause, externalTable);
+                processModifyColumn((ModifyColumnClause) alterClause, externalTable, newSchema);
             } else if (alterClause instanceof ReorderColumnsClause) {
                 // reorder column
-                processReorderColumn((ReorderColumnsClause) alterClause, externalTable);
+                processReorderColumn((ReorderColumnsClause) alterClause, externalTable, newSchema);
             } else {
                 Preconditions.checkState(false);
             }
         } // end for alter clauses
-        Catalog.getCurrentCatalog().reflushTable(db, externalTable);
+        // replace the old column list
+        externalTable.setNewFullSchema(newSchema);
+        // refresh external table column in edit log
+        Catalog.getCurrentCatalog().refreshExternalTableSchema(db, externalTable, newSchema);
     }
 
     private void sendClearAlterTask(Database db, OlapTable olapTable) {
