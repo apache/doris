@@ -296,10 +296,17 @@ public class Config extends ConfigBase {
 
     /**
      * The backlog_num for netty http server
-     * When you enlarge this backlog_num, you should ensure it's value larger than
-     * the linux /proc/sys/net/core/somaxconn config
+     * When you enlarge this backlog_num, you should enlarge the value in
+     * the linux /proc/sys/net/core/somaxconn file at the same time
      */
     @ConfField public static int http_backlog_num = 1024;
+
+    /**
+     * The backlog_num for mysql nio server
+     * When you enlarge this backlog_num, you should enlarge the value in
+     * the linux /proc/sys/net/core/somaxconn file at the same time
+     */
+    @ConfField public static int mysql_nio_backlog_num = 1024;
 
     /**
      * The connection timeout and socket timeout config for thrift server

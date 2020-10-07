@@ -331,6 +331,12 @@ FE 的配置项有两种方式进行配置：
 ### `history_job_keep_max_second`
 
 ### `http_backlog_num`
+Doris netty http server 的backlog_num 参数，当你增大该配置时，也需要同时
+增大 Linux /proc/sys/net/core/somaxconn 文件的值 
+
+### `mysql_nio_backlog_num`
+Doris mysql nio server 的backlog_num 参数，当你增大该配置时，也需要同时
+增大 Linux /proc/sys/net/core/somaxconn 文件的值 
 
 ### `http_port`
 
