@@ -81,7 +81,7 @@ public class PaloFe {
             }
 
             // init config
-            new Config().init(dorisHomeDir + "/conf/fe.conf");
+            new Config().init(dorisHomeDir + "/conf/fe.conf", dorisHomeDir + "/conf/fe_custom.conf");
 
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {

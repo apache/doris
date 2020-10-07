@@ -24,18 +24,20 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.collect.Maps;
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.lang.reflect.Field;
-import java.util.Map;
 
 /*
  * used to set fe config
@@ -46,16 +48,26 @@ import java.util.Map;
 public class SetConfigAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
 
+    private static final String PERSIST_PARAM = "persist";
+
     @RequestMapping(path = "/api/_set_config", method = RequestMethod.GET)
     protected Object set_config(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
+        boolean needPersist = false;
         Map<String, String[]> configs = request.getParameterMap();
+        if (configs.containsKey(PERSIST_PARAM)) {
+            String[] val = configs.remove(PERSIST_PARAM);
+            if (val.length == 1 && val[0].equals("true")) {
+                needPersist = true;
+            }
+        }
+
         Map<String, String> setConfigs = Maps.newHashMap();
         Map<String, String> errConfigs = Maps.newHashMap();
 
-        LOG.debug("get config from url: {}", configs);
+        LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
 
         Field[] fields = ConfigBase.confClass.getFields();
         for (Field f : fields) {
@@ -90,6 +102,17 @@ public class SetConfigAction extends RestBaseController {
             setConfigs.put(confKey, confVals[0]);
         }
 
+        String persistMsg = "";
+        if (needPersist) {
+            try {
+                ConfigBase.persistConfig(setConfigs);
+                persistMsg = "ok";
+            } catch (IOException e) {
+                LOG.warn("failed to persist config", e);
+                persistMsg = e.getMessage();
+            }
+        }
+
         for (String key : configs.keySet()) {
             if (!setConfigs.containsKey(key)) {
                 String[] confVals = configs.get(key);
@@ -98,9 +121,10 @@ public class SetConfigAction extends RestBaseController {
             }
         }
 
-        Map<String, Map<String, String>> resultMap = Maps.newHashMap();
+        Map<String, Object> resultMap = Maps.newHashMap();
         resultMap.put("set", setConfigs);
         resultMap.put("err", errConfigs);
+        resultMap.put("persist", persistMsg);
 
         return ResponseEntityBuilder.ok(resultMap);
     }
