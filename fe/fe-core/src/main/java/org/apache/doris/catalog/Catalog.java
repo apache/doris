@@ -48,6 +48,7 @@ import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -2995,7 +2996,25 @@ public class Catalog {
         LOG.info("replay rename database {} to {}", dbName, newDbName);
     }
 
-    public void createTable(CreateTableStmt stmt) throws DdlException {
+    /**
+     * Following is the step to create an olap table:
+     * 1. create columns
+     * 2. create partition info
+     * 3. create distribution info
+     * 4. set table id and base index id
+     * 5. set bloom filter columns
+     * 6. set and build TableProperty includes:
+     *     6.1. dynamicProperty
+     *     6.2. replicationNum
+     *     6.3. inMemory
+     *     6.4. storageFormat
+     * 7. set index meta
+     * 8. check colocation properties
+     * 9. create tablet in BE
+     * 10. add this table to FE's meta
+     * 11. add this table to ColocateGroup if necessary
+     */
+     public void createTable(CreateTableStmt stmt) throws DdlException {
         String engineName = stmt.getEngineName();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -3055,7 +3074,14 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
         Preconditions.checkState(false);
-        return;
+    }
+
+    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        try {
+            createTable(stmt.getParsedCreateTableStmt());
+        } catch (DdlException e) {
+            throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
+        }
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
@@ -3926,6 +3952,11 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+         getDdlStmt(null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
+    }
+
+    public static void getDdlStmt(String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3945,6 +3976,9 @@ public class Catalog {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("`").append(dbName).append("`.");
+        }
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
         for (Column column : table.getBaseSchema()) {

@@ -561,9 +561,6 @@ public class CreateTableStmt extends DdlStmt {
 
     @Override
     public boolean needAuditEncryption() {
-        if (!engineName.equals("olap")) {
-            return true;
-        }
-        return false;
+        return !engineName.equals("olap");
     }
 }

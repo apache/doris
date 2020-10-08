@@ -237,7 +237,9 @@ public enum ErrorCode {
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO(5071, new byte[] {'4', '2', '0', '0', '0'},
             "Dynamic partition replication num must greater than 0"),
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT(5072, new byte[] {'4', '2', '0', '0', '0'},
-            "Invalid dynamic partition replication num: %s.");
+            "Invalid dynamic partition replication num: %s."),
+    ERROR_CREATE_TABLE_LIKE_EMPTY(5073, new byte[] {'4', '2', '0', '0', '0'},
+            "Origin create table stmt is empty");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;
