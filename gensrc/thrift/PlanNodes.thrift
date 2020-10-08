@@ -202,10 +202,16 @@ struct TMySQLScanNode {
 struct TOdbcScanNode {
   1: optional Types.TTupleId tuple_id
   2: optional string table_name
+
+  //Deprecated
   3: optional string driver
   4: optional Types.TOdbcTableType type
   5: optional list<string> columns
   6: optional list<string> filters
+
+  //Use now
+  7: optional string connect_string
+  8: optional string query_string
 }
 
 

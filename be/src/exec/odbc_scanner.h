@@ -32,15 +32,9 @@
 namespace doris {
 
 struct ODBCScannerParam {
-    std::string host;
-    std::string port;
-    std::string user;
-    std::string passwd;
-    std::string db;
-    std::string drivier;
-    std::string charest = "utf8";
+    std::string connect_string;
+    std::string query_string;
 
-    TOdbcTableType::type type;
     const TupleDescriptor* tuple_desc;
 };
 
@@ -67,11 +61,8 @@ public:
 
     Status open();
 
-    Status query(const std::string& query);
-
-    // query for DORIS
-    Status query(const std::string& table, const std::vector<std::string>& fields,
-                 const std::vector<std::string>& filters);
+    // query for ODBC table
+    Status query();
 
     Status get_next_row(bool* eos);
 
@@ -80,8 +71,6 @@ public:
     }
 
 private:
-    static std::string build_connect_string(const ODBCScannerParam& param);
-
     static Status error_status(const std::string& prefix, const std::string& error_msg);
 
     static std::string handle_diagnostic_record (SQLHANDLE      hHandle,
@@ -90,7 +79,6 @@ private:
 
     std::string _connect_string;
     std::string _sql_str;
-    TOdbcTableType::type _type;
     const TupleDescriptor* _tuple_desc;
 
     bool _is_open;
