@@ -2276,6 +2276,7 @@ public class Catalog {
 
     public void createReplayer() {
         replayer = new Daemon("replayer", REPLAY_INTERVAL_MS) {
+            @Override
             protected void runOneCycle() {
                 boolean err = false;
                 boolean hasLog = false;
@@ -3094,10 +3095,10 @@ public class Catalog {
             } finally {
                 db.readUnlock();
             }
-            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ctx);
+            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ConnectContext.get());
             parsedCreateTableStmt.setTableName(stmt.getTableName());
             createTable(parsedCreateTableStmt);
-        } catch (DdlException e) {
+        } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
         }
     }
