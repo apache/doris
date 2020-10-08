@@ -107,7 +107,7 @@ public class CreateTableLikeStmt extends DdlStmt {
             if (table == null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, getExistedTableName());
             }
-            Catalog.getDdlStmt(tableName.getDb(), table, createTableStmt, null, null, false, true);
+            Catalog.getDdlStmt(tableName.getDb(), table, createTableStmt, null, null, false, false);
             if (createTableStmt.isEmpty()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
             }
