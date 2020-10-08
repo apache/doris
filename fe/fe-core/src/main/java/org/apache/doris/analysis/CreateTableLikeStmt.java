@@ -17,21 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.List;
 
 /**
  * @author wangcong
@@ -41,24 +35,18 @@ import java.util.List;
 public class CreateTableLikeStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableLikeStmt.class);
 
-    private final boolean isExternal;
     private final boolean ifNotExists;
     private final TableName tableName;
     private final TableName existedTableName;
 
-    public CreateTableLikeStmt(boolean ifNotExists, boolean isExternal, TableName tableName, TableName existedTableName) {
+    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName) {
         this.ifNotExists = ifNotExists;
-        this.isExternal = isExternal;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
     }
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
-    }
-
-    public boolean isExternal() {
-        return isExternal;
     }
 
     public String getDbName() {

@@ -1097,11 +1097,15 @@ create_stmt ::=
     :}*/
     /* Function */
     | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:retrunType opt_intermediate_type:intermediateType opt_properties:properties
+            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, retrunType, intermediateType, properties);
+        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
     /* Table */
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
+    {:
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name);
+    :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
             opt_keys:keys
@@ -1127,10 +1131,6 @@ create_stmt ::=
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
-    :}
-    | KW_CREATE KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
-    {:
-        RESULT = new CreateTableLikeStmt(ifNotExists, isExternal, name, existed_name);
     :}
     /* User */
     | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
