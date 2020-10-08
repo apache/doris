@@ -41,7 +41,6 @@ import java.util.List;
 public class CreateTableLikeStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableLikeStmt.class);
 
-    private CreateTableStmt parsedCreateTableStmt;
     private final boolean isExternal;
     private final boolean ifNotExists;
     private final TableName tableName;
@@ -78,10 +77,6 @@ public class CreateTableLikeStmt extends DdlStmt {
         return existedTableName.getTbl();
     }
 
-    public CreateTableStmt getParsedCreateTableStmt() {
-        return parsedCreateTableStmt;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -98,24 +93,6 @@ public class CreateTableLikeStmt extends DdlStmt {
                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
-
-        Database db = Catalog.getCurrentCatalog().getDb(getExistedDbName());
-        List<String> createTableStmt = Lists.newArrayList();
-        db.readLock();
-        try {
-            Table table = db.getTable(getExistedTableName());
-            if (table == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, getExistedTableName());
-            }
-            Catalog.getDdlStmt(tableName.getDb(), table, createTableStmt, null, null, false, false);
-            if (createTableStmt.isEmpty()) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
-            }
-        } finally {
-            db.readUnlock();
-        }
-        parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ctx);
-        parsedCreateTableStmt.setTableName(getTableName());
     }
 
     @Override

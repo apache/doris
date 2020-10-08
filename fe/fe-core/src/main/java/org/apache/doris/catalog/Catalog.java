@@ -122,6 +122,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
@@ -3078,7 +3079,24 @@ public class Catalog {
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
         try {
-            createTable(stmt.getParsedCreateTableStmt());
+            Database db = Catalog.getCurrentCatalog().getDb(stmt.getExistedDbName());
+            List<String> createTableStmt = Lists.newArrayList();
+            db.readLock();
+            try {
+                Table table = db.getTable(stmt.getExistedTableName());
+                if (table == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, stmt.getExistedTableName());
+                }
+                Catalog.getDdlStmt(stmt.getDbName(), table, createTableStmt, null, null, false, false);
+                if (createTableStmt.isEmpty()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
+                }
+            } finally {
+                db.readUnlock();
+            }
+            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ctx);
+            parsedCreateTableStmt.setTableName(stmt.getTableName());
+            createTable(parsedCreateTableStmt);
         } catch (DdlException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
         }
