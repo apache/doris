@@ -130,8 +130,10 @@ extern std::map<std::string, std::string>* full_conf_map;
 extern std::mutex custom_conf_lock;
 
 bool init(const char* conf_file, const char* custom_conf_file, bool fillconfmap = false);
+// just for unit test
+bool init(const char* conf_file, bool fillconfmap = false);
 
-Status set_config(const std::string& field, const std::string& value, bool need_persist);
+Status set_config(const std::string& field, const std::string& value, bool need_persist = false);
 
 bool persist_config(const std::string& field, const std::string& value);
 

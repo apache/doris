@@ -30,9 +30,7 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
-// TODO: this should be unified
-#include "util/filesystem_util.h" // for create file
-#include "util/file_utils.h"    // for remove vfile
+#include "util/filesystem_util.h"
 
 namespace doris {
 namespace config {
@@ -238,7 +236,8 @@ void Properties::set(const std::string& key, const std::string& val) {
 }
 
 bool Properties::dump(const std::string& conffile) {
-    Status st = FileUtils::remove(conffile); 
+    std::vector<std::string> files = { conffile };
+    Status st = FileSystemUtil::remove_paths(files); 
     if (!st.ok()) {
         return false;
     }
@@ -325,6 +324,11 @@ bool init(const char* conf_file, const char* custom_conf_file, bool fillconfmap)
     }
 
     return true;
+}
+
+// just for unit test
+bool init(const char* conf_file, bool fillconfmap) {
+    return init(conf_file, nullptr, fillconfmap);
 }
 
 #define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                    \
