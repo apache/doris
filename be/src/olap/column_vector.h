@@ -104,9 +104,8 @@ public:
     }
 
     void set_null_bits(size_t offset, size_t num_rows, bool val) {
-        // TODO llj: use memcpy
-        for (size_t i = 0; i < num_rows; ++i) {
-            set_is_null(offset + i, val);
+        if (_nullable) {
+            memset(&_null_signs[offset], val, num_rows);
         }
     }
 
