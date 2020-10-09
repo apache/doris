@@ -166,6 +166,180 @@ public:
     static doris_udf::BigIntVal seconds_diff(
             doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
 
+    // Period functions.
+    template <TimeUnit unit, bool type>
+    static doris_udf::DateTimeVal time_round(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal year_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal year_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal year_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal year_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal year_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal year_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal year_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal year_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal month_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal month_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal month_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal month_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal month_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal month_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal month_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal month_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal week_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal week_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal week_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal week_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal week_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal week_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal week_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal week_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal day_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal day_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal day_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal day_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal day_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal day_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal day_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal day_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal hour_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal hour_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal hour_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal hour_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal hour_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal hour_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal hour_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal hour_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal minute_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal minute_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal minute_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal minute_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal minute_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal minute_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal minute_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal minute_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal second_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal second_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal second_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal second_floor(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+
+    static doris_udf::DateTimeVal second_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal second_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period);
+    static doris_udf::DateTimeVal second_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::DateTimeVal& origin);
+    static doris_udf::DateTimeVal second_ceil(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& period, const doris_udf::DateTimeVal& origin);
+    
     // TimeZone correlation functions.
     static doris_udf::DateTimeVal timestamp(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& val);
