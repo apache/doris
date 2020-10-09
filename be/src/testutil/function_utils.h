@@ -16,10 +16,9 @@
 // under the License.
 
 #include <memory>
+#include <vector>
 
-namespace doris_udf {
-class FunctionContext;
-}
+#include "udf/udf.h"
 
 namespace doris {
 
@@ -31,6 +30,8 @@ class FunctionUtils {
 public:
     FunctionUtils();
     FunctionUtils(RuntimeState* state);
+    FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
+        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types, int varargs_buffer_size);
     ~FunctionUtils();
 
     doris_udf::FunctionContext* get_fn_ctx() {

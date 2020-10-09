@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <sstream>
 #include <cmath>
+#include <random>
 #include <stdlib.h>
 
 #include "common/compiler_util.h"
@@ -276,10 +277,16 @@ DoubleVal MathFunctions::pow(
 
 void MathFunctions::rand_prepare(
         FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
+    std::default_random_engine* generator = reinterpret_cast<std::default_random_engine*>(
+        ctx->allocate(sizeof(std::default_random_engine)));
+    if (UNLIKELY(generator == NULL)) {
+        LOG(ERROR) << "allocate random seed generator failed.";
+        return;
+    }
+    ctx->set_function_state(scope, generator);
     if (scope == FunctionContext::THREAD_LOCAL) {
-        uint32_t* seed = reinterpret_cast<uint32_t*>(ctx->allocate(sizeof(uint32_t)));
-        ctx->set_function_state(scope, seed);
         if (ctx->get_num_args() == 1) {
+            uint32_t seed = 0;
             // This is a call to RandSeed, initialize the seed
             // TODO: should we support non-constant seed?
             if (!ctx->is_arg_constant(0)) {
@@ -287,25 +294,24 @@ void MathFunctions::rand_prepare(
                 return;
             }
             BigIntVal* seed_arg = static_cast<BigIntVal*>(ctx->get_constant_arg(0));
-            if (seed_arg->is_null) {
-                seed = NULL;
-            } else {
-                *seed = seed_arg->val;
+            if (!seed_arg->is_null) {
+                seed = seed_arg->val;
             }
+            generator->seed(seed);
         } else {
-            // This is a call to Rand, initialize seed to 0
-            // TODO: can we change this behavior? This is stupid.
-            *seed = 0;
+            generator->seed(std::random_device()());
         }
     }
 }
 
 DoubleVal MathFunctions::rand(FunctionContext* ctx) {
-  uint32_t* seed = reinterpret_cast<uint32_t*>(
+  std::default_random_engine* generator = reinterpret_cast<std::default_random_engine*>(
       ctx->get_function_state(FunctionContext::THREAD_LOCAL));
-  *seed = ::rand_r(seed);
-  // Normalize to [0,1].
-  return DoubleVal(static_cast<double>(*seed) / RAND_MAX);
+  DCHECK(generator != nullptr);
+  static const double min = 0.0;
+  static const double max = 1.0;
+  std::uniform_real_distribution<double> distribution(min, max);
+  return DoubleVal(distribution(*generator));
 }
 
 DoubleVal MathFunctions::rand_seed(FunctionContext* ctx, const BigIntVal& seed) {
@@ -313,6 +319,16 @@ DoubleVal MathFunctions::rand_seed(FunctionContext* ctx, const BigIntVal& seed) 
       return DoubleVal::null();
   }
   return rand(ctx);
+}
+
+void MathFunctions::rand_close(FunctionContext* ctx,
+    FunctionContext::FunctionStateScope scope) {
+  if (scope == FunctionContext::THREAD_LOCAL) {
+    uint8_t* generator = reinterpret_cast<uint8_t*>(
+        ctx->get_function_state(FunctionContext::THREAD_LOCAL));
+    ctx->free(generator);
+    ctx->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
+  }
 }
 
 StringVal MathFunctions::bin(FunctionContext* ctx, const BigIntVal& v) {

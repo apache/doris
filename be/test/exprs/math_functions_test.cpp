@@ -127,8 +127,41 @@ TEST_F(MathFunctionsTest, abs) {
     ASSERT_EQ(siv2, MathFunctions::abs(ctx, TinyIntVal(-1)));
     ASSERT_EQ(siv3, MathFunctions::abs(ctx, TinyIntVal(INT8_MAX)));
     ASSERT_EQ(siv4, MathFunctions::abs(ctx, TinyIntVal(INT8_MIN)));
+}
+TEST_F(MathFunctionsTest, rand) {
+    doris_udf::FunctionContext::TypeDesc type;
+    type.type = doris_udf::FunctionContext::TYPE_DOUBLE;
+    std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
+    doris_udf::FunctionContext::TypeDesc type1;
+    type1.type = doris_udf::FunctionContext::TYPE_BIGINT;
+    arg_types.push_back(type1);
+    FunctionUtils* utils1 = new FunctionUtils(type, arg_types, 8);
+    FunctionContext* ctx1 = utils1->get_fn_ctx();
+    std::vector<doris_udf::AnyVal*> constant_args;
+    BigIntVal bi(12);
+    constant_args.push_back(&bi);
+    ctx1->impl()->set_constant_args(constant_args);
 
+    MathFunctions::rand_prepare(ctx1, FunctionContext::THREAD_LOCAL);
+    DoubleVal dv1 = MathFunctions::rand_seed(ctx1, BigIntVal(12));
+    MathFunctions::rand_close(ctx1, FunctionContext::THREAD_LOCAL);
 
+    MathFunctions::rand_prepare(ctx1, FunctionContext::THREAD_LOCAL);
+    DoubleVal dv2 = MathFunctions::rand_seed(ctx1, BigIntVal(12));
+    MathFunctions::rand_close(ctx1, FunctionContext::THREAD_LOCAL);
+
+    ASSERT_EQ(dv1.val,  dv2.val);
+    delete utils1;
+    
+    MathFunctions::rand_prepare(ctx, FunctionContext::THREAD_LOCAL);
+    DoubleVal dv3 = MathFunctions::rand(ctx);
+    MathFunctions::rand_close(ctx, FunctionContext::THREAD_LOCAL);
+
+    MathFunctions::rand_prepare(ctx, FunctionContext::THREAD_LOCAL);
+    DoubleVal dv4 = MathFunctions::rand(ctx);
+    MathFunctions::rand_close(ctx, FunctionContext::THREAD_LOCAL);
+
+    ASSERT_NE(dv3.val, dv4.val);
 }
 
 } // namespace doris
