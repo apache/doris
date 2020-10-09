@@ -319,7 +319,7 @@ public class DecommissionBackendJob extends AlterJob {
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_33) {
                 String str = Text.readString(in);
                 // this is only for rectify misspellings...
-                if (str.equals("SystemDecommission")) {
+                if (str.equals("SystemDecomission")) {
                     str = "SystemDecommission";
                 } else if (str.equals("ClusterDecommission")) {
                     str = "ClusterDecommission";
