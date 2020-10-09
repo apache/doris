@@ -170,7 +170,8 @@ public class JournalEntity implements Writable {
                 ((CreateTableInfo) data).readFields(in);
                 isRead = true;
                 break;
-            } case OperationType.OP_DROP_TABLE: {
+            }
+            case OperationType.OP_DROP_TABLE: {
                 data = new DropInfo();
                 ((DropInfo) data).readFields(in);
                 isRead = true;
