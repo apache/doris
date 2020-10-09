@@ -277,8 +277,8 @@ DoubleVal MathFunctions::pow(
 
 void MathFunctions::rand_prepare(
         FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
-    std::default_random_engine* generator = reinterpret_cast<std::default_random_engine*>(
-        ctx->allocate(sizeof(std::default_random_engine)));
+    std::mt19937* generator = reinterpret_cast<std::mt19937*>(
+        ctx->allocate(sizeof(std::mt19937)));
     if (UNLIKELY(generator == NULL)) {
         LOG(ERROR) << "allocate random seed generator failed.";
         return;
@@ -305,7 +305,7 @@ void MathFunctions::rand_prepare(
 }
 
 DoubleVal MathFunctions::rand(FunctionContext* ctx) {
-  std::default_random_engine* generator = reinterpret_cast<std::default_random_engine*>(
+  std::mt19937* generator = reinterpret_cast<std::mt19937*>(
       ctx->get_function_state(FunctionContext::THREAD_LOCAL));
   DCHECK(generator != nullptr);
   static const double min = 0.0;
