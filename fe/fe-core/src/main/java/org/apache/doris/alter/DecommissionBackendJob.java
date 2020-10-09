@@ -321,7 +321,7 @@ public class DecommissionBackendJob extends AlterJob {
                 // this is only for rectify misspellings...
                 if (str.equals("SystemDecomission")) {
                     str = "SystemDecommission";
-                } else if (str.equals("ClusterDecommission")) {
+                } else if (str.equals("ClusterDecomission")) {
                     str = "ClusterDecommission";
                 }
                 decommissionType = DecommissionType.valueOf(str);
