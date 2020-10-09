@@ -284,6 +284,7 @@ void MathFunctions::rand_prepare(
         return;
     }
     ctx->set_function_state(scope, generator);
+    new (generator) std::mt19937();
     if (scope == FunctionContext::THREAD_LOCAL) {
         if (ctx->get_num_args() == 1) {
             uint32_t seed = 0;
