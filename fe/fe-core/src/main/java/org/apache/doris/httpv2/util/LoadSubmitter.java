@@ -22,18 +22,28 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.httpv2.rest.UploadAction;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+
+import org.apache.http.HttpHeaders;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.FileEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.DefaultRedirectStrategy;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Type;
@@ -67,6 +77,69 @@ public class LoadSubmitter {
 
         @Override
         public SubmitResult call() throws Exception {
+            try {
+                return load();
+            } catch (Throwable e) {
+                LOG.warn("failed to submit load. label: {}", loadContext.label, e);
+                throw e;
+            }
+        }
+
+        private SubmitResult sendData(String content) throws Exception {
+            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, "127.0.0.1", Config.http_port, loadContext.db, loadContext.tbl);
+
+            final HttpClientBuilder httpClientBuilder = HttpClients
+                    .custom()
+                    .setRedirectStrategy(new DefaultRedirectStrategy() {
+                        @Override
+                        protected boolean isRedirectable(String method) {
+                            return true;
+                        }
+                    });
+
+            try (CloseableHttpClient client = httpClientBuilder.build()) {
+                HttpPut put = new HttpPut(loadUrlStr);
+                put.setHeader(HttpHeaders.EXPECT, "100-continue");
+                put.setHeader(HttpHeaders.AUTHORIZATION, basicAuthHeader());
+                if (!Strings.isNullOrEmpty(loadContext.columns)) {
+                    put.setHeader("columns", loadContext.columns);
+                }
+                if (!Strings.isNullOrEmpty(loadContext.columnSeparator)) {
+                    put.setHeader("column_separator", loadContext.columnSeparator);
+                }
+                if (!Strings.isNullOrEmpty(loadContext.label)) {
+                    put.setHeader("label", loadContext.label);
+                }
+
+                FileEntity entity = new FileEntity(checkAndGetFile(loadContext.file));
+                put.setEntity(entity);
+
+                try (CloseableHttpResponse response = client.execute(put)) {
+                    String loadResult = "";
+                    if (response.getEntity() != null) {
+                        loadResult = EntityUtils.toString(response.getEntity());
+                    }
+                    final int statusCode = response.getStatusLine().getStatusCode();
+
+                    if (statusCode != 200) {
+                        throw new IOException(
+                                String.format("Stream load failed, statusCode=%s load result=%s", statusCode, loadResult));
+                    }
+
+                    Type type = new TypeToken<SubmitResult>() {
+                    }.getType();
+                    SubmitResult result = new Gson().fromJson(loadResult, type);
+                    return result;
+                }
+            }
+        }
+
+        private String basicAuthHeader() {
+            String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user), loadContext.passwd);
+            return Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+        }
+
+        private SubmitResult load() throws Exception {
             String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user), loadContext.passwd);
             String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
 
@@ -88,10 +161,12 @@ public class LoadSubmitter {
             }
             conn.setDoOutput(true);
             conn.setDoInput(true);
+            conn.setReadTimeout(0);
+            conn.setConnectTimeout(5000);
 
             File loadFile = checkAndGetFile(loadContext.file);
-            try(BufferedOutputStream bos = new BufferedOutputStream(conn.getOutputStream());
-                BufferedInputStream bis = new BufferedInputStream(new FileInputStream(loadFile));) {
+            try (BufferedOutputStream bos = new BufferedOutputStream(conn.getOutputStream());
+                 BufferedInputStream bis = new BufferedInputStream(new FileInputStream(loadFile));) {
                 int i;
                 while ((i = bis.read()) > 0) {
                     bos.write(i);
@@ -126,6 +201,7 @@ public class LoadSubmitter {
         public String TxnId;
         public String Label;
         public String Status;
+        public String ExistingJobStatus;
         public String Message;
         public String NumberTotalRows;
         public String NumberLoadedRows;
