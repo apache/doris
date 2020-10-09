@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -97,17 +98,17 @@ public class StatementSubmitter {
             try {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
-
+                long startTime = System.currentTimeMillis();
                 if (stmtBase instanceof QueryStmt || stmtBase instanceof ShowStmt) {
                     stmt = conn.prepareStatement(queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                     ResultSet rs = stmt.executeQuery(queryCtx.stmt);
-                    ExecutionResultSet resultSet = generateResultSet(rs);
+                    ExecutionResultSet resultSet = generateResultSet(rs, startTime);
                     rs.close();
                     return resultSet;
                 } else if (stmtBase instanceof InsertStmt || stmtBase instanceof DdlStmt || stmtBase instanceof ExportStmt) {
                     stmt = conn.createStatement();
                     stmt.execute(queryCtx.stmt);
-                    ExecutionResultSet resultSet = generateExecStatus();
+                    ExecutionResultSet resultSet = generateExecStatus(startTime);
                     return resultSet;
                 } else {
                     throw new Exception("Unsupported statement type");
@@ -131,19 +132,20 @@ public class StatementSubmitter {
         /**
          * Result json sample:
          * {
-         * 	"type": "result_set",
-         * 	"data": [
-         * 		[1],
-         * 		[2]
-         * 	],
-         * 	"meta": [{
-         * 		"name": "k1",
-         * 		"type": "INT"
+         *  "type": "result_set",
+         *  "data": [
+         *      [1],
+         *      [2]
+         *  ],
+         *  "meta": [{
+         *      "name": "k1",
+         *      "type": "INT"
          *        }],
-         * 	"status": {}
+         *  "status": {},
+         *  "time" : 10
          * }
          */
-        private ExecutionResultSet generateResultSet(ResultSet rs) throws SQLException {
+        private ExecutionResultSet generateResultSet(ResultSet rs, long startTime) throws SQLException {
             Map<String, Object> result = Maps.newHashMap();
             result.put("type", TYPE_RESULT_SET);
             if (rs == null) {
@@ -174,20 +176,23 @@ public class StatementSubmitter {
             }
             result.put("meta", metaFields);
             result.put("data", rows);
+            result.put("time", (System.currentTimeMillis() - startTime));
             return new ExecutionResultSet(result);
         }
 
         /**
          * Result json sample:
          * {
-         * 	"type": "exec_status",
-         * 	"status": {}
+         *  "type": "exec_status",
+         *  "status": {},
+         *  "time" : 10
          * }
          */
-        private ExecutionResultSet generateExecStatus() throws SQLException {
+        private ExecutionResultSet generateExecStatus(long startTime) throws SQLException {
             Map<String, Object> result = Maps.newHashMap();
             result.put("type", TYPE_EXEC_STATUS);
             result.put("status", Maps.newHashMap());
+            result.put("time", (System.currentTimeMillis() - startTime));
             return new ExecutionResultSet(result);
         }
 
@@ -195,6 +200,13 @@ public class StatementSubmitter {
             SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmtStr)));
             try {
                 return SqlParserUtils.getFirstStmt(parser);
+            } catch (AnalysisException e) {
+                String errorMessage = parser.getErrorMsg(stmtStr);
+                if (errorMessage == null) {
+                    throw e;
+                } else {
+                    throw new AnalysisException(errorMessage, e);
+                }
             } catch (Exception e) {
                 throw new Exception("error happens when parsing stmt: " + e.getMessage());
             }
@@ -215,3 +227,4 @@ public class StatementSubmitter {
         }
     }
 }
+

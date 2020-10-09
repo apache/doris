@@ -75,13 +75,14 @@ Statement Execution Action 用于执行语句并返回结果。
     			"name": "k1",
     			"type": "INT"
     		}],
-    		"status": {}
+    		"status": {},
+            "time": 10
     	},
     	"count": 0
     }
     ```
 
-    * type 字段为 `result_set` 表示返回结果集。需要根据 meta 和 data 字段获取并展示结果。meta 字段描述返回的列信息。data 字段返回结果行。其中每一行的中的列类型，需要通过 meta 字段内容判断。status 字段返回 MySQL 的一些信息，如告警行数，状态码等。
+    * type 字段为 `result_set` 表示返回结果集。需要根据 meta 和 data 字段获取并展示结果。meta 字段描述返回的列信息。data 字段返回结果行。其中每一行的中的列类型，需要通过 meta 字段内容判断。status 字段返回 MySQL 的一些信息，如告警行数，状态码等。time 字段返回语句执行时间，单位毫秒。
 
 * 返回执行结果
 
@@ -91,7 +92,8 @@ Statement Execution Action 用于执行语句并返回结果。
     	"code": 0,
     	"data": {
     		"type": "exec_status",
-    		"status": {}
+    		"status": {},
+            "time": 10
     	},
     	"count": 0
     }
