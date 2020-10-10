@@ -3364,7 +3364,7 @@ public class Catalog {
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition, clause.isForceDrop());
         editLog.logDropPartition(info);
 
-        LOG.info("succeed in droping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition, clause.isForceDrop());
+        LOG.info("succeed in dropping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition, clause.isForceDrop());
     }
 
     public void replayDropPartition(DropPartitionInfo info) {
@@ -3799,7 +3799,7 @@ public class Catalog {
                     olapTable.addPartition(partition);
                 }
             } else {
-                throw new DdlException("Unsupport partition method: " + partitionInfo.getType().name());
+                throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
 
             if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
@@ -3952,7 +3952,7 @@ public class Catalog {
                 sb.append(",\n");
             }
             // There MUST BE 2 space in front of each column description line
-            // sqlalchemy requires this to parse SHOW CREATE TAEBL stmt.
+            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
             if (table.getType() == TableType.OLAP) {
                 sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
             } else {
@@ -4597,7 +4597,7 @@ public class Catalog {
         return editLog;
     }
 
-    // Get the next available, need't lock because of nextId is atomic.
+    // Get the next available, needn't lock because of nextId is atomic.
     public long getNextId() {
         long id = idGenerator.getNextId();
         return id;
@@ -4681,7 +4681,7 @@ public class Catalog {
             // use try lock to avoid blocking a long time.
             // if block too long, backend report rpc will timeout.
             if (!db.tryWriteLock(Database.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                LOG.warn("try get db {} writelock but failed when hecking backend storage medium", dbId);
+                LOG.warn("try get db {} writelock but failed when checking backend storage medium", dbId);
                 continue;
             }
             Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
@@ -4984,7 +4984,7 @@ public class Catalog {
     }
 
     /*
-     * used for handling CacnelAlterStmt (for client is the CANCEL ALTER
+     * used for handling CancelAlterStmt (for client is the CANCEL ALTER
      * command). including SchemaChangeHandler and RollupHandler
      */
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
@@ -5273,11 +5273,11 @@ public class Catalog {
     }
 
     public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
-        throw new DdlException("not implmented");
+        throw new DdlException("not implemented");
     }
 
     public void replayRenameColumn(TableInfo tableInfo) throws DdlException {
-        throw new DdlException("not implmented");
+        throw new DdlException("not implemented");
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
@@ -5772,7 +5772,7 @@ public class Catalog {
                     alterStmt.setClusterName(clusterName);
                     this.alter.processAlterCluster(alterStmt);
                 } catch (AnalysisException e) {
-                    Preconditions.checkState(false, "should not happend: " + e.getMessage());
+                    Preconditions.checkState(false, "should not happened: " + e.getMessage());
                 }
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_NO_CHANGE, newInstanceNum);
@@ -6003,7 +6003,7 @@ public class Catalog {
     }
 
     /**
-     * get migrate progress , when finish migration, next clonecheck will reset dbState
+     * get migrate progress , when finish migration, next cloneCheck will reset dbState
      *
      * @return
      */
@@ -6136,7 +6136,7 @@ public class Catalog {
         }
 
         // we create default_cluster to meet the need for ease of use, because
-        // most users hava no multi tenant needs.
+        // most users have no multi tenant needs.
         cluster.setBackendIdList(backendList);
         unprotectCreateCluster(cluster);
         for (Database db : idToDb.values()) {
@@ -6263,7 +6263,7 @@ public class Catalog {
             unlock();
         }
 
-        LOG.info("finished dumpping image to {}", dumpFilePath);
+        LOG.info("finished dumping image to {}", dumpFilePath);
         return dumpFilePath;
     }
 
@@ -6619,7 +6619,7 @@ public class Catalog {
      */
     public void replaceTempPartition(Database db, String tableName, ReplacePartitionClause clause) throws DdlException {
         List<String> partitionNames = clause.getPartitionNames();
-        List<String> tempPartitonNames = clause.getTempPartitionNames();
+        List<String> tempPartitionNames = clause.getTempPartitionNames();
         boolean isStrictRange = clause.isStrictRange();
         boolean useTempPartitionName = clause.useTempPartitionName();
         db.writeLock();
@@ -6640,17 +6640,17 @@ public class Catalog {
                     throw new DdlException("Partition[" + partName + "] does not exist");
                 }
             }
-            for (String partName : tempPartitonNames) {
+            for (String partName : tempPartitionNames) {
                 if (!olapTable.checkPartitionNameExist(partName, true)) {
                     throw new DdlException("Temp partition[" + partName + "] does not exist");
                 }
             }
 
-            olapTable.replaceTempPartitions(partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+            olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
 
             // write log
             ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
-                    partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+                    partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
             editLog.logReplaceTempPartition(info);
             LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
                     clause.getPartitionNames(), clause.getTempPartitionNames(), tableName);

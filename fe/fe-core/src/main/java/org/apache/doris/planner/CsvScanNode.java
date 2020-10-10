@@ -192,7 +192,7 @@ public class CsvScanNode extends ScanNode {
     }
 
     /**
-     * like Mysql, We query Meta to get request's data localtion
+     * like Mysql, We query Meta to get request's data location
      * extra result info will pass to backend ScanNode
      */
     @Override

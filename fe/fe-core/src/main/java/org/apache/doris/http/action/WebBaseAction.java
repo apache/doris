@@ -333,7 +333,7 @@ public class WebBaseAction extends BaseAction {
     }
 
     // Because org.apache.commons.lang.StringEscapeUtils.escapeHtml() not only escape tags in html,
-    // but also escppe Chinese character code, which may cause Chinese garbled in browser, so we
+    // but also escape Chinese character code, which may cause Chinese garbled in browser, so we
     // define our own simplified escape method here.
     // ATTN: we should make sure file-encoding of help files is utf-8
     protected String escapeHtmlInPreTag(String oriStr) {

@@ -154,7 +154,7 @@ public class BrokerFileGroup implements Writable {
         if (dataDescription.isNegative()) {
             for (Column column : table.getBaseSchema()) {
                 if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
-                    throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+                    throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
                 }
             }
         }

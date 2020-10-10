@@ -92,7 +92,7 @@ public class LoadJob implements Writable {
 
     // progress has two functions at ETL stage:
     // 1. when progress < 100, it indicates ETL progress
-    // 2. set progress = 100 ONLY when ETL progress is compeletly done
+    // 2. set progress = 100 ONLY when ETL progress is completely done
     // 
     // when at LOADING stage, use it normally (as real progress)
     private int progress;
@@ -453,7 +453,7 @@ public class LoadJob implements Writable {
         }
     }
 
-    public void setPrority(TPriority priority) {
+    public void setPriority(TPriority priority) {
         this.priority = priority;
     }
 
@@ -583,9 +583,9 @@ public class LoadJob implements Writable {
         return fullTablets;
     }
     
-    public void setUnfinishedTablets(Set<Long> unfinisheTablets) {
+    public void setUnfinishedTablets(Set<Long> unfinishedTablets) {
         this.unfinishedTablets.clear();
-        this.unfinishedTablets.addAll(unfinisheTablets);
+        this.unfinishedTablets.addAll(unfinishedTablets);
     }
     
     public void addPushTask(PushTask pushTask) {

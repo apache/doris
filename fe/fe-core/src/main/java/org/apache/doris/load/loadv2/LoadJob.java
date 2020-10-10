@@ -284,7 +284,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         loadStatistic.initLoad(loadId, fragmentIds, relatedBackendIds);
     }
 
-    public void updateProgess(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows, boolean isDone) {
+    public void updateProgress(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows, boolean isDone) {
         loadStatistic.updateLoadProgress(beId, loadId, fragmentId, scannedRows, isDone);
     }
 

@@ -67,7 +67,7 @@ public class CreateClusterStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testAnnlyzeWithException() throws UserException, AnalysisException {
+    public void testAnalyzeWithException() throws UserException, AnalysisException {
         final CreateClusterStmt stmt = new CreateClusterStmt("testCluster", null, "password");
         stmt.analyze(analyzer);
         Assert.fail("no exception");

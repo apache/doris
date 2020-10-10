@@ -51,7 +51,7 @@ import java.util.Map;
 public class CheckConsistencyJob {
     private static final Logger LOG = LogManager.getLogger(CheckConsistencyJob.class);
 
-    private static final long CHECK_CONSISTENCT_TIME_COST_PER_GIGABYTE_MS = 1000000L; // 1000s
+    private static final long CHECK_CONSISTENT_TIME_COST_PER_GIGABYTE_MS = 1000000L; // 1000s
 
     public enum JobState {
         PENDING,
@@ -202,7 +202,7 @@ public class CheckConsistencyJob {
                 LOG.info("tablet[{}] does not have enough replica to check.", tabletId);
             } else {
                 if (maxDataSize > 0) {
-                    timeoutMs = maxDataSize / 1000 / 1000 / 1000 * CHECK_CONSISTENCT_TIME_COST_PER_GIGABYTE_MS;
+                    timeoutMs = maxDataSize / 1000 / 1000 / 1000 * CHECK_CONSISTENT_TIME_COST_PER_GIGABYTE_MS;
                 }
                 timeoutMs = Math.max(timeoutMs, Config.check_consistency_default_timeout_second * 1000L);
                 state = JobState.RUNNING;
@@ -383,7 +383,7 @@ public class CheckConsistencyJob {
         if (this.checksumMap.containsKey(backendId)) {
             checksumMap.put(backendId, checksum);
         } else {
-            // should not happend. add log to observe
+            // should not happened. add log to observe
             LOG.warn("can not find backend[{}] in tablet[{}]'s consistency check job", backendId, tabletId);
         }
     }

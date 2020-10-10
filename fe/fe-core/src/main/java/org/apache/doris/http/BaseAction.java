@@ -233,7 +233,7 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    // Set 'CONTENT_TYPE' header if it havn't been set.
+    // Set 'CONTENT_TYPE' header if it hasn't been set.
     protected void checkDefaultContentTypeHeader(BaseResponse response, Object responseOj) {
         if (!Strings.isNullOrEmpty(response.getContentType())) {
             response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), response.getContentType());

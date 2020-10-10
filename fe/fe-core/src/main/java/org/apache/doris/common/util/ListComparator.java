@@ -31,8 +31,8 @@ public class ListComparator<T extends List<Comparable>> implements Comparator<T>
     boolean isDesc;
     int indicesLen;
 
-    public ListComparator(int...indicec) {
-        this(false, indicec);
+    public ListComparator(int...indices) {
+        this(false, indices);
     }
 
     public ListComparator(boolean isDesc, int...indices) {

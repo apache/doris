@@ -225,7 +225,7 @@ public abstract class AlterJob implements Writable {
     public abstract void addReplicaId(long parentId, long replicaId, long backendId);
 
     /**
-     * set replicas as finished when replica task report sucess
+     * set replicas as finished when replica task report success
      */
     public abstract void setReplicaFinished(long parentId, long replicaId);
 
@@ -264,7 +264,7 @@ public abstract class AlterJob implements Writable {
     public abstract void clear();
 
     /**
-     * do something when state transfering from FINISHING to FINISHED.
+     * do something when state transferring from FINISHING to FINISHED.
      * eg:
      *  set table's state to NORMAL
      */

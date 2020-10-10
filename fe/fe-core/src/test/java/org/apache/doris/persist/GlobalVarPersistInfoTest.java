@@ -43,7 +43,7 @@ public class GlobalVarPersistInfoTest {
     }
 
     @Test
-    public void testSerialzeAlterViewInfo() throws IOException {
+    public void testSerializeAlterViewInfo() throws IOException {
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();

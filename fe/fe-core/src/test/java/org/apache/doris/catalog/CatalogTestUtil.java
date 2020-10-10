@@ -51,7 +51,7 @@ public class CatalogTestUtil {
     public static long testPartitionId1 = 3;
     public static String testIndex1 = "testIndex1";
     public static String testIndex2 = "testIndex2";
-    public static long testIndexId1 = 2; // the base indexid == tableid
+    public static long testIndexId1 = 2; // the base indexId == tableId
     public static int testSchemaHash1 = 93423942;
     public static long testBackendId1 = 5;
     public static long testBackendId2 = 6;
@@ -67,18 +67,18 @@ public class CatalogTestUtil {
     public static long testRollupIndexId2 = 13;
     public static String testRollupIndex2 = "newRollupIndex";
     public static String testRollupIndex3 = "newRollupIndex2";
-    public static String testTxnLable1 = "testTxnLable1";
-    public static String testTxnLable2 = "testTxnLable2";
-    public static String testTxnLable3 = "testTxnLable3";
-    public static String testTxnLable4 = "testTxnLable4";
-    public static String testTxnLable5 = "testTxnLable5";
-    public static String testTxnLable6 = "testTxnLable6";
-    public static String testTxnLable7 = "testTxnLable7";
-    public static String testTxnLable8 = "testTxnLable8";
-    public static String testTxnLable9 = "testTxnLable9";
-    public static String testTxnLable10 = "testTxnLable10";
-    public static String testTxnLable11 = "testTxnLable11";
-    public static String testTxnLable12 = "testTxnLable12";
+    public static String testTxnLabel1 = "testTxnLabel1";
+    public static String testTxnLabel2 = "testTxnLabel2";
+    public static String testTxnLabel3 = "testTxnLabel3";
+    public static String testTxnLabel4 = "testTxnLabel4";
+    public static String testTxnLabel5 = "testTxnLabel5";
+    public static String testTxnLabel6 = "testTxnLabel6";
+    public static String testTxnLabel7 = "testTxnLabel7";
+    public static String testTxnLabel8 = "testTxnLabel8";
+    public static String testTxnLabel9 = "testTxnLabel9";
+    public static String testTxnLabel10 = "testTxnLabel10";
+    public static String testTxnLabel11 = "testTxnLabel11";
+    public static String testTxnLabel12 = "testTxnLabel12";
     public static String testEsTable1 = "partitionedEsTable1";
     public static long testEsTableId1 = 14;
 
@@ -275,11 +275,11 @@ public class CatalogTestUtil {
     }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort,
-            long totalCapacityB, long availableCapacityB) {
+            long totalCapacityB, long avaiLabelCapacityB) {
         Backend backend = createBackend(id, host, heartPort, bePort, httpPort);
         Map<String, TDisk> backendDisks = new HashMap<String, TDisk>();
         String rootPath = "root_path";
-        TDisk disk = new TDisk(rootPath, totalCapacityB, availableCapacityB, true);
+        TDisk disk = new TDisk(rootPath, totalCapacityB, avaiLabelCapacityB, true);
         backendDisks.put(rootPath, disk);
         backend.updateDisks(backendDisks);
         backend.setAlive(true);

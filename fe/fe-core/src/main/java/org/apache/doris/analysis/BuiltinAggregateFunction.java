@@ -111,7 +111,7 @@ public class BuiltinAggregateFunction extends Function {
         NDV("NDV", TAggregationOp.HLL, ScalarType.createVarcharType(64)),
         HLL_UNION_AGG("HLL_UNION_AGG", TAggregationOp.HLL_C, ScalarType.createVarcharType(64)),
         BITMAP_UNION("BITMAP_UNION", TAggregationOp.BITMAP_UNION, ScalarType.createVarcharType(10)),
-        COUNT_DISTINCT("COUNT_DISITNCT", TAggregationOp.COUNT_DISTINCT, Type.BIGINT),
+        COUNT_DISTINCT("COUNT_DISTINCT", TAggregationOp.COUNT_DISTINCT, Type.BIGINT),
         SUM_DISTINCT("SUM_DISTINCT", TAggregationOp.SUM_DISTINCT, null),
         LAG("LAG", TAggregationOp.LAG, null),
         FIRST_VALUE("FIRST_VALUE", TAggregationOp.FIRST_VALUE, null),

@@ -319,7 +319,7 @@ public class MultiLoadMgr {
         private TNetworkAddress address;
         private Map<String, String> properties;
         // 2 or more files may be loaded to same table with different sub labels.
-        // So we use Set to save all timestamp of all diffrent sub labels
+        // So we use Set to save all timestamp of all different sub labels
         private Set<Long> timestamps = Sets.newHashSet();
 
         public TableLoadDesc(String tbl, String label, List<String> files,
@@ -360,8 +360,8 @@ public class MultiLoadMgr {
         // TODO(zc):
         public DataDescription toDataDesc() throws DdlException {
             List<String> files = Lists.newArrayList();
-            for (List<String> fileOfLable : filesByLabel.values()) {
-                files.addAll(fileOfLable);
+            for (List<String> fileOfLabel : filesByLabel.values()) {
+                files.addAll(fileOfLabel);
             }
             List<String> columns = null;
             ColumnSeparator columnSeparator = null;

@@ -189,7 +189,7 @@ public class MasterImpl {
                     finishClone(task, request);
                     break;
                 case CHECK_CONSISTENCY:
-                    finishConsistenctCheck(task, request);
+                    finishConsistencyCheck(task, request);
                     break;
                 case MAKE_SNAPSHOT:
                     finishMakeSnapshot(task, request);
@@ -675,7 +675,7 @@ public class MasterImpl {
         if (indexId != pushIndexId) {
             // this may be a rollup tablet
             if (pushState != PartitionState.ROLLUP && indexId != TabletInvertedIndex.NOT_EXIST_VALUE) {
-                // this probably should not happend. add log to observe(cmy)
+                // this probably should not happened. add log to observe(cmy)
                 LOG.warn("push task report tablet[{}] with different index[{}] and is not in ROLLUP. push index[{}]",
                          tabletId, indexId, pushIndexId);
                 return null;
@@ -689,7 +689,7 @@ public class MasterImpl {
             MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
             AlterJob alterJob = materializedViewHandler.getAlterJob(olapTable.getId());
             if (alterJob == null) {
-                // this happends when:
+                // this happens when:
                 // a rollup job is finish and a delete job is the next first job (no load job before)
                 // and delete task is first send to base tablet, so it will return 2 tablets info.
                 // the second tablet is rollup tablet and it is no longer exist in alterJobs queue.
@@ -783,11 +783,11 @@ public class MasterImpl {
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
     }
 
-    private void finishConsistenctCheck(AgentTask task, TFinishTaskRequest request) {
+    private void finishConsistencyCheck(AgentTask task, TFinishTaskRequest request) {
         CheckConsistencyTask checkConsistencyTask = (CheckConsistencyTask) task;
 
         if (checkConsistencyTask.getVersion() != request.getRequestVersion()) {
-            LOG.warn("check consisteny task is not match. [{}-{}]",
+            LOG.warn("check consistency task is not match. [{}-{}]",
                      checkConsistencyTask.getVersion(), request.getRequestVersion());
             return;
         }
