@@ -26,7 +26,7 @@ under the License.
 
 # 资源管理
 
-为了节省Doris集群内的计算、存储资源，Doris需要引入一些其他外部资源来完成相关的工作，如Spark/GPU用于查询，HDFS/S3用于外部存储，Spark/MapReduce用于ETL等，因此我们引入资源管理机制来管理Doris使用的这些外部资源。
+为了节省Doris集群内的计算、存储资源，Doris需要引入一些其他外部资源来完成相关的工作，如Spark/GPU用于查询，HDFS/S3用于外部存储，Spark/MapReduce用于ETL, 通过ODBC连接外部存储等，因此我们引入资源管理机制来管理Doris使用的这些外部资源。
 
 
 
@@ -55,7 +55,7 @@ under the License.
 
    * `resource_name` 为 Doris 中配置的资源的名字。
    * `PROPERTIES` 是资源相关参数，如下：
-     * `type`：资源类型，必填，目前仅支持 spark。
+     * `type`：资源类型，必填，目前仅支持 spark与odbc_catalog。
      * 其他参数见各资源介绍。
 
 2. DROP RESOURCE
@@ -70,7 +70,11 @@ under the License.
 
 ## 支持的资源
 
-目前仅支持Spark资源，完成ETL工作。下面的示例都以Spark资源为例。
+目前Dorisn能够支持
+* Spark资源 : 完成ETL工作。
+* ODBC资源：查询和导入外部表的数据
+
+下面将分别展示两种资源的使用方式。
 
 ### Spark
 
@@ -121,5 +125,46 @@ PROPERTIES
   "broker" = "broker0",
   "broker.username" = "user0",
   "broker.password" = "password0"
+);
+```
+
+### ODBC
+
+#### 参数
+
+##### ODBC 相关参数如下：
+
+`type`: 必填，且必须为`odbc_catalog`。作为resource的类型标识。
+
+`user`: 外部表的账号，必填。
+
+`password`: 外部表的密码，必填。
+
+`host`: 外部表的连接ip地址，必填。
+
+`port`: 外部表的连接端口，必填。
+
+`odbc_type`: 标示外部表的类型，当前doris支持`mysql`与`oracle`，未来可能支持更多的数据库。引用该resource的ODBC外表必填，旧的mysql外表选填。
+
+`driver`: 标示外部表使用的driver动态库，引用该resource的ODBC外表必填，旧的mysql外表选填。
+
+
+具体如何使用可以，可以参考[ODBC of Doris](../extending-doris/odbc-of-doris.html)
+
+#### 示例
+
+创建oracle的odbc resource，名为 odbc_oracle 的 odbc_catalog的 资源。
+
+```sql
+CREATE EXTERNAL RESOURCE `oracle_odbc`
+PROPERTIES (
+"type" = "odbc_catalog",
+"host" = "192.168.0.1",
+"port" = "8086",
+"user" = "test",
+"password" = "test",
+"database" = "test",
+"odbc_type" = "oracle",
+"driver" = "Oracle 19 ODBC driver"
 );
 ```
