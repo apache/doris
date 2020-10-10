@@ -48,6 +48,7 @@ import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -121,6 +122,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
@@ -2274,6 +2276,7 @@ public class Catalog {
 
     public void createReplayer() {
         replayer = new Daemon("replayer", REPLAY_INTERVAL_MS) {
+            @Override
             protected void runOneCycle() {
                 boolean err = false;
                 boolean hasLog = false;
@@ -2995,7 +2998,25 @@ public class Catalog {
         LOG.info("replay rename database {} to {}", dbName, newDbName);
     }
 
-    public void createTable(CreateTableStmt stmt) throws DdlException {
+    /**
+     * Following is the step to create an olap table:
+     * 1. create columns
+     * 2. create partition info
+     * 3. create distribution info
+     * 4. set table id and base index id
+     * 5. set bloom filter columns
+     * 6. set and build TableProperty includes:
+     *     6.1. dynamicProperty
+     *     6.2. replicationNum
+     *     6.3. inMemory
+     *     6.4. storageFormat
+     * 7. set index meta
+     * 8. check colocation properties
+     * 9. create tablet in BE
+     * 10. add this table to FE's meta
+     * 11. add this table to ColocateGroup if necessary
+     */
+     public void createTable(CreateTableStmt stmt) throws DdlException {
         String engineName = stmt.getEngineName();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -3055,7 +3076,31 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
         Preconditions.checkState(false);
-        return;
+    }
+
+    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        try {
+            Database db = Catalog.getCurrentCatalog().getDb(stmt.getExistedDbName());
+            List<String> createTableStmt = Lists.newArrayList();
+            db.readLock();
+            try {
+                Table table = db.getTable(stmt.getExistedTableName());
+                if (table == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, stmt.getExistedTableName());
+                }
+                Catalog.getDdlStmt(stmt.getDbName(), table, createTableStmt, null, null, false, false);
+                if (createTableStmt.isEmpty()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
+                }
+            } finally {
+                db.readUnlock();
+            }
+            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ConnectContext.get());
+            parsedCreateTableStmt.setTableName(stmt.getTableName());
+            createTable(parsedCreateTableStmt);
+        } catch (UserException e) {
+            throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
+        }
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
@@ -3926,6 +3971,11 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+         getDdlStmt(null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
+    }
+
+    public static void getDdlStmt(String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3945,6 +3995,9 @@ public class Catalog {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("`").append(dbName).append("`.");
+        }
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
         for (Column column : table.getBaseSchema()) {

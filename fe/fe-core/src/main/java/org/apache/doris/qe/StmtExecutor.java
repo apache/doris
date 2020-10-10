@@ -217,10 +217,7 @@ public class StmtExecutor {
     }
 
     public boolean isQueryStmt() {
-        if (parsedStmt != null && parsedStmt instanceof QueryStmt) {
-            return true;
-        }
-        return false;
+        return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
 
     public StatementBase getParsedStmt() {
