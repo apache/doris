@@ -63,22 +63,22 @@ Statement Execution Action 用于执行语句并返回结果。
 
     ```
     {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"type": "result_set",
-    		"data": [
-    			[1],
-    			[2]
-    		],
-    		"meta": [{
-    			"name": "k1",
-    			"type": "INT"
-    		}],
-    		"status": {},
+        "msg": "success",
+        "code": 0,
+        "data": {
+            "type": "result_set",
+            "data": [
+                [1],
+                [2]
+            ],
+            "meta": [{
+                "name": "k1",
+                "type": "INT"
+            }],
+            "status": {},
             "time": 10
-    	},
-    	"count": 0
+        },
+        "count": 0
     }
     ```
 
@@ -88,14 +88,14 @@ Statement Execution Action 用于执行语句并返回结果。
 
     ```
     {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"type": "exec_status",
-    		"status": {},
+        "msg": "success",
+        "code": 0,
+        "data": {
+            "type": "exec_status",
+            "status": {},
             "time": 10
-    	},
-    	"count": 0
+        },
+        "count": 0
     }
     ```
 
