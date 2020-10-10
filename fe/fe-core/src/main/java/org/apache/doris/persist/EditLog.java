@@ -180,7 +180,7 @@ public class EditLog {
                     catalog.replayCreateTable(info.getDbName(), info.getTable());
                     break;
                 }
-                case OperationType.OP_REFRESH_EXTERNAL_TABLE_SCHEMA: {
+                case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                     RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
                     LOG.info("Begin to unprotect refresh table. db = "
                             + info.getDbName() + " table = " + info.getTableName());
@@ -932,7 +932,7 @@ public class EditLog {
     }
 
     public void logRefreshExternalTableSchema(RefreshExternalTableInfo info) {
-        logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE_SCHEMA, info);
+        logEdit(OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA, info);
     }
 
     public void logAddPartition(PartitionPersistInfo info) {

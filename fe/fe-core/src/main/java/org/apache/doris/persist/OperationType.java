@@ -185,5 +185,5 @@ public class OperationType {
     public static final short OP_DROP_RESOURCE = 277;
 
     // alter external table
-    public static final short OP_REFRESH_EXTERNAL_TABLE_SCHEMA = 280;
+    public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
 }

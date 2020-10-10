@@ -177,7 +177,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_REFRESH_EXTERNAL_TABLE_SCHEMA: {
+            case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                 data = RefreshExternalTableInfo.read(in);
                 isRead = true;
                 break;

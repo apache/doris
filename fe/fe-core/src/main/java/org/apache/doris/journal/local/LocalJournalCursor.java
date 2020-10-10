@@ -236,7 +236,7 @@ public final class LocalJournalCursor implements JournalCursor {
                 ret.setData(info);
                 break;
             }
-            case OperationType.OP_REFRESH_EXTERNAL_TABLE_SCHEMA: {
+            case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                 RefreshExternalTableInfo info = RefreshExternalTableInfo.read(in);
                 ret.setData(info);
                 break;
