@@ -144,7 +144,7 @@ public class DistributedPlanner {
             }
         }
 
-        // Need a merge node to merge all partition of input framgent
+        // Need a merge node to merge all partition of input fragment
         if (needMerge) {
             PlanFragment newInputFragment = createMergeFragment(inputFragment);
             fragments.add(newInputFragment);
@@ -618,7 +618,7 @@ public class DistributedPlanner {
         PlanFragment parentFragment =
                 new PlanFragment(ctx_.getNextFragmentId(), exchNode, DataPartition.UNPARTITIONED);
 
-        // we don't expect to be parallelizing a MergeNode that was inserted solely
+        // we don't expect to be paralleling a MergeNode that was inserted solely
         // to evaluate conjuncts (ie, that doesn't explicitly materialize its output)
         Preconditions.checkState(mergeNode.getTupleIds().size() == 1);
 
@@ -721,7 +721,7 @@ public class DistributedPlanner {
              * }
              */
 
-            // UnionNode should't be absorbed by childFragment, because it reduce 
+            // UnionNode shouldn't be absorbed by childFragment, because it reduce
             // the degree of concurrency.
             // chenhao16 add
             // dummy entry for subsequent addition of the ExchangeNode

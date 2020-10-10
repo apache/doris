@@ -53,7 +53,7 @@ public class EsUtil {
         
         if (partDesc.getPartitionColNames().size() > 1) {
             throw new AnalysisException(
-                    "Elasticsearch table's parition column could only be a single column");
+                    "Elasticsearch table's partition column could only be a single column");
         }
     }
     

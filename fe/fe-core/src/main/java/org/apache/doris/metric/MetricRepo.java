@@ -154,14 +154,14 @@ public final class MetricRepo {
         generateBackendsTabletMetrics();
 
         // connections
-        GaugeMetric<Integer> conections = (GaugeMetric<Integer>) new GaugeMetric<Integer>(
+        GaugeMetric<Integer> connections = (GaugeMetric<Integer>) new GaugeMetric<Integer>(
                 "connection_total", MetricUnit.CONNECTIONS, "total connections") {
             @Override
             public Integer getValue() {
                 return ExecuteEnv.getInstance().getScheduler().getConnectionNum();
             }
         };
-        PALO_METRIC_REGISTER.addPaloMetrics(conections);
+        PALO_METRIC_REGISTER.addPaloMetrics(connections);
 
         // journal id
         GaugeMetric<Long> maxJournalId = (GaugeMetric<Long>) new GaugeMetric<Long>(
@@ -253,7 +253,7 @@ public final class MetricRepo {
 
         COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.REQUESTS, "counter of rejected transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_REJECT);
-        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", MetricUnit.REQUESTS, "counter of begining transactions");
+        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", MetricUnit.REQUESTS, "counter of beginning transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_BEGIN);
         COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success", MetricUnit.REQUESTS, "counter of success transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_SUCCESS);

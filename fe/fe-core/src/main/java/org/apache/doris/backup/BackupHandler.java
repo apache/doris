@@ -171,7 +171,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     // handle create repository stmt
     public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
-        if (!catalog.getBrokerMgr().contaisnBroker(stmt.getBrokerName())) {
+        if (!catalog.getBrokerMgr().containsBroker(stmt.getBrokerName())) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "broker does not exist: " + stmt.getBrokerName());
         }
 
@@ -296,7 +296,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
                     if (partitionNames.isTemp()) {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backuping temp partitions");
+                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup temp partitions");
                     }
 
                     for (String partName : partitionNames.getPartitionNames()) {

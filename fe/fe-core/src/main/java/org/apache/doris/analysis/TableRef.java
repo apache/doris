@@ -55,7 +55,7 @@ import java.util.Set;
  * The analysis of table refs follows a two-step process:
  *
  * 1. Resolution: A table ref's path is resolved and then the generic TableRef is
- * replaced by a concrete table ref (a BaseTableRef, CollectionTabeRef or ViewRef)
+ * replaced by a concrete table ref (a BaseTableRef, CollectionTableRef or ViewRef)
  * in the originating stmt and that is given the resolved path. This step is driven by
  * Analyzer.resolveTableRef().
  *

@@ -56,7 +56,7 @@ import java.util.Set;
 public class LoadEtlTaskTest {
     private long dbId;
     private long tableId;
-    private long paritionId;
+    private long partitionId;
     private long indexId;
     private long tabletId;
     private long backendId;
@@ -74,7 +74,7 @@ public class LoadEtlTaskTest {
     public void setUp() {
         dbId = 0L;
         tableId = 0L;
-        paritionId = 0L;
+        partitionId = 0L;
         indexId = 0L;
         tabletId = 0L;
         backendId = 0L;
@@ -87,7 +87,7 @@ public class LoadEtlTaskTest {
     @Test
     public void testRunEtlTask(@Mocked DppScheduler dppScheduler) throws Exception {
         // mock catalog
-        db = UnitTestUtil.createDb(dbId, tableId, paritionId, indexId, tabletId, backendId, 1L, 0L);
+        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
         new Expectations(catalog) {
             {
                 catalog.getDb(dbId);
@@ -115,13 +115,13 @@ public class LoadEtlTaskTest {
         job.setClusterInfo(cluster, Load.clusterToDppConfig.get(cluster));
         // set partition load infos
         OlapTable table = (OlapTable) db.getTable(tableId);
-        Partition partition = table.getPartition(paritionId);
+        Partition partition = table.getPartition(partitionId);
         Source source = new Source(new ArrayList<String>());
         List<Source> sources = Lists.newArrayList();
         sources.add(source);
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(sources);
         Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<Long, PartitionLoadInfo>();
-        idToPartitionLoadInfo.put(paritionId, partitionLoadInfo);
+        idToPartitionLoadInfo.put(partitionId, partitionLoadInfo);
         TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);
         tableLoadInfo.addIndexSchemaHash(partition.getBaseIndex().getId(), 0);
         Map<Long, TableLoadInfo> idToTableLoadInfo = new HashMap<Long, TableLoadInfo>();
@@ -192,7 +192,7 @@ public class LoadEtlTaskTest {
         long expectVersion = partition.getVisibleVersion() + 1;
         Assert.assertEquals(-1,
                             job.getIdToTableLoadInfo().get(tableId)
-                .getIdToPartitionLoadInfo().get(paritionId).getVersion());
+                .getIdToPartitionLoadInfo().get(partitionId).getVersion());
         int tabletNum = 0;
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
         for (MaterializedIndex olapTable : partition.getMaterializedIndices(IndexExtState.ALL)) {

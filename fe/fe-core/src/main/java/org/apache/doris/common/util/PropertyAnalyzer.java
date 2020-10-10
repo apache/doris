@@ -156,7 +156,7 @@ public class PropertyAnalyzer {
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
         short shortKeyColumnCount = (short) -1;
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
-            // check and use speciefied short key
+            // check and use specified short key
             try {
                 shortKeyColumnCount = Short.parseShort(properties.get(PROPERTIES_SHORT_KEY));
             } catch (NumberFormatException e) {

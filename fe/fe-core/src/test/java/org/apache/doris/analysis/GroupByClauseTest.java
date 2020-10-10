@@ -87,8 +87,8 @@ public class GroupByClauseTest {
             groupByClause.genGroupingExprs();
             groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             groupByClause.analyze(analyzer);
-        } catch (AnalysisException execption) {
-            execption.printStackTrace();
+        } catch (AnalysisException exception) {
+            exception.printStackTrace();
             Assert.assertTrue(false);
         }
         Assert.assertEquals(5, groupByClause.getGroupingExprs().size());
@@ -198,7 +198,7 @@ public class GroupByClauseTest {
                 GroupByClause.GroupingType.GROUP_BY);
         try {
             groupByClause.analyze(analyzer);
-        } catch (AnalysisException execption) {
+        } catch (AnalysisException exception) {
             Assert.assertTrue(false);
         }
         Assert.assertEquals("`testdb`.`t`.`k2`, `testdb`.`t`.`k2`, `testdb`.`t`.`k3`, `testdb`.`t`.`k1`", groupByClause.toSql());
@@ -219,7 +219,7 @@ public class GroupByClauseTest {
                 GroupByClause.GroupingType.GROUP_BY);
         try {
             groupByClause.analyze(analyzer);
-        } catch (AnalysisException execption) {
+        } catch (AnalysisException exception) {
             Assert.assertTrue(false);
         }
         try {

@@ -50,10 +50,10 @@ public class ConfigBase {
     public static Properties props;
     public static Class<? extends ConfigBase> confClass;
     
-    public void init(String propfile) throws Exception {
+    public void init(String profile) throws Exception {
         props = new Properties();
         confClass = this.getClass();
-        props.load(new FileReader(propfile));
+        props.load(new FileReader(profile));
         replacedByEnv();
         setFields();
     }

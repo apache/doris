@@ -446,7 +446,7 @@ public class GlobalTransactionMgr implements Writable {
 
     /**
      * If a Coordinate BE is down when running txn, the txn will remain in FE until killed by timeout
-     * So when FE identify the Coordiante BE is down, FE should cancel it initiative
+     * So when FE identify the Coordinate BE is down, FE should cancel it initiative
      */
     public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
         List<Pair<Long, Long>> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);

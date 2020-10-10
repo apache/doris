@@ -71,7 +71,7 @@ public class ExceptionChecker {
                 if (!Strings.isNullOrEmpty(exceptionMsg)) {
                     if (!e.getMessage().contains(exceptionMsg)) {
                         AssertionFailedError assertion = new AssertionFailedError(
-                                "expceted msg: " + exceptionMsg + ", actual: " + e.getMessage());
+                                "expected msg: " + exceptionMsg + ", actual: " + e.getMessage());
                         assertion.initCause(e);
                         throw assertion;
                     }

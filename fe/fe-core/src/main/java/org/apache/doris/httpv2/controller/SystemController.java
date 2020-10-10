@@ -66,7 +66,7 @@ public class SystemController extends BaseController {
         if (Strings.isNullOrEmpty(currentPath)) {
             currentPath = "/";
         }
-        LOG.debug("get /system requset, thread id: {}", Thread.currentThread().getId());
+        LOG.debug("get /system request, thread id: {}", Thread.currentThread().getId());
         ResponseEntity entity = appendSystemInfo(currentPath, currentPath,request);
         return entity;
     }

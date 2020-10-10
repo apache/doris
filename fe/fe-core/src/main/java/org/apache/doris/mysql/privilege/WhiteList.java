@@ -67,7 +67,7 @@ public class WhiteList implements Writable {
     // handle new resolved IPs.
     // it will only modify password entry of these resolved IPs. All other privileges are binded
     // to the domain, so no need to modify.
-    public void addUserPrivEntriesByResovledIPs(String user, Map<String, Set<String>> resolvedIPsMap) {
+    public void addUserPrivEntriesByResolvedIPs(String user, Map<String, Set<String>> resolvedIPsMap) {
         // the parameter "resolvedIPsMap" contains all resolved domains.
         // "newResolvedIPsMap" will only save the domains contained in this white list.
         Map<String, Set<String>> newResolvedIPsMap = Maps.newHashMap();

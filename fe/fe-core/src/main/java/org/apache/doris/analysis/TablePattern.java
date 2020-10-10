@@ -58,7 +58,7 @@ public class TablePattern implements Writable {
         this.tbl = Strings.isNullOrEmpty(tbl) ? "*" : tbl;
     }
 
-    public String getQuolifiedDb() {
+    public String getQualifiedDb() {
         Preconditions.checkState(isAnalyzed);
         return db;
     }
@@ -109,7 +109,7 @@ public class TablePattern implements Writable {
             return false;
         }
         TablePattern other = (TablePattern) obj;
-        return db.equals(other.getQuolifiedDb()) && tbl.equals(other.getTbl());
+        return db.equals(other.getQualifiedDb()) && tbl.equals(other.getTbl());
     }
 
     @Override

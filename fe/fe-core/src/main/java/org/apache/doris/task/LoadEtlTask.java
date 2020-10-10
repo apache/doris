@@ -197,7 +197,7 @@ public abstract class LoadEtlTask extends MasterTask {
             }
         } catch (MetaNotFoundException e) {
             // remove loading partitions
-            // yiguolei: partitionids is only used to check if there is a loading job running on a partition
+            // yiguolei: partition ids is only used to check if there is a loading job running on a partition
             // it is useless in real time load since it could run concurrently
             // load.removeLoadingPartitions(partitionIds);
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, e.getMessage());
@@ -213,7 +213,7 @@ public abstract class LoadEtlTask extends MasterTask {
             // load.removeLoadingPartitions(partitionIds);
             LOG.warn("update job state to loading failed. job: {}", job);
             if (job.getTransactionId() > 0) {
-                LOG.warn("there maybe remaining transactionid {} in transaction table", job.getTransactionId());
+                LOG.warn("there maybe remaining transaction id {} in transaction table", job.getTransactionId());
             }
         }
     }

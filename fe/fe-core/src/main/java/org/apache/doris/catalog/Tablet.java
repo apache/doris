@@ -573,7 +573,7 @@ public class Tablet extends MetaObject implements Writable {
      * check if this tablet is ready to be repaired, based on priority.
      * VERY_HIGH: repair immediately
      * HIGH:    delay Config.tablet_repair_delay_factor_second * 1;
-     * NORNAL:  delay Config.tablet_repair_delay_factor_second * 2;
+     * NORMAL:  delay Config.tablet_repair_delay_factor_second * 2;
      * LOW:     delay Config.tablet_repair_delay_factor_second * 3;
      */
     public boolean readyToBeRepaired(TabletSchedCtx.Priority priority) {

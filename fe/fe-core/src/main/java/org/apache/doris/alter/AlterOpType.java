@@ -41,20 +41,20 @@ public enum AlterOpType {
 
 
     // true means 2 operations have no conflict.
-    public static Boolean[][] COMPATIBITLITY_MATRIX;
+    public static Boolean[][] COMPATIBILITY_MATRIX;
     static {
-        COMPATIBITLITY_MATRIX = new Boolean[INVALID_OP.ordinal() + 1][INVALID_OP.ordinal() + 1];
+        COMPATIBILITY_MATRIX = new Boolean[INVALID_OP.ordinal() + 1][INVALID_OP.ordinal() + 1];
         for (int i = 0; i < INVALID_OP.ordinal(); i++) {
             for (int j = 0; j < INVALID_OP.ordinal(); j++) {
-                COMPATIBITLITY_MATRIX[i][j] = false;
+                COMPATIBILITY_MATRIX[i][j] = false;
             }
         }
 
         // rollup can be added or dropped in batch
-        COMPATIBITLITY_MATRIX[ADD_ROLLUP.ordinal()][ADD_ROLLUP.ordinal()] = true;
-        COMPATIBITLITY_MATRIX[DROP_ROLLUP.ordinal()][DROP_ROLLUP.ordinal()] = true;
+        COMPATIBILITY_MATRIX[ADD_ROLLUP.ordinal()][ADD_ROLLUP.ordinal()] = true;
+        COMPATIBILITY_MATRIX[DROP_ROLLUP.ordinal()][DROP_ROLLUP.ordinal()] = true;
         // schema change, such as add/modify/drop columns can be processed in batch
-        COMPATIBITLITY_MATRIX[SCHEMA_CHANGE.ordinal()][SCHEMA_CHANGE.ordinal()] = true;
+        COMPATIBILITY_MATRIX[SCHEMA_CHANGE.ordinal()][SCHEMA_CHANGE.ordinal()] = true;
     }
 
     public boolean needCheckCapacity() {

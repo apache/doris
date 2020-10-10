@@ -504,8 +504,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (kafkaPartitionsString.isEmpty()) {
             throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY + " could not be a empty string");
         }
-        String[] kafkaPartionsStringList = kafkaPartitionsString.split(",");
-        for (String s : kafkaPartionsStringList) {
+        String[] kafkaPartitionsStringList = kafkaPartitionsString.split(",");
+        for (String s : kafkaPartitionsStringList) {
             try {
                 kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY),
                         KafkaProgress.OFFSET_END_VAL));

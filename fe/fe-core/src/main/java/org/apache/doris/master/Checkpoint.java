@@ -149,7 +149,7 @@ public class Checkpoint extends MasterDaemon {
                 }
             }
             
-            LOG.info("push image.{} to other nodes. totally {} nodes, push successed {} nodes",
+            LOG.info("push image.{} to other nodes. totally {} nodes, push succeed {} nodes",
                      replayedJournalId, otherNodesCount, successPushed);
         }
         
@@ -221,9 +221,9 @@ public class Checkpoint extends MasterDaemon {
         long memUsedPercent = getMemoryUsedPercent();
         LOG.info("get jvm memory used percent: {} %", memUsedPercent);
 
-        if (memUsedPercent > Config.metadata_checkopoint_memory_threshold && !Config.force_do_metadata_checkpoint) {
+        if (memUsedPercent > Config.metadata_checkpoint_memory_threshold && !Config.force_do_metadata_checkpoint) {
             LOG.warn("the memory used percent {} exceed the checkpoint memory threshold: {}",
-                    memUsedPercent, Config.metadata_checkopoint_memory_threshold);
+                    memUsedPercent, Config.metadata_checkpoint_memory_threshold);
             return false;
         }
        

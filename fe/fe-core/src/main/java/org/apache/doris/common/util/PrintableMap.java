@@ -25,7 +25,7 @@ import java.util.Set;
 
 public class PrintableMap<K, V> {
     private Map<K, V> map;
-    private String keyValueSaperator;
+    private String keyValueSeparator;
     private boolean withQuotation;
     private boolean wrap;
     private boolean hidePassword;
@@ -39,24 +39,24 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("bos_secret_accesskey");
     }
     
-    public PrintableMap(Map<K, V> map, String keyValueSaperator,
+    public PrintableMap(Map<K, V> map, String keyValueSeparator,
             boolean withQuotation, boolean wrap, String entryDelimiter) {
         this.map = map;
-        this.keyValueSaperator = keyValueSaperator;
+        this.keyValueSeparator = keyValueSeparator;
         this.withQuotation = withQuotation;
         this.wrap = wrap;
         this.hidePassword = false;
         this.entryDelimiter = entryDelimiter;
     }
 
-    public PrintableMap(Map<K, V> map, String keyValueSaperator,
+    public PrintableMap(Map<K, V> map, String keyValueSeparator,
                         boolean withQuotation, boolean wrap) {
-        this(map, keyValueSaperator, withQuotation, wrap, ",");
+        this(map, keyValueSeparator, withQuotation, wrap, ",");
     }
 
-    public PrintableMap(Map<K, V> map, String keyValueSaperator,
+    public PrintableMap(Map<K, V> map, String keyValueSeparator,
             boolean withQuotation, boolean wrap, boolean hidePassword) {
-        this(map, keyValueSaperator, withQuotation, wrap);
+        this(map, keyValueSeparator, withQuotation, wrap);
         this.hidePassword = hidePassword;
     }
 
@@ -73,7 +73,7 @@ public class PrintableMap<K, V> {
             if (withQuotation) {
                 sb.append("\"");
             }
-            sb.append(" ").append(keyValueSaperator).append(" ");
+            sb.append(" ").append(keyValueSeparator).append(" ");
             if (withQuotation) {
                 sb.append("\"");
             }
