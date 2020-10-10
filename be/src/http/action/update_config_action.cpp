@@ -49,7 +49,7 @@ void UpdateConfigAction::handle(HttpRequest* req) {
     // So the number of query params should at most be 2.
     if (req->params()->size() > 2 || req->params()->size() < 1) {
         s = Status::InvalidArgument("");
-        msg = "Now only support to set a single config once, via 'config_name=new_value'";
+        msg = "Now only support to set a single config once, via 'config_name=new_value', and with an optional parameter 'persist'.";
     } else {
         if (req->params()->size() == 1) {
             const std::string& config = req->params()->begin()->first;
@@ -65,7 +65,7 @@ void UpdateConfigAction::handle(HttpRequest* req) {
         } else if (req->params()->size() == 2) {
             if (req->params()->find(PERSIST_PARAM) == req->params()->end()) {
                 s = Status::InvalidArgument("");
-                msg = "Now only support to set a single config once, via 'config_name=new_value'";
+                msg = "Now only support to set a single config once, via 'config_name=new_value', and with an optional parameter 'persist'.";
             } else {
                 bool need_persist = false;
                 if (req->params()->find(PERSIST_PARAM)->second.compare("true") == 0) {

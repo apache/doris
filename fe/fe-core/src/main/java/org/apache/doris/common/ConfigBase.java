@@ -330,8 +330,9 @@ public class ConfigBase {
         }
 
         try (FileOutputStream fos = new FileOutputStream(file)) {
-            props.store(fos, "THIS IS AN AUTO GENERATED CONFIG FILE. DO NOT EDIT IT!\n\n" +
-                    "The configurations in this file will overwrite the configurations in fe.conf");
+            props.store(fos, "THIS IS AN AUTO GENERATED CONFIG FILE.\n"
+                    + "You can modify this file manually, and the configurations in this file\n"
+                    + "will overwrite the configurations in fe.conf");
         }
     }
 }

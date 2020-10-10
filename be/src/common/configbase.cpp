@@ -249,7 +249,7 @@ bool Properties::dump(const std::string& conffile) {
     std::ofstream out(conffile);
     out << "# THIS IS AN AUTO GENERATED CONFIG FILE.\n";
     out << "# You can modify this file manually, and the configurations in this file\n";
-    out << "# will overwrite the configurations in fe.conf\n";
+    out << "# will overwrite the configurations in be.conf\n";
     out << "\n";
     
     for (auto const& iter : file_conf_map) {
