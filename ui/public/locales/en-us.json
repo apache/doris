@@ -46,5 +46,6 @@
     "successfulOperation":"The operation was successful",
     "tips":"Tips",
     "fileSizeWarning": "File size cannot exceed 100M",
-    "selectWarning": "Please select a table"
+    "selectWarning": "Please select a table",
+    "executionTime": "Execution Time"
 }

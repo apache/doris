@@ -211,12 +211,18 @@ function build_ui() {
     fi
 
     echo "Build Frontend UI"
-    cd ${DORIS_HOME}/ui
-    ${NPM} install
-    ${NPM} run build
+    ui_dist=${DORIS_HOME}/ui/dist/
+    if [[ ! -z ${CUSTOM_UI_DIST} ]]; then
+        ui_dist=${CUSTOM_UI_DIST}
+    else 
+        cd ${DORIS_HOME}/ui
+        ${NPM} install
+        ${NPM} run build
+    fi
+    echo "ui dist: ${ui_dist}"
     rm -rf ${DORIS_HOME}/fe/fe-core/src/main/resources/static/
     mkdir -p ${DORIS_HOME}/fe/fe-core/src/main/resources/static
-    cp -r ${DORIS_HOME}/ui/dist/* ${DORIS_HOME}/fe/fe-core/src/main/resources/static
+    cp -r ${ui_dist}/* ${DORIS_HOME}/fe/fe-core/src/main/resources/static
 }
 
 # FE UI must be built before building FE

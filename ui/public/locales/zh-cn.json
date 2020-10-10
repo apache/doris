@@ -46,5 +46,6 @@
     "successfulOperation": "操作成功",
     "tips": "提示",
     "fileSizeWarning": "文件大小不能超过100m",
-    "selectWarning": "请选择表"
+    "selectWarning": "请选择表",
+    "executionTime": "执行时间"
 }

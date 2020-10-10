@@ -23,7 +23,7 @@
  * @since 2020/08/19
  */
 import React, {useState} from 'react';
-import {Layout, Menu, Dropdown, notification} from 'antd';
+import {Layout, Menu, Dropdown, notification, Button} from 'antd';
 import { CaretDownOutlined, LogoutOutlined} from '@ant-design/icons';
 import {renderRoutes} from 'react-router-config';
 import {useHistory} from 'react-router-dom';
@@ -72,6 +72,15 @@ function Layouts(props: any) {
             history.push('/login');
         })
     }
+    function changeLanguage(){
+        if (localStorage.getItem('I18N_LANGUAGE') === 'zh-CN'){
+            localStorage.setItem('I18N_LANGUAGE','en');
+            location.reload()
+        } else {
+            localStorage.setItem('I18N_LANGUAGE','zh-CN');
+            location.reload()
+        }
+    }
     const menu = (
         <Menu>
             <Menu.Item onClick={onLogout}>
@@ -85,6 +94,7 @@ function Layouts(props: any) {
             <Header style={{position: 'fixed', zIndex: 1, width: '100%'}}>
                 <div className={styles['logo']} onClick={()=>{history.replace('/home');setCurrent('')}}></div>
                 <span className='userSet'>
+                    <Button style={{'color':'#000'}} type="text" size='small' onClick={changeLanguage}>{localStorage.getItem('I18N_LANGUAGE') === 'zh-CN' ? 'English' : '中文'}</Button>
                     <Dropdown overlay={menu}>
                         <span className="ant-dropdown-link">
                             {/* <img alt="" className='avatar' src=''/> */}

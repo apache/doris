@@ -27,6 +27,8 @@ import {notification, Modal} from 'antd';
 import {ExclamationCircleOutlined} from '@ant-design/icons';
 import {Trans} from 'react-i18next';
 import {getBasePath} from 'Src/utils/utils';
+import SyntaxHighlighter from 'react-syntax-highlighter';
+import {docco} from 'react-syntax-highlighter/dist/esm/styles/hljs';
 function checkStatus(response) {
     if (response.status >= 200 && response.status < 300) {
         return response;
@@ -141,9 +143,14 @@ export default async function request(url, options = {}, tipSuccess = false, tip
                 });
             }
         } else if (tipError && code !== 0 && msg !== '') {
+            let item = ( 
+                <SyntaxHighlighter language="sql" style={{...docco, width:'300px'}}>
+                    {data.data}
+                </SyntaxHighlighter> 
+                )
             notification.error({
                 message: msg,
-                description: data.data
+                description: item
             });
         }
     }

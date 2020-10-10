@@ -41,6 +41,7 @@ import com.google.common.collect.Maps;
 import java.io.StringReader;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -101,7 +102,9 @@ public class StatementSubmitter {
                 long startTime = System.currentTimeMillis();
                 if (stmtBase instanceof QueryStmt || stmtBase instanceof ShowStmt) {
                     stmt = conn.prepareStatement(queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-                    ResultSet rs = stmt.executeQuery(queryCtx.stmt);
+                    // set fetch size to MIN_VALUE to enable streaming result set to avoid OOM.
+                    ((PreparedStatement) stmt).setFetchSize(Integer.MIN_VALUE);
+                    ResultSet rs = ((PreparedStatement) stmt).executeQuery();
                     ExecutionResultSet resultSet = generateResultSet(rs, startTime);
                     rs.close();
                     return resultSet;

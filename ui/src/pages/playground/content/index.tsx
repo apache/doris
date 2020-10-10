@@ -54,7 +54,7 @@ export function AdHocContent(props: any) {
     });
     const [code, setCode] = useState('');
     const editorAreaHeight = +(localStorage.getItem('editorAreaHeight') || 300);
-    const beginTime = getTimeNow();
+    // const beginTime = getTimeNow();
     const runQuery = useRequest<Result<any>>(
         () =>
             AdHocAPI.doQuery({
@@ -64,16 +64,16 @@ export function AdHocContent(props: any) {
         {
             manual: true,
             onSuccess: res => {
-                const endTime = getTimeNow();
+                // const endTime = getTimeNow();
                 const {db_name, tbl_name} = getDbName();
                 if (isSuccess(res)) {
                     res.sqlCode = code;
-                    res = {...res, db_name, tbl_name, beginTime, endTime}
+                    res = {...res, db_name, tbl_name}
                     props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
                     runSQLSuccessSubject.next(true);
                 } else {
                     res.sqlCode = code;
-                    res = {...res, db_name, tbl_name, beginTime, endTime}
+                    res = {...res, db_name, tbl_name}
                     props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
                     runSQLSuccessSubject.next(false);
                 }
