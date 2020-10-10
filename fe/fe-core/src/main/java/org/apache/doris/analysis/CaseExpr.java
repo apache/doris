@@ -281,6 +281,18 @@ public class CaseExpr extends Expr {
         LiteralExpr caseExpr;
         int startIndex = 0;
         int endIndex = expr.getChildren().size();
+
+        // CastExpr contains SlotRef child should be reset to re-analyze in selectListItem
+        for (Expr child : expr.getChildren()) {
+            if (child instanceof CastExpr && (child.contains(SlotRef.class))) {
+                List<CastExpr> castExprList = Lists.newArrayList();
+                child.collect(CastExpr.class, castExprList);
+                for (CastExpr castExpr : castExprList) {
+                    castExpr.resetAnalysisState();
+                }
+            }
+        }
+
         if (expr.hasCaseExpr()) {
             // just deal literal here
             // and avoid `float compute` in java,float should be dealt in be
