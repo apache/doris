@@ -152,7 +152,7 @@ public class AnalyticEvalNode extends PlanNode {
         return MoreObjects.toStringHelper(this)
                .add("analyticFnCalls", Expr.debugString(analyticFnCalls))
                .add("partitionExprs", Expr.debugString(partitionExprs))
-               .add("subtitutedPartitionExprs", Expr.debugString(substitutedPartitionExprs))
+               .add("substitutedPartitionExprs", Expr.debugString(substitutedPartitionExprs))
                .add("orderByElements", Joiner.on(", ").join(orderByElementStrs))
                .add("window", analyticWindow)
                .add("intermediateTid", intermediateTupleDesc.getId())

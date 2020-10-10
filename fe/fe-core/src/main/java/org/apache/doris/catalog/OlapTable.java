@@ -640,7 +640,7 @@ public class OlapTable extends Table {
                 partition.setName(newPartitionName);
                 nameToPartition.clear();
                 nameToPartition.put(newPartitionName, partition);
-                LOG.info("rename patition {} in table {}", newPartitionName, name);
+                LOG.info("rename partition {} in table {}", newPartitionName, name);
                 break;
             }
         } else {

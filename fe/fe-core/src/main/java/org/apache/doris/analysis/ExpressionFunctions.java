@@ -174,7 +174,7 @@ public enum ExpressionFunctions {
             return signature;
         }
 
-        // Now ExpressionFunctions does't support function that it's args contain
+        // Now ExpressionFunctions doesn't support function that it's args contain
         // array type except last one.
         public LiteralExpr invoke(List<Expr> args) throws AnalysisException {
             final List<Object> invokeArgs = createInvokeArgs(args);
@@ -211,7 +211,7 @@ public enum ExpressionFunctions {
             }
             if (classSet.size() > 1) {
                 // Variable-length args' types can't exceed two kinds.
-                throw new AnalysisException("Function's args does't match.");
+                throw new AnalysisException("Function's args doesn't match.");
             }
 
             final ScalarType argType = signature.getArgTypes()[typeIndex];
@@ -229,7 +229,7 @@ public enum ExpressionFunctions {
             } else if (argType.isBoolean()) {
                 exprs = new BoolLiteral[args.size()];
             } else {
-                throw new IllegalArgumentException("Doris does't support type:" + argType);
+                throw new IllegalArgumentException("Doris doesn't support type:" + argType);
             }
             args.toArray(exprs);
             return exprs;

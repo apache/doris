@@ -256,7 +256,7 @@ public class CreateTableStmt extends DdlStmt {
 
         // TODO(wyb): spark-load
         if (engineName.equals("hive") && !Config.enable_spark_load) {
-            throw new AnalysisException("Spark Load from hive table is comming soon");
+            throw new AnalysisException("Spark Load from hive table is coming soon");
         }
         // analyze key desc
         if (!(engineName.equals("mysql") || engineName.equals("broker") || engineName.equals("hive"))) {

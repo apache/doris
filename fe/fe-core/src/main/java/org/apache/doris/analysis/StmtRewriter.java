@@ -155,7 +155,7 @@ public class StmtRewriter {
     private static SelectStmt rewriteHavingClauseSubqueries(SelectStmt stmt, Analyzer analyzer) throws AnalysisException {
         // prepare parameters
         SelectList selectList = stmt.getSelectList();
-        List<String> columnLables = stmt.getColLabels();
+        List<String> columnLabels = stmt.getColLabels();
         Expr havingClause = stmt.getHavingClauseAfterAnaylzed();
         List<FunctionCallExpr> aggregateExprs = stmt.getAggInfo().getAggregateExprs();
         Preconditions.checkState(havingClause != null);
@@ -249,7 +249,7 @@ public class StmtRewriter {
         List<SelectListItem> newSelectItems = Lists.newArrayList();
         for (int i = 0; i < selectList.getItems().size(); i++) {
             SelectListItem newItem = new SelectListItem(selectList.getItems().get(i).getExpr().reset().substitute(smap),
-                    columnLables.get(i));
+                    columnLabels.get(i));
             newSelectItems.add(newItem);
             LOG.debug("New select item is changed to "+ newItem.toSql());
         }
@@ -534,7 +534,7 @@ public class StmtRewriter {
         Preconditions.checkNotNull(expr);
         Preconditions.checkNotNull(analyzer);
         Preconditions.checkState(expr.getSubquery().getAnalyzer() != null,
-            "subquery must be analyze adress=" + System.identityHashCode(expr.getSubquery()));
+            "subquery must be analyze address=" + System.identityHashCode(expr.getSubquery()));
         boolean updateSelectList = false;
 
         SelectStmt subqueryStmt = (SelectStmt) expr.getSubquery().getStatement();

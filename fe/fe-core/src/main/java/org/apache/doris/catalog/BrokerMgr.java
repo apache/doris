@@ -95,7 +95,7 @@ public class BrokerMgr {
         }
     }
 
-    public boolean contaisnBroker(String brokerName) {
+    public boolean containsBroker(String brokerName) {
         lock.lock();
         try {
             return brokersMap.containsKey(brokerName);
@@ -235,13 +235,13 @@ public class BrokerMgr {
                 throw new DdlException("Unknown broker name(" + name + ")");
             }
 
-            List<FsBroker> dropedAddressList = Lists.newArrayList();
+            List<FsBroker> droppedAddressList = Lists.newArrayList();
             for (Pair<String, Integer> pair : addresses) {
                 List<FsBroker> addressList = brokerAddrsMap.get(pair.first);
                 boolean found = false;
                 for (FsBroker addr : addressList) {
                     if (addr.port == pair.second) {
-                        dropedAddressList.add(addr);
+                        droppedAddressList.add(addr);
                         found = true;
                         break;
                     }
@@ -250,8 +250,8 @@ public class BrokerMgr {
                     throw new DdlException("Broker(" + pair.first + ":" + pair.second + ") has not in brokers.");
                 }
             }
-            Catalog.getCurrentCatalog().getEditLog().logDropBroker(new ModifyBrokerInfo(name, dropedAddressList));
-            for (FsBroker address : dropedAddressList) {
+            Catalog.getCurrentCatalog().getEditLog().logDropBroker(new ModifyBrokerInfo(name, droppedAddressList));
+            for (FsBroker address : droppedAddressList) {
                 brokerAddrsMap.remove(address.ip, address);
             }
 

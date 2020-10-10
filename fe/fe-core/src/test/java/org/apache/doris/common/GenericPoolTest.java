@@ -257,7 +257,7 @@ public class GenericPoolTest {
         }
         Assert.assertTrue(flag);
 
-        // fouth success, beacuse we drop the object1
+        // fourth success, because we drop the object1
         backendService.returnObject(address, object1);
         object3 = null;
         object3 = backendService.borrowObject(address);

@@ -66,11 +66,11 @@ public class AuthTest {
     @Mocked
     private ConnectContext ctx;
 
-    private MockDomianResolver resolver;
+    private MockDomainResolver resolver;
 
     // Thread is not mockable in Jmockit, so use a subclass instead.
-    private static final class MockDomianResolver extends DomainResolver {
-        public MockDomianResolver(PaloAuth auth) {
+    private static final class MockDomainResolver extends DomainResolver {
+        public MockDomainResolver(PaloAuth auth) {
             super(auth);
         }
         @Override
@@ -138,7 +138,7 @@ public class AuthTest {
             }
         };
 
-        resolver = new MockDomianResolver(auth);
+        resolver = new MockDomainResolver(auth);
     }
 
     @Test

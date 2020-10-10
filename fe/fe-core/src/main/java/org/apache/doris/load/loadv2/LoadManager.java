@@ -150,7 +150,7 @@ public class LoadManager implements Writable{
             createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.info("deplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.info("duplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
             return e.getTxnId();
         } catch (UserException e) {
             if (loadJob != null) {
@@ -638,11 +638,11 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void updateJobPrgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
-            long scannedRows, boolean isDone) {
+    public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
+                                  long scannedRows, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateProgess(beId, loadId, fragmentId, scannedRows, isDone);
+            job.updateProgress(beId, loadId, fragmentId, scannedRows, isDone);
         }
     }
 

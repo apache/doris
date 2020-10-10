@@ -33,10 +33,10 @@ import java.util.Set;
  * The stmt of http connection info is not included.
  * <p>
  * When the table has been deleted, the table name could not be found by table id.
- * The job could not check the priv without table name.
+ * The job could not check the privilege without table name.
  * This class is used to resolve this problem.
  * The auth info needs to be persisted by job.
- * The job checks the priv by auth info.
+ * The job checks the privilege by auth info.
  */
 public class AuthorizationInfo implements Writable {
     private String dbName;

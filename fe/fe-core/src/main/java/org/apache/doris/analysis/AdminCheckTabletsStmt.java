@@ -31,7 +31,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.List;
 import java.util.Map;
 
-// ADDMIN CHECK TABLET (id1, id2, ...) PROPERTIES ("type" = "check_consistency");
+// ADMIN CHECK TABLET (id1, id2, ...) PROPERTIES ("type" = "check_consistency");
 public class AdminCheckTabletsStmt extends DdlStmt {
 
     private List<Long> tabletIds;

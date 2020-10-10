@@ -140,14 +140,14 @@ public class ExprTest {
         Assert.assertTrue(intLiteral == castIntLiteral2);
 
         // null
-        NullLiteral nullLiternal = NullLiteral.create(Type.DATE);
-        Assert.assertTrue(nullLiternal.getType().equals(Type.DATE));
-        NullLiteral castNullLiteral = (NullLiteral) nullLiternal.uncheckedCastTo(Type.DATETIME);
-        Assert.assertTrue(nullLiternal.getType().equals(Type.DATE));
+        NullLiteral nullLiteral = NullLiteral.create(Type.DATE);
+        Assert.assertTrue(nullLiteral.getType().equals(Type.DATE));
+        NullLiteral castNullLiteral = (NullLiteral) nullLiteral.uncheckedCastTo(Type.DATETIME);
+        Assert.assertTrue(nullLiteral.getType().equals(Type.DATE));
         Assert.assertTrue(castNullLiteral.getType().equals(Type.DATETIME));
-        Assert.assertFalse(nullLiternal == castNullLiteral);
-        NullLiteral castNullLiteral2 = (NullLiteral) nullLiternal.uncheckedCastTo(Type.DATE);
-        Assert.assertTrue(nullLiternal == castNullLiteral2);
+        Assert.assertFalse(nullLiteral == castNullLiteral);
+        NullLiteral castNullLiteral2 = (NullLiteral) nullLiteral.uncheckedCastTo(Type.DATE);
+        Assert.assertTrue(nullLiteral == castNullLiteral2);
 
         // string
         StringLiteral stringLiteral = new StringLiteral("abc");

@@ -48,10 +48,10 @@ public class MetricCalculator extends TimerTask {
         long interval = (currentTs - lastTs) / 1000 + 1;
 
         // qps
-        long currenQueryCounter = MetricRepo.COUNTER_QUERY_ALL.getValue();
-        double qps = (double) (currenQueryCounter - lastQueryCounter) / interval;
+        long currentQueryCounter = MetricRepo.COUNTER_QUERY_ALL.getValue();
+        double qps = (double) (currentQueryCounter - lastQueryCounter) / interval;
         MetricRepo.GAUGE_QUERY_PER_SECOND.setValue(qps < 0 ? 0.0 : qps);
-        lastQueryCounter = currenQueryCounter;
+        lastQueryCounter = currentQueryCounter;
 
         // rps
         long currentRequestCounter = MetricRepo.COUNTER_REQUEST_ALL.getValue();
@@ -67,7 +67,7 @@ public class MetricCalculator extends TimerTask {
 
         lastTs = currentTs;
 
-        // max tabet compaction score of all backends
+        // max tablet compaction score of all backends
         long maxCompactionScore = 0;
         List<Metric> compactionScoreMetrics = MetricRepo.getMetricsByName(MetricRepo.TABLET_MAX_COMPACTION_SCORE);
         for (Metric metric : compactionScoreMetrics) {

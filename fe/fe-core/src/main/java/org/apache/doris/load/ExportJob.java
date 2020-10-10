@@ -122,7 +122,7 @@ public class ExportJob implements Writable {
     private long finishTimeMs;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
-    // 2. set progress = 100 ONLY when exporting progress is compeletly done
+    // 2. set progress = 100 ONLY when exporting progress is completely done
     private int progress;
     private ExportFailMsg failMsg;
     private Set<String> exportedFiles = Sets.newConcurrentHashSet();
@@ -146,7 +146,7 @@ public class ExportJob implements Writable {
     private Thread doExportingThread;
 
     private List<TScanRangeLocations> tabletLocations = Lists.newArrayList();
-    // backedn_address => snapshot path
+    // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
     public ExportJob() {
@@ -370,7 +370,7 @@ public class ExportJob implements Writable {
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
-        LOG.info("create {} coordintors for export job: {}", coordList.size(), id);
+        LOG.info("create {} coordinators for export job: {}", coordList.size(), id);
     }
 
     public long getId() {

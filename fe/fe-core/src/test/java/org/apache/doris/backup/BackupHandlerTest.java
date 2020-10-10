@@ -230,7 +230,7 @@ public class BackupHandlerTest {
 
         new Expectations() {
             {
-                brokerMgr.contaisnBroker(anyString);
+                brokerMgr.containsBroker(anyString);
                 minTimes = 0;
                 result = true;
             }

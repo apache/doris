@@ -71,18 +71,18 @@ public class OdbcCatalogResource extends Resource {
         return new OdbcCatalogResource(name, Maps.newHashMap(configs));
     }
 
-    private void checkProperties(String propertieKey) throws DdlException {
-        // check the propertie key
-        String value = configs.get(propertieKey);
+    private void checkProperties(String propertiesKey) throws DdlException {
+        // check the properties key
+        String value = configs.get(propertiesKey);
         if (value == null) {
-            throw new DdlException("Missing " + propertieKey + " in properties");
+            throw new DdlException("Missing " + propertiesKey + " in properties");
         }
 
     }
 
-    public String getProperties(String propertieKey)  {
-        // check the propertie key
-        String value = configs.get(propertieKey);
+    public String getProperties(String propertiesKey)  {
+        // check the properties key
+        String value = configs.get(propertiesKey);
         return value;
     }
 

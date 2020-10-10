@@ -52,7 +52,7 @@ public class FsBrokerTest {
     }
 
     @Test
-    public void testHearbeatOk() throws Exception {
+    public void testHeartbeatOk() throws Exception {
         // 1. Write objects to file
         File file = new File(fileName1);
         file.createNewFile();

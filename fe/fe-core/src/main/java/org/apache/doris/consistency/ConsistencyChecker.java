@@ -298,9 +298,9 @@ public class ConsistencyChecker extends MasterDaemon {
                             Partition partition = (Partition) chosenOne;
 
                             // sort materializedIndices
-                            List<MaterializedIndex> visibleIndexs = partition.getMaterializedIndices(IndexExtState.VISIBLE);
-                            Queue<MetaObject> indexQueue = new PriorityQueue<>(Math.max(visibleIndexs.size(), 1), COMPARATOR);
-                            indexQueue.addAll(visibleIndexs);
+                            List<MaterializedIndex> visibleIndexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
+                            Queue<MetaObject> indexQueue = new PriorityQueue<>(Math.max(visibleIndexes.size(), 1), COMPARATOR);
+                            indexQueue.addAll(visibleIndexes);
 
                             while ((chosenOne = indexQueue.poll()) != null) {
                                 MaterializedIndex index = (MaterializedIndex) chosenOne;

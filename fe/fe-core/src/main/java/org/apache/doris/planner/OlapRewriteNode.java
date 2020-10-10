@@ -72,7 +72,7 @@ public class OlapRewriteNode extends PlanNode {
     public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
       
-        // Set smap to the combined childrens' smaps and apply that to all conjuncts_.
+        // Set smap to the combined children's smaps and apply that to all conjuncts_.
         createDefaultSmap(analyzer);
 
         computeStats(analyzer);
