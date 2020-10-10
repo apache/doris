@@ -74,9 +74,21 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         _init_column_meta(opts.meta, &column_id, column);
 
         // now we create zone map for key columns
+        // and not support zone map for array type.
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() == KeysType::DUP_KEYS;
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            opts.need_zone_map = false;
+        }
         opts.need_bloom_filter = column.is_bf_column();
         opts.need_bitmap_index = column.has_bitmap_index();
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for array type" );
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for array type" );
+            }
+        }
 
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _wblock, &writer));

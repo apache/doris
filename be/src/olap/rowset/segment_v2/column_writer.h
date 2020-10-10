@@ -258,11 +258,11 @@ public:
 
     Status finish_current_page() override;
 
-    Status write_zone_map() override { return Status::NotSupported("array not support zone map"); }
+    Status write_zone_map() override { return Status::OK(); }
 
-    Status write_bitmap_index() override { return Status::NotSupported("array not support bitmap index"); }
+    Status write_bitmap_index() override { return Status::OK(); }
 
-    Status write_bloom_filter_index() override { return Status::NotSupported("array not support bloom filter index"); }
+    Status write_bloom_filter_index() override { return Status::OK(); }
 
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 

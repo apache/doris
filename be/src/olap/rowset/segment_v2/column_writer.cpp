@@ -94,8 +94,19 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts,
                 DCHECK(column->get_subtype_count() == 1);
                 const TabletColumn& item_column = column->get_sub_column(0);
 
-                ColumnWriterOptions item_options; // use default options.
+                ColumnWriterOptions item_options;
                 item_options.meta = opts.meta->mutable_children_columns(0);
+                item_options.need_zone_map = false;
+                item_options.need_bloom_filter = item_column.is_bf_column();
+                item_options.need_bitmap_index = item_column.has_bitmap_index();
+                if (item_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+                    if (item_options.need_bloom_filter) {
+                        return Status::NotSupported("Do not support bloom filter for array type" );
+                    }
+                    if (item_options.need_bitmap_index) {
+                        return Status::NotSupported("Do not support bitmap index for array type" );
+                    }
+                }
 
                 std::unique_ptr<ColumnWriter> item_writer;
                 RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, _wblock, &item_writer));
