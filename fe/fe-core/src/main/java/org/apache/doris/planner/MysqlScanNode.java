@@ -92,6 +92,11 @@ public class MysqlScanNode extends ScanNode {
             sql.append(Joiner.on(") AND (").join(filters));
             sql.append(")");
         }
+
+        if (limit != -1) {
+            sql.append(" LIMIT " + limit);
+        }
+
         return sql.toString();
     }
 

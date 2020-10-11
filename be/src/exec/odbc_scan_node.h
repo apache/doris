@@ -68,13 +68,12 @@ private:
     // Name of Odbc table
     std::string _table_name;
 
+    std::string _connect_string;
+
+    std::string _query_string;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
 
-    // select columns
-    std::vector<std::string> _columns;
-    // where clause
-    std::vector<std::string> _filters;
 
     // Descriptor of tuples read from ODBC table.
     const TupleDescriptor* _tuple_desc;
