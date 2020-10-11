@@ -59,6 +59,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_total_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_avail_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_data_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_state, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
@@ -83,6 +85,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_data_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
 }
 
 DataDir::~DataDir() {
@@ -995,5 +999,13 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
         return true;
     }
     return false;
+}
+
+void DataDir::disks_compaction_score_increment(int64_t delta) {
+    disks_compaction_score->increment(delta);
+}
+
+void DataDir::disks_compaction_num_increment(int64_t delta) {
+    disks_compaction_num->increment(delta);
 }
 } // namespace doris

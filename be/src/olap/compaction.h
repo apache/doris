@@ -49,15 +49,13 @@ public:
 
     virtual OLAPStatus compact() = 0;
 
-    static OLAPStatus init(int concurreny);
-
 protected:
     virtual OLAPStatus pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
 
-    OLAPStatus do_compaction();
-    OLAPStatus do_compaction_impl();
+    OLAPStatus do_compaction(int64_t permits);
+    OLAPStatus do_compaction_impl(int64_t permits);
 
     void modify_rowsets();
     OLAPStatus gc_unused_rowsets();
@@ -67,9 +65,6 @@ protected:
 
     OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
     OLAPStatus check_correctness(const Merger::Statistics& stats);
-
-    // semaphore used to limit the concurrency of running compaction tasks
-    static Semaphore _concurrency_sem;
 
 private:
     // get num rows from segment group meta of input rowsets.
