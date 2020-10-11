@@ -184,6 +184,7 @@ module.exports = [
     children: [
       "audit-plugin",
       "doris-on-es",
+      "odbc-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "logstash",

@@ -166,6 +166,7 @@ module.exports = [
       "export_manual",
       "outfile",
       "privilege",
+      "resource-management",
       "running-profile",
       "small-file-mgr",
       "sql-mode",
@@ -180,6 +181,7 @@ module.exports = [
     children: [
       "audit-plugin",
       "doris-on-es",
+      "odbc-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "logstash",
