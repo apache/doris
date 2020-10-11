@@ -451,10 +451,14 @@ visible_functions = [
     [['rand', 'random'], 'DOUBLE', [],
             '_ZN5doris13MathFunctions4randEPN9doris_udf15FunctionContextE',
             '_ZN5doris13MathFunctions12rand_prepareEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris13MathFunctions10rand_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE'],
     [['rand', 'random'], 'DOUBLE', ['BIGINT'],
             '_ZN5doris13MathFunctions9rand_seedEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
             '_ZN5doris13MathFunctions12rand_prepareEPN9doris_udf'
+            '15FunctionContextENS2_18FunctionStateScopeE',
+            '_ZN5doris13MathFunctions10rand_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE'],
 
     [['bin'], 'VARCHAR', ['BIGINT'],
