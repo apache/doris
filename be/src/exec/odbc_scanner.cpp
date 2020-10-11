@@ -47,8 +47,8 @@ static std::u16string utf8_to_wstring(const std::string& str) {
 namespace doris {
 
 ODBCScanner::ODBCScanner(const ODBCScannerParam& param)
-        : _connect_string(build_connect_string(param)),
-          _type(param.type),
+        : _connect_string(param.connect_string),
+          _sql_str(param.query_string),
           _tuple_desc(param.tuple_desc),
           _is_open(false),
           _field_num(0),
@@ -97,7 +97,7 @@ Status ODBCScanner::open() {
     return Status::OK();
 }
 
-Status ODBCScanner::query(const std::string& query) {
+Status ODBCScanner::query() {
     if (!_is_open) {
         return Status::InternalError( "Query before open.");
     }
@@ -106,13 +106,13 @@ Status ODBCScanner::query(const std::string& query) {
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt), "alloc statement");
 
     // Translate utf8 string to utf16 to use unicode codeing
-    auto wquery = utf8_to_wstring(query);
+    auto wquery = utf8_to_wstring(_sql_str);
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirectW(_stmt, (SQLWCHAR*)(wquery.c_str()), SQL_NTS), "exec direct");
 
     // How many columns are there */
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLNumResultCols(_stmt, &_field_num), "count num colomn");
 
-    LOG(INFO) << "execute success:" << query <<  " column count:" << _field_num;
+    LOG(INFO) << "execute success:" << _sql_str <<  " column count:" << _field_num;
 
     // check materialize num equal _field_num
     int materialize_num = 0;
@@ -143,39 +143,6 @@ Status ODBCScanner::query(const std::string& query) {
     }
 
     return Status::OK();
-}
-
-Status ODBCScanner::query(const std::string& table, const std::vector<std::string>& fields,
-                       const std::vector<std::string>& filters) {
-    if (!_is_open) {
-        return Status::InternalError("Query before open.");
-    }
-
-    _sql_str = "SELECT ";
-
-    for (int i = 0; i < fields.size(); ++i) {
-        if (0 != i) {
-            _sql_str += ",";
-        }
-
-        _sql_str += fields[i];
-    }
-
-    _sql_str += " FROM " + table;
-
-    if (!filters.empty()) {
-        _sql_str += " WHERE ";
-
-        for (int i = 0; i < filters.size(); ++i) {
-            if (0 != i) {
-                _sql_str += " AND";
-            }
-
-            _sql_str += " (" + filters[i] + ") ";
-        }
-    }
-
-    return query(_sql_str);
 }
 
 Status ODBCScanner::get_next_row(bool* eos) {
@@ -238,25 +205,6 @@ std::string ODBCScanner::handle_diagnostic_record(SQLHANDLE      hHandle,
     }
 
     return diagnostic_msg;
-}
-
-std::string ODBCScanner::build_connect_string(const ODBCScannerParam& param) {
-    // different database have different connection string
-    // oracle connect string
-    if (param.type == TOdbcTableType::ORACLE) {
-        boost::format connect_string("Driver=%s;Dbq=//%s:%s/%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s");
-        connect_string % param.drivier % param.host % param.port % param.db % param.db % param.user % param.passwd %
-        param.charest;
-
-        return connect_string.str();
-    } else if (param.type == TOdbcTableType::MYSQL) {
-        boost::format connect_string("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s");
-        connect_string % param.drivier % param.host % param.port % param.db % param.user % param.passwd %
-        param.charest;
-        return connect_string.str();
-    }
-
-    return "";
 }
 
 }

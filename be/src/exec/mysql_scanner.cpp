@@ -111,7 +111,7 @@ Status MysqlScanner::query(const std::string& query) {
 }
 
 Status MysqlScanner::query(const std::string& table, const std::vector<std::string>& fields,
-                           const std::vector<std::string>& filters) {
+                           const std::vector<std::string>& filters, const uint64_t limit) {
     if (!_is_open) {
         return Status::InternalError("Query before open.");
     }
@@ -138,6 +138,10 @@ Status MysqlScanner::query(const std::string& table, const std::vector<std::stri
 
             _sql_str += " (" + filters[i] + ") ";
         }
+    }
+
+    if (limit != -1) {
+        _sql_str += " LIMIT " + std::to_string(limit);
     }
 
     return query(_sql_str);

@@ -1215,6 +1215,26 @@ public class QueryPlanTest {
     }
 
     @Test
+    public void testLimitOfExternalTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // ODBC table (MySQL)
+        String queryStr = "explain select * from odbc_mysql where k1 > 10 and abs(k1) > 10 limit 10";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("LIMIT 10"));
+
+        // ODBC table (Oracle)
+        queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10 limit 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("ROWNUM <= 10"));
+
+        // MySQL table
+        queryStr = "explain select * from mysql_table where k1 > 10 and abs(k1) > 10 limit 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("LIMIT 10"));
+    }
+
+    @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
