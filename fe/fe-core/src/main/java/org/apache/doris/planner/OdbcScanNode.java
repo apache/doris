@@ -78,7 +78,7 @@ public class OdbcScanNode extends ScanNode {
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
     private String tblName;
-    private String driver;
+    private String connectString;
     private TOdbcTableType odbcType;
 
     /**
@@ -86,7 +86,7 @@ public class OdbcScanNode extends ScanNode {
      */
     public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
         super(id, desc, "SCAN ODBC");
-        driver = tbl.getOdbcDriver();
+        connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = databaseProperName(odbcType, tbl.getOdbcTableName());
     }
@@ -109,12 +109,24 @@ public class OdbcScanNode extends ScanNode {
     protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("TABLE: ").append(tblName).append("\n");
-        output.append(prefix).append("Query: ").append(getOdbcQueryStr()).append("\n");
+        output.append(prefix).append("TABLE TYPE: ").append(odbcType.toString()).append("\n");
+        output.append(prefix).append("QUERY: ").append(getOdbcQueryStr()).append("\n");
         return output.toString();
     }
 
     private String getOdbcQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
+
+        // Oracle use the where clause to do top n
+        if (limit != -1 && odbcType == TOdbcTableType.ORACLE) {
+            filters.add("ROWNUM <= " + limit);
+        }
+
+        // MSSQL use select top to do top n
+        if (limit != -1 && odbcType == TOdbcTableType.SQLSERVER) {
+            sql.append("TOP " + limit + " ");
+        }
+
         sql.append(Joiner.on(", ").join(columns));
         sql.append(" FROM ").append(tblName);
 
@@ -123,6 +135,12 @@ public class OdbcScanNode extends ScanNode {
             sql.append(Joiner.on(") AND (").join(filters));
             sql.append(")");
         }
+
+        // Other DataBase use limit do top n
+        if (limit != -1 && (odbcType == TOdbcTableType.MYSQL || odbcType == TOdbcTableType.POSTGRESQL || odbcType == TOdbcTableType.MONGODB) ) {
+            sql.append(" LIMIT " + limit);
+        }
+        
         return sql.toString();
     }
 
@@ -172,10 +190,8 @@ public class OdbcScanNode extends ScanNode {
         TOdbcScanNode odbcScanNode = new TOdbcScanNode();
         odbcScanNode.setTupleId(desc.getId().asInt());
         odbcScanNode.setTableName(tblName);
-        odbcScanNode.setDriver(driver);
-        odbcScanNode.setType(odbcType);
-        odbcScanNode.setColumns(columns);
-        odbcScanNode.setFilters(filters);
+        odbcScanNode.setConnectString(connectString);
+        odbcScanNode.setQueryString(getOdbcQueryStr());
 
         msg.odbc_scan_node = odbcScanNode;
     }
