@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -68,6 +69,10 @@ public class QueryPlanTest {
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
+
+        // disable bucket shuffle join
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
+
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
@@ -287,6 +292,27 @@ public class QueryPlanTest {
         createTable("create table test.jointest\n" +
                 "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
                 "properties(\"replication_num\" = \"1\");");
+
+        createTable("create table test.bucket_shuffle1\n" +
+                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 5\n" +
+                "properties(\"replication_num\" = \"1\"" +
+                ");");
+
+        createTable("CREATE TABLE test.`bucket_shuffle2` (\n" +
+                "  `k1` int NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n" +
+                "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n" +
+                "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n" +
+                "DISTRIBUTED BY HASH(k1, k2) BUCKETS 5\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"DEFAULT\"\n" +
+                ");");
 
         createTable("create table test.colocate1\n" +
                 "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
@@ -1014,6 +1040,66 @@ public class QueryPlanTest {
         queryStr = "explain select * from test.dynamic_partition t1, test.dynamic_partition t2 where t1.k1 = t2.k1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: false"));
+    }
+
+    @Test
+    public void testBucketShuffleJoin() throws Exception {
+        FeConstants.runningUnitTest = true;
+        // enable bucket shuffle join
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
+
+        // set data size and row count for the olap table
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("bucket_shuffle1");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        tbl = (OlapTable) db.getTable("bucket_shuffle2");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        // single partition
+        String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+
+        // not bucket shuffle join do not support different type
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint) = t2.k1 and t1.k1 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // left table distribution column not match
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // multi partition, should not be bucket shuffle join
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // disable bucket shuffle join again
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
     }
 
     @Test
