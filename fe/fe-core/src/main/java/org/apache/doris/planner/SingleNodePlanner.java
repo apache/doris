@@ -1902,7 +1902,7 @@ public class SingleNodePlanner {
      * @param analyzer
      */
     private void materializeBaseTableRefResultForCrossJoinOrCountStar(BaseTableRef tblRef, Analyzer analyzer) {
-        if (tblRef.getDesc().getSlots().isEmpty()) {
+        if (tblRef.getDesc().getMaterializedSlots().isEmpty()) {
             Column minimuColumn = null;
             for (Column col : tblRef.getTable().getBaseSchema()) {
                 if (minimuColumn == null || col.getDataType().getSlotSize() < minimuColumn
