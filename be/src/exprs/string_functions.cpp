@@ -984,7 +984,7 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     for (int i = 1; i <= field.val; i++) { // find
         int last_index = i - 1;
         find[last_index] = index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
-        from = find[last_index] + 1;
+        from = find[last_index] + delimiter.len;
         if (find[last_index] == -1) {
             break;
         }
