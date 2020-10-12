@@ -31,7 +31,7 @@
 
 namespace doris {
 
-// convert int to a hex format string, buf must enough to hold coverted hex string
+// convert int to a hex format string, buf must enough to hold converted hex string
 template<typename T>
 inline void to_hex(T val, char* buf) {
     static const char* digits = "0123456789abcdef";

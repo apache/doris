@@ -44,13 +44,13 @@ struct FileStat {
  * Upload:
  * upload() will upload the specified snapshot
  * to remote storage via broker.
- * Each call of upload() is reponsible for severval tablet snapshots.
+ * Each call of upload() is responsible for several tablet snapshots.
  *
  * It will try to get the existing files in remote storage,
  * and only upload the incremental part of files.
  *
  * Download:
- * download() will download the romote tablet snapshot files 
+ * download() will download the remote tablet snapshot files
  * to local snapshot dir via broker.
  * It will also only download files which does not exist in local dir.
  *
@@ -117,7 +117,7 @@ private:
         const std::string& tablet_path,
         int64_t tablet_id,
         int64_t start_version, int64_t end_version,
-        int64_t vesion_hash, int32_t seg_num,
+        int64_t version_hash, int32_t seg_num,
         const std::string suffix,
         std::string* snapshot_file, std::string* tablet_file);
 

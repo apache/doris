@@ -61,7 +61,7 @@ class TExportTaskRequest;
 class TExportStatusResult;
 
 
-// This class just forword rpc for actual handler
+// This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
 class BackendService : public BackendServiceIf {
 public:

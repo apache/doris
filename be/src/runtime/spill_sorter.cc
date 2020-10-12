@@ -44,7 +44,7 @@ namespace doris {
 const int BLOCKS_REQUIRED_FOR_MERGE = 3;
 
 // Error message when pinning fixed or variable length blocks failed.
-// TODO: Add the node id that iniated the sort
+// TODO: Add the node id that initiated the sort
 const string PIN_FAILED_ERROR_MSG_1 = "Failed to pin block for ";
 const string PIN_FAILED_ERROR_MSG_2 = "-length data needed "
     "for sorting. Reducing query concurrency or increasing the memory limit may help "
@@ -252,7 +252,7 @@ public:
 
     // Performs a quicksort for tuples in 'run' followed by an insertion sort to
     // finish smaller blocks.
-    // Returns early if _stste->is_cancelled() is true. No status
+    // Returns early if _state->is_cancelled() is true. No status
     // is returned - the caller must check for cancellation.
     void sort(Run* run);
 
@@ -1253,7 +1253,7 @@ Status SpillSorter::merge_intermediate_runs() {
     scoped_ptr<RowBatch> intermediate_merge_batch;
     while (_sorted_runs.size() > max_runs_per_final_merge) {
         // An intermediate merge adds one merge to _unmerged_sorted_runs.
-        // Merging 'runs - (_max_runs_final - 1)' number of runs is sifficient to guarantee
+        // Merging 'runs - (_max_runs_final - 1)' number of runs is sufficient to guarantee
         // that the final merge can be performed.
         int num_runs_to_merge = std::min<int>(max_runs_per_intermediate_merge,
                 _sorted_runs.size() - max_runs_per_intermediate_merge);

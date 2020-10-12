@@ -31,7 +31,7 @@ namespace doris {
 namespace segment_v2 {
 
 struct BloomFilterOptions {
-    // false positive probablity
+    // false positive probability
     double fpp = 0.05;
     HashStrategyPB strategy = HASH_MURMUR3_X64_64;
 };
@@ -79,7 +79,7 @@ public:
     }
 
     // for read
-    // use deep copy to aquire the data
+    // use deep copy to acquire the data
     Status init(char* buf, uint32_t size, HashStrategyPB strategy) {
         DCHECK(size > 1);
         if (strategy == HASH_MURMUR3_X64_64) {
@@ -146,7 +146,7 @@ private:
     // Compute the optimal bit number according to the following rule:
     //     m = -n * ln(fpp) / (ln(2) ^ 2)
     // n: expected distinct record number
-    // fpp: false positive probablity
+    // fpp: false positive probability
     // the result will be power of 2
     uint32_t _optimal_bit_num(uint64_t n, double fpp);
 

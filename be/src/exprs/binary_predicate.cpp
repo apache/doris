@@ -280,7 +280,7 @@ std::string BinaryPredicate::debug_string() const {
         return BooleanVal(v1.val OP v2.val); \
     }
 
-// add '/**/' to pass codestyle check of cooder
+// add '/**/' to pass code style check of cooder
 #define BINARY_PRED_INT_FNS(TYPE, FN) \
     BINARY_PRED_FN(Eq##TYPE##Pred, TYPE, FN, /**/ == /**/, CmpInst::ICMP_EQ) \
     BINARY_PRED_FN(Ne##TYPE##Pred, TYPE, FN, /**/ != /**/, CmpInst::ICMP_NE) \
@@ -408,7 +408,7 @@ BooleanVal EqStringValPred::get_boolean_val(ExprContext* ctx, TupleRow* row) {
         return BooleanVal(v1.val OP v2.val); \
     }
 
-// add '/**/' to pass codestyle check of cooder
+// add '/**/' to pass code style check of cooder
 #define BINARY_PRED_FOR_NULL_INT_FNS(TYPE, FN) \
     BINARY_PRED_FOR_NULL_FN(EqForNull##TYPE##Pred, TYPE, FN, /**/ == /**/, CmpInst::ICMP_EQ)
 

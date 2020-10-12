@@ -401,10 +401,10 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             }
         }
 
-        HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+        HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
         while (iter->has_next()) {
             if (nullptr == iter->get_value()) {
-                return Status::InternalError("build disjuncts failed: hybird set has a null value");
+                return Status::InternalError("build disjuncts failed: hybrid set has a null value");
             }
 
             ExtLiteral literal(slot_desc->type().type, const_cast<void *>(iter->get_value()));

@@ -43,7 +43,7 @@ public:
     void make_snapshot(TAgentResult& agent_result, const TSnapshotRequest& snapshot_request);
     void release_snapshot(TAgentResult& agent_result, const std::string& snapshot_path);
 
-    // Deprected
+    // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 

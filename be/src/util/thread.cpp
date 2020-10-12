@@ -107,13 +107,13 @@ private:
     // efficient here.
     typedef std::map<const pthread_t, ThreadDescriptor> ThreadCategory;
 
-    // All thread categorys, keyed on the category name.
+    // All thread categories, keyed on the category name.
     typedef std::map<std::string, ThreadCategory> ThreadCategoryMap;
 
     // Protects _thread_categories and thread metrics.
     mutable Mutex _lock;
 
-    // All thread categorys that ever contained a thread, even if empty
+    // All thread categories that ever contained a thread, even if empty
     ThreadCategoryMap _thread_categories;
 
     // Counters to track all-time total number of threads, and the

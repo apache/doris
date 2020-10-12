@@ -582,7 +582,7 @@ Status SnapshotLoader::move(
 
         // 1. simply delete the old dir and replace it with the snapshot dir
         try {
-            // This remove seems saft enough, because we already get
+            // This remove seems soft enough, because we already get
             // tablet id and schema hash from this path, which
             // means this path is a valid path.
             boost::filesystem::remove_all(tablet_dir);

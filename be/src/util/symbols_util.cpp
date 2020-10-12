@@ -28,7 +28,7 @@ using boost::regex;
 namespace doris {
 // For the rules about gcc-compatible name mangling, see:
 // http://mentorembedded.github.io/cxx-abi/abi.html#mangling
-// This implementation *is* not generally compatible. It is harded coded to
+// This implementation *is* not generally compatible. It is hard coded to
 // only work with functions that implement the UDF or UDA signature. That is,
 // functions of the form:
 //   namespace::Function(doris_udf::FunctionContext*, const doris_udf::AnyVal&, etc)

@@ -91,7 +91,7 @@ private:
     std::string _wild;
 };
 
-char g_tuple_buf[10000];// enougth for tuple
+char g_tuple_buf[10000];// enough for tuple
 TEST_F(SchemaSchemataScannerTest, normal_use) {
     SchemaSchemataScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);

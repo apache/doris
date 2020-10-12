@@ -213,7 +213,7 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size,
     _buffer_reservation->InitRootTracker(nullptr, capacity);
 }
 
-void ExecEnv::_destory() {
+void ExecEnv::_destroy() {
     //Only destroy once after init
     if (!_is_init) {
         return;
@@ -249,7 +249,7 @@ void ExecEnv::_destory() {
 }
 
 void ExecEnv::destroy(ExecEnv* env) {
-    env->_destory();
+    env->_destroy();
 }
 
 }

@@ -201,8 +201,8 @@ namespace config {
     CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
     // (Advanced) Maximum size of per-query receive-side buffer
     CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
-    // insert sort threadhold for sorter
-    // CONF_Int32(insertion_threadhold, "16");
+    // insert sort threshold for sorter
+    // CONF_Int32(insertion_threshold, "16");
     // the block_size every block allocate for sorter
     CONF_Int32(sorter_block_size, "8388608");
     // push_write_mbytes_per_sec
@@ -256,7 +256,7 @@ namespace config {
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     // CONF_Int64(max_packed_row_block_size, "20971520");
 
-    // Cache for stoage page size
+    // Cache for storage page size
     CONF_String(storage_page_cache_limit, "20G");
     // whether to disable page cache feature in storage
     CONF_Bool(disable_storage_page_cache, "false");
@@ -352,7 +352,7 @@ namespace config {
     // the timeout of a rpc to open the tablet writer in remote BE.
     // short operation time, can set a short timeout
     CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
-    // Deprecated, use query_timeout instread
+    // Deprecated, use query_timeout instead
     // the timeout of a rpc to process one batch in tablet writer.
     // you may need to increase this timeout if using larger 'streaming_load_max_mb',
     // or encounter 'tablet writer write failed' error when loading.
@@ -369,7 +369,7 @@ namespace config {
     // CONF_Bool(cast, "true");
 
     // Spill to disk when query
-    // Writable scratch directories, splitted by ";"
+    // Writable scratch directories, split by ";"
     CONF_String(query_scratch_dirs, "${DORIS_HOME}");
 
     // Control the number of disks on the machine.  If 0, this comes from the system settings.
@@ -394,12 +394,12 @@ namespace config {
     // you can do it as root via "sysctl -w vm.max_map_count=262144" or
     // "echo 262144 > /proc/sys/vm/max_map_count"
     // NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
-    // to a relative large number or the performace is very very bad.
+    // to a relative large number or the performance is very very bad.
     CONF_Bool(use_mmap_allocate_chunk, "false");
 
     // Chunk Allocator's reserved bytes limit,
     // Default value is 2GB, increase this variable can improve performance, but will
-    // aquire more free memory which can not be used by other modules
+    // acquire more free memory which can not be used by other modules
     CONF_Int64(chunk_reserved_bytes_limit, "2147483648");
 
     // The probing algorithm of partitioned hash table.
@@ -457,7 +457,7 @@ namespace config {
     // Sleep time in seconds between memory maintenance iterations
     CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 
-    // Aligement
+    // Alignment
     CONF_Int32(memory_max_alignment, "16");
 
     // write buffer size before flush
@@ -466,7 +466,7 @@ namespace config {
     // following 2 configs limit the memory consumption of load process on a Backend.
     // eg: memory limit to 80% of mem limit config but up to 100GB(default)
     // NOTICE(cmy): set these default values very large because we don't want to
-    // impact the load performace when user upgrading Doris.
+    // impact the load performance when user upgrading Doris.
     // user should set these configs properly if necessary.
     CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
     CONF_Int32(load_process_max_memory_limit_percent, "80");    // 80%
@@ -480,7 +480,7 @@ namespace config {
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
     CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
-    // sync tablet_meta when modifing meta
+    // sync tablet_meta when modifying meta
     CONF_mBool(sync_tablet_meta, "false");
 
     // default thrift rpc timeout ms
@@ -504,7 +504,7 @@ namespace config {
     // CONF_Bool(auto_recover_index_loading_failure, "false");
 
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
-    // default is 20, batch_size's defualt value is 1024 means 20 * 1024 rows will be cached
+    // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
     CONF_mInt32(max_memory_sink_batch_count, "20");
 
     // This configuration is used for the context gc thread schedule period
