@@ -616,6 +616,23 @@ public class AlterTest {
                 map(column -> column.getName()).
                 reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
 
+        // external table support drop column
+        stmt = "alter table test.odbc_table drop column k6";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k5";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k4";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k3";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k2";
+        alterTable(stmt, false);
+        // do not allow drop last column
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+        stmt = "alter table test.odbc_table drop column k1";
+        alterTable(stmt, true);
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+
         // external table support rename operation
         stmt = "alter table test.odbc_table rename oracle_table";
         alterTable(stmt, false);

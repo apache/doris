@@ -187,8 +187,13 @@ public class SchemaChangeHandler extends AlterHandler {
         while (baseIter.hasNext()) {
             Column column = baseIter.next();
             if (column.getName().equalsIgnoreCase(dropColName)) {
-                baseIter.remove();
-                found = true;
+                if (newSchema.size() > 1) {
+                    baseIter.remove();
+                    found = true;
+                } else {
+                    throw new DdlException("Do not allow remove last column of table: " + externalTable.getName()
+                            + " column: " + dropColName);
+                }
                 break;
             }
         }
