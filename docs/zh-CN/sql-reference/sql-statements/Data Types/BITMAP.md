@@ -32,7 +32,7 @@ under the License.
     并且BITMAP列只能通过配套的bitmap_union_count、bitmap_union、bitmap_hash等函数进行查询或使用。
     
     离线场景下使用BITMAP会影响导入速度，在数据量大的情况下查询速度会慢于HLL，并优于Count Distinct。
-    实时场景下BITMAP也不能做到完全的精确去重，通常误差小于千分之一。
+    注意：实时场景下BITMAP如果不使用全局字典，使用了bitmap_hash()可能会导致有千分之一左右的误差。
 
 ## example
 

@@ -33,7 +33,7 @@ The user does not need to specify the length and default value. The length is co
 And the BITMAP column can only be queried or used by supporting functions such as bitmap_union_count, bitmap_union, and bitmap_hash.
     
 The use of BITMAP in offline scenarios will affect the import speed. In the case of a large amount of data, the query speed will be slower than HLL and better than Count Distinct.
-In the real-time scene, BITMAP cannot achieve complete and accurate deduplication, and the error is usually less than one thousandth.
+Note: If BITMAP does not use a global dictionary in real-time scenarios, using bitmap_hash() may cause an error of about one-thousandth.
 
 ## example
 
