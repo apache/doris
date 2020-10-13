@@ -67,6 +67,7 @@ module.exports = [
           "alter-table-rollup",
           "alter-table-schema-change",
           "alter-table-temp-partition",
+          "alter-table-replace-table",
         ],
         sidebarDepth: 2,
       },
