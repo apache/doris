@@ -41,7 +41,7 @@ public:
     /// Reconstruct the graph, begin construction the vertex vec and edges list will be cleared.
     void reconstruct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
                                   int64_t* max_version);
-    /// Add a version to this graph, graph will add the vesion and edge in version.
+    /// Add a version to this graph, graph will add the version and edge in version.
     void add_version_to_graph(const Version& version);
     /// Delete a version from graph. Notice that this del operation only remove this edges and 
     /// remain the vertex.
@@ -110,7 +110,7 @@ using TimestampedVersionSharedPtr = std::shared_ptr<TimestampedVersion>;
 class TimestampedVersionPathContainer {
 
 public:
-    /// TimestampedVersionPathContainer construction function, max_create_time is assgined to 0.
+    /// TimestampedVersionPathContainer construction function, max_create_time is assigned to 0.
     TimestampedVersionPathContainer():_max_create_time(0) {
     }
 
@@ -163,7 +163,7 @@ public:
                                            std::vector<Version>* version_path) const;
 
     /// Capture all expired path version.
-    /// When the last rowset createtime of a path greater than expired time  which can be expressed
+    /// When the last rowset create time of a path greater than expired time  which can be expressed
     /// "now() - tablet_rowset_stale_sweep_time_sec" , this path will be remained.
     /// Otherwise, this path will be added to path_version.
     void capture_expired_paths(int64_t stale_sweep_endtime,

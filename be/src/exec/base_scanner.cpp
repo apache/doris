@@ -63,7 +63,7 @@ Status BaseScanner::open() {
 }
 
 Status BaseScanner::init_expr_ctxes() {
-    // Constcut _src_slot_descs
+    // Construct _src_slot_descs
     const TupleDescriptor* src_tuple_desc =
         _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
     if (src_tuple_desc == nullptr) {

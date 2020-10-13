@@ -476,7 +476,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                         // A need to clone 900 from B, but B's last version is 901, and 901 is not a visible version
                         // and 901 will be reverted
                         // since 900 is not the last version in B, 900 maybe compacted with other versions
-                        // if A only get 900, then A's last version will be a comulative delta
+                        // if A only get 900, then A's last version will be a cumulative delta
                         // many codes in be assumes that the last version is a single delta
                         // both clone and backup restore depend on this logic
                         // TODO (yiguolei) fix it in the future

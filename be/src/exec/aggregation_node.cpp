@@ -66,7 +66,7 @@ AggregationNode::~AggregationNode() {
 
 Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    // ignore return status for now , so we need to introduct ExecNode::init()
+    // ignore return status for now , so we need to introduce ExecNode::init()
     RETURN_IF_ERROR(Expr::create_expr_trees(
             _pool, tnode.agg_node.grouping_exprs, &_probe_expr_ctxs));
 

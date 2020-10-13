@@ -291,15 +291,15 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     test_bitmap_intersect<DecimalV2Val, DecimalV2Value>(
         ctx, v1, v2);
 
-    DateTimeVal datatime1;
+    DateTimeVal datetime1;
     DateTimeValue date_time_value;
     date_time_value.from_date_int64(19880201);
-    date_time_value.to_datetime_val(&datatime1);
-    DateTimeVal datatime2;
+    date_time_value.to_datetime_val(&datetime1);
+    DateTimeVal datetime2;
     date_time_value.from_date_int64(19880202);
-    date_time_value.to_datetime_val(&datatime2);
+    date_time_value.to_datetime_val(&datetime2);
     test_bitmap_intersect<DateTimeVal, DateTimeValue>(
-        ctx, datatime1, datatime2);
+        ctx, datetime1, datetime2);
 
     test_bitmap_intersect<StringVal, StringValue>(
         ctx, StringVal("20191211"), StringVal("20191212"));

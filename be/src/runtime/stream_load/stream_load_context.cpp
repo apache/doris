@@ -90,7 +90,7 @@ std::string StreamLoadContext::to_json() const {
 }
 
 /*
- * The old mini load result format is as followes:
+ * The old mini load result format is as follows:
  * (which defined in src/util/json_util.cpp)
  *
  * {

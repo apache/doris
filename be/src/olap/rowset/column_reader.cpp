@@ -114,7 +114,7 @@ OLAPStatus StringColumnDirectReader::init(
                                         streams);
 
     if (NULL == length_stream) {
-        OLAP_LOG_WARNING("specifiedstream not found. [unique_id = %u]",
+        OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]",
                 _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
@@ -189,7 +189,7 @@ OLAPStatus StringColumnDirectReader::next_vector(
      * 1. MemPool is created by VectorizedRowBatch,
      *    and reset when load row batch
      * 2. MemPool in init function is created by SegmentReader,
-     *    and free by SegmentReader deconstructor.
+     *    and free by SegmentReader deconstruction.
      */
     OLAPStatus res = OLAP_SUCCESS;
     int64_t length = 0;
@@ -678,7 +678,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        LOG(WARNING) << "unspported field type. field=" << column.name()
+        LOG(WARNING) << "unsupported field type. field=" << column.name()
                      << ", type=" << column.type();
         break;
     }

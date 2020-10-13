@@ -231,7 +231,7 @@ void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::stri
     Status ret_st;
     OLAPStatus err_code = SnapshotManager::instance()->release_snapshot(snapshot_path);
     if (err_code != OLAP_SUCCESS) {
-        LOG(WARNING) << "failt to release_snapshot. snapshot_path: " << snapshot_path
+        LOG(WARNING) << "failed to release_snapshot. snapshot_path: " << snapshot_path
                      << ", err_code: " << err_code;
         ret_st = Status::RuntimeError(strings::Substitute(
                     "fail to release_snapshot. err_code=$0", err_code));
@@ -289,4 +289,4 @@ void AgentServer::delete_etl_files(TAgentResult& t_agent_result,
     status.to_thrift(&t_agent_result.status);
 }
 
-}  // namesapce doris
+}  // namespace doris

@@ -86,7 +86,7 @@ void TimestampedVersionTracker::_init_stale_version_path_map(
         else if (diff > 0) {
             return false;
         }
-        // when the version diff is equal, compare rowset createtime
+        // when the version diff is equal, compare rowset create time
         return a->creation_time() < b->creation_time();
     });
 
@@ -493,7 +493,7 @@ OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
     int64_t end_vertex_index = _vertex_index_map[end_vertex_value];
     // Remove edge and its reverse edge.
-    // When there are same versions in edges, just remove the frist version.
+    // When there are same versions in edges, just remove the first version.
     auto start_edges_iter = _version_graph[start_vertex_index].edges.begin();
     while (start_edges_iter != _version_graph[start_vertex_index].edges.end()) {
         if (*start_edges_iter == end_vertex_index) {
@@ -529,7 +529,7 @@ void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
 OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version,
                                                     std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
-        LOG(WARNING) << "invalid specfied version. "
+        LOG(WARNING) << "invalid specified version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }

@@ -26,7 +26,7 @@
 #include "gen_cpp/Exprs_types.h"
 //#include "exprs/opcode_registry.h"
 #include "util/hash_util.hpp"
-#include "exprs/hybird_map.h"
+#include "exprs/hybrid_map.h"
 #include "runtime/runtime_state.h"
 #include "runtime/descriptors.h"
 #include "exprs/expr_context.h"
@@ -37,7 +37,7 @@ namespace doris {
 class AggregationNode;
 class TExprNode;
 
-// This class evaluates aggregate functions. Aggregate funtions can either be
+// This class evaluates aggregate functions. Aggregate functions can either be
 // builtins or external UDAs. For both of types types, they can either use codegen
 // or not.
 // This class provides an interface that's 1:1 with the UDA interface and serves
@@ -76,7 +76,7 @@ public:
     // It is used to get the input values in the Update() and Merge() functions.
     // 'output_slot_desc' is the slot that this aggregator should write to.
     // The underlying aggregate function allocates memory from the 'pool'. This is
-    // either string data for intemerdiate results or whatever memory the UDA might
+    // either string data for intermediate results or whatever memory the UDA might
     // need.
     // TODO: should we give them their own pool?
     Status prepare(
@@ -139,7 +139,7 @@ public:
     void update(FunctionContext* agg_fn_ctx, TupleRow* src, Tuple* dst,
             void* fn, MemPool* pool);
     void merge(FunctionContext* agg_fn_ctx, TupleRow* src, Tuple* dst, MemPool* pool);
-    // Explicitly does a merge, even if this evalutor is not marked as merging.
+    // Explicitly does a merge, even if this evaluator is not marked as merging.
     // This is used by the partitioned agg node when it needs to merge spill results.
     // In the non-spilling case, this node would normally not merge.
     void merge(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst);
@@ -176,7 +176,7 @@ public:
     bool is_multi_distinct() {
         return _is_multi_distinct;
     }
-    bool is_in_hybirdmap(void* input_val, Tuple* dst, bool* is_add_buckets);
+    bool is_in_hybridmap(void* input_val, Tuple* dst, bool* is_add_buckets);
 
     void choose_update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst);
     static void add(const std::vector<AggFnEvaluator*>& evaluators,
@@ -208,7 +208,7 @@ private:
     const bool _is_merge;
     /// Indicates which functions must be loaded.
     const bool _is_analytic_fn;
-    boost::scoped_ptr<HybirdMap> _hybird_map;
+    boost::scoped_ptr<HybridMap> _hybrid_map;
     bool _is_multi_distinct;
     std::vector<ExprContext*> _input_exprs_ctxs;
     boost::scoped_array<char> _string_buffer; //for count distinct
@@ -272,7 +272,7 @@ private:
         }
     }
 
-    // TODO: these funtions below are not extensible and we need to use codegen to
+    // TODO: these functions below are not extensible and we need to use codegen to
     // generate the calls into the UDA functions (like for UDFs).
     // Remove these functions when this is supported.
 
