@@ -35,10 +35,9 @@ public enum AlterOpType {
     MODIFY_TABLE_PROPERTY_SYNC, // Some operations are performed synchronously, so we distinguish them by suffix _SYNC
     // others operation, such as add/drop backend. currently we do not care about them
     ALTER_OTHER,
-
-    INVALID_OP,
-    ENABLE_FEATURE;
-
+    ENABLE_FEATURE,
+    REPLACE_TABLE,
+    INVALID_OP; // INVALID_OP must be the last one
 
     // true means 2 operations have no conflict.
     public static Boolean[][] COMPATIBILITY_MATRIX;
