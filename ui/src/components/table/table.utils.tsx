@@ -25,16 +25,16 @@ function sortItems(a: any,b: any, item: string) {
     }
     return a[item].localeCompare(b[item]);
 }
-function getLinkItem(text, record, index, isInner, item, hrefColumn){
+function getLinkItem(text, record, index, isInner, item, hrefColumn, path){
     if (isInner && hrefColumn && (hrefColumn.indexOf(item) !== -1)&&record.__hrefPaths) {
         if (record.__hrefPaths[hrefColumn.indexOf(item)].includes('http')) {
             return <a href={record.__hrefPaths[hrefColumn.indexOf(item)]} target="_blank">{text}</a>;
         }
-        return <Link  to={location.pathname+location.search+'/'+text}>{text}</Link>;
+        return <Link  to={path+location.search+'/'+text}>{text}</Link>;
     }
     return text === '\\N' ? '-' : text;
 }
-export function getColumns(params: string[], isSort: boolean, isInner, hrefColumn) {
+export function getColumns(params: string[], isSort: boolean, isInner, hrefColumn, path) {
     if(!params||params.length === 0){return [];}
     let arr = params.map(item=> {
         if (isSort) {
@@ -43,14 +43,14 @@ export function getColumns(params: string[], isSort: boolean, isInner, hrefColum
                 dataIndex: item,
                 className: 'pr-25',
                 sorter: (a,b)=>sortItems(a, b, item),
-                render:(text, record, index)=>getLinkItem(text,record, index, isInner, item, hrefColumn),
+                render:(text, record, index)=>getLinkItem(text,record, index, isInner, item, hrefColumn, path),
             };
         }
         return {
             title: item,
             dataIndex: item,
             className: 'pr-25',
-            render:(text, record, index)=>getLinkItem(text, record, index, isInner, item, hrefColumn),
+            render:(text, record, index)=>getLinkItem(text, record, index, isInner, item, hrefColumn, path),
         };
     });
     return arr;

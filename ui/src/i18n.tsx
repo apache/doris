@@ -24,10 +24,10 @@ import zhCnTrans from '../public/locales/zh-cn.json';
 import {
     initReactI18next
 } from 'react-i18next';
-
 i18n.use(LanguageDetector) 
     .use(initReactI18next) 
     .init({
+        lng: localStorage.getItem('I18N_LANGUAGE') || "en",
         resources: {
             en: {
                 translation: enUsTrans

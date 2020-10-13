@@ -700,8 +700,22 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 
 用于设置database data的默认quota值，单位为 bytes，默认1T.
 
-### 'default_max_filter_ratio'
+### `default_max_filter_ratio`
 
 默认的最大容忍可过滤（数据不规范等原因）的数据比例。它将被Load Job 中设置的"max_filter_ratio"覆盖，默认0，取值范围0-1.
 
+### `enable_http_server_v2`
 
+是否启用的 V2 版本的 HTTP Server 实现。新的 HTTP Server 采用 SpringBoot 实现。并且实现了前后端分离。
+只有当开启后，才能使用 `ui/` 目录下的新版 UI 界面。
+
+默认为 false。
+
+### `http_api_extra_base_path`
+
+一些部署环境下，需要指定额外的 base path 作为 HTTP API 的统一前缀。这个参数用于用户指定额外的前缀。
+设置后，可以通过 `GET /api/basepath` 接口获取这个参数值。
+新版本的UI也会先尝试获取这个base path来拼接URL。
+仅在 `enable_http_server_v2` 为 true 的情况下才有效。
+
+默认为空，即不设置。

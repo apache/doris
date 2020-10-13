@@ -23,15 +23,18 @@
  * @since 2020/08/19
  */
 import React from 'react';
-import {BrowserRouter as Router, Switch, Redirect} from 'react-router-dom';
+import {BrowserRouter as Router, Switch} from 'react-router-dom';
 // import {renderRoutes} from 'react-router-config';
 import routes from './router';
 import renderRoutes from './router/renderRouter';
 import 'antd/dist/antd.css';
-
+import {getBasePath} from 'Src/utils/utils';
+let basePath = getBasePath();
 function App() {
     return (
-        <Router>
+        <Router 
+            basename={basePath}
+        >
             <Switch>
                 {renderRoutes(routes.routes)}
             </Switch>
