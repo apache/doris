@@ -25,23 +25,23 @@ function isSuccess(response) {
         return false;
     }
 
-    let status = response.status;
-    if (status == null) {
-        status = response.msg;
-    }
+    let {code, msg} = response;
 
-    if (isNaN(status)) {
-        return status === 'success';
+    if (code === 0 && msg === 'success') {
+        return true
     }
-    return status === 0;
+    return false;
 }
 function getDbName(params) {
-    const infoArr = location.pathname.split('-');
-    const db_name = infoArr[0].split('/')[3];
-    const tbl_name = infoArr[1];
+    const infoArr = location.pathname.split('/');
+    const str = infoArr[infoArr.length-1];
     const res = {};
-    res.db_name = db_name;
-    res.tbl_name = tbl_name;
+    if(str && str !=='Playground'){
+        const db_name = str.split('-')[0];
+        const tbl_name = str.split('-')[1];
+        res.db_name = db_name;
+        res.tbl_name = tbl_name;
+    }
     return res;
 }
 function getTimeNow() {
@@ -74,5 +74,13 @@ function getTimeNow() {
     }
     return fmt;
 }
-
-module.exports = {isSuccess, getDbName, getTimeNow};
+function getBasePath(){
+    let arr = location.pathname.split('/');
+    let res = '';
+    if(arr.length>5){
+        arr = arr.slice(0,5);
+        res = arr.join('/');
+    }
+    return res;
+}
+module.exports = {isSuccess, getDbName, getTimeNow, getBasePath};

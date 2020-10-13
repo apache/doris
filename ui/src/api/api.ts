@@ -18,6 +18,13 @@
 import {API_BASE} from 'Constants';
 import request from 'Utils/request';
 import {Result} from '@src/interfaces/http.interface';
+//login
+export function login<T>(data: any): Promise<Result<T>> {
+    return request('/rest/v1/login', {
+        method: 'POST',
+        headers:{Authorization: data.password?`Basic ${btoa(data.username+':'+data.password)}`:`Basic ${btoa(data.username+':')}`},
+    });
+}
 //logout
 export function logOut<T>(): Promise<Result<T>> {
     return request(`/rest/v1/logout`,{
@@ -66,7 +73,7 @@ export function getSession<T>(data: any): Promise<Result<T>> {
 }
 //config
 export function getConfig<T>(data: any): Promise<Result<T>> {
-    return request('rest/v1/config/fe/');
+    return request('/rest/v1/config/fe/');
 }
 //query begin
 export function getDatabaseList<T>(data: any): Promise<Result<T>> {
@@ -123,5 +130,5 @@ export const AdHocAPI = {
     logOut,
     getHardwareInfo,
     getUploadData,
-    deleteUploadData
+    deleteUploadData,
 };

@@ -17,10 +17,13 @@
 
 package org.apache.doris.httpv2.util;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.httpv2.rest.UploadAction;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,6 +44,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -67,13 +71,24 @@ public class LoadSubmitter {
 
         @Override
         public SubmitResult call() throws Exception {
-            String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user), loadContext.passwd);
-            String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+            try {
+                return load();
+            } catch (Throwable e) {
+                LOG.warn("failed to submit load. label: {}", loadContext.label, e);
+                throw e;
+            }
+        }
 
-            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, "127.0.0.1", Config.http_port, loadContext.db, loadContext.tbl);
+        private SubmitResult load() throws Exception {
+            // choose a backend to submit the stream load
+            Backend be = selectOneBackend();
+
+            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, be.getHost(), be.getHttpPort(), loadContext.db, loadContext.tbl);
             URL loadUrl = new URL(loadUrlStr);
             HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();
             conn.setRequestMethod("PUT");
+            String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user), loadContext.passwd);
+            String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
             conn.setRequestProperty("Authorization", "Basic " + authEncoding);
             conn.addRequestProperty("Expect", "100-continue");
             conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
@@ -90,8 +105,8 @@ public class LoadSubmitter {
             conn.setDoInput(true);
 
             File loadFile = checkAndGetFile(loadContext.file);
-            try(BufferedOutputStream bos = new BufferedOutputStream(conn.getOutputStream());
-                BufferedInputStream bis = new BufferedInputStream(new FileInputStream(loadFile));) {
+            try (BufferedOutputStream bos = new BufferedOutputStream(conn.getOutputStream());
+                 BufferedInputStream bis = new BufferedInputStream(new FileInputStream(loadFile));) {
                 int i;
                 while ((i = bis.read()) > 0) {
                     bos.write(i);
@@ -120,12 +135,27 @@ public class LoadSubmitter {
             File file = new File(tmpFile.absPath);
             return file;
         }
+
+        private Backend selectOneBackend() throws DdlException {
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(
+                    1, true, false, SystemInfoService.DEFAULT_CLUSTER);
+            if (backendIds == null) {
+                throw new DdlException("No alive backend");
+            }
+
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            if (backend == null) {
+                throw new DdlException("No alive backend");
+            }
+            return backend;
+        }
     }
 
     public static class SubmitResult {
         public String TxnId;
         public String Label;
         public String Status;
+        public String ExistingJobStatus;
         public String Message;
         public String NumberTotalRows;
         public String NumberLoadedRows;

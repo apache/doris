@@ -59,40 +59,45 @@ public class BaseController {
     public static final String PALO_SESSION_ID = "PALO_SESSION_ID";
     private static final int PALO_SESSION_EXPIRED_TIME = 3600 * 24; // one day
 
-    // We first check cookie, if not admin, we check http's authority header
     public void checkAuthWithCookie(HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, true);
     }
 
     public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request, HttpServletResponse response, boolean checkAuth) {
-        ActionAuthorizationInfo authInfo = checkCookie(request, response, checkAuth);
-        if (authInfo != null) {
+        // First we check if the request has Authorization header.
+        String encodedAuthString = request.getHeader("Authorization");
+        if (encodedAuthString != null) {
+            // If has Authorization header, check auth info
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            UserIdentity currentUser = checkPassword(authInfo);
+
+            if (checkAuth) {
+                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+            }
+
+            SessionValue value = new SessionValue();
+            value.currentUser = currentUser;
+            value.password = authInfo.password;
+            addSession(request, response, value);
+
+            ConnectContext ctx = new ConnectContext(null);
+            ctx.setQualifiedUser(authInfo.fullUserName);
+            ctx.setRemoteIP(authInfo.remoteIp);
+            ctx.setCurrentUserIdentity(currentUser);
+            ctx.setCatalog(Catalog.getCurrentCatalog());
+            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+            ctx.setThreadLocalInfo();
+            LOG.debug("check auth without cookie success for user: {}, thread: {}",
+                    currentUser, Thread.currentThread().getId());
             return authInfo;
         }
 
-        // cookie is invalid. check auth info in request
-        authInfo = getAuthorizationInfo(request);
-        UserIdentity currentUser = checkPassword(authInfo);
-
-        if (checkAuth) {
-            checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                    PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+        // No Authorization header, check cookie
+        ActionAuthorizationInfo authInfo = checkCookie(request, response, checkAuth);
+        if (authInfo == null) {
+            throw new UnauthorizedException("Cookie is invalid");
         }
-
-        SessionValue value = new SessionValue();
-        value.currentUser = currentUser;
-        value.password = authInfo.password;
-        addSession(request, response, value);
-
-        ConnectContext ctx = new ConnectContext(null);
-        ctx.setQualifiedUser(authInfo.fullUserName);
-        ctx.setRemoteIP(authInfo.remoteIp);
-        ctx.setCurrentUserIdentity(currentUser);
-        ctx.setCatalog(Catalog.getCurrentCatalog());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setThreadLocalInfo();
-        LOG.debug("check auth without cookie success for user: {}, thread: {}",
-                currentUser, Thread.currentThread().getId());
         return authInfo;
     }
 
@@ -294,3 +299,4 @@ public class BaseController {
         return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
     }
 }
+

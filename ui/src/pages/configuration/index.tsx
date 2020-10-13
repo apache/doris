@@ -20,7 +20,7 @@
 import React, {useState, useEffect} from 'react';
 import {Typography, Button, Row, Col} from 'antd';
 const {Title} = Typography;
-import {getConfig} from 'Utils/api';
+import {getConfig} from 'Src/api/api';
 import Table from 'Src/components/table';
 export default function Configuration(params: any) {
     const [allTableData, setAllTableData] = useState({});

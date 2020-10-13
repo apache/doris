@@ -24,15 +24,17 @@ import org.springframework.http.ResponseEntity;
 
 /**
  * A utility class for creating a ResponseEntity easier.
+ * All response will return with http code 200, and a internal code represent the real code.
  */
 public class ResponseEntityBuilder {
 
     public static ResponseEntity badRequest(Object data) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.BAD_REQUEST).msg("Bad Request").data(data);
+        return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
     public static ResponseEntity okWithCommonError(String msg) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.COMMON_ERROR).commonError(msg);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.COMMON_ERROR).msg("Error").data(msg);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
@@ -47,14 +49,17 @@ public class ResponseEntityBuilder {
     }
 
     public static ResponseEntity unauthorized(Object data) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.UNAUTHORIZED).msg("Unauthorized").data(data);
+        return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
     public static ResponseEntity internalError(Object data) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.INTERNAL_SERVER_ERROR).msg("Internal Error").data(data);
+        return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
     public static ResponseEntity notFound(Object data) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(data);
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.NOT_FOUND).msg("Not Found").data(data);
+        return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 }

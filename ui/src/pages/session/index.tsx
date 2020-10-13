@@ -20,7 +20,7 @@
 import React, {useState, useEffect} from 'react';
 import {Typography, Button, Row, Col} from 'antd';
 const {Text, Title, Paragraph} = Typography;
-import {getSession} from 'Utils/api';
+import {getSession} from 'Src/api/api';
 import Table from 'Src/components/table';
 // import {useHistory} from 'react-router-dom';
 export default function Session(params: any) {

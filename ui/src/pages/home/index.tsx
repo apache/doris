@@ -20,7 +20,7 @@
 import React, {useState, useEffect} from 'react';
 import {Typography, Divider, BackTop, Spin} from 'antd';
 const {Title, Paragraph, Text} = Typography;
-import {getHardwareInfo} from 'Utils/api';
+import {getHardwareInfo} from 'Src/api/api';
 
 export default function Home(params: any) {
     const [hardwareData , setHardwareData] = useState({});

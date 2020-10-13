@@ -27,16 +27,16 @@ const Logs = asyncComponent(() => import('../pages/logs'));
 const QueryProfile = asyncComponent(() => import('../pages/query-profile'));
 const Session = asyncComponent(() => import('../pages/session'));
 const Configuration = asyncComponent(() => import('../pages/configuration'));
-const Ha = asyncComponent(() => import('../pages/ha'));
-const Help = asyncComponent(() => import('../pages/help'));
+// const Ha = asyncComponent(() => import('../pages/ha'));
+// const Help = asyncComponent(() => import('../pages/help'));
+const Page404 = asyncComponent(() => import('../pages/404'));
 const DataImport = asyncComponent(() => import('../pages/playground/data-import'));
-
 export default {
     routes: [
         {
             path: '/login',
             component: Login,
-            title: '登录',
+            title: 'Login',
         },
         {
             path: '/',
@@ -45,7 +45,7 @@ export default {
                 {
                     path: '/home',
                     component: Home,
-                    title: '首页',
+                    title: 'Home',
                 },
                 {
                     path: '/Playground',
@@ -93,6 +93,10 @@ export default {
                     component: Configuration,
                     title: 'Configuration',
                 },
+                {
+                    path: '*',
+                    component: Page404,
+                },
                 // {
                 //     path: '/ha',
                 //     component: Ha,
@@ -106,9 +110,14 @@ export default {
             ],
         },
         {
+            path: '*',
+            component: Page404,
+        },
+        {
             path: '/',
             redirect: '/home',
             component: Layout,
         },
+        
     ],
 };
