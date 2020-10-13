@@ -17,189 +17,184 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
-import org.apache.doris.persist.EditLog;
+import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocation;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class SimpleSchedulerTest {
-    static Reference<Long> ref = new Reference<Long>();
 
-    @Mocked
-    private Catalog catalog;
-    @Mocked
-    private EditLog editLog;
+    private static Backend be1;
+    private static Backend be2;
+    private static Backend be3;
+    private static Backend be4;
+    private static Backend be5;
 
-    @Before
-    public void setUp() {
-        new Expectations() {
-            {
-                editLog.logAddBackend((Backend) any);
-                minTimes = 0;
+    @BeforeClass
+    public static void setUp() {
+        FeConstants.heartbeat_interval_second = 2;
+        be1 = new Backend(1000L, "192.168.100.0", 9050);
+        be2 = new Backend(1001L, "192.168.100.1", 9050);
+        be3 = new Backend(1002L, "192.168.100.2", 9050);
+        be4 = new Backend(1003L, "192.168.100.3", 9050);
+        be5 = new Backend(1004L, "192.168.100.4", 9050);
+        be1.setAlive(true);
+        be2.setAlive(true);
+        be3.setAlive(true);
+        be4.setAlive(true);
+        be5.setAlive(true);
+    }
 
-                editLog.logDropBackend((Backend) any);
-                minTimes = 0;
+    private static Map<Long, Backend> genBackends() {
+        Map<Long, Backend> map = Maps.newHashMap();
+        map.put(be1.getId(), be1);
+        map.put(be2.getId(), be2);
+        map.put(be3.getId(), be3);
+        map.put(be4.getId(), be4);
+        map.put(be5.getId(), be5);
+        return map;
+    }
 
-                editLog.logBackendStateChange((Backend) any);
-                minTimes = 0;
+    @Test
+    public void testGetHostNormal() throws UserException, InterruptedException {
+        Reference<Long> ref = new Reference<Long>();
+        ImmutableMap<Long, Backend> backends = ImmutableMap.copyOf(genBackends());
 
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
+        List<TScanRangeLocation> locations = Lists.newArrayList();
+        TScanRangeLocation scanRangeLocation1 = new TScanRangeLocation();
+        scanRangeLocation1.setBackendId(be1.getId());
+        locations.add(scanRangeLocation1);
+        TScanRangeLocation scanRangeLocation2 = new TScanRangeLocation();
+        scanRangeLocation2.setBackendId(be2.getId());
+        locations.add(scanRangeLocation2);
+
+        Thread t1 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    boolean foundCandidate = false;
+                    long start = System.currentTimeMillis();
+                    for (int i = 0; i < 1000; i++) {
+                        TNetworkAddress address = SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
+                        Assert.assertNotNull(address);
+                        if (!foundCandidate && address.getHostname().equals(be2.getHost())) {
+                            foundCandidate = true;
+                        }
+                    }
+                    System.out.println("cost: " + (System.currentTimeMillis() - start));
+                    Assert.assertTrue(foundCandidate);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
             }
-        };
+        });
 
-        new Expectations(catalog) {
-            {
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
+        Thread t2 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Set<String> resBackends = Sets.newHashSet();
+                    long start = System.currentTimeMillis();
+                    for (int i = 0; i < 1000; i++) {
+                        TNetworkAddress address = SimpleScheduler.getHost(backends, ref);
+                        Assert.assertNotNull(address);
+                        resBackends.add(address.hostname);
+                    }
+                    System.out.println("cost: " + (System.currentTimeMillis() - start));
+                    Assert.assertTrue(resBackends.size() >= 4);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
             }
-        };
+        });
+
+        Thread t3 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                SimpleScheduler.addToBlacklist(be1.getId(), "test");
+            }
+        });
+
+        t3.start();
+        t1.start();
+        t2.start();
+
+        t1.join();
+        t2.join();
+        t3.join();
+
+        Assert.assertFalse(SimpleScheduler.isAvailable(be1));
+        Thread.sleep((FeConstants.heartbeat_interval_second + 5) * 1000);
+        Assert.assertTrue(SimpleScheduler.isAvailable(be1));
     }
 
-    // TODO(lingbin): PALO-2051.
-    // Comment out these code temporatily.
-    // @Test
-    public void testGetHostWithBackendId() {
-        FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
-        TNetworkAddress address;
-        // three locations
-        List<TScanRangeLocation> nullLocations = null;
-        List<TScanRangeLocation> emptyLocations = new ArrayList<TScanRangeLocation>();
+    @Test
+    public void testGetHostAbnormal() throws UserException, InterruptedException {
+        Reference<Long> ref = new Reference<Long>();
+        ImmutableMap<Long, Backend> backends = ImmutableMap.copyOf(genBackends());
 
-        List<TScanRangeLocation> twoLocations = new ArrayList<TScanRangeLocation>();
-        TScanRangeLocation locationA = new TScanRangeLocation();
-        TScanRangeLocation locationB = new TScanRangeLocation();
-        locationA.setBackendId(20);
-        locationA.setBackendId(30);
-        twoLocations.add(locationA);
-        twoLocations.add(locationB);
+        // 1. unknown backends
+        List<TScanRangeLocation> locations = Lists.newArrayList();
+        TScanRangeLocation scanRangeLocation1 = new TScanRangeLocation();
+        scanRangeLocation1.setBackendId(2000L);
+        locations.add(scanRangeLocation1);
+        TScanRangeLocation scanRangeLocation2 = new TScanRangeLocation();
+        scanRangeLocation2.setBackendId(2001L);
+        locations.add(scanRangeLocation2);
 
-        // three Backends
-        ImmutableMap<Long, Backend> nullBackends = null;
-        ImmutableMap<Long, Backend> emptyBackends = ImmutableMap.of();
-
-        Backend backendA = new Backend(0, "addressA", 0);
-        backendA.updateOnce(0, 0, 0);
-        Backend backendB = new Backend(1, "addressB", 0);
-        backendB.updateOnce(0, 0, 0);
-        Backend backendC = new Backend(2, "addressC", 0);
-        backendC.updateOnce(0, 0, 0);
-
-        Map<Long, Backend> threeBackends = Maps.newHashMap();
-        threeBackends.put((long) 0, backendA);
-        threeBackends.put((long) 1, backendB);
-        threeBackends.put((long) 2, backendC);
-        ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
-
-        {   // null Backends
-            address = SimpleScheduler.getHost(Long.valueOf(0), nullLocations,
-                                              nullBackends, ref);
-            Assert.assertNull(address);
-        }
-        {   // empty Backends
-            address = SimpleScheduler.getHost(Long.valueOf(0), emptyLocations,
-                                              emptyBackends, ref);
-            Assert.assertNull(address);
-        }
-        {   // normal Backends
-
-            // BackendId exists
-            Assert.assertEquals(SimpleScheduler.getHost(0, emptyLocations, immutableThreeBackends, ref)
-                    .hostname, "addressA");
-            Assert.assertEquals(SimpleScheduler.getHost(2, emptyLocations, immutableThreeBackends, ref)
-                    .hostname, "addressC");
-
-            // BacknedId not exists and location exists, choose the locations's first
-            Assert.assertEquals(SimpleScheduler.getHost(3, twoLocations, immutableThreeBackends, ref)
-                    .hostname, "addressA");
-        }
-        {   // abnormal
-            // BackendId not exists and location not exists
-            Assert.assertNull(SimpleScheduler.getHost(3, emptyLocations, immutableThreeBackends, ref));
+        try {
+            SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
+            Assert.fail();
+        } catch (UserException e) {
+            System.out.println(e.getMessage());
         }
 
-    }
+        // 2. all backends in black list
+        locations.clear();
+        scanRangeLocation1 = new TScanRangeLocation();
+        scanRangeLocation1.setBackendId(be1.getId());
+        locations.add(scanRangeLocation1);
+        scanRangeLocation2 = new TScanRangeLocation();
+        scanRangeLocation2.setBackendId(be2.getId());
+        locations.add(scanRangeLocation2);
+        TScanRangeLocation scanRangeLocation3 = new TScanRangeLocation();
+        scanRangeLocation3.setBackendId(be3.getId());
+        locations.add(scanRangeLocation3);
+        TScanRangeLocation scanRangeLocation4 = new TScanRangeLocation();
+        scanRangeLocation4.setBackendId(be4.getId());
+        locations.add(scanRangeLocation4);
+        TScanRangeLocation scanRangeLocation5 = new TScanRangeLocation();
+        scanRangeLocation5.setBackendId(be5.getId());
+        locations.add(scanRangeLocation5);
 
-    // TODO(lingbin): PALO-2051.
-    // Comment out these code temporatily.
-    // @Test
-    public void testGetHostWithNoParams() {
-        FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
-        ImmutableMap<Long, Backend> nullBackends = null;
-        ImmutableMap<Long, Backend> emptyBackends = ImmutableMap.of();
-
-        Backend backendA = new Backend(0, "addressA", 0);
-        backendA.updateOnce(0, 0, 0);
-        Backend backendB = new Backend(1, "addressB", 0);
-        backendB.updateOnce(0, 0, 0);
-        Backend backendC = new Backend(2, "addressC", 0);
-        backendC.updateOnce(0, 0, 0);
-        Map<Long, Backend> threeBackends = Maps.newHashMap();
-        threeBackends.put((long) 0, backendA);
-        threeBackends.put((long) 1, backendB);
-        threeBackends.put((long) 2, backendC);
-        ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
-
-        {   // abmormal
-            Assert.assertNull(SimpleScheduler.getHost(nullBackends, ref));
-            Assert.assertNull(SimpleScheduler.getHost(emptyBackends, ref));
-        }   // normal
-        {
-            String a = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
-            String b = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
-            String c = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
-            Assert.assertTrue(!a.equals(b) && !a.equals(c) && !b.equals(c));
-            a = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
-            b = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
-            c = SimpleScheduler.getHost(immutableThreeBackends, ref).hostname;
-            Assert.assertTrue(!a.equals(b) && !a.equals(c) && !b.equals(c));
+        SimpleScheduler.addToBlacklist(be1.getId(), "test");
+        SimpleScheduler.addToBlacklist(be2.getId(), "test");
+        SimpleScheduler.addToBlacklist(be3.getId(), "test");
+        SimpleScheduler.addToBlacklist(be4.getId(), "test");
+        SimpleScheduler.addToBlacklist(be5.getId(), "test");
+        try {
+            SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
+            Assert.fail();
+        } catch (UserException e) {
+            System.out.println(e.getMessage());
         }
-    }
 
-    // TODO(lingbin): PALO-2051.
-    // Comment out these code temporatily.
-    // @Test
-    public void testBlackList() {
-        FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
-        TNetworkAddress address = null;
-
-        Backend backendA = new Backend(0, "addressA", 0);
-        backendA.updateOnce(0, 0, 0);
-        Backend backendB = new Backend(1, "addressB", 0);
-        backendB.updateOnce(0, 0, 0);
-        Backend backendC = new Backend(2, "addressC", 0);
-        backendC.updateOnce(0, 0, 0);
-        Map<Long, Backend> threeBackends = Maps.newHashMap();
-        threeBackends.put((long) 100, backendA);
-        threeBackends.put((long) 101, backendB);
-        threeBackends.put((long) 102, backendC);
-        ImmutableMap<Long, Backend> immutableThreeBackends = ImmutableMap.copyOf(threeBackends);
-
-        SimpleScheduler.addToBlacklist(Long.valueOf(100));
-        SimpleScheduler.addToBlacklist(Long.valueOf(101));
-        address = SimpleScheduler.getHost(immutableThreeBackends, ref);
-        // only backendc can work
-        Assert.assertEquals(address.hostname, "addressC");
-        SimpleScheduler.addToBlacklist(Long.valueOf(102));
-        // no backend can work
-        address = SimpleScheduler.getHost(immutableThreeBackends, ref);
-        Assert.assertNull(address);
+        Thread.sleep((FeConstants.heartbeat_interval_second + 5) * 1000);
+        Assert.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
     }
 }
