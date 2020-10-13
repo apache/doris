@@ -163,6 +163,14 @@ Status NodeChannel::open_wait() {
                     LOG(WARNING) << name() << " add batch req success but status isn't ok, "
                                  << print_load_info() << ", node=" << node_info()->host << ":"
                                  << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
+                    {
+                        std::lock_guard<SpinLock> l(_cancel_msg_lock);
+                        if (_cancel_msg == "") {
+                            std::stringstream ss;
+                            ss << "node=" << node_info()->host << ":" << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
+                            _cancel_msg = ss.str();
+                        }
+                    }
                 }
 
                 if (result.has_execution_time_us()) {
@@ -261,7 +269,15 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         return Status::OK();
     }
 
-    return Status::InternalError("close wait failed coz rpc error");
+    std::stringstream ss;
+    ss << "close wait failed coz rpc error";
+    {
+        std::lock_guard<SpinLock> l(_cancel_msg_lock);
+        if (_cancel_msg != "") {
+            ss << ". " << _cancel_msg;
+        }
+    }
+    return Status::InternalError(ss.str());
 }
 
 void NodeChannel::cancel() {
