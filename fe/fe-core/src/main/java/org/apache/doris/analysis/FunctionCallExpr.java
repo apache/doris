@@ -336,14 +336,11 @@ public class FunctionCallExpr extends Expr {
                 if (children.size() > 2) {
                     if (!getChild(1).isConstant() || !getChild(2).isConstant()) {
                         throw new AnalysisException(
-                                "The default parameter (parameter 3) of LAG must be a constant: "
-                                        + this.toSql());
+                                "The default parameter (parameter 2 or parameter 3) of LEAD/LAG must be a constant: " + this.toSql());
                     }
-                    getChild(1).type = Type.BIGINT;
-                    //To ensure that the correct function is selected,the third parameter
-                    //of the lead function must be consistent with the first parameter
+                    uncheckedCastChild(Type.BIGINT, 1);
                     if (!getChild(2).type.matchesType(getChild(0).type) && !getChild(2).type.matchesType(Type.NULL)) {
-                        getChild(2).type = getChild(0).type;
+                        uncheckedCastChild(getChild(0).type, 2);
                     }
                 }
                 return;
