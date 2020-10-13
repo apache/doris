@@ -70,7 +70,7 @@ under the License.
 
 ## 支持的资源
 
-目前Dorisn能够支持
+目前Doris能够支持
 * Spark资源 : 完成ETL工作。
 * ODBC资源：查询和导入外部表的数据
 
