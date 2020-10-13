@@ -84,7 +84,7 @@ Note: For different versions of Oris, you need to download the corresponding mir
 
 ### Self-compiling Development Environment Mirror
 
-You can also create a Doris development environment mirror yourself, referring specifically to the `docker/README.md'file.
+You can also create a Doris development environment mirror yourself, referring specifically to the `docker/README.md` file.
 
 
 ## Direct Compilation (CentOS/Ubuntu)
