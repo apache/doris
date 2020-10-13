@@ -261,7 +261,7 @@ public:
     OLAPStatus convert_to_old_files(const std::string& snapshot_path,
                              std::vector<std::string>* success_links);
 
-    OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
+    OLAPStatus remove_old_files(std::vector<std::string>* links_to_remove);
 
     OLAPStatus copy_files_to(const std::string& dir);
 
@@ -288,12 +288,12 @@ private:
     const TabletSchema* _schema;
     std::string _rowset_path_prefix;    // path of rowset
     Version _version;                  // version of associated data file
-    VersionHash _version_hash;         // version hash for this segmentgroup
+    VersionHash _version_hash;         // version hash for this segment group
     bool _delete_flag;
-    int32_t _segment_group_id;         // segmentgroup id of segmentgroup
-    PUniqueId _load_id;                // load id for segmentgroup
-    int32_t _num_segments;             // number of segments in this segmentgroup
-    bool _index_loaded;                // whether the segmentgroup has been read
+    int32_t _segment_group_id;         // segment group id of segment group
+    PUniqueId _load_id;                // load id for segment group
+    int32_t _num_segments;             // number of segments in this segment group
+    bool _index_loaded;                // whether the segment group has been read
     std::atomic<int64_t> _ref_count;   // reference count
     MemIndex _index;
     bool _is_pending;

@@ -21,7 +21,7 @@
 #include "runtime/exec_env.h"
 #include "util/cpu_info.h"
 
-#define private public  // hack complier
+#define private public  // hack compiler
 #define protected public
 
 #include "runtime/snapshot_loader.h"

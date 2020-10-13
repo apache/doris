@@ -171,7 +171,7 @@ void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequ
 //
 //    Status status = _exec_env->export_task_mgr()->start_task(request);
 //    if (status.ok()) {
-//        VLOG_RPC << "start export task successfull id="
+//        VLOG_RPC << "start export task successful id="
 //            << request.params.params.fragment_instance_id;
 //    } else {
 //        VLOG_RPC << "start export task failed id="
@@ -259,7 +259,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     result_.__set_selected_columns(selected_columns);
 }
 
-// fetch result from polling the queue, should always maintaince the context offset, otherwise inconsistent result
+// fetch result from polling the queue, should always maintain the context offset, otherwise inconsistent result
 void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchParams& params) {
     std::string context_id = params.context_id;
     u_int64_t offset = params.offset;

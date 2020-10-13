@@ -178,7 +178,7 @@ public:
         _heartbeat_flags = heartbeat_flags;
     }
 
-    // start all backgroud threads. This should be call after env is ready.
+    // start all background threads. This should be call after env is ready.
     Status start_bg_threads();
 
     void stop();
@@ -289,7 +289,7 @@ private:
 
     // _file_cache is a lru_cache for file descriptors of files opened by doris,
     // which can be shared by others. Why we need to share cache with others? 
-    // Beacuse a unique memory space is easier for management. For example,
+    // Because a unique memory space is easier for management. For example,
     // we can deal with segment v1's cache and segment v2's cache at same time.
     // Note that, we must create _file_cache before sharing it with other. 
     // (e.g. the storage engine's open function must be called earlier than 

@@ -31,10 +31,10 @@ public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
     virtual ~MasterServerClient() {};
 
-    // Reprot finished task to the master server
+    // Report finished task to the master server
     //
     // Input parameters:
-    // * request: The infomation of finished task
+    // * request: The information of finished task
     //
     // Output parameters:
     // * result: The result of report task
@@ -43,7 +43,7 @@ public:
     // Report tasks/olap tablet/disk state to the master server
     //
     // Input parameters:
-    // * request: The infomation to report
+    // * request: The information to report
     //
     // Output parameters:
     // * result: The result of report task
@@ -52,7 +52,7 @@ public:
 private:
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);
 
-    // Not ownder. Reference to the ExecEnv::_master_info
+    // Not owner. Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
     FrontendServiceClientCache* _client_cache;
 };

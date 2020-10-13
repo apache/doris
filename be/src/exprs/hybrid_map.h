@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_MAP_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_MAP_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
+#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
 
 #include <unordered_map>
 #include "common/status.h"
@@ -24,25 +24,25 @@
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 #include "common/object_pool.h"
-#include "exprs/hybird_set.h"
+#include "exprs/hybrid_set.h"
 
 namespace doris {
 
-class HybirdMap {
+class HybridMap {
 public:
-    HybirdMap(PrimitiveType type) : _type(type) {
+    HybridMap(PrimitiveType type) : _type(type) {
     }
 
-    virtual ~HybirdMap() {
+    virtual ~HybridMap() {
     }
 
-    virtual HybirdSetBase* find_or_insert_set(uint64_t dst, bool* is_add_buckets) {
-        HybirdSetBase* _set_ptr;
-        typename std::unordered_map<uint64_t, HybirdSetBase*>::const_iterator it = _map.find(dst);
+    virtual HybridSetBase* find_or_insert_set(uint64_t dst, bool* is_add_buckets) {
+        HybridSetBase* _set_ptr;
+        typename std::unordered_map<uint64_t, HybridSetBase*>::const_iterator it = _map.find(dst);
 
         if (it == _map.end()) {
-            _set_ptr = _pool.add(HybirdSetBase::create_set(_type));
-            std::pair<uint64_t, HybirdSetBase*> insert_pair(dst, _set_ptr);
+            _set_ptr = _pool.add(HybridSetBase::create_set(_type));
+            std::pair<uint64_t, HybridSetBase*> insert_pair(dst, _set_ptr);
             _map.insert(insert_pair);
             *is_add_buckets = true;
         } else {
@@ -54,10 +54,10 @@ public:
     }
 
 private:
-    std::unordered_map<uint64_t, HybirdSetBase*> _map;
+    std::unordered_map<uint64_t, HybridSetBase*> _map;
     PrimitiveType _type;
     ObjectPool _pool;
 };
 }
 
-#endif  // DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_MAP_H
+#endif  // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H

@@ -26,7 +26,7 @@
 namespace doris {
 
 class HllSetResolver;
-class HybirdSetBase;
+class HybridSetBase;
 
 // Collection of builtin aggregate functions. Aggregate functions implement
 // the various phases of the aggregation: Init(), Update(), Serialize(), Merge(),
@@ -65,7 +65,7 @@ public:
 
     static void count_star_remove(FunctionContext*, BigIntVal* dst);
 
-    // Impementation of percentile_approx
+    // Implementation of percentile_approx
     static void percentile_approx_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
 
     template <typename T>
@@ -225,7 +225,7 @@ dst);
     static DecimalVal sum_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv);
     static DecimalV2Val sum_distinct_decimalv2_finalize(FunctionContext* ctx, const StringVal& state_sv);
 
-    // count distinct in multi disticnt for Date
+    // count distinct in multi distinct for Date
     static void count_distinct_date_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void count_distinct_date_update(FunctionContext* ctx, DateTimeVal& src, StringVal* dst);
     static void count_distinct_date_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
@@ -331,7 +331,7 @@ dst);
             const doris_udf::StringVal& src);
 
     static void hll_union_agg_init(doris_udf::FunctionContext*, doris_udf::HllVal* slot);
-    // fill all register accroading to hll set type
+    // fill all register according to hll set type
     static void hll_union_agg_update(doris_udf::FunctionContext*, const doris_udf::HllVal& src,
                                      doris_udf::HllVal* dst);
     // merge the register value

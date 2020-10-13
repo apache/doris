@@ -497,7 +497,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
             }
         }
 
-        HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+        HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
         while (iter->has_next()) {
             if (nullptr == iter->get_value()) {
                 return false;

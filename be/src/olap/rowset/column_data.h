@@ -110,23 +110,23 @@ public:
 
     bool rowset_pruning_filter();
     int delete_pruning_filter();
-    uint64_t get_filted_rows();
+    uint64_t get_filtered_rows();
 
     SegmentGroup* segment_group() const { return _segment_group; }
     void set_segment_group(SegmentGroup* segment_group) { _segment_group = segment_group; }
     int64_t num_rows() const { return _segment_group->num_rows(); }
 
-    // To compatable with schmea change read, use this function to init column data
+    // To compatible with schema change read, use this function to init column data
     // for schema change read. Only called in get_first_row_block
     OLAPStatus schema_change_init();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(ColumnData);
 
-    // Try to seek to 'key'. If this funciton returned with OLAP_SUCCESS, current_row()
+    // Try to seek to 'key'. If this function returned with OLAP_SUCCESS, current_row()
     // point to the first row meet the requirement.
     // If there is no such row, OLAP_ERR_DATA_EOF will return.
-    // If error happend, other code will return
+    // If error happened, other code will return
     OLAPStatus _seek_to_row(const RowCursor& key, bool find_key, bool is_end_key);
 
     // seek to block_pos without load that block, caller must call _get_block()
@@ -139,7 +139,7 @@ private:
     OLAPStatus _find_position_by_full_key(
             const RowCursor& key, bool find_last_key, RowBlockPosition *position);
 
-    // Used in _seek_to_row, this function will goto next row that vaild for this
+    // Used in _seek_to_row, this function will goto next row that valid for this
     // ColumnData
     OLAPStatus _next_row(const RowCursor** row, bool without_filter);
 

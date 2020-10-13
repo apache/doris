@@ -93,7 +93,7 @@ public:
         return *this;
     }
 
-    // These define the preincrement (i.e. --value) operators.
+    // These define the preIncrement (i.e. --value) operators.
     AtomicInt& operator++() {
         __sync_add_and_fetch(&_value, 1);
         return *this;

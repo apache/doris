@@ -104,7 +104,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
     if (_waiting_rpc.empty()) {
         _buffer_rows += num_rows;
         _batch_queue.push_back(result);
-        _data_arriaval.notify_one();
+        _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
@@ -121,7 +121,7 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
         boost::unique_lock<boost::mutex> l(_lock);
 
         while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
-            _data_arriaval.wait(l);
+            _data_arrival.wait(l);
         }
 
         // if Status has been set, return fail;
@@ -200,7 +200,7 @@ Status BufferControlBlock::close(Status exec_status) {
     _status = exec_status;
 
     // notify blocked get thread
-    _data_arriaval.notify_all();
+    _data_arrival.notify_all();
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
             for (auto& ctx : _waiting_rpc) {
@@ -220,7 +220,7 @@ Status BufferControlBlock::cancel() {
     boost::unique_lock<boost::mutex> l(_lock);
     _is_cancelled = true;
     _data_removal.notify_all();
-    _data_arriaval.notify_all();
+    _data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
     }

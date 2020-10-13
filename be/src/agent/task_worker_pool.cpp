@@ -434,7 +434,7 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
-        int64_t signatrue = agent_task_req.signature;
+        int64_t signature = agent_task_req.signature;
         LOG(INFO) << "get alter table task, signature: " << agent_task_req.signature;
         bool is_task_timeout = false;
         if (agent_task_req.__isset.recv_time) {
@@ -450,7 +450,7 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
             TTaskType::type task_type = agent_task_req.task_type;
             switch (task_type) {
             case TTaskType::ALTER:
-                _alter_tablet(agent_task_req, signatrue,
+                _alter_tablet(agent_task_req, signature,
                               task_type, &finish_task_request);
                 break;
             default:

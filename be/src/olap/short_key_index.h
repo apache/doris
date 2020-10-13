@@ -33,7 +33,7 @@ namespace doris {
 
 // In our system, we have more complicated situation.
 // First, our keys can be NULL.
-// Second, when key columns are not complete we want to distinguish GT and GE. For examle,
+// Second, when key columns are not complete we want to distinguish GT and GE. For example,
 // there are two key columns a and b, we have only one condition a > 1. We can only encode
 // a prefix key 1, which is less than 1|2. This will make our read more data than
 // we actually need. So we want to add more marker.
@@ -230,7 +230,7 @@ public:
 
     // Return an iterator which locates at the first item who is
     // equal with or greater than the given key.
-    // NOTE: If one key is the prefix of other key, this funciton thinks
+    // NOTE: If one key is the prefix of other key, this function thinks
     // that longer key is greater than the shorter key.
     ShortKeyIndexIterator lower_bound(const Slice& key) const {
         DCHECK(_parsed);

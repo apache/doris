@@ -124,7 +124,7 @@ private:
 
     int _max_buffered_batches;
 
-    // Partition informations
+    // Partition information
     std::vector<ExprContext*> _partition_expr_ctxs;
     std::vector<PartitionInfo*> _partition_infos;
 

@@ -288,7 +288,7 @@ void BrokerScanner::close() {
 
 void BrokerScanner::split_line(
         const Slice& line, std::vector<Slice>* values) {
-    // line-begin char and line-end char are considered to be 'delimeter'
+    // line-begin char and line-end char are considered to be 'delimiter'
     const char* value = line.data;
     const char* ptr = line.data;
     for (size_t i = 0; i < line.size; ++i, ++ptr) {

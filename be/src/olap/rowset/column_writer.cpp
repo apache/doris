@@ -122,7 +122,7 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        LOG(WARNING) << "Unspported field type. field=" << column.name()
+        LOG(WARNING) << "Unsupported field type. field=" << column.name()
                      << ", type=" << column.type();
         break;
     }
@@ -165,7 +165,7 @@ OLAPStatus ColumnWriter::init() {
                 unique_column_id(), StreamInfoMessage::PRESENT);
 
         if (NULL == _is_present_stream) {
-            OLAP_LOG_WARNING("fail to allocate IS PRESENT STERAM");
+            OLAP_LOG_WARNING("fail to allocate IS PRESENT STREAM");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
@@ -200,7 +200,7 @@ OLAPStatus ColumnWriter::init() {
             unique_column_id(), StreamInfoMessage::ROW_INDEX);
 
     if (NULL == _index_stream) {
-        OLAP_LOG_WARNING("fail to allocate Index STERAM");
+        OLAP_LOG_WARNING("fail to allocate Index STREAM");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -461,7 +461,7 @@ OLAPStatus ByteColumnWriter::init() {
             unique_column_id(), StreamInfoMessage::DATA);
 
     if (NULL == stream) {
-        OLAP_LOG_WARNING("fail to allocate DATA STERAM");
+        OLAP_LOG_WARNING("fail to allocate DATA STREAM");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -519,7 +519,7 @@ OLAPStatus IntegerColumnWriter::init() {
             _unique_column_id, StreamInfoMessage::DATA);
 
     if (NULL == stream) {
-        OLAP_LOG_WARNING("fail to allocate DATA STERAM");
+        OLAP_LOG_WARNING("fail to allocate DATA STREAM");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -707,13 +707,13 @@ OLAPStatus VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     if (_use_dictionary_encoding) {
         res = _finalize_dict_encoding();
         if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to finalize dict enconding.");
+            OLAP_LOG_WARNING("fail to finalize dict encoding.");
             return res;
         }
     } else {
         res = _finalize_direct_encoding();
         if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to finalize direct enconding.");
+            OLAP_LOG_WARNING("fail to finalize direct encoding.");
             return res;
         }
     }
