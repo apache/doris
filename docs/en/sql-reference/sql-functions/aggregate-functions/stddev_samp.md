@@ -43,4 +43,4 @@ MySQL > select stddev_samp(scan_rows) from log_statis group by datetime;
 +--------------------------+
 ```
 ## keyword
-STDDEVu SAMP,STDDEV,SAMP
+STDDEV SAMP,STDDEV,SAMP

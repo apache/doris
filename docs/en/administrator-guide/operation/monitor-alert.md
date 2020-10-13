@@ -28,7 +28,7 @@ under the License.
 
 This document mainly introduces Doris's monitoring items and how to collect and display them. And how to configure alarm (TODO)
 
-[Dashborad template click download](https://grafana.com/dashboards/9734/revisions)
+[Dashboard template click download](https://grafana.com/dashboards/9734/revisions)
 
 > Note: Before 0.9.0 (excluding), please use revision 1. For version 0.9.x, use revision 2. For version 0.10.x, use revision 3.
 
@@ -102,7 +102,7 @@ Users will see the following monitoring item results (for example, FE partial mo
     ...
     ```
     
-This is a monitoring data presented in [Promethus Format] (https://prometheus.io/docs/practices/naming/). We take one of these monitoring items as an example to illustrate:
+This is a monitoring data presented in [Prometheus Format] (https://prometheus.io/docs/practices/naming/). We take one of these monitoring items as an example to illustrate:
 
 ```
 # HELP  jvm_heap_size_bytes jvm heap stat
@@ -133,9 +133,9 @@ Please start building the monitoring system after you have completed the deploym
 
 Prometheus
 
-1. Download the latest version of Proetheus on the [Prometheus Website] (https://prometheus.io/download/). Here we take version 2.3.2-linux-amd64 as an example.
+1. Download the latest version of Prometheus on the [Prometheus Website] (https://prometheus.io/download/). Here we take version 2.3.2-linux-amd64 as an example.
 2. Unzip the downloaded tar file on the machine that is ready to run the monitoring service.
-3. Open the configuration file promethues.yml. Here we provide an example configuration and explain it (the configuration file is in YML format, pay attention to uniform indentation and spaces):
+3. Open the configuration file prometheus.yml. Here we provide an example configuration and explain it (the configuration file is in YML format, pay attention to uniform indentation and spaces):
 
 	Here we use the simplest way of static files to monitor configuration. Prometheus supports a variety of [service discovery] (https://prometheus.io/docs/prometheus/latest/configuration/configuration/), which can dynamically sense the addition and deletion of nodes.
 
@@ -180,9 +180,9 @@ Prometheus
                   
     ```
 
-4. start Promethues
+4. start Prometheus
 
-	Start Promethues with the following command:
+	Start Prometheus with the following command:
 
 	`nohup ./prometheus --web.listen-address="0.0.0.0:8181" &`
 
@@ -241,7 +241,7 @@ Prometheus
 
 7. Configure Grafana
 
-	For the first landing, you need to set up the data source according to the prompt. Our data source here is Proetheus, which was configured in the previous step.
+	For the first landing, you need to set up the data source according to the prompt. Our data source here is Prometheus, which was configured in the previous step.
 
 	The Setting page of the data source configuration is described as follows:
 
