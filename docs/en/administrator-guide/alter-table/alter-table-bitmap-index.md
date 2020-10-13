@@ -32,7 +32,7 @@ This document focuses on how to create an index job, as well as some considerati
 * bitmap index：a fast data structure that speeds up queries
 
 ## Basic Principles
-Creating and droping index is essentially a schema change job. For details, please refer to
+Creating and dropping index is essentially a schema change job. For details, please refer to
 [Schema Change](alter-table-schema-change.html)。
 
 ## Syntax
@@ -53,12 +53,12 @@ create/drop index syntax
     Please refer to [DROP INDEX](../../sql-reference/sql-statements/Data%20Definition/DROP%20INDEX.html) or [ALTER TABLE](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html)
 
 ## Create Job
-Please refer to [Scheam Change](alter-table-schema-change.html)
+Please refer to [Schema Change](alter-table-schema-change.html)
 ## View Job
-Please refer to [Scheam Change](alter-table-schema-change.html)
+Please refer to [Schema Change](alter-table-schema-change.html)
 
 ## Cancel Job
-Please refer to [Scheam Change](alter-table-schema-change.html)
+Please refer to [Schema Change](alter-table-schema-change.html)
 
 ## Notice
 * Currently only index of bitmap type is supported.

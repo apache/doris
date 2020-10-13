@@ -72,9 +72,9 @@ Initially, a database can be created through root or admin users:
 
 `CREATE DATABASE example_db;`
 
-> All commands can use'HELP command;'to see detailed grammar help. For example: `HELP CREATE DATABASE;'`
+> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;'`
 
-> If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type'HELP CREATE', you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
+> If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
 
 After the database is created, you can view the database information through `SHOW DATABASES'.
 
@@ -99,7 +99,7 @@ After the example_db is created, the read and write permissions of example_db ca
 
 ### 2.3 Formulation
 
-Create a table using the `CREATE TABLE'command. More detailed parameters can be seen:
+Create a table using the `CREATE TABLE` command. More detailed parameters can be seen:
 
 `HELP CREATE TABLE;`
 
@@ -315,7 +315,7 @@ Broker imports are asynchronous commands. Successful execution of the above comm
 
 `SHOW LOAD WHERE LABLE = "table1_20170708";`
 
-In the return result, FINISHED in the `State'field indicates that the import was successful.
+In the return result, FINISHED in the `State` field indicates that the import was successful.
 
 For more instructions on `SHOW LOAD`, see` HELP SHOW LOAD; `
 

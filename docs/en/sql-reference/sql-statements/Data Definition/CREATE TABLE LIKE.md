@@ -36,7 +36,7 @@ Syntax：
 ```
 
 Explain:
-    1. The replicated table structures include Column Defination, Partitions, Table Properties, and so on
+    1. The replicated table structures include Column Definition, Partitions, Table Properties, and so on
     2. The SELECT privilege is required on the original table.
     3. Support to copy external table such as MySQL.
 

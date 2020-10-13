@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Scheam Change",
+    "title": "Schema Change",
     "language": "en"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Scheam Change
+# Schema Change
 
-Users can modify the schema of existing tables through the Scheam Change operation. Doris currently supports the following modifications:
+Users can modify the schema of existing tables through the Schema Change operation. Doris currently supports the following modifications:
 
 * Add and delete columns
 * Modify column type
@@ -34,7 +34,7 @@ Users can modify the schema of existing tables through the Scheam Change operati
 * Add and modify Bloom Filter
 * Add and delete bitmap index
 
-This document mainly describes how to create a Scheam Change job, as well as some considerations and frequently asked questions about Scheam Change.
+This document mainly describes how to create a Schema Change job, as well as some considerations and frequently asked questions about Schema Change.
 ## Glossary
 
 * Base Table：When each table is created, it corresponds to a base table. The base table stores the complete data of this table. Rollups are usually created based on the data in the base table (and can also be created from other rollups).
@@ -68,9 +68,9 @@ The basic process of executing a Schema Change is to generate a copy of the inde
 Before starting the conversion of historical data, Doris will obtain a latest transaction ID. And wait for all import transactions before this Transaction ID to complete. This Transaction ID becomes a watershed. This means that Doris guarantees that all import tasks after the watershed will generate data for both the original Index and the new Index. In this way, when the historical data conversion is completed, the data in the new Index can be guaranteed to be complete.
 ## Create Job
 
-The specific syntax for creating a Scheam Change can be found in the description of the Scheam Change section in the help `HELP ALTER TABLE`.
+The specific syntax for creating a Schema Change can be found in the description of the Schema Change section in the help `HELP ALTER TABLE`.
 
-The creation of Scheam Change is an asynchronous process. After the job is submitted successfully, the user needs to view the job progress through the `SHOW ALTER TABLE COLUMN` command.
+The creation of Schema Change is an asynchronous process. After the job is submitted successfully, the user needs to view the job progress through the `SHOW ALTER TABLE COLUMN` command.
 ## View Job
 
 `SHOW ALTER TABLE COLUMN` You can view the Schema Change jobs that are currently executing or completed. When multiple indexes are involved in a Schema Change job, the command displays multiple lines, each corresponding to an index. For example:

@@ -30,7 +30,7 @@ under the License.
 This statement is used to create and upload a file to the Doris cluster.
 This function is usually used to manage files that need to be used in some other commands, such as certificates, public key, private key, etc.
 
-This command can be executed by users with amdin privileges only.
+This command can be executed by users with admin privileges only.
 A file belongs to a database. This file can be used by users who have access to database.
 
 The size of a single file is limited to 1MB.

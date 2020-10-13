@@ -63,7 +63,7 @@ There are two ways to configure FE configuration items:
     
 2. Dynamic configuration
 
-    After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator priviledge.
+    After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
 
     `ADMIN SET FRONTEND CONFIG (" fe_config_name "=" fe_config_value ");`
 

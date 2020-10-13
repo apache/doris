@@ -31,7 +31,7 @@ Grammar:
 BACKUP SNAPSHOT [db_name].{snapshot_name}
 TO `repository_name`
 ON (
-"`Table `U name'[Distriction (`P1',...)],
+`Table_name` [partition (`P1',...)],
 ...
 )
 PROPERTIES ("key"="value", ...);
