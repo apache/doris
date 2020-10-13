@@ -2020,7 +2020,7 @@ public class Load {
                 jobInfo.add(TimeUtils.longToTimeString(loadJob.getLoadFinishTimeMs()));
                 // tracking url
                 jobInfo.add(status.getTrackingUrl());
-                // job details
+                // job detail(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);

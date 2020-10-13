@@ -22,6 +22,7 @@ import {Form, Input, Button, Checkbox} from 'antd';
 import request from 'Utils/request';
 import {useHistory} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
+import {login} from 'Src/api/api';
 import styles from './index.less';
 import './cover.less';
 function Login(){
@@ -44,18 +45,12 @@ function Login(){
         msg: string;
         code: number;
     }
-    function login<T>(data: any): Promise<Result<T>> {
-        return request('/rest/v1/login', {
-            method: 'POST',
-            headers:{Authorization: data.password?`Basic ${btoa(data.username+':'+data.password)}`:`Basic ${btoa(data.username+':')}`},
-        });
-    }
     const onFinish = values => {
         login(values).then(res=>{
             if(res.code===200){
                 history.push('/home');
                 localStorage.setItem('username', username)
-            }
+            } 
         });
     };
 

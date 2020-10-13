@@ -18,7 +18,7 @@
  */
  
 import React,{useState,useEffect} from 'react';
-import {AdHocAPI} from 'Utils/api';
+import {AdHocAPI} from 'Src/api/api';
 import {getDbName} from 'Utils/utils';
 import {Row, Empty} from 'antd';
 import {FlatBtn} from 'Components/flatbtn';
@@ -32,7 +32,7 @@ export function DataPrev(props: any) {
             db_name,
             body:{stmt:`SELECT * FROM ${db_name}.${tbl_name} LIMIT 10`},
         }).then(res=>{
-            if (res && res.data) {
+            if (res && res.msg === 'success') {
                 setTableData(res.data);
             }
         })

@@ -1270,4 +1270,21 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static double default_max_filter_ratio = 0;
+
+    /**
+     * HTTP Server V2 is implemented by SpringBoot.
+     * It uses an architecture that separates front and back ends.
+     * Only enable httpv2 can user to use the new Frontend UI interface
+     */
+    @ConfField
+    public static boolean enable_http_server_v2 = false;
+
+    /*    
+     * Base path is the URL prefix for all API paths.
+     * Some deployment environments need to configure additional base path to match resources.
+     * This Api will return the path configured in Config.http_api_extra_base_path.
+     * Default is empty, which means not set.
+     */
+    @ConfField
+    public static String http_api_extra_base_path = "";
 }

@@ -20,7 +20,7 @@
 import React, {useState, useEffect, useRef} from 'react';
 import {Typography, Button, Row, Col} from 'antd';
 const {Text, Title, Paragraph} = Typography;
-import {queryProfile} from 'Utils/api';
+import {queryProfile} from 'Src/api/api';
 import Table from 'Src/components/table';
 import {useHistory} from 'react-router-dom';
 export default function QueryProfile(params: any) {
@@ -31,7 +31,7 @@ export default function QueryProfile(params: any) {
     const history = useHistory();
     const doQueryProfile = function(){
         const param = {
-            path:location.pathname.slice(14),
+            path: getLastPath(),
         };
         queryProfile(param).then(res=>{
             if (res && res.msg === 'success') {
@@ -59,6 +59,11 @@ export default function QueryProfile(params: any) {
     useEffect(() => {
         doQueryProfile();
     }, [location.pathname]);
+    function getLastPath(){
+        let arr = location.pathname.split('/');
+        let str = arr.pop();
+        return str === 'QueryProfile' ? '' : str;
+    }
     function goPrev(){
         if (location.pathname === '/QueryProfile/') {return;}
         history.push('/QueryProfile/');

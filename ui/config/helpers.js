@@ -25,7 +25,5 @@
 const path = require('path');
 
 const rootPath = path.resolve(__dirname, '..');
-const pingoPath = path.resolve(__dirname, '../../');
 const root = (...args) => path.join(...[rootPath].concat(args));
-
-module.exports = {root, pingoPath};
+module.exports = {root};

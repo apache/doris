@@ -60,9 +60,9 @@ export function AdhocContentResult(props) {
         if (runningQueryInfo.data?.type === 'exec_status') {
             setResStatus(runningQueryInfo.data.status)
         } else {
-            const tableData = runningQueryInfo.data?(runningQueryInfo.data?.data).slice(0,20):[];
+            const tableData = (runningQueryInfo.data && typeof(runningQueryInfo.data) === 'object')?(runningQueryInfo.data?.data).slice(0,20):[];
             setTableDate(tableData);
-            setTotal(runningQueryInfo.data?.data.length);
+            setTotal((runningQueryInfo.data && typeof(runningQueryInfo.data) === 'object')?runningQueryInfo.data?.data.length:0);
         }
         setRunningQueryInfo(runningQueryInfo);
     },[location.state]);
@@ -123,7 +123,7 @@ export function AdhocContentResult(props) {
                     ) : (
                         <TextWithIcon
                             icon={<CloseCircleFilled/>}
-                            text={"执行失败: "+runningQueryInfo.msg}
+                            text={"执行失败: "+runningQueryInfo.msg +' '+ runningQueryInfo.data}
                             color="red"
                             style={{
                                 marginBottom: 10,
@@ -140,13 +140,13 @@ export function AdhocContentResult(props) {
                             <Col>{runningQueryInfo.tbl_name}</Col>
                         </Row> */}
                         <Row justify="start">
-                            <Col span={3}>{t('startingTime')}:</Col>
-                            <Col>{runningQueryInfo.beginTime}</Col>
+                            <Col span={3}>{t('executionTime')}:</Col>
+                            <Col>{runningQueryInfo.data?.time + ' ms'}</Col>
                         </Row>
-                        <Row justify="start">
+                        {/* <Row justify="start">
                             <Col span={3}>{t('endTime')}:</Col>
                             <Col>{runningQueryInfo.beginTime}</Col>
-                        </Row>
+                        </Row> */}
                         {
                             ...getELe(resStatus)
                         }
@@ -166,8 +166,8 @@ export function AdhocContentResult(props) {
                                 <table style={{width: '100%'}}>
                                     <thead className="ant-table-thead">
                                         <tr>
-                                            {runningQueryInfo.data?.meta?.map(item => (
-                                                <th className="ant-table-cell" key={item.name}>
+                                            {runningQueryInfo.data?.meta?.map((item, index) => (
+                                                <th className="ant-table-cell" key={index + item.name}>
                                                     {item.name}
                                                 </th>
                                             ))}
@@ -176,10 +176,10 @@ export function AdhocContentResult(props) {
                                     <tbody className="ant-table-tbody">
                                         {tableData.map((item,index) => (
                                             <tr className="ant-table-row" key={index}>
-                                                {item.map(tdData => (
+                                                {item.map((tdData, index) => (
                                                     <td
                                                         className="ant-table-cell"
-                                                        key={tdData}
+                                                        key={index+''+tdData}
                                                     >
                                                         {tdData == '\\N'?'-':tdData}
                                                     </td>
