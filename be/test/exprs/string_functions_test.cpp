@@ -178,6 +178,10 @@ TEST_F(StringFunctionsTest, split_part) {
 
     ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
               StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("#123")),
+            StringFunctions::split_part(context, StringVal("abc###123###234"), StringVal("##"), 2));
+    
     delete context;
 }
 
