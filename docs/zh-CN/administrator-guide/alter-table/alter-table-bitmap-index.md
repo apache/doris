@@ -53,13 +53,13 @@ create/drop index 语法
     或者 [ALTER TABLE](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html) 中bitmap 索引相关的操作
 
 ## 创建作业
-参照 schema change 文档 [Scheam Change](alter-table-schema-change.html)
+参照 schema change 文档 [Schema Change](alter-table-schema-change.html)
 
 ## 查看作业
-参照 schema change 文档 [Scheam Change](alter-table-schema-change.html)
+参照 schema change 文档 [Schema Change](alter-table-schema-change.html)
 
 ## 取消作业
-参照 schema change 文档 [Scheam Change](alter-table-schema-change.html)
+参照 schema change 文档 [Schema Change](alter-table-schema-change.html)
 
 ## 注意事项
 * 目前索引仅支持 bitmap 类型的索引。 
