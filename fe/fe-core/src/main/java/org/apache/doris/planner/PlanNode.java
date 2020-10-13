@@ -428,6 +428,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     protected double computeSelectivity() {
         double prod = 1.0;
         for (Expr e : conjuncts) {
+            if (e.getSelectivity() < 0) {
+                return -1.0;
+            }
             prod *= e.getSelectivity();
         }
         return prod;
