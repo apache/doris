@@ -493,6 +493,7 @@ public class Coordinator {
                 for (Pair<BackendExecState, Future<PExecPlanFragmentResult>> pair : futures) {
                     TStatusCode code = TStatusCode.INTERNAL_ERROR;
                     String errMsg = null;
+                    Exception exception = null;
                     try {
                         PExecPlanFragmentResult result = pair.second.get(Config.remote_fragment_exec_timeout_ms,
                                                                          TimeUnit.MILLISECONDS);
@@ -502,16 +503,23 @@ public class Coordinator {
                         }
                     } catch (ExecutionException e) {
                         LOG.warn("catch a execute exception", e);
+                        exception = e;
                         code = TStatusCode.THRIFT_RPC_ERROR;
                     } catch (InterruptedException e) {
                         LOG.warn("catch a interrupt exception", e);
+                        exception = e;
                         code = TStatusCode.INTERNAL_ERROR;
                     } catch (TimeoutException e) {
                         LOG.warn("catch a timeout exception", e);
+                        exception = e;
                         code = TStatusCode.TIMEOUT;
                     }
 
                     if (code != TStatusCode.OK) {
+                        if (exception != null) {
+                            errMsg = exception.getMessage();
+                        }
+
                         if (errMsg == null) {
                             errMsg = "exec rpc error. backend id: " + pair.first.backend.getId();
                         }
@@ -524,7 +532,7 @@ public class Coordinator {
                         case TIMEOUT:
                             throw new UserException("query timeout. backend id: " + pair.first.backend.getId());
                         case THRIFT_RPC_ERROR:
-                            SimpleScheduler.addToBlacklist(pair.first.backend.getId());
+                            SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                             throw new RpcException(pair.first.backend.getHost(), "rpc failed");
                         default:
                             throw new UserException(errMsg);
@@ -668,7 +676,7 @@ public class Coordinator {
                 copyStatus.rewriteErrorMsg();
             }
             if (copyStatus.isRpcError()) {
-                throw new RpcException("unknown", copyStatus.getErrorMsg());
+                throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("query failed: {}", errMsg);
@@ -1235,9 +1243,6 @@ public class Coordinator {
         int randomLocation = new Random().nextInt(seqLocation.locations.size());
         Reference<Long> backendIdRef = new Reference<Long>();
         TNetworkAddress execHostPort = SimpleScheduler.getHost(seqLocation.locations.get(randomLocation).backend_id, seqLocation.locations, this.idToBackend, backendIdRef);
-        if (execHostPort == null) {
-            throw new UserException("there is no scanNode Backend");
-        }
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
     }
@@ -1266,9 +1271,6 @@ public class Coordinator {
             Reference<Long> backendIdRef = new Reference<Long>();
             TNetworkAddress execHostPort = SimpleScheduler.getHost(minLocation.backend_id,
                     scanRangeLocations.getLocations(), this.idToBackend, backendIdRef);
-            if (execHostPort == null) {
-                throw new UserException("there is no scanNode Backend");
-            }
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
 
             Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort,
@@ -1681,7 +1683,7 @@ public class Coordinator {
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress));
+                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
                 }
 
                 this.hasCanceled = true;
