@@ -240,7 +240,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         return st.clone_and_prepend("already stopped, skip waiting for close. cancelled/!eos: ");
     }
 
-    // waiting for finished, it may take a long time, so we could't set a timeout
+    // waiting for finished, it may take a long time, so we couldn't set a timeout
     MonotonicStopWatch timer;
     timer.start();
     while (!_add_batches_finished && !_cancelled) {
@@ -362,7 +362,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
     for (auto& tablet : tablets) {
         auto location = _parent->_location->find_tablet(tablet.tablet_id);
         if (location == nullptr) {
-            LOG(WARNING) << "unknow tablet, tablet_id=" << tablet.tablet_id;
+            LOG(WARNING) << "unknown tablet, tablet_id=" << tablet.tablet_id;
             return Status::InternalError("unknown tablet");
         }
         std::vector<NodeChannel*> channels;
@@ -399,7 +399,7 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     }
 
     if (has_intolerable_failure()) {
-        return Status::InternalError("index channel has intoleralbe failure");
+        return Status::InternalError("index channel has intolerable failure");
     }
 
     return Status::OK();

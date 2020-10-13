@@ -181,8 +181,8 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::st
 
     {
         // use try lock to check this tablet is running cumulative compaction
-        MutexLock lock_cumulativie(tablet->get_cumulative_lock(), TRY_LOCK);
-        if (!lock_cumulativie.own_lock()) {
+        MutexLock lock_cumulative(tablet->get_cumulative_lock(), TRY_LOCK);
+        if (!lock_cumulative.own_lock()) {
             msg = "this tablet_id is running";
             compaction_type = "cumulative";
             run_status = 1;

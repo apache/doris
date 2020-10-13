@@ -57,7 +57,7 @@ struct GetResultBatchCtx {
     void on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos = false);
 };
 
-// buffer used for result customer and productor
+// buffer used for result customer and producer
 class BufferControlBlock {
 public:
     BufferControlBlock(const TUniqueId& id, int buffer_size);
@@ -72,7 +72,7 @@ public:
     void get_batch(GetResultBatchCtx* ctx);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
-    // called because data has been read or error happend.
+    // called because data has been read or error happened.
     Status close(Status exec_status);
     // this is called by RPC, called from coordinator
     Status cancel();
@@ -110,7 +110,7 @@ private:
     // protects all subsequent data in this block
     boost::mutex _lock;
     // signal arrival of new batch or the eos/cancelled condition
-    boost::condition_variable _data_arriaval;
+    boost::condition_variable _data_arrival;
     // signal removal of data by stream consumer
     boost::condition_variable _data_removal;
    
@@ -118,7 +118,7 @@ private:
 
     // It is shared with PlanFragmentExecutor and will be called in two different 
     // threads. But their calls are all at different time, there is no problem of 
-    // multithreaded access.
+    // multithreading access.
     std::shared_ptr<QueryStatistics> _query_statistics;
 };
 

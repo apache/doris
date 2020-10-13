@@ -65,11 +65,12 @@ void set_up() {
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
-
+    k_engine->start_bg_threads();
     k_mem_tracker.reset(new MemTracker(-1, "delta writer test"));
 }
 
 void tear_down() {
+    k_engine->stop();
     delete k_engine;
     k_engine = nullptr;
     system("rm -rf ./data_test");

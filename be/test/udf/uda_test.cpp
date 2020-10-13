@@ -152,7 +152,7 @@ StringVal MinFinalize(FunctionContext* context, const BufferVal& val) {
 //----------------------------- Bits after Xor ------------------------------------
 // Example of a UDA that xors all the input bits and then returns the number of
 // resulting bits that are set. This illustrates where the result and intermediate
-// are the same type, but a transformation is still needed in Finialize()
+// are the same type, but a transformation is still needed in Finalize()
 // The input type is: double
 // The intermediate type is bigint
 // the return type is bigint

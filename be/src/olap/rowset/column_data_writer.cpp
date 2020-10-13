@@ -129,7 +129,7 @@ OLAPStatus ColumnDataWriter::write(const RowType& row) {
             LOG(WARNING) << "failed to flush data while attaching row cursor.";
             return OLAP_ERR_OTHER_ERROR;
         }
-        RETURN_NOT_OK(_flush_segment_with_verfication());
+        RETURN_NOT_OK(_flush_segment_with_verification());
     }
     return OLAP_SUCCESS;
 }
@@ -266,7 +266,7 @@ OLAPStatus ColumnDataWriter::_add_segment() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus ColumnDataWriter::_flush_segment_with_verfication() {
+OLAPStatus ColumnDataWriter::_flush_segment_with_verification() {
     uint64_t segment_size = _segment_writer->estimate_segment_size();
     if (UNLIKELY(segment_size < _max_segment_size)) {
         return OLAP_SUCCESS;

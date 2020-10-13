@@ -343,7 +343,7 @@ public:
                 unique_column_id(), StreamInfoMessage::DATA);
 
         if (NULL == _stream) {
-            OLAP_LOG_WARNING("fail to allocate DATA STERAM");
+            OLAP_LOG_WARNING("fail to allocate DATA STREAM");
             return OLAP_ERR_MALLOC_ERROR;
         }
 

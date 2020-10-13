@@ -32,7 +32,7 @@ public:
     }
 };
 
-TEST_F(ShortKeyIndexTest, buider) {
+TEST_F(ShortKeyIndexTest, builder) {
     ShortKeyIndexBuilder builder(0, 1024);
 
     int num_items = 0;
@@ -95,7 +95,7 @@ TEST_F(ShortKeyIndexTest, buider) {
 }
 
 
-TEST_F(ShortKeyIndexTest, enocde) {
+TEST_F(ShortKeyIndexTest, encode) {
     TabletSchema tablet_schema;
     tablet_schema._cols.push_back(create_int_key(0));
     tablet_schema._cols.push_back(create_int_key(1));

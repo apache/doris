@@ -488,7 +488,7 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
     }
 
     std::vector<uint64_t> bits;
-    // The contructor of `stringpiece` only support int type.
+    // The constructor of `stringPiece` only support int type.
     if ((input.len > INT32_MAX) 
         || !SplitStringAndParse({(const char*)input.ptr, (int)input.len}, ",", &safe_strtou64, &bits)) {
         return StringVal::null();

@@ -82,7 +82,7 @@ Status SchemaTablesScanner::start(RuntimeState *state) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result));
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
     return Status::OK();
 }
@@ -260,7 +260,7 @@ Status SchemaTablesScanner::get_new_table() {
         RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->ip),
                 _param->port, table_params, &_table_result));
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
     _table_index = 0;
     return Status::OK();

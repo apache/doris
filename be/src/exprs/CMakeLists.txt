@@ -57,7 +57,7 @@ add_library(Exprs
   udf_builtins.cpp
   utility_functions.cpp
   info_func.cpp
-  hybird_set.cpp
+  hybrid_set.cpp
   json_functions.cpp
   operators.cpp
   hll_hash_function.cpp

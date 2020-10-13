@@ -23,7 +23,7 @@
 #include <boost/unordered_set.hpp>
 #include "exprs/predicate.h"
 #include "runtime/raw_value.h"
-#include "exprs/hybird_set.h"
+#include "exprs/hybrid_set.h"
 
 namespace doris {
 
@@ -51,8 +51,8 @@ public:
     // if add to children, when List is long, copy is a expensive op.
     void insert(void* value);
 
-    HybirdSetBase* hybird_set() const {
-        return _hybird_set.get();
+    HybridSetBase* hybrid_set() const {
+        return _hybrid_set.get();
     }
 
     bool is_not_in() const {
@@ -72,7 +72,7 @@ private:
     const bool _is_not_in;
     bool _is_prepare;
     bool _null_in_set;
-    boost::shared_ptr<HybirdSetBase> _hybird_set;
+    boost::shared_ptr<HybridSetBase> _hybrid_set;
 
 };
 

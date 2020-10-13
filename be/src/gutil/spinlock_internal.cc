@@ -34,7 +34,7 @@
 // See spinlock_internal.h for the spec of SpinLockWake().
 
 // void SpinLockDelay(volatile Atomic32 *w, int32 value, int loop)
-// SpinLockDelay() generates an apprproate spin delay on iteration "loop" of a
+// SpinLockDelay() generates an appropriate spin delay on iteration "loop" of a
 // spin loop on location *w, whose previously observed value was "value".
 // SpinLockDelay() may do nothing, may yield the CPU, may sleep a clock tick,
 // or may wait for a delay that can be truncated by a call to SpinlockWake(w).

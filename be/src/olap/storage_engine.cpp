@@ -381,7 +381,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
         if (tmp_cluster_id == -1) {
             _is_all_cluster_id_exist = false;
         } else if (tmp_cluster_id == cluster_id) {
-            // both hava right cluster id, do nothing
+            // both have right cluster id, do nothing
         } else if (cluster_id == -1) {
             cluster_id = tmp_cluster_id;
         } else {

@@ -144,7 +144,7 @@ inline uint8_t* encode_varint64(uint8_t* dst, uint64_t v) {
     static const unsigned int B = 128;
     while (v >= B) {
         // Fetch low seven bits from current v, and the eight bit is marked as compression mark.
-        // v | B is optimsed from (v & (B-1)) | B, because result is assgined to uint8_t and other bits 
+        // v | B is optimised from (v & (B-1)) | B, because result is assigned to uint8_t and other bits
         // is cleared by implicit conversion.
         *(dst++) = v | B;
         v >>= 7;

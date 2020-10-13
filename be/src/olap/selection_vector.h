@@ -39,7 +39,7 @@ public:
         set_all_false();
     }
 
-    // returen the number of selected rows.
+    // return the number of selected rows.
     size_t count_selected() const {
         return Bits::Count(_bitmap.get(), _n_bytes);
     }

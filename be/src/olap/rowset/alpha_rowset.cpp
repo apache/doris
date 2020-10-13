@@ -322,7 +322,7 @@ OLAPStatus AlphaRowset::init() {
             }
             // Before 0.12.10, the zone map columns number in duplicate table is the same with the key column numbers,
             // but after 0.12.10 we build zone map for the value column, so when first start the two number is not the same,
-            // it cuases start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start afer upgrade
+            // it causes start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start after upgrade
             if (expect_zone_maps_num > zone_maps_size) {
                 LOG(WARNING) << "tablet: " << _rowset_meta->tablet_id() 
                 << " expect zone map size is " << expect_zone_maps_num << ", actual num is " << zone_maps_size

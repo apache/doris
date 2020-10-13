@@ -360,8 +360,8 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
             }
         }
 
-        auto iter = _delete_partial_statisfied_pages.find(_page->page_index);
-        bool is_partial = iter != _delete_partial_statisfied_pages.end();
+        auto iter = _delete_partial_satisfied_pages.find(_page->page_index);
+        bool is_partial = iter != _delete_partial_satisfied_pages.end();
         if (is_partial) {
             dst->column_block()->set_delete_state(DEL_PARTIAL_SATISFIED);
         } else {
@@ -470,7 +470,7 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                       RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_condition,
-                &_delete_partial_statisfied_pages, row_ranges));
+                &_delete_partial_satisfied_pages, row_ranges));
     }
     return Status::OK();
 }

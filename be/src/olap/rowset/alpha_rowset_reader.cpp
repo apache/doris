@@ -217,7 +217,7 @@ OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeC
 
 OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset_v2(RowCursor** row) {
     // if _merge_heap is not empty, return the row at top, and insert a new row
-    // from conresponding merge_ctx
+    // from corresponding merge_ctx
     if (!_merge_heap.empty()) {
         AlphaMergeContext* merge_ctx = _merge_heap.top();
         *row = merge_ctx->row_cursor.get();
@@ -385,7 +385,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
     }
 
     if (!_is_segments_overlapping && _merge_ctxs.size() > 1) {
-        LOG(WARNING) << "invalid column_datas for cumulative rowset. column_datas size:"
+        LOG(WARNING) << "invalid column_data for cumulative rowset. column_data size:"
                      << _merge_ctxs.size();
         return OLAP_ERR_READER_READING_ERROR;
     }

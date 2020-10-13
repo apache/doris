@@ -41,7 +41,7 @@ class Merger;
 //  1. pick rowsets satisfied to compact
 //  2. do compaction
 //  3. modify rowsets
-//  4. gc unused rowstes
+//  4. gc unused rowsets
 class Compaction {
 public:
     Compaction(TabletSharedPtr tablet, const std::string& label, const std::shared_ptr<MemTracker>& parent_tracker);

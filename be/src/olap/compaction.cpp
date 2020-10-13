@@ -183,7 +183,7 @@ OLAPStatus Compaction::check_version_continuity(const vector<RowsetSharedPtr>& r
         RowsetSharedPtr rowset = rowsets[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
             LOG(WARNING) << "There are missed versions among rowsets. "
-                << "prev_rowset verison=" << prev_rowset->start_version()
+                << "prev_rowset version=" << prev_rowset->start_version()
                 << "-" << prev_rowset->end_version()
                 << ", rowset version=" << rowset->start_version()
                 << "-" << rowset->end_version();
@@ -201,7 +201,7 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
         LOG(WARNING) << "row_num does not match between cumulative input and output! "
                    << "input_row_num=" << _input_row_num
                    << ", merged_row_num=" << stats.merged_rows
-                   << ", filted_row_num=" << stats.filtered_rows
+                   << ", filtered_row_num=" << stats.filtered_rows
                    << ", output_row_num=" << _output_rowset->num_rows();
 
         // ATTN(cmy): We found that the num_rows in some rowset meta may be set to the wrong value,
@@ -219,7 +219,7 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
             LOG(WARNING) << "row_num got from seg groups does not match between cumulative input and output! "
                 << "input_row_num=" << num_rows
                 << ", merged_row_num=" << stats.merged_rows
-                << ", filted_row_num=" << stats.filtered_rows
+                << ", filtered_row_num=" << stats.filtered_rows
                 << ", output_row_num=" << _output_rowset->num_rows();
 
             return OLAP_ERR_CHECK_LINES_ERROR;
