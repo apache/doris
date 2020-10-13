@@ -76,6 +76,10 @@ public class AlterOperations {
         return currentOps.contains(AlterOpType.RENAME);
     }
 
+    public boolean hasReplaceTableOp() {
+        return currentOps.contains(AlterOpType.REPLACE_TABLE);
+    }
+
     public boolean contains(AlterOpType op) {
         return currentOps.contains(op);
     }
@@ -103,4 +107,6 @@ public class AlterOperations {
     public String toString() {
         return Joiner.on(", ").join(currentOps);
     }
+
+
 }
