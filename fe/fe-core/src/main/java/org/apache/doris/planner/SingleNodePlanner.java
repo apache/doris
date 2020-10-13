@@ -1887,7 +1887,7 @@ public class SingleNodePlanner {
      */
     private void materializeTableResultForCrossJoinOrCountStar(TableRef tblRef, Analyzer analyzer) {
         if (tblRef instanceof BaseTableRef) {
-            materializeBaseTableRefResultForCrossJoinOrCountStar((BaseTableRef) tblRef, analyzer);
+            materializeSlotForEmptyMaterializedTableRef((BaseTableRef) tblRef, analyzer);
         } else if (tblRef instanceof InlineViewRef) {
             materializeInlineViewResultExprForCrossJoinOrCountStar((InlineViewRef) tblRef, analyzer);
         } else {
@@ -1896,13 +1896,23 @@ public class SingleNodePlanner {
     }
 
     /**
-     * materialize BaseTableRef result' exprs for Cross Join or Count Star
+     * When materialized table ref is a empty tbl ref, the planner should add a mini column for this tuple.
+     * There are two situation:
+     * 1. The tbl ref is empty, such as select a from (select 'c1' a from test) t;
+     * Inner tuple: tuple 0 without slot
+     * 2. The materialized slot in tbl ref is empty, such as select a from (select 'c1' a, k1 from test) t;
+     * Inner tuple: tuple 0 with a not materialized slot k1
+     * In the above two cases, it is necessary to add a mini column to the inner tuple
+     * to ensure that the number of rows in the inner query result is the number of rows in the table.
      *
+     * After this function, the inner tuple is following:
+     * case1. tuple 0: slot<k1> materialized true (new slot)
+     * case2. tuple 0: slot<k1> materialized true (changed)
      * @param tblRef
      * @param analyzer
      */
-    private void materializeBaseTableRefResultForCrossJoinOrCountStar(BaseTableRef tblRef, Analyzer analyzer) {
-        if (tblRef.getDesc().getSlots().isEmpty()) {
+    private void materializeSlotForEmptyMaterializedTableRef(BaseTableRef tblRef, Analyzer analyzer) {
+        if (tblRef.getDesc().getMaterializedSlots().isEmpty()) {
             Column minimuColumn = null;
             for (Column col : tblRef.getTable().getBaseSchema()) {
                 if (minimuColumn == null || col.getDataType().getSlotSize() < minimuColumn
