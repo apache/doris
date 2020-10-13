@@ -187,6 +187,14 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
     }
   }
 
+  // check if version number exceed limit
+  if (tablet_vars->at(0).tablet->version_count() > config::max_tablet_version_num) {
+    LOG(WARNING) << "failed to push data. version count: " << tablet_vars->at(0).tablet->version_count()
+            << ", exceed limit: " << config::max_tablet_version_num
+            << ". tablet: " << tablet_vars->at(0).tablet->full_name();
+    return OLAP_ERR_TOO_MANY_VERSION;
+  }
+
   // write
   if (push_type == PUSH_NORMAL_V2) {
     res = _convert_v2(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,

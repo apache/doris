@@ -589,6 +589,11 @@ namespace config {
 
     // Maximum number of cache partitions corresponding to a SQL
     CONF_Int32(query_cache_max_partition_count, "1024");
+
+    // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
+    // the load process will reject new incoming load job of this tablet.
+    // This is to avoid too many version num.
+    CONF_mInt32(max_tablet_version_num, "500");
     
 } // namespace config
 
