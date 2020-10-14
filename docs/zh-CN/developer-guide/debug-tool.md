@@ -68,7 +68,7 @@ thread.cpp:?
 
 有时内存的申请并不是大内存的申请导致，而是通过小内存不断的堆积导致的。那么就没有办法通过查看日志定位到具体的申请信息，那么就需要通过其他方式来获得信息。
 
-这个时候我们可以利用TCMalloc的[HEAPPROFILE](https://gperftools.github.io/gperftools/heapprofile.html)的功能。如果设置了HEAPPROFILE功能，那么我们可以获得进程整体的内存申请使用情况。使用方式是在启动Doris BE前设置`HEAPPROFILE`环境变量。比如：
+这个时候我们可以利用TCMalloc的[HEAP PROFILE](https://gperftools.github.io/gperftools/heapprofile.html)的功能。如果设置了HEAPPROFILE功能，那么我们可以获得进程整体的内存申请使用情况。使用方式是在启动Doris BE前设置`HEAPPROFILE`环境变量。比如：
 
 ```
 export HEAPPROFILE=/tmp/doris_be.hprof
@@ -113,7 +113,7 @@ pprof --svg lib/palo_be /tmp/doris_be.hprof.0012.heap > heap.svg
 
 ### pprof remote server
 
-HEAPPROFILE虽然能够获得全部的内存使用信息，但是也有比较受限的地方。1. 需要重启BE进行。2. 需要一直开启这个命令，导致对整个进程的性能造成影响。
+HEAP PROFILE虽然能够获得全部的内存使用信息，但是也有比较受限的地方。1. 需要重启BE进行。2. 需要一直开启这个命令，导致对整个进程的性能造成影响。
 
 对Doris BE也可以使用动态开启、关闭heap profile的方式来对进程进行内存申请分析。Doris内部支持了GPerftools的[远程server调试](https://gperftools.github.io/gperftools/pprof_remote_servers.html)。那么可以通过`pprof`直接对远程运行的Doris BE进行动态的HEAP PROFILE。比如我们可以通过以下命令来查看Doris的内存的使用增量
 
