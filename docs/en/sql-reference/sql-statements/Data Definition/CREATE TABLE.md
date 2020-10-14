@@ -160,7 +160,7 @@ Syntax:
     Syntax:
         key_type(k1[,k2 ...])
     Explain:
-        Data is orderd by specified key columns. And has different behaviors for different key  desc.
+        Data is order by specified key columns. And has different behaviors for different key  desc.
             AGGREGATE KEY:
                     value columns will be aggregated is key columns are same.
             UNIQUE KEY:
@@ -189,7 +189,7 @@ Syntax:
         1) Partition name only support [A-z0-9_]
         2) Partition key column's type should be:
             TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
-        3) The range is [closed, open). And the lower bound of first partition is MIN VALUE of  specifed column type.
+        3) The range is [closed, open). And the lower bound of first partition is MIN VALUE of  specified column type.
         4) NULL values should be save in partition which includes MIN VALUE.
         5) Support multi partition columns, the the default partition value is MIN VALUE.
     2）Fixed Range
@@ -304,7 +304,7 @@ Syntax:
     PROPERTIES ("storage_type"="column");
     ```
 
-2. Create an olap table, distributed by hash, with aggregation type. Also set storage mediumand cooldown time.
+2. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
 
     ```
     CREATE TABLE example_db.table_hash

@@ -58,13 +58,13 @@ INSERT INTO table_name
 
 ### Note
 
-When the `INSERT'statement is currently executed, the default behavior for data that does not conform to the target table is filtering, such as string length. However, for business scenarios where data is not filtered, the session variable `enable_insert_strict'can be set to `true' to ensure that `INSERT'will not be successfully executed when data is filtered out.
+When the `INSERT'statement is currently executed, the default behavior for data that does not conform to the target table is filtering, such as string length. However, for business scenarios where data is not filtered, the session variable `enable_insert_strict'can be set to `true' to ensure that `INSERT` will not be successfully executed when data is filtered out.
 
 ## example
 
 ` The test `table contains two columns `c1', `c2'.
 
-1. Import a row of data into the `test'table
+1. Import a row of data into the `test` table
 
 ```
 INSERT INTO test VALUES (1, 2);
@@ -76,7 +76,7 @@ INSERT INTO test (c1) VALUES (1);
 The first and second sentences have the same effect. When the target column is not specified, the column order in the table is used as the default target column.
 The third and fourth statements express the same meaning, using the default value of `c2'column to complete data import.
 
-2. Import multiline data into the `test'table at one time
+2. Import multiline data into the `test` table at one time
 
 ```
 INSERT INTO test VALUES (1, 2), (3, 2 + 2)

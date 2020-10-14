@@ -66,7 +66,7 @@ the version is lower than clang-format-9.0.
 
 `-i`input file
 
-Note: filter out the files which should not be formatted, when batch clang-formating files. 
+Note: filter out the files which should not be formatted, when batch clang-formatting files. 
  
  A example of how to filter \*.h/\*.cpp and exclude some dirs:
  

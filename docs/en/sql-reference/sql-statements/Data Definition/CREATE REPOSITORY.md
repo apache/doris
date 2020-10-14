@@ -45,7 +45,7 @@ WITH BROKER `bos_broker`
 ON LOCATION "bos://palo_backup"
 PROPERTIES
 (
-"bosu endpoint" ="http://gz.bcebos.com",
+"bos_endpoint" ="http://gz.bcebos.com",
 "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
 "bos_secret_accesskey"="70999999999999de274d59eaa980a"
 );
@@ -56,7 +56,7 @@ WITH BROKER `bos_broker`
 ON LOCATION "bos://palo_backup"
 PROPERTIES
 (
-"bosu endpoint" ="http://gz.bcebos.com",
+"bos_endpoint" ="http://gz.bcebos.com",
 "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
 "bos_secret_accesskey"="70999999999999de274d59eaa980a"
 );

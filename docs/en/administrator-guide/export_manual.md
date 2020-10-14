@@ -73,7 +73,7 @@ The overall mode of dispatch is as follows:
 1. The user submits an Export job to FE.
 2. FE's Export scheduler performs an Export job in two stages:
 	1. PENDING: FE generates Export Pending Task, sends snapshot command to BE, and takes a snapshot of all Tablets involved. And generate multiple query plans.
-	2. EXPORTING: FE generates Export ExporingTask and starts executing the query plan.
+	2. EXPORTING: FE generates Export ExportingTask and starts executing the query plan.
 
 ### query plan splitting
 
@@ -122,7 +122,7 @@ WITH BROKER "hdfs"
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
 * `tablet_num_per_task`: The maximum number of fragments allocated per query plan. The default is 5.
 
-After submitting a job, the job status can be imported by querying the `SHOW EXPORT'command. The results are as follows:
+After submitting a job, the job status can be imported by querying the `SHOW EXPORT` command. The results are as follows:
 
 ```
      JobId: 14008
@@ -141,7 +141,7 @@ FinishTime: 2019-06-25 17:08:34
 * JobId: The unique ID of the job
 * State: Job status:
 	* PENDING: Jobs to be Scheduled
-	* EXPORING: Data Export
+	* EXPORTING: Data Export
 	* FINISHED: Operation Successful
 	* CANCELLED: Job Failure
 * Progress: Work progress. The schedule is based on the query plan. Assuming a total of 10 query plans have been completed, the progress will be 30%.

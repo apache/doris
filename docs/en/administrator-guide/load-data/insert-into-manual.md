@@ -221,7 +221,7 @@ Insert Into itself is a SQL command, and the return result is divided into the f
 ## Best Practices
 
 ### Application scenarios
-1. Users want to import only a few false data to verify the functionality of Doris system. The grammar of INSERT INTO VALUS is suitable at this time.
+1. Users want to import only a few false data to verify the functionality of Doris system. The grammar of INSERT INTO VALUES is suitable at this time.
 2. Users want to convert the data already in the Doris table into ETL and import it into a new Doris table, which is suitable for using INSERT INTO SELECT grammar.
 3. Users can create an external table, such as MySQL external table mapping a table in MySQL system. Or create Broker external tables to map data files on HDFS. Then the data from the external table is imported into the Doris table for storage through the INSERT INTO SELECT grammar.
 
