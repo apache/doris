@@ -33,11 +33,7 @@ grammar
 
 ALTER CLUSTER cluster_name PROPERTIES ("key"="value", ...);
 
-1. Scaling, scaling (according to the number of be existing in the cluster, large is scaling, small is scaling), scaling for synchronous operation, scaling for asynchronous operation, through the state of backend can be known whether the scaling is completed.
-
-Proerties ("Instrume = Unum"= "3")
-
-Instancefn Microsoft Yahei
+1. Scaling, scaling (according to the number of be existing in the cluster, large is scaling, small is scaling), scaling for synchronous operation, scaling for asynchronous operation, through the state of backend can be known whether the scaling is completed. 
 
 ## example
 
