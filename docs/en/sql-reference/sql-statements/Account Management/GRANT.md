@@ -36,7 +36,7 @@ GRANT privilege_list ON db_name[.tbl_name] TO user_identity [ROLE role_name]
 
 Privilege_list is a list of permissions that need to be granted, separated by commas. Currently Doris supports the following permissions:
 
-NODE_PRIV: Operational privileges of cluster nodes, including operation of nodes'up and down lines. Only root users have this privilege and can not be given to other users.
+NODE_PRIV: Operational privileges of cluster nodes, including operation of nodes' up and down lines. Only root users have this privilege and can not be given to other users.
 ADMIN_PRIV: All rights except NODE_PRIV.
 GRANT_PRIV: Permission to operate permissions. Including the creation and deletion of users, roles, authorization and revocation, password settings and so on.
 SELECT_PRIV: Read permissions for specified libraries or tables

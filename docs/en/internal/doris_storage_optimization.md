@@ -38,7 +38,7 @@ Documents include:
 - Index Region: Doris stores the index data of each column in Index Region, where the data is loaded according to column granularity, so the data information of the following column is stored separately.
 - Footer
 	- FileFooterPB: Metadata Information for Definition Files
-	- Chesum of 4 bytes of footer Pb content
+	- Checksum of 4 bytes of footer Pb content
 	- Four bytes FileFooterPB message length for reading FileFooterPB
 	- The 8 byte MAGIC CODE is stored in the last bit to facilitate the identification of file types in different scenarios.
 

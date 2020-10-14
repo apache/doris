@@ -107,4 +107,4 @@ Query OK, 0 rows affected (0.00 sec)
 	If it exists, it will be deleted; If it does not exist, no error will be reported.
 
 ## keyword
-  DROP, MATERILIAZED, VIEW
+  DROP, MATERIALIZED, VIEW
