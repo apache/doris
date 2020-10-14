@@ -526,7 +526,7 @@ under the License.
     PROPERTIES ("storage_type"="column");
 ```
 
-8. 创建两张支持Colocat Join的表t1 和t2
+8. 创建两张支持Colocate Join的表t1 和t2
 
 ```
     CREATE TABLE `t1` (

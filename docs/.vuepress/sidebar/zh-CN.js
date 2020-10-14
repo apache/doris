@@ -257,7 +257,7 @@ module.exports = [
               "to_days",
               "unix_timestamp",
               "utc_timestamp",
-              "workofyear",
+              "weekofyear",
               "year",
             ],
           },
