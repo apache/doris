@@ -423,11 +423,14 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Compute the product of the selectivies of all conjuncts.
+     * Compute the product of the selectivity of all conjuncts.
      */
     protected double computeSelectivity() {
         double prod = 1.0;
         for (Expr e : conjuncts) {
+            if (e.getSelectivity() < 0) {
+                return -1.0;
+            }
             prod *= e.getSelectivity();
         }
         return prod;
@@ -478,7 +481,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Returns an smap that combines the childrens' smaps.
+     * Returns an smap that combines the children's smaps.
      */
     protected ExprSubstitutionMap getCombinedChildSmap() {
         if (getChildren().size() == 0) {

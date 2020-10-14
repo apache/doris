@@ -37,5 +37,5 @@ module.exports = {
     Services: helpers.root('/src/services'),
     Constants: helpers.root('/src/constants'),
     '@hooks': helpers.root('/src/hooks'),
-    '@src': helpers.root('/src')
+    '@src': helpers.root('/src'),
 };

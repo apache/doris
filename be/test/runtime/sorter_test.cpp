@@ -270,7 +270,7 @@ TEST_F(SorterTest, sorter_run_asc) {
     delete sorter;
 }
 
-/* reveser order : exceed 16 elment, we use quick sort*/
+/* reverse order : exceed 16 elements, we use quick sort*/
 TEST_F(SorterTest, sorter_run_desc_with_quick_sort) {
     SortExecExprs exec_exprs;
     Status status = exec_exprs.init(_ordering_exprs, &_sort_tuple_slot_expr, _object_pool);

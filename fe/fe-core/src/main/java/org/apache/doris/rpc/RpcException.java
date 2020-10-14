@@ -17,9 +17,23 @@
 
 package org.apache.doris.rpc;
 
+import com.google.common.base.Strings;
+
 public class RpcException extends Exception {
 
+    private String host;
+
     public RpcException(String host, String message) {
-        super(message + ", host: " + host);
+        super(message);
+        this.host = host;
+    }
+
+    @Override
+    public String getMessage() {
+        if (Strings.isNullOrEmpty(host)) {
+            return super.getMessage();
+        }
+        return super.getMessage() + ", host: " + host;
     }
 }
+

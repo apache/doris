@@ -133,7 +133,7 @@ public final class ExportChecker extends MasterDaemon {
 
                 }
             } catch (Exception e) {
-                LOG.warn("run export exporing job error", e);
+                LOG.warn("run export exporting job error", e);
             }
         }
     }

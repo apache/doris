@@ -192,24 +192,24 @@ public class InsertStmtTest {
         Deencapsulation.invoke(stmt, "analyzeSubquery", analyzer);
         System.out.println(stmt.getQueryStmt());
 
-        QueryStmt queryStmtSubstitue = stmt.getQueryStmt();
-        Assert.assertEquals(6, queryStmtSubstitue.getResultExprs().size());
+        QueryStmt queryStmtSubstitute = stmt.getQueryStmt();
+        Assert.assertEquals(6, queryStmtSubstitute.getResultExprs().size());
 
-        Assert.assertTrue(queryStmtSubstitue.getResultExprs().get(4) instanceof FunctionCallExpr);
-        FunctionCallExpr expr4 = (FunctionCallExpr) queryStmtSubstitue.getResultExprs().get(4);
+        Assert.assertTrue(queryStmtSubstitute.getResultExprs().get(4) instanceof FunctionCallExpr);
+        FunctionCallExpr expr4 = (FunctionCallExpr) queryStmtSubstitute.getResultExprs().get(4);
         Assert.assertTrue(expr4.getFnName().getFunction().equals("to_bitmap"));
         List<Expr> slots = Lists.newArrayList();
         expr4.collect(IntLiteral.class, slots);
         Assert.assertEquals(1, slots.size());
-        Assert.assertEquals(queryStmtSubstitue.getResultExprs().get(0), slots.get(0));
+        Assert.assertEquals(queryStmtSubstitute.getResultExprs().get(0), slots.get(0));
 
-        Assert.assertTrue(queryStmtSubstitue.getResultExprs().get(5) instanceof FunctionCallExpr);
-        FunctionCallExpr expr5 = (FunctionCallExpr) queryStmtSubstitue.getResultExprs().get(5);
+        Assert.assertTrue(queryStmtSubstitute.getResultExprs().get(5) instanceof FunctionCallExpr);
+        FunctionCallExpr expr5 = (FunctionCallExpr) queryStmtSubstitute.getResultExprs().get(5);
         Assert.assertTrue(expr5.getFnName().getFunction().equals("hll_hash"));
         slots = Lists.newArrayList();
         expr5.collect(StringLiteral.class, slots);
         Assert.assertEquals(1, slots.size());
-        Assert.assertEquals(queryStmtSubstitue.getResultExprs().get(1), slots.get(0));
+        Assert.assertEquals(queryStmtSubstitute.getResultExprs().get(1), slots.get(0));
     }
 
     @Test

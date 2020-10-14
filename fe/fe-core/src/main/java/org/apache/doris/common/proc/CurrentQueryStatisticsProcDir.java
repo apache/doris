@@ -56,7 +56,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         final Map<String, QueryStatisticsItem> statistic = QeProcessorImpl.INSTANCE.getQueryStatistics();
         final QueryStatisticsItem item = statistic.get(name);
         if (item == null) {
-            throw new AnalysisException(name + " does't exist.");
+            throw new AnalysisException(name + " doesn't exist.");
         }
         return new CurrentQuerySqlProcDir(item);
     }

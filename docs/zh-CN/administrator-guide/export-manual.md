@@ -73,7 +73,7 @@ under the License.
 1. 用户提交一个 Export 作业到 FE。
 2. FE 的 Export 调度器会通过两阶段来执行一个 Export 作业：
     1. PENDING：FE 生成 ExportPendingTask，向 BE 发送 snapshot 命令，对所有涉及到的 Tablet 做一个快照。并生成多个查询计划。
-    2. EXPORTING：FE 生成 ExportExporingTask，开始执行查询计划。
+    2. EXPORTING：FE 生成 ExportExportingTask，开始执行查询计划。
 
 ### 查询计划拆分
 
@@ -144,7 +144,7 @@ FinishTime: 2019-06-25 17:08:34
 * JobId：作业的唯一 ID
 * State：作业状态：
     * PENDING：作业待调度
-    * EXPORING：数据导出中
+    * EXPORTING：数据导出中
     * FINISHED：作业成功
     * CANCELLED：作业失败
 * Progress：作业进度。该进度以查询计划为单位。假设一共 10 个查询计划，当前已完成 3 个，则进度为 30%。

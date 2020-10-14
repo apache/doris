@@ -69,7 +69,9 @@ public:
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
-    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type, DataDir* data_dir);
+    TabletSharedPtr find_best_tablet_to_compaction(
+            CompactionType compaction_type, DataDir* data_dir,
+            vector<TTabletId> &tablet_submitted_compaction);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);

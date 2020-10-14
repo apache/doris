@@ -43,8 +43,6 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.PQueryStatistics;
-import org.apache.doris.qe.QueryDetail;
-import org.apache.doris.qe.QueryDetailQueue;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -63,7 +61,7 @@ import java.nio.channels.AsynchronousCloseException;
 import java.util.List;
 
 /**
- * Process one mysql connection, receive one pakcet, process, send one packet.
+ * Process one mysql connection, receive one packet, process, send one packet.
  */
 public class ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
@@ -184,7 +182,7 @@ public class ConnectProcessor {
             for (int i = 0; i < stmts.size(); ++i) {
                 ctx.getState().reset();
                 if (i > 0) {
-                    ctx.resetRetureRows();
+                    ctx.resetReturnRows();
                 }
                 parsedStmt = stmts.get(i);
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
@@ -474,7 +472,7 @@ public class ConnectProcessor {
             ctx.getState().setError("Unexpected exception: " + e.getMessage());
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
-        // and tell the follower the current jounalID.
+        // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
         result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
         result.setPacket(getResultPacket());
@@ -520,7 +518,7 @@ public class ConnectProcessor {
                 processOnce();
             } catch (Exception e) {
                 // TODO(zhaochun): something wrong
-                LOG.warn("Exception happened in one seesion(" + ctx + ").", e);
+                LOG.warn("Exception happened in one session(" + ctx + ").", e);
                 ctx.setKilled();
                 break;
             }

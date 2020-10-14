@@ -86,7 +86,7 @@ AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
 As you can see, this is a typical fact table of user information and access behavior.
 In general star model, user information and access behavior are stored in dimension table and fact table respectively. Here, in order to explain Doris's data model more conveniently, we store the two parts of information in a single table.
 
-The columns in the table are divided into Key (dimension column) and Value (indicator column) according to whether `AggregationType`is set or not. No `AggregationType`, such as `user_id`, `date`, `age`, etc., is set as **Key**, while AggregationType'is set as **Value**.
+The columns in the table are divided into Key (dimension column) and Value (indicator column) according to whether `AggregationType`is set or not. No `AggregationType`, such as `user_id`, `date`, `age`, etc., is set as **Key**, while Aggregation Type is set as **Value**.
 
 When we import data, the same rows and aggregates into one row for the Key column, while the Value column aggregates according to the set `AggregationType`. `AggregationType`currently has the following four ways of aggregation:
 
@@ -162,7 +162,7 @@ Following example 1, we modify the table structure as follows:
 | max dwell time | INT | MAX | Maximum user residence time|
 | min dwell time | INT | MIN | User minimum residence time|
 
-That is to say, a column of `timestamp'has been added to record the data filling time accurate to seconds.
+That is to say, a column of `timestamp` has been added to record the data filling time accurate to seconds.
 
 The imported data are as follows:
 
@@ -188,7 +188,7 @@ Then when this batch of data is imported into Doris correctly, the final storage
 | 10004 | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
 | 10004 | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
 
-We can see that the stored data, just like the imported data, does not aggregate at all. This is because, in this batch of data, because the `timestamp'column is added, the Keys of all rows are **not exactly the same**. That is, as long as the keys of each row are not identical in the imported data, Doris can save the complete detailed data even in the aggregation model.
+We can see that the stored data, just like the imported data, does not aggregate at all. This is because, in this batch of data, because the `timestamp` column is added, the Keys of all rows are **not exactly the same**. That is, as long as the keys of each row are not identical in the imported data, Doris can save the complete detailed data even in the aggregation model.
 
 ### Example 3: Importing data and aggregating existing data
 
@@ -222,7 +222,7 @@ Then when this batch of data is imported into Doris correctly, the final storage
 | 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 11:22:00 | 55 | 19 | 6|
 | 10005 | 2017-10-03 | Changsha | 29 | 1 | 2017-10-03 18:11:02 | 3 | 1 | 1|
 
-As you can see, the existing data and the newly imported data of user 10004 have been aggregated. At the same time, 10005 new users'data were added.
+As you can see, the existing data and the newly imported data of user 10004 have been aggregated. At the same time, 10005 new user's data were added.
 
 Data aggregation occurs in Doris in the following three stages:
 
@@ -434,7 +434,7 @@ When we do the following queries:
 
 Doris automatically hits the ROLLUP table.
 
-#### OLLUP in Duplicate Model
+#### ROLLUP in Duplicate Model
 
 Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this model has lost the meaning of "scroll up". It's just to adjust the column order to hit the prefix index. In the next section, we will introduce prefix index in detail, and how to use ROLLUP to change prefix index in order to achieve better query efficiency.
 
@@ -513,15 +513,15 @@ The ROLLUP table is preferred because the prefix index of ROLLUP matches better.
 
 ### Some Explanations of ROLLUP
 
-* The fundamental role of ROLLUP is to improve the query efficiency of some queries (whether by aggregating to reduce the amount of data or by modifying column order to match prefix indexes). Therefore, the meaning of ROLLUP has gone beyond the scope of "roll-up". That's why we named it Materized Index in the source code.
+* The fundamental role of ROLLUP is to improve the query efficiency of some queries (whether by aggregating to reduce the amount of data or by modifying column order to match prefix indexes). Therefore, the meaning of ROLLUP has gone beyond the scope of "roll-up". That's why we named it Materialized Index in the source code.
 * ROLLUP is attached to the Base table and can be seen as an auxiliary data structure of the Base table. Users can create or delete ROLLUP based on the Base table, but cannot explicitly specify a query for a ROLLUP in the query. Whether ROLLUP is hit or not is entirely determined by the Doris system.
-* ROLLUP data is stored in separate physical storage. Therefore, the more OLLUP you create, the more disk space you occupy. It also has an impact on the speed of import (the ETL phase of import automatically generates all ROLLUP data), but it does not reduce query efficiency (only better).
+* ROLLUP data is stored in separate physical storage. Therefore, the more ROLLUP you create, the more disk space you occupy. It also has an impact on the speed of import (the ETL phase of import automatically generates all ROLLUP data), but it does not reduce query efficiency (only better).
 * Data updates for ROLLUP are fully synchronized with Base representations. Users need not care about this problem.
 * Columns in ROLLUP are aggregated in exactly the same way as Base tables. There is no need to specify or modify ROLLUP when creating it.
 * A necessary (inadequate) condition for a query to hit ROLLUP is that all columns ** (including the query condition columns in select list and where) involved in the query exist in the column of the ROLLUP. Otherwise, the query can only hit the Base table.
 * Certain types of queries (such as count (*)) cannot hit ROLLUP under any conditions. See the next section **Limitations of the aggregation model**.
 * The query execution plan can be obtained by `EXPLAIN your_sql;` command, and in the execution plan, whether ROLLUP has been hit or not can be checked.
-* Base tables and all created ROLLUPs can be displayed by `DESC tbl_name ALL;` statement.
+* Base tables and all created ROLLUP can be displayed by `DESC tbl_name ALL;` statement.
 
 In this document, you can see [Query how to hit Rollup] (hit-the-rollup)
 
@@ -622,7 +622,7 @@ Therefore, when there are frequent count (*) queries in the business, we recomme
 
 Add a count column and import the data with the column value **equal to 1**. The result of `select count (*) from table;`is equivalent to `select sum (count) from table;` The query efficiency of the latter is much higher than that of the former. However, this method also has limitations, that is, users need to guarantee that they will not import rows with the same AGGREGATE KEY column repeatedly. Otherwise, `select sum (count) from table;`can only express the number of rows originally imported, not the semantics of `select count (*) from table;`
 
-Another way is to **change the aggregation type of the count'column above to REPLACE, and still weigh 1**. Then`select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
+Another way is to **change the aggregation type of the count column above to REPLACE, and still weigh 1**. Then`select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
 
 ### Duplicate Model
 

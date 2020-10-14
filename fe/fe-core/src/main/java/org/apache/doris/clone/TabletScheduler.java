@@ -648,7 +648,7 @@ public class TabletScheduler extends MasterDaemon {
      * Give examples of why:
      * Tablet X has 3 replicas on A, B, C 3 BEs.
      * C is decommission, so we choose the BE D to relocating the new replica,
-     * After relocating, Tablet X has 4 replicas: A, B, C(decommision), D(may be version incomplete)
+     * After relocating, Tablet X has 4 replicas: A, B, C(decommission), D(may be version incomplete)
      * But D may be version incomplete because the clone task ran a long time, the new version
      * has been published.
      * At the next time of tablet checking, Tablet X's status is still REPLICA_RELOCATING,

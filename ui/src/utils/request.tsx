@@ -23,10 +23,12 @@
  * @since 2020/08/19
  */
 import React from 'react';
-import {message, Modal} from 'antd';
+import {notification, Modal} from 'antd';
 import {ExclamationCircleOutlined} from '@ant-design/icons';
 import {Trans} from 'react-i18next';
-
+import {getBasePath} from 'Src/utils/utils';
+import SyntaxHighlighter from 'react-syntax-highlighter';
+import {docco} from 'react-syntax-highlighter/dist/esm/styles/hljs';
 function checkStatus(response) {
     if (response.status >= 200 && response.status < 300) {
         return response;
@@ -37,7 +39,7 @@ function checkStatus(response) {
             icon: <ExclamationCircleOutlined/>,
             content: <Trans>loginExpirtMsg</Trans>,
             onOk() {
-                window.location.href = window.location.origin + '/login';
+                window.location.href = window.location.origin +getBasePath()+ '/login';
             },
             onCancel() {
                 //
@@ -47,7 +49,7 @@ function checkStatus(response) {
     }
     const error = new Error(response.statusText);
     error.response = response;
-    message.error(response.statusText);
+    notification.error(response.statusText);
     throw error;
 }
 
@@ -65,6 +67,22 @@ function checkStatus(response) {
  * @return {Object}
  */
 export default async function request(url, options = {}, tipSuccess = false, tipError = true, fullResponse = false) {
+    if(!localStorage.getItem('username') && url.includes('login') === false){
+        clearAllCookie();
+        Modal.confirm({
+            title: <Trans>tips</Trans>,
+            icon: <ExclamationCircleOutlined/>,
+            content: <Trans>loginExpirtMsg</Trans>,
+            onOk() {
+                window.location.href = window.location.origin +getBasePath()+ '/login';
+            },
+            onCancel() {
+                //
+            }
+        });
+        return;
+    }
+    const basePath = getBasePath();
     const newOptions = {credentials: 'include', ...options};
     if (newOptions.method === 'POST' || newOptions.method === 'PUT') {
         newOptions.headers = newOptions.isUpload
@@ -78,6 +96,9 @@ export default async function request(url, options = {}, tipSuccess = false, tip
     }
     if (typeof newOptions.body === 'object' && !newOptions.isUpload) {
         newOptions.body = JSON.stringify(newOptions.body);
+    }
+    if (basePath && basePath!=='/') {
+        url = basePath + url
     }
     const response = await fetch(url, newOptions);
     if (
@@ -97,14 +118,40 @@ export default async function request(url, options = {}, tipSuccess = false, tip
     }
     const data = await response.json();
     if ('code' in data || 'msg' in data) {
-        const code = data.code;
-        const msg = data.msg;
-        if (msg === 'success' || code === 0 || code === 200) {
+        const {code, msg} = data;
+        if (code === 401 && data.data === 'Cookie is invalid') {
+            Modal.confirm({
+                title: <Trans>tips</Trans>,
+                icon: <ExclamationCircleOutlined/>,
+                content: <Trans>loginExpirtMsg</Trans>,
+                onOk() {
+                    window.location.href = window.location.origin +getBasePath()+ '/login';
+                },
+                onCancel() {
+                    //
+                }
+            });
+        } else if (code === 401 && data.data !== 'Cookie is invalid') {
+            notification.error({
+                message:<Trans>loginWarning</Trans>
+            });
+        }else if (msg === 'success' || code === 0 || code === 200) {
             if (tipSuccess) {
-                message.success(<Trans>successfulOperation</Trans>, msg);
+                notification.success({
+                    message:<Trans>successfulOperation</Trans>,
+                    description: msg
+                });
             }
-        } else if (tipError && code !== 0 && msg !== 'success') {
-            message.error(msg);
+        } else if (tipError && code !== 0 && msg !== '') {
+            let item = ( 
+                <SyntaxHighlighter language="sql" style={{...docco, width:'300px'}}>
+                    {data.data}
+                </SyntaxHighlighter> 
+                )
+            notification.error({
+                message: msg,
+                description: item
+            });
         }
     }
 
@@ -113,4 +160,10 @@ export default async function request(url, options = {}, tipSuccess = false, tip
     }
     return data;
 }
- 
+function clearAllCookie() {
+    var keys = document.cookie.match(/[^ =;]+(?=\=)/g);
+    if(keys) {
+        for(var i = keys.length; i--;)
+            document.cookie = keys[i] + '=0;expires=' + new Date(0).toUTCString()
+    }
+}

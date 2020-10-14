@@ -27,7 +27,7 @@ under the License.
 # ROUTINE LOAD
 ## description
 
-Routine Load function allows users to submit a resident load task, and continuously load data into Doris by continuously reading data from the specified data source. Currently, only text data format (CSV) data is loaded from Kakfa by means of no authentication or SSL authentication.
+Routine Load function allows users to submit a resident load task, and continuously load data into Doris by continuously reading data from the specified data source. Currently, only text data format (CSV) data is loaded from Kafka by means of no authentication or SSL authentication.
 
 Syntax:
 
@@ -214,7 +214,7 @@ FROM data_source
 
         `Kafka_broker_list`
 
-        Kafka's broker connection information. The format is ip:host. Multiple brokare separated by commas.
+        Kafka's broker connection information. The format is ip:host. Multiple brokers are separated by commas.
 
         Example:
 
@@ -234,9 +234,9 @@ FROM data_source
 
         Offset can specify a specific offset from 0 or greater, or:
 
-        1) OFFSET_BEGINNING: Subscribe from the location where the data is avaie.
+        1) OFFSET_BEGINNING: Subscribe from the location where the data is available.
 
-        2) OFFSET_END: ​​Subscribe from the end.
+        2) OFFSET_END: Subscribe from the end.
 
         If not specified, all partitions under topic are subscribed by default fromSET_END.
 
@@ -253,7 +253,7 @@ FROM data_source
 
         The function is equivalent to the "--property" parameter in the kafka shel
 
-        When the value of the parameter is a file, you need to add the keyword: "FILbefore the value.
+        When the value of the parameter is a file, you need to add the keyword: "FILE" before the value.
 
         For information on how to create a file, see "HELP CREATE FILE;"
 
@@ -266,7 +266,7 @@ FROM data_source
         "property.ssl.ca.location" = "FILE:ca.pem"
         ```
 
-        1. When connecting to Kafka using SSL, you need to specify the follg parameters:
+        1. When connecting to Kafka using SSL, you need to specify the following parameters:
 
             ```
             "property.security.protocol" = "ssl",
@@ -278,9 +278,9 @@ FROM data_source
 
             among them:
 
-            "property.security.protocol" and "property.ssl.ca.location" are requ to indicate the connection method is SSL and the location of the CA certate.
+            "property.security.protocol" and "property.ssl.ca.location" are required to indicate the connection method is SSL and the location of the CA certificate.
 
-            If the client authentication is enabled on the Kafka server, you alsod to set:
+            If the client authentication is enabled on the Kafka server, you also need to set:
 
             ```
             "property.ssl.certificate.location"
@@ -292,11 +292,11 @@ FROM data_source
 
         2. Specify the default starting offset for kafka partition
 
-            If kafka_partitions/kafka_offsets is not specified, all partitions are umed by default, and you can specify kafka_default_offsets to specify the star offset. The default is OFFSET_END, which starts at the end of the substion.
+            If kafka_partitions/kafka_offsets is not specified, all partitions are unanmed by default, and you can specify kafka_default_offsets to specify the star offset. The default is OFFSET_END, which starts at the end of the subscription.
 
             Values:
 
-            1) OFFSET_BEGINNING: Subscribe from the location where the data is avaie.
+            1) OFFSET_BEGINNING: Subscribe from the location where the data is available.
 
             2) OFFSET_END: Subscribe from the end.
 
@@ -309,8 +309,8 @@ FROM data_source
     Integer class (TINYINT/SMALLINT/INT/BIGINT/LARGEINT): 1, 1000, 1234
 
     Floating point class (FLOAT/DOUBLE/DECIMAL): 1.1, 0.23, .356
- 
-    Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
+
+    Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
 
     String class (CHAR/VARCHAR) (without quotes): I am a student, a
 
@@ -505,7 +505,7 @@ FROM data_source
             ]
         }
 
-    7. Create a Kafka routine load task named test1 for the example_tbl of example_db. delete all data key colunms match v3 >100 key columns.
+    7. Create a Kafka routine load task named test1 for the example_tbl of example_db. delete all data key columns match v3 >100 key columns.
 
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
         WITH MERGE

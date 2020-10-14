@@ -39,11 +39,11 @@ Timestamp: Time version of backup to be restored
 DbName: Subordinate database
 State: Current phase
 PENDING: The initial state after submitting a job
-SNAPSHOTING: In the execution snapshot
+SNAPSHOTTING: In the execution snapshot
 DOWNLOAD: The snapshot is complete, ready to download the snapshot in the warehouse
 DOWNLOADING: Snapshot Download
 COMMIT: Snapshot download completed, ready to take effect
-COMMITING: In force
+COMMITTING: In force
 FINISHED: Operation Successful
 CANCELLED: Job Failure
 AllowLoad: Is import allowed on recovery (currently not supported)
@@ -54,7 +54,7 @@ MetaPreparedTime: Metadata Readiness Completion Time
 Snapshot Finished Time: Snapshot completion time
 Download Finished Time: Snapshot download completion time
 FinishedTime: Job End Time
-Unfinished Tasks: The unfinished sub-task ID is displayed in the SNAP HOTING, DOWNLOADING, and COMMITING phases
+Unfinished Tasks: The unfinished sub-task ID is displayed in the SNAPSHOTTING, DOWNLOADING, and COMMITTING phases
 Status: Display failure information if the job fails
 Timeout: Job timeout, per second
 

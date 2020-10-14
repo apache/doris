@@ -44,7 +44,7 @@ public abstract class AliasGenerator {
                 return candidateAlias;
             }
             if (numGeneratedAliases < 0) {
-                throw new IllegalStateException("Overflow occured during alias generation.");
+                throw new IllegalStateException("Overflow occurred during alias generation.");
             }
         }
     }

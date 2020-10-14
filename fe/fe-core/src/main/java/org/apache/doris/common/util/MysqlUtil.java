@@ -32,7 +32,7 @@ public class MysqlUtil {
     private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
     private static final String MYSQL_URL_PREFIX = "jdbc:mysql://";
     private static final int CONNECT_TIMEOUT_MS = 1000; // 1S
-    private static final int SOCKENT_TIMEOUT_MS = 10000; // 10S
+    private static final int SOCKET_TIMEOUT_MS = 10000; // 10S
 
     static {
         try {
@@ -49,7 +49,7 @@ public class MysqlUtil {
                 .append(port).append("/")
                 .append(db).append("?")
                 .append("connectTimeout=").append(CONNECT_TIMEOUT_MS)
-                .append("&").append("socketTimeout=").append(SOCKENT_TIMEOUT_MS);
+                .append("&").append("socketTimeout=").append(SOCKET_TIMEOUT_MS);
 
         return builder.toString();
     }

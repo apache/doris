@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Type;
@@ -34,12 +35,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -452,5 +453,99 @@ public class AlterTest {
         alterTable(alterStmt5, false);
         String alterStmt6 = "alter table test." + tableName + " set (\"dynamic_partition.buckets\" = \"5\");";
         alterTable(alterStmt6, false);
+    }
+
+    @Test
+    public void testReplaceTable() throws Exception {
+        String stmt1 = "CREATE TABLE test.replace1\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "AGGREGATE KEY(k1, k2)\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "rollup (\n" +
+                "r1(k1),\n" +
+                "r2(k2, k3)\n" +
+                ")\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+
+        String stmt2 = "CREATE TABLE test.r1\n" +
+                "(\n" +
+                "    k1 int, k2 int\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 11\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String stmt3 = "CREATE TABLE test.replace2\n" +
+                "(\n" +
+                "    k1 int, k2 int\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 11\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String stmt4 = "CREATE TABLE test.replace3\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "\tPARTITION p1 values less than(\"100\"),\n" +
+                "\tPARTITION p2 values less than(\"200\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 1\n" +
+                "rollup (\n" +
+                "r3(k1),\n" +
+                "r4(k2, k3)\n" +
+                ")\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        createTable(stmt1);
+        createTable(stmt2);
+        createTable(stmt3);
+        createTable(stmt4);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+
+        // name conflict
+        String replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE r1";
+        alterTable(replaceStmt, true);
+
+        // replace1 with replace2
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2";
+        OlapTable replace1 = (OlapTable) db.getTable("replace1");
+        OlapTable replace2 = (OlapTable) db.getTable("replace2");
+        Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(1, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+
+        alterTable(replaceStmt, false);
+
+        replace1 = (OlapTable) db.getTable("replace1");
+        replace2 = (OlapTable) db.getTable("replace2");
+        Assert.assertEquals(1, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
+        Assert.assertEquals("replace2", replace2.getIndexNameById(replace2.getBaseIndexId()));
+
+        // replace with no swap
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2 properties('swap' = 'false')";
+        alterTable(replaceStmt, false);
+        replace1 = (OlapTable) db.getTable("replace1");
+        replace2 = (OlapTable) db.getTable("replace2");
+        Assert.assertNull(replace2);
+        Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
+
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace3 properties('swap' = 'true')";
+        alterTable(replaceStmt, false);
+        replace1 = (OlapTable) db.getTable("replace1");
+        OlapTable replace3 = (OlapTable) db.getTable("replace3");
+        Assert.assertEquals(3, replace1.getPartition("p1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3, replace1.getPartition("p2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertNotNull(replace1.getIndexIdByName("r3"));
+        Assert.assertNotNull(replace1.getIndexIdByName("r4"));
+
+        Assert.assertEquals(3, replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertNotNull(replace3.getIndexIdByName("r1"));
+        Assert.assertNotNull(replace3.getIndexIdByName("r2"));
     }
 }

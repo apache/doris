@@ -139,7 +139,7 @@ Status SetOperationNode::open(RuntimeState* state) {
     for (const vector<ExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(Expr::open(exprs, state));
     }
-    // initial build hash table used for remove duplicted
+    // initial build hash table used for remove duplicated
     _hash_tbl.reset(new HashTable(_child_expr_lists[0], _child_expr_lists[1], _build_tuple_size,
                                   true, _find_nulls, id(), mem_tracker(), 1024));
     RowBatch build_batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());

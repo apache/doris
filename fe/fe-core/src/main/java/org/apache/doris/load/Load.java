@@ -544,7 +544,7 @@ public class Load {
                 db.readUnlock();
             }
             job.setMiniEtlTasks(idToEtlTask);
-            job.setPrority(TPriority.HIGH);
+            job.setPriority(TPriority.HIGH);
 
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
@@ -589,7 +589,7 @@ public class Load {
                 // check and set cluster info
                 dppConfig.check();
                 job.setClusterInfo(cluster, dppConfig);
-                job.setPrority(dppConfig.getPriority());
+                job.setPriority(dppConfig.getPriority());
             } catch (LoadException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -604,7 +604,7 @@ public class Load {
                 job.setTimeoutSecond(Config.broker_load_default_timeout_second);
             }
         } else if (etlJobType == EtlJobType.INSERT) {
-            job.setPrority(TPriority.HIGH);
+            job.setPriority(TPriority.HIGH);
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
                 job.setTimeoutSecond(Config.insert_load_default_timeout_second);
@@ -718,7 +718,7 @@ public class Load {
             if (dataDescription.isNegative()) {
                 for (Column column : baseSchema) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
-                        throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+                        throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
                     }
                 }
             }
@@ -2020,6 +2020,8 @@ public class Load {
                 jobInfo.add(TimeUtils.longToTimeString(loadJob.getLoadFinishTimeMs()));
                 // tracking url
                 jobInfo.add(status.getTrackingUrl());
+                // job detail(not used for hadoop load, just return an empty string)
+                jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs
@@ -2203,7 +2205,7 @@ public class Load {
             }
             properties.remove("name");
 
-            if (!Catalog.getCurrentCatalog().getBrokerMgr().contaisnBroker(brokerName)) {
+            if (!Catalog.getCurrentCatalog().getBrokerMgr().containsBroker(brokerName)) {
                 throw new DdlException("broker does not exist: " + brokerName);
             }
 
@@ -2655,7 +2657,7 @@ public class Load {
                     }
                 }
 
-                // delete all dirs releated to job label, use "" instead of job.getEtlOutputDir()
+                // delete all dirs related to job label, use "" instead of job.getEtlOutputDir()
                 // hdfs://host:port/outputPath/dbId/loadLabel/
                 DppConfig dppConfig = job.getHadoopDppConfig();
                 String outputPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(),
@@ -2927,7 +2929,7 @@ public class Load {
         } catch (Exception e) {
             LOG.info("errors while abort transaction", e);
             if (failedMsg != null) {
-                failedMsg.add("Abort tranaction failed: " + e.getMessage());
+                failedMsg.add("Abort transaction failed: " + e.getMessage());
             }
             return false;
         }
@@ -3655,7 +3657,7 @@ public class Load {
         }
     }
 
-    public LoadJob getLastestFinishedLoadJob(long dbId) {
+    public LoadJob getLastFinishedLoadJob(long dbId) {
         LoadJob job = null;
         readLock();
         try {
@@ -3679,7 +3681,7 @@ public class Load {
         return job;
     }
 
-    public DeleteInfo getLastestFinishedDeleteInfo(long dbId) {
+    public DeleteInfo getLastFinishedDeleteInfo(long dbId) {
         DeleteInfo deleteInfo = null;
         readLock();
         try {

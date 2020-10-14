@@ -59,8 +59,6 @@ public class OdbcTable extends Table {
     static {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
         tempMap.put("oracle", TOdbcTableType.ORACLE);
-        // we will support mysql driver in the future after we slove the core problem of
-        // driver and static library
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
@@ -157,7 +155,7 @@ public class OdbcTable extends Table {
             } else {
                 odbcTableTypeName = tableType.toLowerCase();
                 if (!TABLE_TYPE_MAP.containsKey(odbcTableTypeName)) {
-                    throw new DdlException("Invaild Odbc table type:" + tableType
+                    throw new DdlException("Invalid Odbc table type:" + tableType
                             + " Now Odbc table type only support:" + supportTableType());
                 }
             }
@@ -242,6 +240,36 @@ public class OdbcTable extends Table {
             return odbcTableTypeName;
         }
         return getPropertyFromResource(ODBC_TYPE);
+    }
+
+    public String getConnectString() {
+        String connectString = "";
+        // different database have different connection string
+        switch (getOdbcTableType()) {
+            case ORACLE:
+                connectString = String.format("Driver=%s;Dbq=//%s:%s/%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s",
+                        getOdbcDriver(),
+                        getHost(),
+                        getPort(),
+                        getOdbcDatabaseName(),
+                        getOdbcDatabaseName(),
+                        getUserName(),
+                        getPasswd(),
+                        "utf8");
+                break;
+            case MYSQL:
+                connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s",
+                        getOdbcDriver(),
+                        getHost(),
+                        getPort(),
+                        getOdbcDatabaseName(),
+                        getUserName(),
+                        getPasswd(),
+                        "utf8");
+                break;
+            default:
+        }
+        return connectString;
     }
 
     public TOdbcTableType getOdbcTableType() {

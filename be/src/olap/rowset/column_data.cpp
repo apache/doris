@@ -345,7 +345,8 @@ const RowCursor* ColumnData::seek_and_get_current_row(const RowBlockPosition& po
     res = _get_block(true, 1);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "Fail to get block in seek_and_get_current_row, res=" << res
-            << ", segment:" << position.segment << ", block:" << position.data_offset;
+            << ", segment:" << position.segment << ", block:" << position.data_offset
+            << ", tablet: " << _segment_group->get_tablet_id();
         return nullptr;
     }
     return _current_row();
@@ -528,32 +529,32 @@ int ColumnData::delete_pruning_filter() {
     /*
      * the relationship between delete condition A and B is A || B.
      * if any delete condition is satisfied, the data can be filtered.
-     * elseif all delete condition is not satifsified, the data can't be filtered.
+     * elseif all delete condition is not satisfied, the data can't be filtered.
      * else is the partial satisfied.
     */
     int ret = DEL_PARTIAL_SATISFIED;
-    bool del_partial_stastified = false;
-    bool del_stastified = false;
-    for (auto& delete_condtion : _delete_handler->get_delete_conditions()) {
-        if (delete_condtion.filter_version <= _segment_group->version().first) {
+    bool del_partial_satisfied = false;
+    bool del_satisfied = false;
+    for (auto& delete_condition : _delete_handler->get_delete_conditions()) {
+        if (delete_condition.filter_version <= _segment_group->version().first) {
             continue;
         }
 
-        Conditions* del_cond = delete_condtion.del_cond;
+        Conditions* del_cond = delete_condition.del_cond;
         int del_ret = del_cond->delete_pruning_filter(_segment_group->get_zone_maps());
         if (DEL_SATISFIED == del_ret) {
-            del_stastified = true;
+            del_satisfied = true;
             break;
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {
-            del_partial_stastified = true;
+            del_partial_satisfied = true;
         } else {
             continue;
         }
     }
 
-    if (del_stastified) {
+    if (del_satisfied) {
         ret = DEL_SATISFIED;
-    } else if (del_partial_stastified) {
+    } else if (del_partial_satisfied) {
         ret = DEL_PARTIAL_SATISFIED;
     } else {
         ret = DEL_NOT_SATISFIED;
@@ -562,7 +563,7 @@ int ColumnData::delete_pruning_filter() {
     return ret;
 }
 
-uint64_t ColumnData::get_filted_rows() {
+uint64_t ColumnData::get_filtered_rows() {
     return _stats->rows_del_filtered;
 }
 

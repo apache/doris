@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Conection Action
+# Connection Action
 
 ## Request
 

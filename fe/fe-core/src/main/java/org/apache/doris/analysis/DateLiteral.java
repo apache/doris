@@ -700,7 +700,7 @@ public class DateLiteral extends LiteralExpr {
         return 31 * super.hashCode() + Objects.hashCode(unixTimestamp(TimeZone.getDefault()));
     }
 
-    // parset the date string value in 'value' by 'format' pattern.
+    // parse the date string value in 'value' by 'format' pattern.
     // return the next position to parse if hasSubVal is true.
     // throw InvalidFormatException if encounter errors.
     // this method is exaclty same as from_date_format_str() in be/src/runtime/datetime_value.cpp

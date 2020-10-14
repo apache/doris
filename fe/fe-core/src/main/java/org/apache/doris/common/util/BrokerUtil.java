@@ -72,7 +72,7 @@ public class BrokerUtil {
      * Parse file status in path with broker, except directory
      * @param path
      * @param brokerDesc
-     * @param fileStatuses: file path, size, isDir, isSplitable
+     * @param fileStatuses: file path, size, isDir, isSplittable
      * @throws UserException if broker op failed
      */
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)

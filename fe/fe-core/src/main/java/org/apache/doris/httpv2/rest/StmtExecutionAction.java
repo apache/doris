@@ -64,7 +64,7 @@ public class StmtExecutionAction extends RestBaseController {
      * }
      */
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
-    public Object exeuteSQL(
+    public Object executeSQL(
             @PathVariable(value = NS_KEY) String ns,
             @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response,

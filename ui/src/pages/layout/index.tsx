@@ -23,17 +23,16 @@
  * @since 2020/08/19
  */
 import React, {useState} from 'react';
-import {Layout, Menu, Dropdown, message} from 'antd';
+import {Layout, Menu, Dropdown, notification, Button} from 'antd';
 import { CaretDownOutlined, LogoutOutlined} from '@ant-design/icons';
 import {renderRoutes} from 'react-router-config';
 import {useHistory} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import routes from 'Src/router';
-import {logOut} from 'Utils/api';
+import {logOut} from 'Src/api/api';
 import './index.css';
 import styles from './index.less';
 const {Header, Content, Footer} = Layout;
-
 function Layouts(props: any) {
     let { t } = useTranslation();
     const [route, setRoute] = useState(props.route.routes);
@@ -42,17 +41,21 @@ function Layouts(props: any) {
     //Jump page
     function handleClick(e) {
         setCurrent(e.key);
-        if (e.key === '/System' ) {
+        if (e.key.includes('/System')) {
             history.push(`${e.key}?path=/`);
             return;
         }
         if (location.pathname === e.key) {
             location.reload();
         }
-        history.push(e.key);
         if(location.pathname.includes('Playground')){
+            history.push(e.key);
             location.reload();
         }
+        history.push(e.key);
+        // if(location.pathname.includes('Playground')){
+        //     location.reload();
+        // }
     }
     function clearAllCookie() {
         var keys = document.cookie.match(/[^ =;]+(?=\=)/g);
@@ -65,9 +68,18 @@ function Layouts(props: any) {
         logOut().then((res)=>{
             localStorage.setItem('username','');
             clearAllCookie();
-            message.success(t('exitSuccessfully'))
+            notification.success({message: t('exitSuccessfully')})
             history.push('/login');
         })
+    }
+    function changeLanguage(){
+        if (localStorage.getItem('I18N_LANGUAGE') === 'zh-CN'){
+            localStorage.setItem('I18N_LANGUAGE','en');
+            location.reload()
+        } else {
+            localStorage.setItem('I18N_LANGUAGE','zh-CN');
+            location.reload()
+        }
     }
     const menu = (
         <Menu>
@@ -82,6 +94,7 @@ function Layouts(props: any) {
             <Header style={{position: 'fixed', zIndex: 1, width: '100%'}}>
                 <div className={styles['logo']} onClick={()=>{history.replace('/home');setCurrent('')}}></div>
                 <span className='userSet'>
+                    <Button style={{'color':'#000'}} type="text" size='small' onClick={changeLanguage}>{localStorage.getItem('I18N_LANGUAGE') === 'zh-CN' ? 'English' : '中文'}</Button>
                     <Dropdown overlay={menu}>
                         <span className="ant-dropdown-link">
                             {/* <img alt="" className='avatar' src=''/> */}
@@ -91,7 +104,7 @@ function Layouts(props: any) {
                 </span>
                 <Menu theme="light" onClick={handleClick} selectedKeys={[current]} mode="horizontal">
                     {routes?.routes[1]?.routes?.map(item => {
-                        if (item.path !== '/login'&&item.path !== '/home') {
+                        if (item.title !== 'Login'&&item.title !== 'Home') {
                             return (
                                 <Menu.Item key={item.path}>
                                     {item.title}

@@ -73,7 +73,7 @@ mysql -h FE_HOST -P9030 -utest -ptest_passwd
 
 > 所有命令都可以使用 'HELP command;' 查看到详细的语法帮助。如：`HELP CREATE DATABASE;`
 
-> 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
+> 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 
 数据库创建完成之后，可以通过 `SHOW DATABASES;` 查看数据库信息。
 

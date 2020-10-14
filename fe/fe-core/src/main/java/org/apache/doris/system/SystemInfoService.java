@@ -152,9 +152,9 @@ public class SystemInfoService {
         idToBackendRef = newIdToBackend;
 
         // set new backend's report version as 0L
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
-        copiedReportVerions.put(newBackend.getId(), new AtomicLong(0L));
-        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
+        Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
+        copiedReportVersions.put(newBackend.getId(), new AtomicLong(0L));
+        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
         if (!Strings.isNullOrEmpty(destCluster)) {
@@ -213,9 +213,9 @@ public class SystemInfoService {
         idToBackendRef = newIdToBackend;
 
         // update idToReportVersion
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
-        copiedReportVerions.remove(droppedBackend.getId());
-        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
+        Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
+        copiedReportVersions.remove(droppedBackend.getId());
+        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
         // update cluster
@@ -327,7 +327,7 @@ public class SystemInfoService {
      *
      * @param clusterName
      * @param instanceNum
-     * @return if BE avaliable is less than requested , return null.
+     * @return if BE available is less than requested , return null.
      */
     public List<Long> createCluster(String clusterName, int instanceNum) {
         final List<Long> chosenBackendIds = Lists.newArrayList();
@@ -400,7 +400,7 @@ public class SystemInfoService {
         while (iterator.hasNext()) {
             final Long id = iterator.next();
             if (!idToBackend.containsKey(id)) {
-                LOG.warn("cluster {} contain backend {} that does't exist", clusterName, id);
+                LOG.warn("cluster {} contain backend {} that doesn't exist", clusterName, id);
             } else {
                 final Backend backend = idToBackend.get(id);
                 backend.setBackendState(BackendState.free);
@@ -526,7 +526,7 @@ public class SystemInfoService {
 
         // first select backends which belong to the hosts NOT IN this cluster
         if (hostsNotInCluster.size() > 0) {
-            // hostIsEmpty is userd to mark if host is empty, so
+            // hostIsEmpty is used to mark if host is empty, so
             // avoid iterating hostIsEmpty with numOfHost in every circle
             boolean[] hostIsEmpty = new boolean[hostsNotInCluster.size()];
             for (int i = 0; i < hostsNotInCluster.size(); i++) {
@@ -997,9 +997,9 @@ public class SystemInfoService {
         idToBackendRef = newIdToBackend;
 
         // set new backend's report version as 0L
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
-        copiedReportVerions.put(newBackend.getId(), new AtomicLong(0L));
-        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
+        Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
+        copiedReportVersions.put(newBackend.getId(), new AtomicLong(0L));
+        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
         // to add be to DEFAULT_CLUSTER
@@ -1024,9 +1024,9 @@ public class SystemInfoService {
         idToBackendRef = newIdToBackend;
 
         // update idToReportVersion
-        Map<Long, AtomicLong> copiedReportVerions = Maps.newHashMap(idToReportVersionRef);
-        copiedReportVerions.remove(backend.getId());
-        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
+        Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
+        copiedReportVersions.remove(backend.getId());
+        ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
         // update cluster

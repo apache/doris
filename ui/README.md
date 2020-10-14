@@ -35,7 +35,7 @@ Start server.
 ```bash
 $ npm run dev
 
-# visit http://localhost:8233
+# visit http://localhost:8030
 ```
 
 Submit code

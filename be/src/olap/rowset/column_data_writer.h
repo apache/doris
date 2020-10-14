@@ -52,7 +52,7 @@ public:
 
 private:
     OLAPStatus _add_segment();
-    OLAPStatus _flush_segment_with_verfication();
+    OLAPStatus _flush_segment_with_verification();
     OLAPStatus _finalize_segment();
     OLAPStatus _flush_row_block(bool finalize);
     OLAPStatus _init_segment();
@@ -66,7 +66,7 @@ private:
     std::vector<std::pair<WrapperField*, WrapperField*>> _zone_maps;
     uint32_t _row_index;
 
-    RowBlock* _row_block;      // 使用RowBlcok缓存要写入的数据
+    RowBlock* _row_block;      // 使用RowBlock缓存要写入的数据
     RowCursor _cursor;
     SegmentWriter* _segment_writer;
     int64_t _num_rows;

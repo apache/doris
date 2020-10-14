@@ -55,7 +55,7 @@ class TExprNode;
 /// update_fn_   : An update function that processes the arguments for each row in the
 ///                query result set and accumulates an intermediate result. For example,
 ///                this function might increment a counter, append to a string buffer or
-///                add the input to a culmulative sum.
+///                add the input to a cumulative sum.
 ///
 /// merge_fn_    : A merge function that combines multiple intermediate results into a
 ///                single value.

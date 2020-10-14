@@ -209,7 +209,7 @@ public class TableQueryPlanAction extends RestBaseAction {
         // process only one table by one http query
         List<TableRef> fromTables = stmt.getTableRefs();
         if (fromTables.size() != 1) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must hava only one table");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must have only one table");
         }
 
         TableRef fromTable = fromTables.get(0);

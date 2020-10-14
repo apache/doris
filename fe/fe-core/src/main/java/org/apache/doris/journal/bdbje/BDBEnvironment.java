@@ -297,7 +297,7 @@ public class BDBEnvironment {
                 openedDatabases.remove(index);
             }
             try {
-                LOG.info("begin to remove database {} from replicatedEnviroment", dbName);
+                LOG.info("begin to remove database {} from replicatedEnvironment", dbName);
                 // the first parameter null means auto-commit
                 replicatedEnvironment.removeDatabase(null, dbName);
             } catch (DatabaseNotFoundException e) {
@@ -379,7 +379,7 @@ public class BDBEnvironment {
                 // Finally, close the store and environment.
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
-                LOG.error("Error closing replicatedEnviroment", exception);
+                LOG.error("Error closing replicatedEnvironment", exception);
                 System.exit(-1);
             }
         }

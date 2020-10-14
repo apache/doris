@@ -65,7 +65,7 @@ public class MultiStart extends RestBaseAction {
         String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), db);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
-        // Mutli start request must redirect to master, because all following sub requests will be handled
+        // Multi start request must redirect to master, because all following sub requests will be handled
         // on Master
         if (redirectToMaster(request, response)) {
             return;

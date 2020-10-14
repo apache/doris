@@ -180,12 +180,12 @@ Status AggFnEvaluator::prepare(
     _is_multi_distinct = false;
 
     if (_agg_op == AggregationOp::COUNT_DISTINCT) {
-        _hybird_map.reset(new HybirdMap(TYPE_VARCHAR));
+        _hybrid_map.reset(new HybridMap(TYPE_VARCHAR));
         _is_multi_distinct = true;
         _string_buffer.reset(new char[1024]);
         _string_buffer_len = 1024;
     } else if (_agg_op == AggregationOp::SUM_DISTINCT) {
-        _hybird_map.reset(new HybirdMap(input_expr_ctxs()[0]->root()->type().type));
+        _hybrid_map.reset(new HybridMap(input_expr_ctxs()[0]->root()->type().type));
         _is_multi_distinct = true;
     }
     // TODO: this should be made identical for the builtin and UDA case by
@@ -432,10 +432,10 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
     }
 }
 
-bool AggFnEvaluator::is_in_hybirdmap(void* input_val, Tuple* dst, bool* is_add_buckets) {
+bool AggFnEvaluator::is_in_hybridmap(void* input_val, Tuple* dst, bool* is_add_buckets) {
     bool is_in_hashset = false;
-    HybirdSetBase* _set_ptr = NULL;
-    _set_ptr = _hybird_map->find_or_insert_set(reinterpret_cast<uint64_t>(dst), is_add_buckets);
+    HybridSetBase* _set_ptr = NULL;
+    _set_ptr = _hybrid_map->find_or_insert_set(reinterpret_cast<uint64_t>(dst), is_add_buckets);
     is_in_hashset = _set_ptr->find(input_val);
 
     if (!is_in_hashset) {
@@ -484,7 +484,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
     std::vector<int32_t> vec_string_len;
     int total_len = 0;
 
-    // 1. cacluate the total_len of all input parameters
+    // 1. calculate the total_len of all input parameters
     for (int i = 0; i < input_expr_ctxs().size(); ++i) {
         void* src_slot = input_expr_ctxs()[i]->get_value(row);
         set_any_val(src_slot, input_expr_ctxs()[i]->root()->type(), _staging_input_vals[i]);
@@ -619,9 +619,9 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
     }
 
     DCHECK(begin == string_val.ptr + string_val.len)
-            << "COUNT_DISTINCT: StringVal's len dosn't match";
+            << "COUNT_DISTINCT: StringVal's len doesn't match";
     bool is_add_buckets = false;
-    bool is_filter =  is_in_hybirdmap(&string_val, dst, &is_add_buckets);
+    bool is_filter =  is_in_hybridmap(&string_val, dst, &is_add_buckets);
     update_mem_trackers(is_filter, is_add_buckets, string_val.len);
     return is_filter;
 }
@@ -646,21 +646,21 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
 
     case TYPE_BIGINT: {
         const BigIntVal* value = reinterpret_cast<BigIntVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybirdmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, BIGINT_SIZE);
         return is_filter;
     }
 
     case TYPE_FLOAT: {
         const FloatVal* value = reinterpret_cast<FloatVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybirdmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, FLOAT_SIZE);
         return is_filter;
     }
 
     case TYPE_DOUBLE: {
         const DoubleVal* value = reinterpret_cast<DoubleVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybirdmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DOUBLE_SIZE);
         return is_filter;
     }
@@ -668,7 +668,7 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
     case TYPE_DECIMAL: {
         const DecimalVal* value = reinterpret_cast<DecimalVal*>(_staging_input_vals[0]);
         DecimalValue temp_value = DecimalValue::from_decimal_val(*value);
-        is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*) & (temp_value), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMAL_SIZE);
         return is_filter;
     }
@@ -676,14 +676,14 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
     case TYPE_DECIMALV2: {
         const DecimalV2Val* value = reinterpret_cast<DecimalV2Val*>(_staging_input_vals[0]);
         DecimalV2Value temp_value = DecimalV2Value::from_decimal_val(*value);
-        is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*) & (temp_value), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMALV2_SIZE);
         return is_filter;
     }
 
     case TYPE_LARGEINT: {
         const LargeIntVal* value = reinterpret_cast<LargeIntVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybirdmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, LARGEINT_SIZE);
         return is_filter;
     }
@@ -739,7 +739,7 @@ void AggFnEvaluator::update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row,
     // debugging.
 
     // if _agg_op is TAggregationOp::COUNT_DISTINCT, it has only one
-    // input parameter, we consider the first parameter as the only input paremeter
+    // input parameter, we consider the first parameter as the only input parameter
     if (_is_multi_distinct && _agg_op == AggregationOp::COUNT_DISTINCT) {
         reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx,
                                         *_staging_input_vals[0], _staging_intermediate_val);

@@ -45,6 +45,7 @@ public class OperationType {
     public static final short OP_MODIFY_VIEW_DEF = 119;
     public static final short OP_REPLACE_TEMP_PARTITION = 210;
     public static final short OP_BATCH_MODIFY_PARTITION = 211;
+    public static final short OP_REPLACE_TABLE = 212;
 
     // 20~29 120~129 220~229 ...
     public static final short OP_START_ROLLUP = 20;
@@ -169,7 +170,7 @@ public class OperationType {
     // dynamic partition 261~265
     public static final short OP_DYNAMIC_PARTITION = 261;
 
-    // set table replicatin_num config 266
+    // set table replication_num config 266
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
     // set table in memory
     public static final short OP_MODIFY_IN_MEMORY = 267;

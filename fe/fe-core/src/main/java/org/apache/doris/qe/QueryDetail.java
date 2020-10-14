@@ -32,7 +32,7 @@ public class QueryDetail {
     // be set and state will be updated to be FINISHED/FAILED/CANCELLED
     // according to the query execution results.
     // So, one query will be inserted into as a item and 
-    // be udpated upon finished. To indicate the two event,
+    // be updated upon finished. To indicate the two event,
     // a extra field named eventTime is added.
     private long eventTime;
     private String queryId;

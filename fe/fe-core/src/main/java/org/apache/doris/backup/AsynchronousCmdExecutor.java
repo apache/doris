@@ -41,7 +41,7 @@ public class AsynchronousCmdExecutor<V> {
 
     public Future<V> submit(Callable<V> task) {
         Future<V> future = pool.submit(task);
-        LOG.info("sumbit task. queue size: {}", waitingQueue.size());
+        LOG.info("submit task. queue size: {}", waitingQueue.size());
         return future;
     }
 }

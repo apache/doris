@@ -409,6 +409,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `max_tablet_num_per_shard`
 
+### `max_tablet_version_num`
+
+* 类型：int
+* 描述：限制单个 tablet 最大 version 的数量。用于防止导入过于频繁，或 compaction 不及时导致的大量 version 堆积问题。当超过限制后，导入任务将被拒绝。
+* 默认值：500
+
 ### `mem_limit`
 
 ### `memory_limitation_per_thread_for_schema_change`

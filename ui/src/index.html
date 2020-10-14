@@ -19,7 +19,17 @@ under the License.
 
 <!DOCTYPE html>
 <html lang="en">
-
+<script>
+let arr = location.pathname.split('/');
+let res = '';
+if (arr.length > 4) {
+    arr = arr.slice(0, 5);
+    res = arr.join('/') + '/';
+}
+var baseItem = document.createElement('base');
+baseItem.setAttribute('href', res ? location.origin + res : location.origin);
+document.getElementsByTagName('head')[0].appendChild(baseItem);
+</script>
 <head>
     <meta charset="UTF-8">
     <title>Apache Doris</title>

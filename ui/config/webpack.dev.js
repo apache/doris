@@ -44,7 +44,7 @@ module.exports = merge(baseConfig, {
         host: 'localhost',
         open: true,
         contentBase: path.join(__dirname, 'dist'),
-        port: 8233,
+        port: 8030,
         proxy: {
             '/api': {
                 target: 'http://127.0.0.1:8030',

@@ -211,7 +211,7 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 	`ALTER SYSTEM ADD BROKER broker_name "host1:port1","host2:port2",...;`
 
-	The host is Broker's node ip; the port is brokeripcport in the Broker configuration file.
+	The host is Broker's node ip; the port is broker port in the Broker configuration file.
 
 * View Broker status
 
@@ -362,7 +362,7 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
 	After the BE process starts, if there is data before, there may be several minutes of data index loading time.
 
-	If BE is started for the first time or the BE has not joined any cluster, the BE log will periodically scroll the words `waiting to receive first heartbeat from frontend`. BE has not received Master's address through FE's heartbeat and is waiting passively. This error log will disappear after ADD BACKEND in FE sends the heartbeat. If the word `````master client', get client from cache failed. host:, port: 0, code: 7````` master client'appears again after receiving heartbeat, it indicates that FE has successfully connected BE, but BE cannot actively connect FE. It may be necessary to check the connectivity of rpc_port from BE to FE.
+	If BE is started for the first time or the BE has not joined any cluster, the BE log will periodically scroll the words `waiting to receive first heartbeat from frontend`. BE has not received Master's address through FE's heartbeat and is waiting passively. This error log will disappear after ADD BACKEND in FE sends the heartbeat. If the word `````master client', get client from cache failed. host:, port: 0, code: 7````` master client appears again after receiving heartbeat, it indicates that FE has successfully connected BE, but BE cannot actively connect FE. It may be necessary to check the connectivity of rpc_port from BE to FE.
 
 	If BE has been added to the cluster, the heartbeat log from FE should be scrolled every five seconds: ```get heartbeat, host:xx. xx.xx.xx, port:9020, cluster id:xxxxxxx```, indicating that the heartbeat is normal.
 

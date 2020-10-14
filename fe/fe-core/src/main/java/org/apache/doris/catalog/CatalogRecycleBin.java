@@ -411,7 +411,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         try {
             recoverAllTables(dbInfo);
         } catch (DdlException e) {
-            // should not happend
+            // should not happened
             LOG.error("failed replay recover database: {}", dbId, e);
         }
 
@@ -626,7 +626,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             if (db == null) {
                 // just log. db should be in recycle bin
                 if (!idToDatabase.containsKey(dbId)) {
-                    LOG.error("db[{}] is neither in catalog nor in recylce bin"
+                    LOG.error("db[{}] is neither in catalog nor in recycle bin"
                             + " when rebuilding inverted index from recycle bin, partition[{}]",
                               dbId, partitionId);
                     continue;
@@ -637,7 +637,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             if (olapTable == null) {
                 if (!idToTable.containsKey(tableId)) {
-                    LOG.error("table[{}] is neither in catalog nor in recylce bin"
+                    LOG.error("table[{}] is neither in catalog nor in recycle bin"
                             + " when rebuilding inverted index from recycle bin, partition[{}]",
                               tableId, partitionId);
                     continue;

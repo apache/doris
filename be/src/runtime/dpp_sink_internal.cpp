@@ -82,10 +82,9 @@ Status RollupSchema::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status RollupSchema::close(RuntimeState* state) {
+void RollupSchema::close(RuntimeState* state) {
     Expr::close(_key_ctxs, state);
     Expr::close(_value_ctxs, state);
-    return Status::OK();
 }
 
 Status PartRangeKey::from_thrift(
@@ -237,11 +236,10 @@ Status PartitionInfo::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionInfo::close(RuntimeState* state) {
+void PartitionInfo::close(RuntimeState* state) {
     if (_distributed_expr_ctxs.size() > 0) {
         Expr::close(_distributed_expr_ctxs, state);
     }
-    return Status::OK();
 }
 
 }

@@ -26,7 +26,7 @@ under the License.
 
 # Dynamic Partition
 
-Dynamic partition is a new feature introduced in Doris verion 0.12. It's designed to manage partition's Time-to-Life (TTL), reducing the burden on users.
+Dynamic partition is a new feature introduced in Doris version 0.12. It's designed to manage partition's Time-to-Life (TTL), reducing the burden on users.
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
@@ -302,11 +302,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     Whether to enable Doris's dynamic partition feature. The default value is false, which is off. This parameter only affects the partitioning operation of dynamic partition tables, not normal tables. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also execute the following commands at runtime to take effect:
     
-    MySQL protocal：
+    MySQL protocol：
     
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true")`
     
-    HTTP protocal：
+    HTTP protocol：
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_enable=true`
     
@@ -316,11 +316,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     The execution frequency of dynamic partition threads defaults to 3600 (1 hour), that is, scheduling is performed every 1 hour. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also modify the following commands at runtime:
     
-    MySQL protocal：
+    MySQL protocol：
 
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_check_interval_seconds" = "7200")`
     
-    HTTP protocal：
+    HTTP protocol：
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
     

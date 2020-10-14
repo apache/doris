@@ -1,6 +1,6 @@
 ---
 {
-    "title": "RPOFILE",
+    "title": "PROFILE",
     "language": "en"
 }
 ---

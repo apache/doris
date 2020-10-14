@@ -35,6 +35,7 @@
 #include "util/ref_count_closure.h"
 #include "util/thrift_util.h"
 #include "util/countdown_latch.h"
+#include "util/spinlock.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -207,6 +208,8 @@ private:
 
     // user cancel or get some errors
     std::atomic<bool> _cancelled{false};
+    SpinLock _cancel_msg_lock;
+    std::string _cancel_msg = "";
 
     // send finished means the consumer thread which send the rpc can exit
     std::atomic<bool> _send_finished{false};

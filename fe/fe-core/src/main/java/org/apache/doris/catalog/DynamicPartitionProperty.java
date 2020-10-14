@@ -151,7 +151,7 @@ public class DynamicPartitionProperty {
         }
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
-                ",\n\"" + TIME_ZONE + "\" = \"" + tz + "\"" +
+                ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\"" +
                 ",\n\"" + START + "\" = \"" + start + "\"" +
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +

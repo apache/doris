@@ -18,18 +18,18 @@
 #ifndef DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 #define DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 
+#include <condition_variable>
 #include <ctime>
 #include <list>
 #include <map>
 #include <mutex>
-#include <condition_variable>
 #include <set>
 #include <string>
-#include <vector>
 #include <thread>
+#include <vector>
 
-#include <rapidjson/document.h>
 #include <pthread.h>
+#include <rapidjson/document.h>
 
 #include "agent/status.h"
 #include "common/status.h"
@@ -37,20 +37,22 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
+#include "olap/compaction_permit_limiter.h"
+#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_sync_service.h"
-#include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
-#include "olap/rowset/rowset_id_generator.h"
-#include "olap/fs/fs_util.h"
+#include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -176,7 +178,7 @@ public:
         _heartbeat_flags = heartbeat_flags;
     }
 
-    // start all backgroud threads. This should be call after env is ready.
+    // start all background threads. This should be call after env is ready.
     Status start_bg_threads();
 
     void stop();
@@ -211,12 +213,8 @@ private:
     // unused rowset monitor thread
     void _unused_rowset_monitor_thread_callback();
 
-    // base compaction thread process function
-    void _base_compaction_thread_callback(DataDir* data_dir);
     // check cumulative compaction config
     void _check_cumulative_compaction_config();
-    // cumulative process function
-    void _cumulative_compaction_thread_callback(DataDir* data_dir);
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();
@@ -238,8 +236,8 @@ private:
     void _parse_default_rowset_type();
 
     void _start_clean_fd_cache();
-    void _perform_cumulative_compaction(DataDir* data_dir);
-    void _perform_base_compaction(DataDir* data_dir);
+    void _perform_cumulative_compaction(TabletSharedPtr best_tablet);
+    void _perform_base_compaction(TabletSharedPtr best_tablet);
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
     OLAPStatus _start_trash_sweep(double *usage);
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
@@ -247,6 +245,9 @@ private:
     // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
     // 重新加载数据。
     void _start_disk_stat_monitor();
+
+    void _compaction_tasks_producer_callback();
+    vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type, std::vector<DataDir*> data_dirs);
 
 private:
     struct CompactionCandidate {
@@ -288,7 +289,7 @@ private:
 
     // _file_cache is a lru_cache for file descriptors of files opened by doris,
     // which can be shared by others. Why we need to share cache with others? 
-    // Beacuse a unique memory space is easier for management. For example,
+    // Because a unique memory space is easier for management. For example,
     // we can deal with segment v1's cache and segment v2's cache at same time.
     // Note that, we must create _file_cache before sharing it with other. 
     // (e.g. the storage engine's open function must be called earlier than 
@@ -313,6 +314,7 @@ private:
     std::vector<scoped_refptr<Thread>> _base_compaction_threads;
     // threads to check cumulative
     std::vector<scoped_refptr<Thread>> _cumulative_compaction_threads;
+    scoped_refptr<Thread> _compaction_tasks_producer_thread;
     scoped_refptr<Thread> _fd_cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
@@ -341,6 +343,18 @@ private:
     RowsetTypePB _default_rowset_type;
 
     HeartbeatFlags* _heartbeat_flags;
+
+    std::unique_ptr<ThreadPool> _compaction_thread_pool;
+
+    CompactionPermitLimiter _permit_limiter;
+
+    std::mutex _tablet_submitted_compaction_mutex;
+    std::map<DataDir*, vector<TTabletId>> _tablet_submitted_compaction;
+
+    AtomicInt32 _wakeup_producer_flag;
+
+    std::mutex _compaction_producer_sleep_mutex;
+    std::condition_variable _compaction_producer_sleep_cv;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
