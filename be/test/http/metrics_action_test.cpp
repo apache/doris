@@ -56,7 +56,7 @@ TEST_F(MetricsActionTest, prometheus_output) {
     std::shared_ptr<MetricEntity> entity = metric_registry.register_entity("metrics_action_test.prometheus_output");
 
     IntGauge* cpu_idle = nullptr;
-    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(cpu_idle, MetricUnit::PERCENT);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cpu_idle, MetricUnit::PERCENT);
     INT_GAUGE_METRIC_REGISTER(entity, cpu_idle);
 
     IntCounter* put_requests_total = nullptr;
@@ -81,7 +81,7 @@ TEST_F(MetricsActionTest, prometheus_no_prefix) {
     std::shared_ptr<MetricEntity> entity = metric_registry.register_entity("metrics_action_test.prometheus_no_prefix");
 
     IntGauge* cpu_idle = nullptr;
-    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(cpu_idle, MetricUnit::PERCENT);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cpu_idle, MetricUnit::PERCENT);
     INT_GAUGE_METRIC_REGISTER(entity, cpu_idle);
 
     cpu_idle->set_value(50);

@@ -84,7 +84,7 @@ struct CpuMetrics {
 };
 
 #define DEFINE_MEMORY_GAUGE_METRIC(metric, unit)  \
-    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memory_##metric, unit);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(memory_##metric, unit);
 DEFINE_MEMORY_GAUGE_METRIC(allocated_bytes, MetricUnit::BYTES);
 
 struct MemoryMetrics {
@@ -176,7 +176,7 @@ struct SnmpMetrics {
 };
 
 #define DEFINE_FD_COUNTER_METRIC(metric, unit)  \
-    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(fd_##metric, unit);
+    DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fd_##metric, unit);
 DEFINE_FD_COUNTER_METRIC(num_limit, MetricUnit::NOUNIT);
 DEFINE_FD_COUNTER_METRIC(num_used, MetricUnit::NOUNIT);
 
