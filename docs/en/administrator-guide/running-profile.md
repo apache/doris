@@ -26,7 +26,7 @@ under the License.
 
 # Statistics of query execution
 
-This document focuses on introducing the **RuningProfle** which recorded runtime status of Doris in query execution. Using these statistical information, we can understand the execution of frgment to become a expert of Doris's **debugging and tuning**.
+This document focuses on introducing the **Running Profile** which recorded runtime status of Doris in query execution. Using these statistical information, we can understand the execution of frgment to become a expert of Doris's **debugging and tuning**.
 
 ## Noun Interpretation
 

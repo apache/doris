@@ -175,11 +175,11 @@ Where url is the url given by ErrorURL.
         
     ```Curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
-3. load the data from the local file 'testData' into the 'testTbl' table in the database 'testDb', allowing a 20% error rate (user is in defalut_cluster)
+3. load the data from the local file 'testData' into the 'testTbl' table in the database 'testDb', allowing a 20% error rate (user is in default_cluster)
 
     ```Curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
-4. load the data from the local file 'testData' into the 'testTbl' table in the database 'testDb', allow a 20% error rate, and specify the column name of the file (user is in defalut_cluster)
+4. load the data from the local file 'testData' into the 'testTbl' table in the database 'testDb', allow a 20% error rate, and specify the column name of the file (user is in default_cluster)
 
     ```Curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "columns: k2, k1, v1" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
@@ -187,7 +187,7 @@ Where url is the url given by ErrorURL.
 
     ```Curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "partitions: p1, p2" -T testData http://host:port/api/testDb/testTbl/stream_load```
 
-6. load using streaming mode (user is in defalut_cluster)
+6. load using streaming mode (user is in default_cluster)
 
     ```Seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/_stream_load```
 

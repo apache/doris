@@ -238,7 +238,7 @@ After the compilation is completed, the UDF dynamic link library is successfully
 
 After following the above steps, you can get the UDF dynamic library (that is, the `.so` file in the compilation result). You need to put this dynamic library in a location that can be accessed through the HTTP protocol.
 
-Then log in to the Doris system and create a UDF function in the mysql-client through the `CREATE FUNCTION` syntax. You need to have AMDIN authority to complete this operation. At this time, there will be a UDF created in the Doris system.
+Then log in to the Doris system and create a UDF function in the mysql-client through the `CREATE FUNCTION` syntax. You need to have ADMIN authority to complete this operation. At this time, there will be a UDF created in the Doris system.
 
 ```
 CREATE [AGGREGATE] FUNCTION

@@ -38,7 +38,7 @@ Used to obtain the table structure information of the specified table. This inte
 
 * `<db>`
 
-    Sepcify database
+    Specify database
 
 * `<table>`
 
