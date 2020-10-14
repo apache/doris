@@ -36,7 +36,7 @@ under the License.
 ```
 
 说明:
-    1. 复制的表结构包括Column Defination、Partitions、Table Properties等
+    1. 复制的表结构包括Column Definition、Partitions、Table Properties等
     2. 用户需要对复制的原表有`SELECT`权限
     3. 支持复制MySQL等外表
 
