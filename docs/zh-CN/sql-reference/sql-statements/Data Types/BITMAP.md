@@ -1,6 +1,6 @@
 ---
 {
-    "title": "HLL(HyperLogLog)",
+    "title": "BITMAP",
     "language": "zh-CN"
 }
 ---
@@ -24,20 +24,20 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# HLL(HyperLogLog)
+# BITMAP
 ## description
-    HLL
-    HLL不能作为key列使用，建表时配合聚合类型为HLL_UNION。
+    BITMAP
+    BITMAP不能作为key列使用，建表时配合聚合类型为BITMAP_UNION。
     用户不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
-    并且HLL列只能通过配套的hll_union_agg、hll_raw_agg、hll_cardinality、hll_hash进行查询或使用。
+    并且BITMAP列只能通过配套的bitmap_union_count、bitmap_union、bitmap_hash等函数进行查询或使用。
     
-    HLL是模糊去重，在数据量大的情况性能优于Count Distinct。
-    HLL的误差通常在1%左右，有时会达到2%。
+    离线场景下使用BITMAP会影响导入速度，在数据量大的情况下查询速度会慢于HLL，并优于Count Distinct。
+    注意：实时场景下BITMAP如果不使用全局字典，使用了bitmap_hash()可能会导致有千分之一左右的误差。
 
 ## example
 
-    select hour, HLL_UNION_AGG(pv) over(order by hour) uv from(
-       select hour, HLL_RAW_AGG(device_id) as pv
+    select hour, BITMAP_UNION_COUNT(pv) over(order by hour) uv from(
+       select hour, BITMAP_UNION(device_id) as pv
        from metric_table -- 查询每小时的累计UV
        where datekey=20200622
     group by hour order by 1
@@ -45,4 +45,4 @@ under the License.
 
 ## keyword
 
-    HLL,HYPERLOGLOG
+    BITMAP
