@@ -164,7 +164,7 @@ The following is a detailed explanation of some parameters of the data descripti
 
 + negative
 
-	```data_desc``` can also set up data fetching and anti-importing. This function is mainly used when aggregated columns in data tables are of SUM type. If you want to revoke a batch of imported data. The `negative'parameter can be used as a batch of data. Doris automatically retrieves this batch of data on aggregated columns to eliminate the same batch of data.
+	```data_desc``` can also set up data fetching and anti-importing. This function is mainly used when aggregated columns in data tables are of SUM type. If you want to revoke a batch of imported data. The `negative` parameter can be used as a batch of data. Doris automatically retrieves this batch of data on aggregated columns to eliminate the same batch of data.
 
 + partition
 
@@ -377,7 +377,7 @@ The following configurations belong to the Broker load system-level configuratio
 
 + min\_bytes\_per\_broker\_scanner/max\_bytes\_per\_broker\_scanner/max\_broker\_concurrency
 
-	The first two configurations limit the minimum and maximum amount of data processed by a single BE. The third configuration limits the maximum number of concurrent imports for a job. The minimum amount of data processed, the maximum number of concurrencies, the size of source files and the number of BEs in the current cluster **together determine the concurrency of this import**.
+	The first two configurations limit the minimum and maximum amount of data processed by a single BE. The third configuration limits the maximum number of concurrent imports for a job. The minimum amount of data processed, the maximum number of concurrency, the size of source files and the number of BEs in the current cluster **together determine the concurrency of this import**.
 
 	```
 	The number of concurrent imports = Math. min (source file size / minimum throughput, maximum concurrency, current number of BE nodes)
