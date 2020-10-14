@@ -151,7 +151,7 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 
 * data\_source\_properties
 
-    The specific Kakfa partition can be specified in `data_source_properties`. If not specified, all partitions of the subscribed topic are consumed by default.
+    The specific Kafka partition can be specified in `data_source_properties`. If not specified, all partitions of the subscribed topic are consumed by default.
 
     Note that when partition is explicitly specified, the load job will no longer dynamically detect changes to Kafka partition. If not specified, the partitions that need to be consumed are dynamically adjusted based on changes in the kafka partition.
 

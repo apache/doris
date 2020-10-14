@@ -28,7 +28,7 @@ under the License.
 
 Meta Info Action is used to obtain metadata information in the cluster. Such as database list, table structure, etc.
 
-## List Datbase
+## List Database
 
 ### Request
 
