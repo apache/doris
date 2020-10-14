@@ -151,7 +151,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 * data\_source\_properties
 
-    `data_source_properties` 中可以指定消费具体的 Kakfa partition。如果不指定，则默认消费所订阅的 topic 的所有 partition。
+    `data_source_properties` 中可以指定消费具体的 Kafka partition。如果不指定，则默认消费所订阅的 topic 的所有 partition。
 
     注意，当显式的指定了 partition，则导入作业不会再动态的检测 Kafka partition 的变化。如果没有指定，则会根据 kafka partition 的变化，动态调整需要消费的 partition。
 
