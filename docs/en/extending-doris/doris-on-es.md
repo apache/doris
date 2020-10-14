@@ -136,7 +136,7 @@ Parameter | Description
 **password** | password for the user
 
 * For clusters before 7.x, please pay attention to choosing the correct type when building the table
-* The authentication method only supports Http Bastic authentication, need to ensure that this user has access to: /\_cluster/state/, \_nodes/http and other paths and index read permissions;The cluster has not turned on security authentication, and the user name and password do not need to be set
+* The authentication method only supports Http Basic authentication, need to ensure that this user has access to: /\_cluster/state/, \_nodes/http and other paths and index read permissions;The cluster has not turned on security authentication, and the user name and password do not need to be set
 * The column names in the Doris table need to exactly match the field names in the ES, and the field types should be as consistent as possible
 *  **ENGINE** must be: **Elasticsearch**
 
