@@ -142,10 +142,10 @@ PROPERTIES
 
 `port`: The port of the external table, required.
 
-`odbc_type`: Indicates the type of external table. Currently, Doris supports `MySQL` and `Oracle`. In the future, it may support more databases. The ODBC exteranl table referring to the resource is required. The old MySQL exteranl table referring to the resource is optional.
+`odbc_type`: Indicates the type of external table. Currently, Doris supports `MySQL` and `Oracle`. In the future, it may support more databases. The ODBC external table referring to the resource is required. The old MySQL external table referring to the resource is optional.
 
 `driver`: Indicates the driver dynamic library used by the ODBC external table.
-The ODBC exteranl table referring to the resource is required. The old MySQL exteranl table referring to the resource is optional.
+The ODBC external table referring to the resource is required. The old MySQL external table referring to the resource is optional.
 
 For the usage of ODBC resource, please refer to [ODBC of Doris](../extending-doris/odbc-of-doris.html)
 

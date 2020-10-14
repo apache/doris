@@ -26,7 +26,7 @@ under the License.
 
 # RESTORE
 ## Description
-1. RESTOR
+1. RESTORE
 This statement is used to restore the data previously backed up by the BACKUP command to the specified database. This command is an asynchronous operation. After successful submission, you need to check progress through the SHOW RESTORE command. Restoring tables of OLAP type is supported only.
 Grammar:
 SNAPSHOT RESTORE [dbu name].{snapshot name}
@@ -47,7 +47,7 @@ Explain:
 "Backup_timestamp" = "2018-05-04-16-45-08": specifies which version of the time to restore the corresponding backup must be filled in. This information can be obtained through the `SHOW SNAPSHOT ON repo;'statement.
 "Replication_num" = "3": Specifies the number of replicas of the restored table or partition. The default is 3. If an existing table or partition is restored, the number of copies must be the same as the number of copies of an existing table or partition. At the same time, there must be enough hosts to accommodate multiple copies.
 "Timeout" = "3600": Task timeout, default to one day. Unit seconds.
-"Meta_version" = 40: Use the specified meta_version to read the previously backed up metadata. Note that as a temporary solution, this parameter is only used to restore the data backed up by the older version of Doris. The latest version of the backup data already contains metaversion, no need to specify.
+"Meta_version" = 40: Use the specified meta_version to read the previously backed up metadata. Note that as a temporary solution, this parameter is only used to restore the data backed up by the older version of Doris. The latest version of the backup data already contains meta version, no need to specify.
 
 ## example
 1. Restore backup table backup_tbl in snapshot_1 from example_repo to database example_db1 with the time version of "2018-05-04-16-45-08". Restore to one copy:

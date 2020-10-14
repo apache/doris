@@ -63,7 +63,7 @@ sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
 ## 3. Verify license header
 
-Apache RAT is recommended to verify license headder, which can dowload as following command.
+Apache RAT is recommended to verify license header, which can download as following command.
 
 ``` shell
 wget http://mirrors.tuna.tsinghua.edu.cn/apache/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz
