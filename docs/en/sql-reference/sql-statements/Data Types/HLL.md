@@ -1,7 +1,7 @@
 ---
 {
-    "title": "HLL(HyperLogLog)",
-    "language": "zh-CN"
+    "title": "HLL (HyperLogLog)",
+    "language": "en"
 }
 ---
 
@@ -24,25 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# HLL(HyperLogLog)
-## description
-    HLL
-    HLL不能作为key列使用，建表时配合聚合类型为HLL_UNION。
-    用户不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
-    并且HLL列只能通过配套的hll_union_agg、hll_raw_agg、hll_cardinality、hll_hash进行查询或使用。
+#HLL (HyperLogLog)
+## Description
+HLL
+
+HLL cannot be used as a key column, and the aggregation type is HLL_UNION when create table.
+The user does not need to specify the length and default value. 
+The length is controlled within the system according to the degree of data aggregation.
+And HLL columns can only be queried or used through the matching hll_union_agg, hll_raw_agg, hll_cardinality, and hll_hash.
     
-    HLL是模糊去重，在数据量大的情况性能优于Count Distinct。
-    HLL的误差通常在1%左右，有时会达到2%。
+HLL is approximate count of distinct elements, and its performance is better than Count Distinct when the amount of data is large.
+The error of HLL is usually around 1%, sometimes up to 2%.
 
 ## example
 
     select hour, HLL_UNION_AGG(pv) over(order by hour) uv from(
        select hour, HLL_RAW_AGG(device_id) as pv
-       from metric_table -- 查询每小时的累计UV
-       where datekey=20200622
+       from metric_table -- Query the accumulated UV per hour
+       where datekey=20200922
     group by hour order by 1
     ) final;
-
+    
 ## keyword
-
-    HLL,HYPERLOGLOG
+HLL,HYPERLOGLOG
