@@ -351,6 +351,12 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             for (const auto& tablet : tablets_compaction) {
                 int64_t permits = tablet->calc_compaction_score(compaction_type);
                 if (_permit_limiter.request(permits)) {
+                    {
+                        // Push to _tablet_submitted_compaction before submitting task
+                        std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+                        _tablet_submitted_compaction[tablet->data_dir()].emplace_back(
+                                tablet->tablet_id());
+                    }
                     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                         _compaction_thread_pool->submit_func([=]() {
                             CgroupsMgr::apply_system_cgroup();
@@ -386,9 +392,6 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                             }
                         });
                     }
-                    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                    _tablet_submitted_compaction[tablet->data_dir()].emplace_back(
-                            tablet->tablet_id());
                 }
             }
         } else {
