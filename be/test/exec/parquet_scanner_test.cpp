@@ -71,12 +71,12 @@ private:
 #define COLUMN_NUMBERS 20
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 21
-int ParquetSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     const char *columnNames[] = {"log_version", "log_time", "log_time_stamp", "js_version", "vst_cookie",
                                 "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
                                 "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
                                 "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
-    for (int i = 0; i < CLOMN_NUMBERS; i++)
+    for (int i = 0; i < COLUMN_NUMBERS; i++)
     {
         TSlotDescriptor slot_desc;
 
@@ -108,7 +108,7 @@ int ParquetSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = CLOMN_NUMBERS*16+8;//此处8字节为了处理null值
+        t_tuple_desc.byteSize = COLUMN_NUMBERS*16+8;//此处8字节为了处理null值
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -202,7 +202,7 @@ int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int nex
                                 "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
                                 "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
                                 "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
-    for (int i = 3; i < CLOMN_NUMBERS; i++, byteOffset+=16)
+    for (int i = 3; i < COLUMN_NUMBERS; i++, byteOffset+=16)
     {
         TSlotDescriptor slot_desc;
 
@@ -380,7 +380,7 @@ void ParquetScannerTest::create_expr_info() {
         _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START + 2);
     }
     // couldn't convert type
-    for (int i = 3; i < CLOMN_NUMBERS; i++)
+    for (int i = 3; i < COLUMN_NUMBERS; i++)
     {
         TExprNode slot_ref;
         slot_ref.node_type = TExprNodeType::SLOT_REF;

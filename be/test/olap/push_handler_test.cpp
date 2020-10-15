@@ -70,7 +70,7 @@ Schema PushHandlerTest::create_schema() {
 #define SRC_TUPLE_SLOT_ID_START 5
 int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     const char *columnNames[] = {"k1_int", "k2_smallint", "k3_varchar", "v_bigint"};
-    for (int i = 0; i < CLOMN_NUMBERS; i++)
+    for (int i = 0; i < COLUMN_NUMBERS; i++)
     {
         TSlotDescriptor slot_desc;
 
@@ -100,7 +100,7 @@ int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = CLOMN_NUMBERS*16+8; // 8 bytes for null
+        t_tuple_desc.byteSize = COLUMN_NUMBERS*16+8; // 8 bytes for null
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
