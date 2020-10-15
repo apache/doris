@@ -688,7 +688,7 @@ void HllDppSinkMerge::update_hll_set(TupleRow* agg_row, TupleRow* row,
         }
     } else if (value->type == HLL_DATA_EXPLICIT) {
         value->hash_set.insert(row_resolver.get_explicit_value(0));
-        if (value->hash_set.size() > HLL_EXPLICLIT_INT64_NUM) {
+        if (value->hash_set.size() > HLL_EXPLICIT_INT64_NUM) {
             value->type = HLL_DATA_SPARSE;
             for (std::set<uint64_t>::iterator iter = value->hash_set.begin(); iter != value->hash_set.end(); iter++) {
                 uint64_t hash = *iter;

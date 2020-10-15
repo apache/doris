@@ -61,7 +61,7 @@ void HyperLogLog::update(uint64_t hash_value) {
         _type = HLL_DATA_EXPLICIT;
         break;
     case HLL_DATA_EXPLICIT:
-        if (_hash_set.size() < HLL_EXPLICLIT_INT64_NUM) {
+        if (_hash_set.size() < HLL_EXPLICIT_INT64_NUM) {
             _hash_set.insert(hash_value);
             break;
         }
@@ -104,7 +104,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
             // Merge other's explicit values first, then check if the number is exceed
             // HLL_EXPLICIT_INT64_NUM. This is OK because the max value is 2 * 160.
             _hash_set.insert(other._hash_set.begin(), other._hash_set.end());
-            if (_hash_set.size() > HLL_EXPLICLIT_INT64_NUM) {
+            if (_hash_set.size() > HLL_EXPLICIT_INT64_NUM) {
                 _convert_explicit_to_register();
                 _type = HLL_DATA_FULL;
             }
@@ -164,9 +164,9 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
         break;
     }
     case HLL_DATA_EXPLICIT: {
-        DCHECK(_hash_set.size() < HLL_EXPLICLIT_INT64_NUM)
+        DCHECK(_hash_set.size() < HLL_EXPLICIT_INT64_NUM)
             << "Number of explicit elements(" << _hash_set.size()
-            << ") should be less or equal than " << HLL_EXPLICLIT_INT64_NUM;
+            << ") should be less or equal than " << HLL_EXPLICIT_INT64_NUM;
         *ptr++ = _type;
         *ptr++ = (uint8_t)_hash_set.size();
         for (auto hash_value : _hash_set) {
@@ -381,9 +381,9 @@ void HllSetResolver::parse() {
             // first byte : type
             // second～five byte : hash values's number
             // five byte later : hash value
-            _explicit_num = (ExpliclitLengthValueType) (pdata[sizeof(SetTypeValueType)]);
+            _explicit_num = (ExplicitLengthValueType) (pdata[sizeof(SetTypeValueType)]);
             _explicit_value = (uint64_t*)(pdata + sizeof(SetTypeValueType)
-                    + sizeof(ExpliclitLengthValueType));
+                    + sizeof(ExplicitLengthValueType));
             break;
         case HLL_DATA_SPARSE:
             // first byte : type
@@ -430,9 +430,9 @@ void HllSetHelper::set_sparse(
 
 void HllSetHelper::set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len) {
     result[0] = HLL_DATA_EXPLICIT;
-    result[1] = (HllSetResolver::ExpliclitLengthValueType)(hash_value_set.size());
+    result[1] = (HllSetResolver::ExplicitLengthValueType)(hash_value_set.size());
     len = sizeof(HllSetResolver::SetTypeValueType)
-        + sizeof(HllSetResolver::ExpliclitLengthValueType);
+        + sizeof(HllSetResolver::ExplicitLengthValueType);
     char* write_pos = result + len;
     for (std::set<uint64_t>::const_iterator iter = hash_value_set.begin();
             iter != hash_value_set.end(); iter++) {
