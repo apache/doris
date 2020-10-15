@@ -88,7 +88,7 @@ INTO OUTFILE "file_path"
     SELECT * FROM tbl
     INTO OUTFILE "hdfs:/path/to/result_"
     FORMAT AS CSV
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.hadoop.security.authentication" = "kerberos",
@@ -116,7 +116,7 @@ INTO OUTFILE "file_path"
     (SELECT k3 FROM tbl2)
     SELEC k1 FROM x1 UNION SELECT k3 FROM x2
     INTO OUTFILE "hdfs:/path/to/result_"
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.username"="user",
@@ -141,7 +141,7 @@ INTO OUTFILE "file_path"
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
     INTO OUTFILE "bos://bucket/result_"
     FORMAT AS PARQUET
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.bos_endpoint" = "http://bj.bcebos.com",
