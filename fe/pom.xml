@@ -84,7 +84,7 @@ under the License.
                 <!-- for java-cup -->
                 <repository>
                     <id>cloudera-thirdparty</id>
-                    <url>https://repository.cloudera.com/content/repositories/third-party/</url>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </repository>
                 <!-- for bdb je -->
                 <repository>
@@ -94,10 +94,14 @@ under the License.
             </repositories>
 
             <pluginRepositories>
-                <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>spring-plugins</id>
                     <url>https://repo.spring.io/plugins-release/</url>
+                </pluginRepository>
+                <!-- for cup-maven-plugin -->
+                <pluginRepository>
+                    <id>cloudera-plugins</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
