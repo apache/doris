@@ -19,7 +19,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(stream_load_pipe_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(stream_load_pipe_count, MetricUnit::NOUNIT);
 
 LoadStreamMgr::LoadStreamMgr() {
     // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
