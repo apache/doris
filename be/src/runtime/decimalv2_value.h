@@ -71,7 +71,7 @@ public:
     inline bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
         bool success = true;
         bool is_negative = (int_value < 0 || frac_value < 0);
-        if (is_negtive) {
+        if (is_negative) {
             int_value = std::abs(int_value);
             frac_value = std::abs(frac_value);
         } 
@@ -87,7 +87,7 @@ public:
         }
 
         _value = static_cast<int128_t>(int_value) * ONE_BILLION + frac_value;
-        if (is_negtive) _value = -_value;
+        if (is_negative) _value = -_value;
 
         return success;
     }

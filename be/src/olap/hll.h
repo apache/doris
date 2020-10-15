@@ -134,7 +134,7 @@ public:
             case HLL_DATA_EMPTY:
                 return {};
             case HLL_DATA_EXPLICIT:
-            case HLL_DATA_SPRASE:
+            case HLL_DATA_SPARSE:
             case HLL_DATA_FULL:
                 {
                     std::string str {"hash set size: "};
