@@ -23,7 +23,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(rowset_count_generated_and_in_use, MetricUnit::ROWSETS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(rowset_count_generated_and_in_use, MetricUnit::ROWSETS);
 
 UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
         : _backend_uid(backend_uid), _inc_id(0) {

@@ -262,10 +262,10 @@ public:
 #define DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(name, unit, desc, group, labels)     \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::COUNTER, unit, desc, #group, labels, false)
 
-#define DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(name, unit)                            \
+#define DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(name, unit)                            \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, "", "", Labels(), false)
 
-#define DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(name, unit)                            \
+#define DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(name, unit)                       \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, "", "", Labels(), true)
 
 #define DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(name, unit, desc)                      \
