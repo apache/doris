@@ -41,7 +41,7 @@ public:
     static bool enable();
 
   private:
-    // return the glabal cgroup path of subsystem like 12:memory:/user.slice -> user.slice 
+    // return the global cgroup path of subsystem like 12:memory:/user.slice -> user.slice
     static Status find_global_cgroup(const std::string& subsystem, std::string* path);
 
     // Returns the absolute path to the CGroup from inside the container.

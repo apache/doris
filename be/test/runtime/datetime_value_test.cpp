@@ -1364,7 +1364,7 @@ TEST_F(DateTimeValueTest, to_int64) {
     }
 }
 
-TEST_F(DateTimeValueTest, operatro_minus) {
+TEST_F(DateTimeValueTest, operator_minus) {
     {
         DateTimeValue v1;
         ASSERT_TRUE(v1.from_date_int64(19880201));

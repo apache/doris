@@ -37,9 +37,9 @@
 
 namespace doris {
 
-class JsonSannerTest : public testing::Test {
+class JsonScannerTest : public testing::Test {
 public:
-    JsonSannerTest() : _runtime_state(TQueryGlobals()) {
+    JsonScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
         _runtime_state._exec_env = ExecEnv::GetInstance();
@@ -70,11 +70,11 @@ private:
 
 #define TUPLE_ID_DST 0
 #define TUPLE_ID_SRC 1
-#define CLOMN_NUMBERS 4
+#define COLUMN_NUMBERS 4
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 5
 int JsonSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *clomnNames[] = {"k1", "kind", "ip", "value"};
+    const char *columnNames[] = {"k1", "kind", "ip", "value"};
     for (int i = 0; i < CLOMN_NUMBERS; i++)
     {
         TSlotDescriptor slot_desc;
@@ -116,7 +116,7 @@ int JsonSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_sl
     return next_slot_id;
 }
 
-int JsonSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     int32_t byteOffset = 8;
     {//k1
         TSlotDescriptor slot_desc;
@@ -359,7 +359,7 @@ void JsonSannerTest::init() {
     _tnode.__isset.broker_scan_node = true;
 }
 
-TEST_F(JsonSannerTest, normal) {
+TEST_F(JsonScannerTest, normal) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     auto status = scan_node.prepare(&_runtime_state);
     ASSERT_TRUE(status.ok());

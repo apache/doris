@@ -28,7 +28,7 @@ namespace doris {
 
 class PageCacheHandle;
 
-// Warpper around Cache, and used for cache page of column datas
+// Wrapper around Cache, and used for cache page of column data
 // in Segment.
 // TODO(zc): We should add some metric to see cache hit/miss rate.
 class StoragePageCache {
@@ -71,7 +71,7 @@ public:
     bool lookup(const CacheKey& key, PageCacheHandle* handle);
 
     // Insert a page with key into this cache.
-    // Given hanlde will be set to valid reference.
+    // Given handle will be set to valid reference.
     // This function is thread-safe, and when two clients insert two same key
     // concurrently, this function can assure that only one page is cached.
     // The in_memory page will have higher priority.

@@ -146,7 +146,7 @@ int32_t do_add(
     to->_frac_length = std::max(value1._frac_length, value2._frac_length);
     if (error) { // E_DEC_TRUNCATED
         int32_t to_frac_length = to->_frac_length;
-        //ATTN: _int_lenggh is bit-field struct member, can not take address directly.
+        //ATTN: _int_length is bit-field struct member, can not take address directly.
         set_if_smaller(&to_frac_length, frac0 * DIG_PER_DEC1);
         to->_frac_length = to_frac_length;
         set_if_smaller(&frac1, frac0);
@@ -385,7 +385,7 @@ int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue*
     to->_frac_length = value1._frac_length + value2._frac_length; // store size in digits
 
     int32_t temp_to_frac_length = to->_frac_length;
-    //ATTN: _int_lenggh is bit-field struct member, can not take address directly.
+    //ATTN: _int_length is bit-field struct member, can not take address directly.
     set_if_smaller(&temp_to_frac_length, NOT_FIXED_DEC);
     to->_frac_length = temp_to_frac_length;
     if (error) {

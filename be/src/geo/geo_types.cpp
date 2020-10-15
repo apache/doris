@@ -82,7 +82,7 @@ static void remove_duplicate_points(std::vector<S2Point>* points) {
 
 static GeoParseStatus to_s2loop(const GeoCoordinateList& coords,
                                 std::unique_ptr<S2Loop>* loop) {
-    // 1. covnert all coordinates to points
+    // 1. convert all coordinates to points
     std::vector<S2Point> points(coords.list.size());
     for (int i = 0; i < coords.list.size(); ++i) {
         auto res = to_s2point(coords.list[i], &points[i]);
@@ -112,7 +112,7 @@ static GeoParseStatus to_s2loop(const GeoCoordinateList& coords,
 
 static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
                                     std::unique_ptr<S2Polyline>* polyline) {
-    // 1. covnert all coordinates to points
+    // 1. convert all coordinates to points
     std::vector<S2Point> points(coords.list.size());
     for (int i = 0; i < coords.list.size(); ++i) {
         auto res = to_s2point(coords.list[i], &points[i]);

@@ -130,7 +130,7 @@ Status MysqlLoadErrorHub::open_mysql_conn(MYSQL** my_conn) {
                      << "Host: " << _info.host << " port: " << _info.port
                      << " user: " << _info.user << " passwd: " << _info.passwd
                      << " db: " << _info.db;
-        return error_status("loal error mysql real connect failed.", *my_conn);
+        return error_status("load error mysql real connect failed.", *my_conn);
     }
 
     return Status::OK();
@@ -145,7 +145,7 @@ Status MysqlLoadErrorHub::error_status(const std::string& prefix, MYSQL* my_conn
 
 std::string MysqlLoadErrorHub::debug_string() const {
     std::stringstream out;
-    out << "(tatal_error_num=" << _total_error_num << ")";
+    out << "(total_error_num=" << _total_error_num << ")";
     return out.str();
 }
 

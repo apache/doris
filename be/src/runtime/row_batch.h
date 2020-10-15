@@ -47,7 +47,7 @@ class PRowBatch;
 // The row batch reference a few different sources of memory.
 //   1. TupleRow ptrs - this is always owned and managed by the row batch.
 //   2. Tuple memory - this is allocated (or transferred to) the row batches tuple pool.
-//   3. Auxillary tuple memory (e.g. string data) - this can either be stored externally
+//   3. Auxiliary tuple memory (e.g. string data) - this can either be stored externally
 //      (don't copy strings) or from the tuple pool (strings are copied).  If external,
 //      the data is in an io buffer that may not be attached to this row batch.  The
 //      creator of that row batch has to make sure that the io buffer is not recycled
@@ -357,7 +357,7 @@ public:
     // multiple threads which push row batches.
     // TODO: this is wasteful and makes a copy that's unnecessary.  Think about cleaning
     // this up.
-    // TOOD: rename this or unify with TransferResourceOwnership()
+    // TODO: rename this or unify with TransferResourceOwnership()
     void acquire_state(RowBatch* src);
 
     // Deep copy all rows this row batch into dst, using memory allocated from
@@ -508,7 +508,7 @@ private:
     // This is a string so we can swap() with the string in the TRowBatch we're serializing
     // to (we don't compress directly into the TRowBatch in case the compressed data is
     // longer than the uncompressed data). Swapping avoids copying data to the TRowBatch and
-    // avoids excess memory allocations: since we reuse RowBatchs and TRowBatchs, and
+    // avoids excess memory allocations: since we reuse RowBatches and TRowBatchs, and
     // assuming all row batches are roughly the same size, all strings will eventually be
     // allocated to the right size.
     std::string _compression_scratch;

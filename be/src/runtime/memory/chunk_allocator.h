@@ -36,7 +36,7 @@ class MetricEntity;
 // ChunkAllocator has one ChunkArena for each CPU core, it will try to allocate
 // memory from current core arena firstly. In this way, there will be no lock contention
 // between concurrently-running threads. If this fails, ChunkAllocator will try to allocate
-// memroy from other core's arena.
+// memory from other core's arena.
 //
 // Memory Reservation
 // ChunkAllocator has a limit about how much free chunk bytes it can reserve, above which

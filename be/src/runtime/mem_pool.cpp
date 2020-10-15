@@ -165,17 +165,17 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
     }
 
     auto end_chunk = src->chunks_.begin() + num_acquired_chunks;
-    int64_t total_transfered_bytes = 0;
+    int64_t total_transferred_bytes = 0;
     for (auto i = src->chunks_.begin(); i != end_chunk; ++i) {
-        total_transfered_bytes += i->chunk.size;
+        total_transferred_bytes += i->chunk.size;
     }
-    src->total_reserved_bytes_ -= total_transfered_bytes;
-    total_reserved_bytes_ += total_transfered_bytes;
+    src->total_reserved_bytes_ -= total_transferred_bytes;
+    total_reserved_bytes_ += total_transferred_bytes;
 
     // Skip unnecessary atomic ops if the mem_trackers are the same.
     if (src->mem_tracker_ != mem_tracker_) {
-        src->mem_tracker_->Release(total_transfered_bytes);
-        mem_tracker_->Consume(total_transfered_bytes);
+        src->mem_tracker_->Release(total_transferred_bytes);
+        mem_tracker_->Consume(total_transferred_bytes);
     }
 
     // insert new chunks after current_chunk_idx_

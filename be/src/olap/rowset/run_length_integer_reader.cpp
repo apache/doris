@@ -170,7 +170,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
 
     res = _input->read((char*)&byte);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from in_strem.[res=%d]", res);
+        OLAP_LOG_WARNING("fail to read byte from in_straem.[res=%d]", res);
         return res;
     }
 
@@ -200,7 +200,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
 
     res = _input->read(&four_byte);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from in_strem.[res=%d]", res);
+        OLAP_LOG_WARNING("fail to read byte from in_straem.[res=%d]", res);
         return res;
     }
 

@@ -123,7 +123,7 @@ Status DppWriter::append_one_row(TupleRow* row) {
     for (int i = 0; i < num_columns; ++i) {
         char* position = _buf + pos;
         void* item = _output_expr_ctxs[i]->get_value(row);
-        // What happend failed???
+        // What happened failed???
         if (true == _output_expr_ctxs[i]->is_nullable()) {
             int index = off % 8;
             if (item == nullptr) {

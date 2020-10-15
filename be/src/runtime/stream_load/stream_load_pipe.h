@@ -165,7 +165,7 @@ public:
         return Status::InternalError("Not implemented");
     }
 
-    // called when comsumer finished
+    // called when consumer finished
     void close() override {
         cancel();
     }
@@ -189,7 +189,7 @@ public:
         return Status::OK();
     }
 
-    // called when producer/comsumer failed
+    // called when producer/consumer failed
     void cancel() override {
         {
             std::lock_guard<std::mutex> l(_lock);

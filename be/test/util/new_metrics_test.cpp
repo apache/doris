@@ -340,32 +340,32 @@ test_registry_cpu{mode="idle"} 18
 
     {
         // Register one common metric to an entity with label
-        auto entity = registry.register_entity("test_entity", {{"name", "lable_test"}});
+        auto entity = registry.register_entity("test_entity", {{"name", "label_test"}});
 
         MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle");
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(28);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
-test_registry_cpu_idle{name="lable_test"} 28
+test_registry_cpu_idle{name="label_test"} 28
 )", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle","name":"lable_test"},"unit":"percent","value":28}])", registry.to_json());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle","name":"label_test"},"unit":"percent","value":28}])", registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 
     {
         // Register one common metric with group name to an entity with label
-        auto entity = registry.register_entity("test_entity", {{"name", "lable_test"}});
+        auto entity = registry.register_entity("test_entity", {{"name", "label_test"}});
 
         MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}});
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(38);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
-test_registry_cpu{name="lable_test",mode="idle"} 38
+test_registry_cpu{name="label_test",mode="idle"} 38
 )", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle","name":"lable_test"},"unit":"percent","value":38}])", registry.to_json());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle","name":"label_test"},"unit":"percent","value":38}])", registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }

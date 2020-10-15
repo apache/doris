@@ -87,7 +87,7 @@ Status SchemaHelper::describe_table(
                });
 }
 
-Status SchemaHelper::show_varialbes(
+Status SchemaHelper::show_variables(
          const std::string& ip,
          const int32_t port,
          const TShowVariableRequest &request,

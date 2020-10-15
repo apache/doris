@@ -157,7 +157,7 @@ private:
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
-    OLAPStatus _create_inital_rowset_unlocked(const TCreateTabletReq& request,
+    OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request,
                                               Tablet* tablet);
 
     OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id,

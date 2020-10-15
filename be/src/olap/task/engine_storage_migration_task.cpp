@@ -88,15 +88,15 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     do {
         // get all versions to be migrate
         tablet->obtain_header_rdlock();
-        const RowsetSharedPtr lastest_version = tablet->rowset_with_max_version();
-        if (lastest_version == nullptr) {
+        const RowsetSharedPtr last_version = tablet->rowset_with_max_version();
+        if (last_version == nullptr) {
             tablet->release_header_lock();
             res = OLAP_ERR_VERSION_NOT_EXIST;
             LOG(WARNING) << "tablet has not any version.";
             break;
         }
 
-        int32_t end_version = lastest_version->end_version();
+        int32_t end_version = last_version->end_version();
         vector<RowsetSharedPtr> consistent_rowsets;
         res = tablet->capture_consistent_rowsets(Version(0, end_version), &consistent_rowsets);
         if (consistent_rowsets.empty()) {
@@ -224,7 +224,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     return res;
 }
 
-// TODO(ygl): lost some infomation here, such as cumulative layer point
+// TODO(ygl): lost some information here, such as cumulative layer point
 void EngineStorageMigrationTask::_generate_new_header(
         DataDir* store, const uint64_t new_shard,
         const TabletSharedPtr& tablet,

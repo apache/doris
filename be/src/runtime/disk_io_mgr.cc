@@ -258,7 +258,7 @@ static void check_sse_support() {
     if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {
         LOG(WARNING) << "This machine does not support sse4_2.  The default IO system "
             "configurations are suboptimal for this hardware.  Consider "
-            "increasing the number of threads per disk by restarting impalad "
+            "increasing the number of threads per disk by restarting doris "
             "using the --num_threads_per_disk flag with a higher value";
     }
 }
@@ -394,7 +394,7 @@ Status DiskIoMgr::init(const std::shared_ptr<MemTracker>& process_mem_tracker) {
 
     // _cached_read_options = hadoopRzOptionsAlloc();
     // DCHECK(_cached_read_options != NULL);
-    // Disable checksumming for cached reads.
+    // Disable checksum for cached reads.
     // int ret = hadoopRzOptionsSetSkipChecksum(_cached_read_options, true);
     // DCHECK_EQ(ret, 0);
     // Disable automatic fallback for cached reads.

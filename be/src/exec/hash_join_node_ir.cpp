@@ -27,7 +27,7 @@ namespace doris {
 // This lets us distinguish between the join conjuncts vs. non-join conjuncts
 // for codegen.
 // Note: don't declare this static.  LLVM will pick the fastcc calling convention and
-// we will not be able to replace the funcitons with codegen'd versions.
+// we will not be able to replace the functions with codegen'd versions.
 // TODO: explicitly set the calling convention?
 // TODO: investigate using fastcc for all codegen internal functions?
 bool IR_NO_INLINE eval_other_join_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {

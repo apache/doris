@@ -166,10 +166,10 @@ void PInternalServiceImpl<T>::cancel_plan_fragment(
 
     Status st;
     if (request->has_cancel_reason())  {
-        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid) << ", reason: " << request->cancel_reason();
+        LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid) << ", reason: " << request->cancel_reason();
         st = _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
     } else {
-        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
+        LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
         st = _exec_env->fragment_mgr()->cancel(tid);
     }
     if (!st.ok()) {

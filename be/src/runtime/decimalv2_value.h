@@ -70,7 +70,7 @@ public:
 
     inline bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
         bool success = true;
-        bool is_negtive = (int_value < 0 || frac_value < 0);
+        bool is_negative = (int_value < 0 || frac_value < 0);
         if (is_negtive) {
             int_value = std::abs(int_value);
             frac_value = std::abs(frac_value);
@@ -215,7 +215,7 @@ public:
     // @param from - value to convert. Doesn't have to be \0 terminated!
     //               will stop at the fist non-digit char(nor '.' 'e' 'E'),
     //               or reaches the length
-    // @param length - maximum lengnth
+    // @param length - maximum length
     // @return error number.
     //
     // E_DEC_OK/E_DEC_TRUNCATED/E_DEC_OVERFLOW/E_DEC_BAD_NUM/E_DEC_OOM

@@ -52,7 +52,7 @@ void HyperLogLog::_convert_explicit_to_register() {
     std::set<uint64_t>().swap(_hash_set);
 }
 
-// Change HLL_DATA_EXPLICIT to HLL_DATA_FULL directly, because HLL_DATA_SPRASE
+// Change HLL_DATA_EXPLICIT to HLL_DATA_FULL directly, because HLL_DATA_SPARSE
 // is implemented in the same way in memory with HLL_DATA_FULL.
 void HyperLogLog::update(uint64_t hash_value) {
     switch (_type) {
@@ -101,8 +101,8 @@ void HyperLogLog::merge(const HyperLogLog& other) {
     case HLL_DATA_EXPLICIT: {
         switch (other._type) {
         case HLL_DATA_EXPLICIT:
-            // Merge other's explicit values first, then check if the number is exccede
-            // HLL_EXPLICLIT_INT64_NUM. This is OK because the max value is 2 * 160.
+            // Merge other's explicit values first, then check if the number is exceed
+            // HLL_EXPLICIT_INT64_NUM. This is OK because the max value is 2 * 160.
             _hash_set.insert(other._hash_set.begin(), other._hash_set.end());
             if (_hash_set.size() > HLL_EXPLICLIT_INT64_NUM) {
                 _convert_explicit_to_register();
@@ -256,7 +256,7 @@ bool HyperLogLog::deserialize(const Slice& slice) {
 
     // NOTE(zc): Don't remove this check unless you known what
     // you are doing. Because of history bug, we ingest some
-    // invalid HLL data in storge, which ptr is nullptr.
+    // invalid HLL data in storage, which ptr is nullptr.
     // we must handle this case to avoid process crash.
     // This bug is in release 0.10, I think we can remove this
     // in release 0.12 or later.
@@ -350,16 +350,16 @@ int64_t HyperLogLog::estimate_cardinality() const {
 
     harmonic_mean = 1.0f / harmonic_mean;
     double estimate = alpha * num_streams * num_streams * harmonic_mean;
-    // according to HerperLogLog current correction, if E is cardinal
+    // according to HyperLogLog current correction, if E is cardinal
     // E =< num_streams * 2.5 , LC has higher accuracy.
-    // num_streams * 2.5 < E , HerperLogLog has higher accuracy.
-    // Generally , we can use HerperLogLog to produce value as E.
+    // num_streams * 2.5 < E , HyperLogLog has higher accuracy.
+    // Generally , we can use HyperLogLog to produce value as E.
     if (estimate <= num_streams * 2.5 && num_zero_registers != 0) {
         // Estimated cardinality is too low. Hll is too inaccurate here, instead use
         // linear counting.
         estimate = num_streams * log(static_cast<float>(num_streams) / num_zero_registers);
     } else if (num_streams == 16384 && estimate < 72000) {
-        // when Linear Couint change to HerperLoglog according to HerperLogLog Correction,
+        // when Linear Couint change to HyperLogLog according to HyperLogLog Correction,
         // there are relatively large fluctuations, we fixed the problem refer to redis.
         double bias = 5.9119 * 1.0e-18 * (estimate * estimate * estimate * estimate)
                       - 1.4253 * 1.0e-12 * (estimate * estimate * estimate) +

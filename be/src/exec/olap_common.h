@@ -429,7 +429,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         }
 
         default: {
-            return Status::InternalError("AddRangefail! Unsupport SQLFilterOp.");
+            return Status::InternalError("Add Range fail! Unsupported SQLFilterOp.");
         }
         }
 
@@ -476,7 +476,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
             }
 
             default: {
-                return Status::InternalError("AddRangefail! Unsupport SQLFilterOp.");
+                return Status::InternalError("Add Range fail! Unsupported SQLFilterOp.");
             }
             }
         }

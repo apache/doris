@@ -48,7 +48,7 @@ public:
     MysqlTableWriter(const std::vector<ExprContext*>& output_exprs);
     ~MysqlTableWriter();
 
-    // connnect to mysql server 
+    // connect to mysql server
     Status open(const MysqlConnInfo& conn_info, const std::string& tbl);
 
     Status begin_trans() {

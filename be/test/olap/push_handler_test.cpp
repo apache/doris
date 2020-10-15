@@ -65,11 +65,11 @@ Schema PushHandlerTest::create_schema() {
 
 #define TUPLE_ID_DST 0
 #define TUPLE_ID_SRC 1
-#define CLOMN_NUMBERS 4
+#define COLUMN_NUMBERS 4
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 5
 int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *clomnNames[] = {"k1_int", "k2_smallint", "k3_varchar", "v_bigint"};
+    const char *columnNames[] = {"k1_int", "k2_smallint", "k3_varchar", "v_bigint"};
     for (int i = 0; i < CLOMN_NUMBERS; i++)
     {
         TSlotDescriptor slot_desc;
@@ -90,7 +90,7 @@ int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
         slot_desc.columnPos = i;
         slot_desc.byteOffset = i*16+8; // 8 bytes for null
         slot_desc.nullIndicatorBit = i%8;
-        slot_desc.colName = clomnNames[i];
+        slot_desc.colName = columnNames[i];
         slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
 

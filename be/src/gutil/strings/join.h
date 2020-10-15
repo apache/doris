@@ -329,7 +329,7 @@ void JoinCSVLineWithDelimiter(const vector<string>& original_cols,
 // JoinElements()
 //    This merges a container of any type supported by StrAppend() with delim
 //    inserted as separators between components.  This is essentially a
-//    templatized version of JoinUsingToBuffer().
+//    templatize version of JoinUsingToBuffer().
 //
 // JoinElementsIterator()
 //    Same as JoinElements(), except that the input elements are specified
