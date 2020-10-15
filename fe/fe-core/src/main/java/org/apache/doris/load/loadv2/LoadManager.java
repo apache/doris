@@ -284,6 +284,62 @@ public class LoadManager implements Writable{
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
     }
 
+    public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
+        }
+
+        // List of load jobs waiting to be cancelled
+        List<LoadJob> loadJobs = Lists.newArrayList();
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // get jobs by label
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
+            if (isAccurateMatch) {
+                if (labelToLoadJobs.containsKey(stmt.getLabel())) {
+                    matchLoadJobs.addAll(labelToLoadJobs.get(stmt.getLabel()));
+                }
+            } else {
+                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                    if (entry.getKey().contains(stmt.getLabel())) {
+                        matchLoadJobs.addAll(entry.getValue());
+                    }
+                }
+            }
+
+            if (matchLoadJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // check state here
+            List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(entity -> !entity.isTxnDone())
+                    .collect(Collectors.toList());
+            if (uncompletedLoadJob.isEmpty()) {
+                throw new DdlException("There is no uncompleted job which label " +
+                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
+            }
+
+            loadJobs.addAll(uncompletedLoadJob);
+        } finally {
+            readUnlock();
+        }
+
+        for (LoadJob loadJob : loadJobs) {
+            try {
+                loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
+            } catch (DdlException e) {
+                throw new DdlException("Cancel load job [" + loadJob.getId() + "] fail, " +
+                        "label=[" + loadJob.getLabel() + "] failed msg=" + e.getMessage());
+            }
+        }
+    }
+
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
         Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
         if (db == null) {

@@ -135,11 +135,17 @@ public class DdlExecutor {
                 catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            if (catalog.getLoadInstance().isLabelExist(
-                    ((CancelLoadStmt) ddlStmt).getDbName(), ((CancelLoadStmt) ddlStmt).getLabel())) {
-                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt);
-            } else {
-                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            boolean isAccurateMatch = ((CancelLoadStmt) ddlStmt).isAccurateMatch();
+            boolean isLabelExist = catalog.getLoadInstance().isLabelExist(
+                    ((CancelLoadStmt) ddlStmt).getDbName(),
+                    ((CancelLoadStmt) ddlStmt).getLabel(), isAccurateMatch);
+            if (isLabelExist) {
+                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        isAccurateMatch);
+            }
+            if (!isLabelExist || isAccurateMatch) {
+                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        isAccurateMatch);
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
