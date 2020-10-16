@@ -22,7 +22,9 @@ namespace doris {
 StoragePageCache* StoragePageCache::_s_instance = nullptr;
 
 void StoragePageCache::create_global_cache(size_t capacity) {
-    _s_instance = new StoragePageCache(capacity);
+    DCHECK(_s_instance == nullptr);
+    static StoragePageCache instance(capacity);
+    _s_instance = &instance;
 }
 
 StoragePageCache::StoragePageCache(size_t capacity) : _cache(new_lru_cache(capacity)) {
