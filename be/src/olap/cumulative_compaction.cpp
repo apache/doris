@@ -86,7 +86,15 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     // candidate_rowsets may not be continuous. Because some rowset may not be selected
     // because the protection time has not expired(config::cumulative_compaction_skip_window_seconds).
     // So we need to choose the longest continuous path from it.
-    RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets));
+    std::vector<Version> missing_versions;
+    RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
+    if (missing_versions.empty()) {
+        DCHECK(missing_versions.size() == 2);
+        LOG(WARNING) << "There are missed versions among rowsets. "
+            << "prev rowset verison=" << missing_versions[0]
+            << ", next rowset version=" << missing_versions[1]
+            << ", tablet=" << _tablet->full_name();
+    }
 
     size_t compaction_score = 0;
     int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(

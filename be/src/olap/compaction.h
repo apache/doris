@@ -67,7 +67,7 @@ protected:
 
     OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
     OLAPStatus check_correctness(const Merger::Statistics& stats);
-    OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets);
+    OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets, std::vector<Version>* missing_version);
 
     // semaphore used to limit the concurrency of running compaction tasks
     static Semaphore _concurrency_sem;

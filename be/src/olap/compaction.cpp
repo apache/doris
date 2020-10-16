@@ -181,8 +181,12 @@ OLAPStatus Compaction::gc_unused_rowsets() {
     return OLAP_SUCCESS;
 }
 
-// find the longest consecutive version path in "rowset", from begining.
-OLAPStatus Compaction::find_longest_consecutive_version(vector<RowsetSharedPtr>* rowsets) {
+// Find the longest consecutive version path in "rowset", from begining.
+// Two versions before and after the missing version will be saved in missing_version,
+// if missing_version is not null.
+OLAPStatus Compaction::find_longest_consecutive_version(
+        vector<RowsetSharedPtr>* rowsets,
+        vector<Version>* missing_version) {
     if (rowsets->empty()) {
         return OLAP_SUCCESS;
     }
@@ -191,11 +195,10 @@ OLAPStatus Compaction::find_longest_consecutive_version(vector<RowsetSharedPtr>*
     for (; i < rowsets->size(); ++i) {
         RowsetSharedPtr rowset = (*rowsets)[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
-            LOG(WARNING) << "There are missed versions among rowsets. "
-                << "prev_rowset verison=" << prev_rowset->start_version()
-                << "-" << prev_rowset->end_version()
-                << ", rowset version=" << rowset->start_version()
-                << "-" << rowset->end_version();
+            if (missing_version != nullptr) {
+                missing_version->push_back(prev_rowset->version());
+                missing_version->push_back(rowset->version());
+            }
             break;
         }
         prev_rowset = rowset;
