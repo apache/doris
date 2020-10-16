@@ -270,7 +270,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         rs_iter = input_rowsets->erase(rs_iter);
     }
 
-    LOG(INFO) << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
+    VLOG(1) << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
               << ", total_size = " << total_size
               << ", calc promotion size value = " << promotion_size
               << ", tablet = " << tablet->full_name() << ", input_rowset size "
