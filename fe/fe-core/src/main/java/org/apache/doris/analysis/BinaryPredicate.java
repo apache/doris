@@ -429,6 +429,42 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     /**
+     * If predicate is of the form "<slotref> <op> <expr>", returns expr,
+     * otherwise returns null. Slotref may be wrapped in a CastExpr.
+     */
+    public Expr getBinding() {
+        SlotRef slotRef = null;
+        // check left operand
+        if (getChild(0) instanceof SlotRef) {
+            slotRef = (SlotRef) getChild(0);
+        } else if (getChild(0) instanceof CastExpr && getChild(0).getChild(0) instanceof SlotRef) {
+            if (((CastExpr) getChild(0)).canHashPartition()) {
+                slotRef = (SlotRef) getChild(0).getChild(0);
+            }
+        }
+        if (slotRef != null) {
+            slotIsleft = true;
+            return getChild(1);
+        }
+
+        // check right operand
+        if (getChild(1) instanceof SlotRef) {
+            slotRef = (SlotRef) getChild(1);
+        } else if (getChild(1) instanceof CastExpr && getChild(1).getChild(0) instanceof SlotRef) {
+            if (((CastExpr) getChild(1)).canHashPartition()) {
+                slotRef = (SlotRef) getChild(1).getChild(0);
+            }
+        }
+
+        if (slotRef != null) {
+            slotIsleft = false;
+            return getChild(0);
+        }
+
+        return null;
+    }
+
+    /**
      * If e is an equality predicate between two slots that only require implicit
      * casts, returns those two slots; otherwise returns null.
      */
