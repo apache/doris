@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 public class ExprRewriter {
     private int numChanges_ = 0;
     private final List<ExprRewriteRule> rules_;
+
     public ExprRewriter(List<ExprRewriteRule> rules) {
         rules_ = rules;
     }
