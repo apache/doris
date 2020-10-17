@@ -44,7 +44,7 @@ The Insert Into command needs to be submitted through MySQL protocol. Creating a
 Grammar:
 
 ```
-INSERT INTO table_name [WITH LABEL label] [partition_info] [col_list] [query_stmt] [VALUES];
+INSERT INTO table_name [partition_info] [WITH LABEL label] [col_list] [query_stmt] [VALUES];
 ```
 
 Examples:

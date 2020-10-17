@@ -44,7 +44,7 @@ Insert Into 命令需要通过 MySQL 协议提交，创建导入请求会同步�
 语法：
 
 ```
-INSERT INTO table_name [WITH LABEL label] [partition_info] [col_list] [query_stmt] [VALUES];
+INSERT INTO table_name [partition_info] [WITH LABEL label] [col_list] [query_stmt] [VALUES];
 ```
 
 示例：
